@@ -1,0 +1,12 @@
+# Keeps Racksail's package on one release line, such as 1.4.*, until you
+# remove this file. Replace @VERSION@ with the line and save the result as
+# /etc/apt/preferences.d/racksail-hold.pref, which apt reads before
+# racksail.pref. The first entry naming the package that matches a version
+# decides, so versions on the line are allowed and every other one isn't.
+Package: racksail
+Pin: version @VERSION@
+Pin-Priority: 1001
+
+Package: racksail
+Pin: version *
+Pin-Priority: -1

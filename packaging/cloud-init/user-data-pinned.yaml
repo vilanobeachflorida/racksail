@@ -1,0 +1,18 @@
+#cloud-config
+# Like user-data.yaml, but every server gets the same release: the install
+# script and the version are pinned, so a fleet created over several days
+# stays alike. Change the version in both places when you move to a newer
+# release; the server updates itself afterwards on the channel given here.
+hostname: panel
+fqdn: panel.example.com
+prefer_fqdn_over_hostname: true
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+
+runcmd:
+  - [curl, --fail, --silent, --show-error, --location, --proto, "=https", --output, /root/racksail-install.sh, "https://github.com/vilanobeachflorida/racksail/releases/download/v1.0.0/install.sh"]
+  - [sh, /root/racksail-install.sh, --yes, --version, "1.0.0", --channel, stable, --hostname, panel.example.com]
+  - [rm, -f, /root/racksail-install.sh]

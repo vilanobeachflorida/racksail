@@ -1,0 +1,21 @@
+#cloud-config
+# For networks that reach Racksail's releases through a mirror, such as an
+# internal web server that copies them from GitHub. The mirror serves each
+# release's files under its tag, as
+# https://mirror.example.com/racksail/v1.0.0/racksail-linux-amd64. Use a
+# mirror you trust to serve the install script unchanged; everything the
+# script downloads is still checked against Racksail's signatures, so a
+# changed binary or checksum file is refused.
+hostname: panel
+fqdn: panel.example.com
+prefer_fqdn_over_hostname: true
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+
+runcmd:
+  - [curl, --fail, --silent, --show-error, --location, --proto, "=https", --output, /root/racksail-install.sh, "https://mirror.example.com/racksail/v1.0.0/install.sh"]
+  - [sh, /root/racksail-install.sh, --yes, --mirror, "https://mirror.example.com/racksail", --version, "1.0.0", --hostname, panel.example.com]
+  - [rm, -f, /root/racksail-install.sh]

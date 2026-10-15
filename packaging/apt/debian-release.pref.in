@@ -1,0 +1,27 @@
+# Keeps a Racksail server on its Debian release. Packages come from the
+# release, its updates and its security fixes; backports only when asked for
+# by name; and nothing from a newer release is installed until the server is
+# upgraded to it, snapshot first. Replace @CODENAME@ with the release's
+# code name, such as trixie, and save the result as
+# /etc/apt/preferences.d/racksail-debian.pref. apt gives each version the
+# highest priority among these entries that match it, so the release's own
+# suites win over the last entry, which keeps every other Debian release out.
+Package: *
+Pin: release o=Debian,n=@CODENAME@
+Pin-Priority: 990
+
+Package: *
+Pin: release o=Debian,n=@CODENAME@-updates
+Pin-Priority: 990
+
+Package: *
+Pin: release o=Debian,n=@CODENAME@-security
+Pin-Priority: 990
+
+Package: *
+Pin: release o=Debian,n=@CODENAME@-backports
+Pin-Priority: 100
+
+Package: *
+Pin: release o=Debian
+Pin-Priority: -1
