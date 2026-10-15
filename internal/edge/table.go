@@ -341,10 +341,11 @@ func (t *Table) validate(r Route) error {
 // NewTable returns an empty table.
 func NewTable() *Table { return &Table{byOwner: map[store.ID][]Route{}} }
 
-// SetRoutes implements Router.
-func (t *Table) SetRoutes(ctx context.Context, owner store.ID, routes []Route) error {
+// ownedRoutes copies an owner's routes, filling in the owner, and checks
+// them with validate.
+func ownedRoutes(owner store.ID, routes []Route, validate func(Route) error) ([]Route, error) {
 	if !owner.Valid() {
-		return fmt.Errorf("owner %q isn't an id", owner)
+		return nil, fmt.Errorf("owner %q isn't an id", owner)
 	}
 	routes = append([]Route(nil), routes...)
 	seen := map[string]bool{}
@@ -353,15 +354,24 @@ func (t *Table) SetRoutes(ctx context.Context, owner store.ID, routes []Route) e
 			routes[i].Owner = owner
 		}
 		if routes[i].Owner != owner {
-			return fmt.Errorf("route %s belongs to %s, not %s", routes[i].ID, routes[i].Owner, owner)
+			return nil, fmt.Errorf("route %s belongs to %s, not %s", routes[i].ID, routes[i].Owner, owner)
 		}
-		if err := t.validate(routes[i]); err != nil {
-			return err
+		if err := validate(routes[i]); err != nil {
+			return nil, err
 		}
 		if seen[routes[i].ID] {
-			return fmt.Errorf("route %s is listed twice for %s", routes[i].ID, owner)
+			return nil, fmt.Errorf("route %s is listed twice for %s", routes[i].ID, owner)
 		}
 		seen[routes[i].ID] = true
+	}
+	return routes, nil
+}
+
+// SetRoutes implements Router.
+func (t *Table) SetRoutes(ctx context.Context, owner store.ID, routes []Route) error {
+	routes, err := ownedRoutes(owner, routes, t.validate)
+	if err != nil {
+		return err
 	}
 	t.mu.Lock()
 	if len(routes) == 0 {

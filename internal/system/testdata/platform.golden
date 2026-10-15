@@ -95,7 +95,7 @@ SystemCallFilter=~@privileged @resources
 SystemCallErrorNumber=EPERM
 
 [Install]
-Also=racksail-edge.socket
+WantedBy=multi-user.target
 
 ### racksail-edge.socket
 # Managed by Racksail. Changes made here are overwritten.

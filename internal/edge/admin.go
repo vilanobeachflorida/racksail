@@ -35,8 +35,22 @@ import (
 // one owner still fits.
 const maxAdminBody = 8 << 20
 
-// AdminHandler returns the admin API.
+// AdminHandler returns the admin API. A request in progress, such as the
+// panel's long poll for questions, keeps an idle edge from exiting.
 func (e *Edge) AdminHandler() http.Handler {
+	mux := e.adminMux()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.adminBusy.Add(1)
+		e.used()
+		defer func() {
+			e.used()
+			e.adminBusy.Add(-1)
+		}()
+		mux.ServeHTTP(w, r)
+	})
+}
+
+func (e *Edge) adminMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, e.Health())

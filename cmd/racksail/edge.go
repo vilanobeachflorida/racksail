@@ -34,15 +34,21 @@ func newEdgeCommand() *cobra.Command {
 				return err
 			}
 			log := newLogger(os.Stderr, cfg.Log)
-			admin, err := adminListener(cfg.Edge.Socket, log)
+			admin, activated, err := adminListener(cfg.Edge.Socket, log)
 			if err != nil {
 				return err
 			}
 			keepCaddyData(stateDir)
-			e, err := edge.New(edge.Options{
+			opts := edge.Options{
 				HTTP: cfg.Edge.HTTP, HTTPS: cfg.Edge.HTTPS, StateDir: stateDir,
 				Certs: edge.FileCerts{Dir: system.CertsDir}, Log: log,
-			})
+			}
+			if activated {
+				// systemd holds the socket and starts the edge again on the
+				// next request, so an edge with nothing to serve can go.
+				opts.IdleExit = edgeIdleExit
+			}
+			e, err := edge.New(opts)
 			if err != nil {
 				return err
 			}
@@ -63,31 +69,37 @@ func keepCaddyData(stateDir string) {
 	}
 }
 
-// adminListener returns the socket the panel sends routes to. Under systemd
-// it is the one racksail-edge.socket passes in: systemd creates it in
-// /run/racksail, which the edge can't write to, and gives it to the panel's
-// group, which the edge isn't in. Started by hand, the edge creates the
-// socket at path itself, for its own user only.
-func adminListener(path string, log *slog.Logger) (net.Listener, error) {
+// edgeIdleExit is how long an edge started by systemd waits with nothing
+// to serve before it exits.
+const edgeIdleExit = 5 * time.Minute
+
+// adminListener returns the socket the panel sends routes to, and whether
+// systemd passed it in. Under systemd it is the one racksail-edge.socket
+// holds: systemd creates it in /run/racksail, which the edge can't write
+// to, and gives it to the panel's group, which the edge isn't in. Started
+// by hand, the edge creates the socket at path itself, for its own user
+// only.
+func adminListener(path string, log *slog.Logger) (net.Listener, bool, error) {
 	passed, err := passedListeners()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	switch len(passed) {
 	case 0:
 	case 1:
-		return passed[0], nil
+		return passed[0], true, nil
 	default:
 		for _, ln := range passed {
 			ln.Close()
 		}
-		return nil, fmt.Errorf("systemd passed %d sockets; the edge takes one, its admin socket", len(passed))
+		return nil, false, fmt.Errorf("systemd passed %d sockets; the edge takes one, its admin socket", len(passed))
 	}
 	log.Info("no socket from systemd; the edge creates its own, which only its user can reach", "socket", path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return agent.ListenUnix(path, 0o600, -1)
+	ln, err := agent.ListenUnix(path, 0o600, -1)
+	return ln, false, err
 }
 
 // passedListeners returns the sockets systemd passed in.

@@ -17,7 +17,9 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 func newPanelCommand() *cobra.Command {
@@ -36,16 +38,14 @@ func newPanelCommand() *cobra.Command {
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
 			log.Warn("this build keeps the panel's resources and change sets in memory, so they are lost when the panel stops")
-			edgeClient := edge.DialAdmin(cfg.Edge.Socket)
-			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edgeClient)
+			agentClient := agent.DialUnix(cfg.Agent.Socket)
+			link := edgeLink(ctx, cfg, agentClient, log)
+			defer link.Close()
+			c, err := newCore(ctx, cfg, log, agentClient, link)
 			if err != nil {
 				return err
 			}
 			defer c.stop(context.WithoutCancel(ctx))
-			// The edge asks the panel which names may have on-demand
-			// certificates and for DNS-01 challenge records; modules answer.
-			go edge.AnswerQuestions(ctx, edgeClient, edge.DefaultAnswers, log)
-			servePanelOnEdge(ctx, edgeClient, cfg.Panel.Hostname, cfg.Panel.Listen, !cfg.Panel.Insecure, log)
 			apiServer, err := c.apiServer(auth.NoAuthenticator{})
 			if err != nil {
 				return err
@@ -70,19 +70,37 @@ func newPanelCommand() *cobra.Command {
 	return cmd
 }
 
-// servePanelOnEdge has the edge serve the panel under its hostname on 443
-// once modules route sites through the edge.
-func servePanelOnEdge(ctx context.Context, router edge.Router, hostname, listen string, secure bool, log *slog.Logger) {
-	if hostname == "" || hostname == "localhost" {
-		return
+// edgeLink is how the panel reaches the edge, which systemd starts on the
+// first request to its socket: only once modules route something through
+// it. The panel then answers the edge's questions, such as which names may
+// have on-demand certificates, is served under its own hostname on 443, and
+// has the edge start at boot.
+func edgeLink(ctx context.Context, cfg config.Config, agentClient agent.Client, log *slog.Logger) *edge.Link {
+	opts := edge.LinkOptions{
+		Client: edge.DialAdmin(cfg.Edge.Socket), Responder: edge.DefaultAnswers, Log: log,
+		Running: func(ctx context.Context) (bool, error) {
+			st, err := agent.UnitStatus.Call(ctx, agentClient, agent.UnitStatusInput{Name: system.EdgeUnit}, agent.CallOptions{})
+			return st.Active() || st.ActiveState == "activating", err
+		},
+		Boot: func(ctx context.Context, start bool) error {
+			in := agent.UnitsInput{Names: []string{system.EdgeUnit}}
+			op := agent.DisableUnits
+			if start {
+				op = agent.EnableUnits
+			}
+			_, err := op.Call(ctx, agentClient, in, agent.CallOptions{})
+			return err
+		},
 	}
-	route, err := edge.PanelRoute(hostname, listen, secure)
-	if err == nil {
-		err = router.SetRoutes(ctx, edge.PanelOwner, []edge.Route{route})
+	if hostname := cfg.Panel.Hostname; hostname != "" && hostname != "localhost" {
+		route, err := edge.PanelRoute(hostname, cfg.Panel.Listen, !cfg.Panel.Insecure)
+		if err != nil {
+			log.Warn("the edge won't serve the panel under its hostname", "hostname", hostname, "error", err)
+		} else {
+			opts.Panel = &route
+		}
 	}
-	if err != nil {
-		log.Warn("the edge won't serve the panel under its hostname", "hostname", hostname, "error", err)
-	}
+	return edge.NewLink(ctx, opts)
 }
 
 // panelCertificate loads the configured certificate, or the panel's own

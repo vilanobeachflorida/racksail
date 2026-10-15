@@ -175,9 +175,11 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 		Add("Environment", "XDG_DATA_HOME="+EdgeStateDir).
 		Add("LimitNOFILE", "1048576").
 		AddEntries(serviceHardening...)
-	// The edge isn't started at boot: its socket is, and the panel's first
-	// request on it starts the edge.
-	edge.Section("Install").Add("Also", EdgeSocketUnit)
+	// The edge isn't enabled when Racksail is installed: its socket is,
+	// and the panel's first route starts the edge through it. The panel
+	// enables the edge once it routes sites, so they come back at boot
+	// without waiting for the panel, and disables it when none are left.
+	edge.Section("Install").Add("WantedBy", "multi-user.target")
 	files[EdgeUnit] = edge
 
 	out := make(map[string][]byte, len(files))

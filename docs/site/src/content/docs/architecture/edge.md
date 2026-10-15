@@ -16,7 +16,9 @@ The panel keeps a routing table and sends it to the edge. A route matches some h
 
 Adding, changing or removing a site never reloads the edge: each route is set up on its own while everything else keeps serving. Responses are compressed with zstd or gzip, and HTTP/1.1, HTTP/2 and HTTP/3 are served.
 
-The edge only listens once a module routes something, and stops when the last route goes. The panel keeps its own port; while the edge serves sites, the panel is also reachable on 443 under its hostname.
+What a route carries from the panel, such as custom headers or an application's environment, reaches the edge as plain text: nothing in it can read files or the environment through Caddy's placeholders. No route can serve the edge's own files, its state or the certificates it reads, even when a site's directory is made a link to them.
+
+The edge doesn't even run until a module routes something through it: systemd holds its socket, and the panel only reaches it once there is a route to serve. From then on the edge starts at boot too, so sites come back after a restart without waiting for the panel. When the last route goes, the edge stops listening, no longer starts at boot and exits after a few idle minutes. The panel keeps its own port; while the edge serves sites, the panel is also reachable on 443 under its hostname.
 
 ## Certificates
 
@@ -24,6 +26,8 @@ Each route says how it gets its certificate:
 
 - **Automatic** (the default): the edge obtains it from Let's Encrypt before anyone visits and renews it whether or not anyone does. Names are validated over HTTP or TLS-ALPN; wildcards over DNS, with records Racksail's DNS module publishes; IP addresses get short-lived certificates.
 - **On demand**: the certificate is obtained at the first visit. Routes that match names nobody listed, such as customers' own domains, have the panel approve each name first.
+
+A certificate belongs to a name, not a path, so a host that only has routes for paths below its root, such as `/api`, gets its certificate from them.
 - **Uploaded**: a certificate you installed is served as it is.
 - **Off**: the route is only served over plain HTTP.
 

@@ -49,4 +49,4 @@ SystemCallFilter=~@privileged @resources
 SystemCallErrorNumber=EPERM
 
 [Install]
-Also=racksail-edge.socket
+WantedBy=multi-user.target

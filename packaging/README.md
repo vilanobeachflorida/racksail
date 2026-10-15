@@ -4,7 +4,7 @@ This directory is for what turns a `racksail` binary into something people insta
 
 ## systemd units
 
-Racksail runs as three services in `racksail.slice`: `racksail-agent.service`, `racksail-panel.service` and `racksail-edge.service`, with account workloads in `racksail-accounts.slice` and one `racksail-accounts-<account>.slice` per account inside it. The edge sits behind `racksail-edge.socket`: systemd holds its admin socket for the panel and starts the edge the first time the panel sends it routes.
+Racksail runs as three services in `racksail.slice`: `racksail-agent.service`, `racksail-panel.service` and `racksail-edge.service`, with account workloads in `racksail-accounts.slice` and one `racksail-accounts-<account>.slice` per account inside it. The edge sits behind `racksail-edge.socket`: systemd holds its admin socket for the panel and starts the edge the first time the panel sends it routes. The panel then enables `racksail-edge.service`, so the edge starts at boot while it has sites to serve, and disables it again when none are left; with nothing to serve, the edge exits after a few idle minutes.
 
 [`systemd/`](systemd/) has the unit files as they are installed with the binary at `/usr/bin/racksail`, for distribution packages. They aren't edited by hand: the system layer renders them (`system.PlatformUnits`), `racksail install` writes the same ones for wherever the binary is, and a test fails when the copies here drift (`go test ./internal/system -update` rewrites them). So a fresh install, a converted server, an upgrade and a package all get the same units.
 

@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -117,6 +118,10 @@ type Options struct {
 	Responder Responder
 	// Settings are used until the panel sets others.
 	Settings Settings
+	// IdleExit makes Run return once the edge has served nothing and
+	// nobody has used its admin API for this long. systemd starts the edge
+	// again on the next request to its socket. Zero keeps it running.
+	IdleExit time.Duration
 	Log      *slog.Logger
 }
 
@@ -148,6 +153,24 @@ type Edge struct {
 	// public decides which subjects public CAs certify; certmagic's rules
 	// when nil. Tests treat loopback addresses as public.
 	public func(string) bool
+
+	// adminBusy counts admin requests in progress and lastUse is when the
+	// edge last served or was asked something, in Unix nanoseconds, for
+	// IdleExit.
+	adminBusy atomic.Int64
+	lastUse   atomic.Int64
+}
+
+// used notes that the edge is in use now.
+func (e *Edge) used() { e.lastUse.Store(time.Now().UnixNano()) }
+
+// idleFor is how long the edge has served nothing and answered nobody.
+func (e *Edge) idleFor() time.Duration {
+	if e.table.Active() > 0 || e.Running() || e.adminBusy.Load() > 0 {
+		e.used()
+		return 0
+	}
+	return time.Since(time.Unix(0, e.lastUse.Load()))
 }
 
 // New returns an edge.
@@ -178,6 +201,7 @@ func New(opts Options) (*Edge, error) {
 		settings: opts.Settings, settingsC: make(chan struct{}, 1),
 	}
 	e.keeper = newKeeper(e)
+	e.used()
 	opts.Table.checkWith(e.checkRoute)
 	return e, nil
 }
@@ -435,7 +459,12 @@ func (e *Edge) Run(ctx context.Context, admin net.Listener) error {
 	}()
 
 	var retry, persist, purge *time.Timer
-	var retryC, persistC, purgeC <-chan time.Time
+	var retryC, persistC, purgeC, idleC <-chan time.Time
+	if e.opts.IdleExit > 0 {
+		idle := time.NewTicker(min(e.opts.IdleExit/4, 30*time.Second))
+		defer idle.Stop()
+		idleC = idle.C
+	}
 	lastVersion := e.table.Version()
 	for {
 		changed := e.table.Changed()
@@ -503,6 +532,17 @@ func (e *Edge) Run(ctx context.Context, admin net.Listener) error {
 			}
 		case <-retryC:
 			retryC = nil
+		case <-idleC:
+			if idle := e.idleFor(); idle >= e.opts.IdleExit {
+				e.log.Info("the edge stops: nothing has needed it for a while", "idle", idle.Round(time.Second))
+				if persistC != nil {
+					persist.Stop()
+					if err := e.saveRoutes(); err != nil {
+						e.log.Error("keeping the routing table", "error", err)
+					}
+				}
+				return nil
+			}
 		}
 	}
 }

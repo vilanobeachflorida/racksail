@@ -100,11 +100,14 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 
 func TestEdgeCreatesItsOwnSocketWithoutSystemd(t *testing.T) {
 	path := filepath.Join(shortTemp(t), "run", "edge.sock")
-	ln, err := adminListener(path, slog.New(slog.DiscardHandler))
+	ln, activated, err := adminListener(path, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ln.Close()
+	if activated {
+		t.Error("a socket the edge made isn't one systemd passed in")
+	}
 	if fi, err := os.Stat(path); err != nil || fi.Mode()&fs.ModeSocket == 0 || fi.Mode().Perm() != 0o600 {
 		t.Errorf("the socket = %v, %v", fi, err)
 	}
