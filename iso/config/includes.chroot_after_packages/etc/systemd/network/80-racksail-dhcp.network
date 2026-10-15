@@ -1,0 +1,15 @@
+# Every wired interface asks for an address, so the installer can reach
+# Debian's mirrors and the browser mode can be reached. The installer puts
+# its own configuration first when the network needs a static address, a
+# VLAN or no DHCP.
+[Match]
+Type=ether
+Kind=!*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+LinkLocalAddressing=ipv6
+
+[DHCPv4]
+UseDomains=yes

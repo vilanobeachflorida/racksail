@@ -1,0 +1,15 @@
+[Unit]
+Description=Racksail console colors
+Documentation=https://github.com/vilanobeachflorida/racksail
+DefaultDependencies=no
+After=systemd-vconsole-setup.service console-setup.service
+Before=getty.target sysinit.target
+ConditionPathExists=/dev/tty0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/setvtrgb /etc/racksail/console.vtrgb
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

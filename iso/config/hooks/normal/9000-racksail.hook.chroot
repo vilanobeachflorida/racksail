@@ -1,0 +1,16 @@
+#!/bin/sh
+# Sets up the installer image once its packages are in: the boot splash,
+# the services that run at boot, and no way to log in as root.
+set -e
+
+plymouth-set-default-theme racksail
+
+systemctl enable systemd-networkd.service systemd-resolved.service systemd-timesyncd.service racksail-console.service
+# The installer replaces the first console's login prompt; nothing else
+# should wait for the network to settle.
+systemctl mask systemd-networkd-wait-online.service
+
+passwd --lock root
+
+# live-build rebuilds the initramfs after the hooks, which then has the
+# splash in it.

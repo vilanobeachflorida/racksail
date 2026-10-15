@@ -1,0 +1,11 @@
+#!/bin/sh
+# Leaves out what the installer image never shows: manuals, translations
+# of tools it runs in English, and documentation other than licenses.
+set -e
+
+rm -rf /usr/share/man/* /usr/share/info/* /usr/share/lintian/* /usr/share/linda/*
+find /usr/share/doc -mindepth 1 ! -name copyright ! -type d -delete
+find /usr/share/doc -mindepth 1 -type d -empty -delete
+find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name 'en*' ! -name locale.alias -exec rm -rf {} +
+apt-get clean
+rm -rf /var/lib/apt/lists/*
