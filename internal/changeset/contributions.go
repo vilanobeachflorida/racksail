@@ -58,6 +58,8 @@ func ChangedPart(a, b ResourceChange) string {
 		return "steps"
 	case !sameJSON(a.Checks, b.Checks):
 		return "checks"
+	case !bytes.Equal(a.Output, b.Output):
+		return "output"
 	}
 	return ""
 }

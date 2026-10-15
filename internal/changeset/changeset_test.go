@@ -232,7 +232,7 @@ func (f *fakeHooks) Applied(ctx context.Context, point string, cs *ChangeSet, ch
 
 type env struct {
 	engine  *Engine
-	store   *store.Memory
+	store   store.Store
 	sim     *sim.Machine
 	bus     *events.Log
 	jobs    *jobs.Manager
@@ -243,36 +243,77 @@ type env struct {
 }
 
 func newEnv(t *testing.T, retention Retention, now func() time.Time) *env {
+	return buildEnv(t, envConfig{retention: retention, now: now})
+}
+
+// envConfig says how to build a test environment. With db set, everything
+// the panel keeps is kept in that database, as in the panel.
+type envConfig struct {
+	retention Retention
+	now       func() time.Time
+	db        *store.DB
+	machine   *sim.Machine
+	vault     *secrets.Memory
+	ctx       context.Context
+}
+
+func buildEnv(t *testing.T, cfg envConfig) *env {
 	t.Helper()
-	ctx := context.Background()
+	ctx := cfg.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{pageKind, menuKind} {
+	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
 	}
-	st := store.NewMemory(kinds)
-	m := sim.New(sim.Options{})
+	var st store.Store = store.NewMemory(kinds)
+	bus := events.NewMemory(100)
+	q := jobs.NewMemory(ctx, jobs.MemoryOptions{Workers: 2})
+	var storage Storage
+	if cfg.db != nil {
+		var err error
+		if st, err = store.NewSQLite(ctx, cfg.db, kinds); err != nil {
+			t.Fatal(err)
+		}
+		if bus, err = events.NewSQL(ctx, cfg.db, events.Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if q, err = jobs.NewSQL(ctx, cfg.db, jobs.ManagerOptions{Workers: 2}); err != nil {
+			t.Fatal(err)
+		}
+		if storage, err = NewSQLStorage(ctx, cfg.db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := cfg.machine
+	if m == nil {
+		m = sim.New(sim.Options{})
+	}
 	recs := reconcile.NewRegistry()
-	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{})} {
+	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{}), reconcile.Typed(ticketKind, ticketReconciler{})} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}
 	}
-	key, _ := secrets.NewKey()
-	box, _ := secrets.NewBox(key)
-	vault := secrets.NewMemory(box)
-	bus := events.NewMemory(100)
-	q := jobs.NewMemory(ctx, jobs.MemoryOptions{Workers: 2})
+	vault := cfg.vault
+	if vault == nil {
+		key, _ := secrets.NewKey()
+		box, _ := secrets.NewBox(key)
+		vault = secrets.NewMemory(box)
+	}
 	hooks := &fakeHooks{}
 	engine, err := NewEngine(Options{
-		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: bus, Hooks: hooks, Secrets: vault,
+		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: bus, Hooks: hooks, Secrets: vault, Storage: storage,
 		Runner:     &reconcile.Runner{Store: st, Agent: agent.NewLocal(m.Backend(), nil), Registry: recs, Secrets: vault},
-		Authorizer: auth.NewRoleAuthorizer(nil), Retention: retention, Now: now,
+		Authorizer: auth.NewRoleAuthorizer(nil), Retention: cfg.retention, Now: cfg.now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	q.Start()
 	acct := store.NewID("acct")
 	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}}
 	return &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault, owner: owner, acct: acct}

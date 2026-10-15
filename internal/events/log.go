@@ -163,10 +163,29 @@ func (l *Log) Subscribe(f Filter, buffer int) *Subscription {
 	return s
 }
 
-// Record implements AuditLog.
+// requestIDKey carries the ID of the API request an action came through.
+type requestIDKey struct{}
+
+// WithRequestID returns a context carrying the ID of the API request being
+// served, which audit records made while serving it then name.
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, requestIDKey{}, id)
+}
+
+// RequestID returns the ID of the API request ctx belongs to, or "".
+func RequestID(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
+}
+
+// Record implements AuditLog. A record without a request ID gets the one
+// ctx carries.
 func (l *Log) Record(ctx context.Context, r AuditRecord) error {
 	if r.ID == "" {
 		r.ID = store.NewID(AuditPrefix)
+	}
+	if r.RequestID == "" {
+		r.RequestID = RequestID(ctx)
 	}
 	if r.Time.IsZero() {
 		r.Time = l.now()

@@ -394,6 +394,14 @@ func (f pipelineFunc) Undo(ctx context.Context, req changeset.UndoRequest) (*cha
 	return nil, changeset.ErrNotApplied.New()
 }
 
+func (f pipelineFunc) Apply(ctx context.Context, req changeset.ApplyRequest) (*changeset.ChangeSet, error) {
+	return nil, changeset.ErrNotPreview.New("title", "The change")
+}
+
+func (f pipelineFunc) List(ctx context.Context, q changeset.ListQuery) ([]*changeset.ChangeSet, string, error) {
+	return nil, "", nil
+}
+
 func TestChangeOperations(t *testing.T) {
 	var got changeset.Request
 	pipeline := pipelineFunc(func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {

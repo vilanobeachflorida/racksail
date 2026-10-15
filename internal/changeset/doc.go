@@ -31,9 +31,16 @@
 // to the resource's own secrets; values arrive in Change.Secrets and are
 // stored, under a new name for each change set, only when it is applied.
 //
+// A preview can be applied by its ID (Engine.Apply): its request is planned
+// again for the person applying it, and applied only if the plan still does
+// what the preview showed; otherwise the new plan is kept as a preview of its
+// own for them to look at first. Actions whose work happens in the panel
+// rather than on the machine return an output, kept with the change set.
+//
 // Pipeline is the interface the API, recipes, automations, add-ons and the
-// assistant call. Engine implements it and keeps change sets in memory,
-// within the bounds of its Retention. Hooks are reached through the Hooks
-// interface, which the hooks package implements, so this package doesn't
-// depend on it.
+// assistant call. Engine implements it and keeps change sets, the requests
+// previews came from and idempotency keys in a Storage, within the bounds of
+// its Retention: SQLStorage in the panel database, or MemoryStorage. Hooks
+// are reached through the Hooks interface, which the hooks package
+// implements, so this package doesn't depend on it.
 package changeset

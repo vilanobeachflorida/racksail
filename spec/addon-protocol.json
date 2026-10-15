@@ -628,6 +628,9 @@
             ],
             "type": "string"
           },
+          "output": {
+            "description": "What the action returned, once it was applied"
+          },
           "revision": {
             "format": "int64",
             "type": "integer"

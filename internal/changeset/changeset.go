@@ -108,6 +108,8 @@ type ResourceChange struct {
 	// Checks confirm that an action's steps worked. They run after the steps
 	// and the resource's reconcile, whose own plan has checks of its own.
 	Checks []reconcile.HealthCheck `json:"checks,omitempty"`
+	// Output is what an action returned once it was applied.
+	Output json.RawMessage `json:"output,omitempty" doc:"What the action returned, once it was applied"`
 }
 
 // Clone returns a copy of rc whose maps, documents and lists can be changed
@@ -119,6 +121,7 @@ func (rc ResourceChange) Clone() ResourceChange {
 	c.Before = bytes.Clone(rc.Before)
 	c.After = bytes.Clone(rc.After)
 	c.Input = bytes.Clone(rc.Input)
+	c.Output = bytes.Clone(rc.Output)
 	if rc.Diff != nil {
 		c.Diff = make([]FieldDiff, len(rc.Diff))
 		for i, d := range rc.Diff {
@@ -247,28 +250,37 @@ func (cs *ChangeSet) Summarize() {
 
 // Change asks for one change to one resource.
 type Change struct {
-	Op   Op
-	Kind string
+	Op   Op     `json:"op" enum:"create,update,delete,action" doc:"What to do"`
+	Kind string `json:"kind" doc:"The kind of the resource, such as web.site"`
 	// ID names the resource for update, delete and action. On create it may
 	// be set to choose the ID, so later changes in the same request can
 	// refer to the new resource.
-	ID    store.ID
-	Scope store.Scope
+	ID    store.ID    `json:"id,omitempty" doc:"The resource; on create, an ID chosen up front so later changes can refer to it"`
+	Scope store.Scope `json:"scope,omitzero" doc:"The owner of a new resource"`
 	// Server places a new resource on a cluster server; empty means the
 	// server running the panel. Updates keep the placement.
-	Server store.ID
-	Spec   json.RawMessage
+	Server store.ID        `json:"server,omitempty" doc:"The cluster server a new resource is placed on; empty for the panel's own server"`
+	Spec   json.RawMessage `json:"spec,omitempty" doc:"The desired state, for create and update"`
 	// Labels replace the resource's labels; nil keeps them on update.
-	Labels map[string]string
+	Labels map[string]string `json:"labels,omitempty" doc:"Labels that replace the resource's own; left out, an update keeps them"`
 	// Revision guards against lost updates; zero skips the check.
-	Revision int64
-	Action   string
-	Input    json.RawMessage
+	Revision int64           `json:"revision,omitempty" doc:"The revision the change was made against; a newer one makes the change fail with a conflict"`
+	Action   string          `json:"action,omitempty" doc:"The action to run, for action changes"`
+	Input    json.RawMessage `json:"input,omitempty" doc:"The action's input"`
 	// Secrets are values for the kind's sensitive fields, by field path.
 	// They never enter the spec: when the change set is applied each value
 	// goes to the secrets store, and the field gets a reference to it. A
 	// dry run stores nothing. An empty value clears the field.
-	Secrets map[string]string
+	Secrets map[string]string `json:"secrets,omitempty" doc:"Values for the kind's secret fields, by field path; they are stored apart and never shown again"`
+}
+
+func (c Change) clone() Change {
+	out := c
+	out.Spec = bytes.Clone(c.Spec)
+	out.Labels = maps.Clone(c.Labels)
+	out.Input = bytes.Clone(c.Input)
+	out.Secrets = maps.Clone(c.Secrets)
+	return out
 }
 
 // Request asks for a change set: one or more changes that are validated,
@@ -297,6 +309,14 @@ type UndoRequest struct {
 	IdempotencyKey string
 }
 
+// ApplyRequest asks for a preview to be applied as it was shown.
+type ApplyRequest struct {
+	Actor *auth.Actor
+	// ChangeSet is the preview, a dry run.
+	ChangeSet      store.ID
+	IdempotencyKey string
+}
+
 // Pipeline is how anything changes Racksail.
 type Pipeline interface {
 	// Submit validates and plans a request. Unless it is a dry run, it then
@@ -309,6 +329,14 @@ type Pipeline interface {
 	// from the recorded previous specs, and applies it unless it is a dry
 	// run. It goes through the same stages as any other change.
 	Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error)
+	// Apply applies a preview as it was shown: the request it came from is
+	// planned again for the actor, and applied only when the plan is still
+	// the one the preview showed. The preview becomes the applied change
+	// set, keeping its ID.
+	Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error)
+	// List returns kept change sets, newest first, and the cursor of the
+	// next page.
+	List(ctx context.Context, q ListQuery) ([]*ChangeSet, string, error)
 }
 
 // Hooks runs hook points for the pipeline. The hooks package implements it.
