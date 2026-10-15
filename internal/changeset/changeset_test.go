@@ -234,8 +234,8 @@ type env struct {
 	engine  *Engine
 	store   *store.Memory
 	sim     *sim.Machine
-	bus     *events.Memory
-	jobs    *jobs.Memory
+	bus     *events.Log
+	jobs    *jobs.Manager
 	hooks   *fakeHooks
 	secrets *secrets.Memory
 	owner   *auth.Actor
