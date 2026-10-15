@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"reflect"
 	"regexp"
 	"runtime/debug"
@@ -69,10 +70,17 @@ type Options struct {
 	// Services are passed to modules that add API operations.
 	Services *modules.Services
 	Health   []HealthCheck
+	// AllowFrom limits who may reach the panel to these networks when it
+	// isn't empty: panel.allow_from in racksail.toml. Requests from anywhere
+	// else are refused before anything else happens.
+	AllowFrom []netip.Prefix
 	// UI serves everything outside /api.
 	UI  http.Handler
 	Log *slog.Logger
 }
+
+// ErrAddressNotAllowed refuses requests from outside panel.allow_from.
+var ErrAddressNotAllowed = i18n.Define("api.address_not_allowed", http.StatusForbidden, "The panel doesn't accept requests from {address}.")
 
 // Server is the panel API.
 type Server struct {
@@ -218,10 +226,22 @@ func (s *Server) registerSystem() {
 	})
 }
 
-// requireActor refuses protected operations without a signed-in actor.
+// authErrorKey carries the error of a request whose credentials weren't
+// valid, for the operations that need them.
+type authErrorKey struct{}
+
+// requireActor refuses protected operations without a signed-in actor. A
+// request whose credentials weren't valid gets the authenticator's error, so
+// the person learns their session expired rather than that they never signed
+// in.
 func (s *Server) requireActor(ctx huma.Context, next func(huma.Context)) {
 	if len(ctx.Operation().Security) == 0 {
 		next(ctx)
+		return
+	}
+	if err, ok := ctx.Context().Value(authErrorKey{}).(error); ok {
+		p := httpapi.FromError(err)
+		huma.WriteErr(s.api, ctx, p.Status, p.Detail, err)
 		return
 	}
 	if _, ok := auth.ActorFrom(ctx.Context()); !ok {
@@ -287,13 +307,20 @@ func (s *Server) Handler() http.Handler {
 			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", r.URL.Path,
 				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond))
 		}()
-		actor, err := s.opts.Auth.Authenticate(r.Context(), r)
-		if err != nil {
-			writeProblem(rec, err)
+		if len(s.opts.AllowFrom) > 0 && !s.allowed(r.RemoteAddr) {
+			writeProblem(rec, ErrAddressNotAllowed.New("address", r.RemoteAddr))
 			return
 		}
 		ctx := r.Context()
-		if actor != nil {
+		actor, err := s.opts.Auth.Authenticate(ctx, r)
+		switch {
+		case err != nil:
+			// Credentials that aren't valid, such as an expired session
+			// cookie, only matter to operations that need a signed-in actor.
+			// Everything else, the UI and its sign-in screen included,
+			// treats the request as anonymous.
+			ctx = context.WithValue(ctx, authErrorKey{}, err)
+		case actor != nil:
 			ctx = auth.WithActor(ctx, actor)
 		}
 		if r.URL.Path == apiRoot || strings.HasPrefix(r.URL.Path, apiRoot+"/") {
@@ -302,6 +329,23 @@ func (s *Server) Handler() http.Handler {
 		}
 		s.mux.ServeHTTP(rec, r.WithContext(ctx))
 	})
+}
+
+// allowed reports whether a client address is inside panel.allow_from.
+func (s *Server) allowed(remote string) bool {
+	ap, err := netip.ParseAddrPort(remote)
+	if err != nil {
+		return false
+	}
+	// A client on IPv4 reaches a dual-stack listener as an IPv4-mapped IPv6
+	// address.
+	addr := ap.Addr().Unmap()
+	for _, p := range s.opts.AllowFrom {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeProblem(w http.ResponseWriter, err error) {

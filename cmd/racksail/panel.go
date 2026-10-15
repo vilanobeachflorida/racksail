@@ -40,7 +40,14 @@ func newPanelCommand() *cobra.Command {
 				return err
 			}
 			defer c.stop(context.WithoutCancel(ctx))
-			srv := newHTTPServer(cfg.Panel.Listen, c.apiServer(auth.NoAuthenticator{}).Handler(), log)
+			apiServer, err := c.apiServer(auth.NoAuthenticator{})
+			if err != nil {
+				return err
+			}
+			if len(cfg.Panel.AllowFrom) > 0 {
+				log.Info("the panel only accepts requests from panel.allow_from", "networks", cfg.Panel.AllowFrom)
+			}
+			srv := newHTTPServer(cfg.Panel.Listen, apiServer.Handler(), log)
 			if cfg.Panel.Insecure {
 				return serveUntilDone(ctx, srv, false)
 			}

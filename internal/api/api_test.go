@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -102,6 +103,72 @@ func TestProblems(t *testing.T) {
 		func(ctx context.Context, _ *struct{}) (*out, error) { return &out{}, nil })
 	if resp, _ := do(t, dev.Handler(), "GET", "/api/v1/secret", nil); resp.StatusCode != 200 {
 		t.Errorf("a signed-in actor gets through: %d", resp.StatusCode)
+	}
+}
+
+// sessionAuth signs in requests whose session cookie is "good" and refuses
+// any other session, as an expired or revoked one would be.
+type sessionAuth struct{}
+
+var errSessionExpired = i18n.Define("apitest.session_expired", http.StatusUnauthorized, "Your session has expired. Sign in again.")
+
+func (sessionAuth) Authenticate(ctx context.Context, r *http.Request) (*auth.Actor, error) {
+	c, err := r.Cookie(SessionCookie)
+	switch {
+	case err != nil:
+		return nil, nil
+	case c.Value == "good":
+		return &auth.Actor{Type: auth.ActorUser, Source: auth.SourceUI}, nil
+	}
+	return nil, errSessionExpired.New()
+}
+
+func TestInvalidCredentials(t *testing.T) {
+	s := New(Options{Auth: sessionAuth{}, Log: slog.New(slog.DiscardHandler), UI: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ui") })})
+	type out struct{ Body struct{ OK bool } }
+	huma.Register(s.API(), huma.Operation{OperationID: "secret", Method: "GET", Path: "/api/v1/secret", Summary: "Secret", Security: Protected},
+		func(ctx context.Context, _ *struct{}) (*out, error) { return &out{}, nil })
+	expired := map[string]string{"Cookie": SessionCookie + "=stale"}
+	if resp, body := do(t, s.Handler(), "GET", "/", expired); resp.StatusCode != 200 || body != "ui" {
+		t.Errorf("the UI, with its sign-in screen, loads with an expired session: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ := do(t, s.Handler(), "GET", "/api/v1/health", expired); resp.StatusCode != 200 {
+		t.Errorf("public operations answer: %d", resp.StatusCode)
+	}
+	resp, body := do(t, s.Handler(), "GET", "/api/v1/secret", expired)
+	if resp.StatusCode != 401 || !strings.Contains(body, "apitest.session_expired") {
+		t.Errorf("protected operations explain why: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ := do(t, s.Handler(), "GET", "/api/v1/secret", map[string]string{"Cookie": SessionCookie + "=good"}); resp.StatusCode != 200 {
+		t.Errorf("a valid session gets through: %d", resp.StatusCode)
+	}
+}
+
+func TestAllowFrom(t *testing.T) {
+	s := New(Options{
+		AllowFrom: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24"), netip.MustParsePrefix("2001:db8::/32")},
+		Log:       slog.New(slog.DiscardHandler), UI: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ui") }),
+	})
+	for remote, allowed := range map[string]bool{
+		"198.51.100.7:52000":          true,
+		"[::ffff:198.51.100.7]:52000": true,
+		"[2001:db8::5]:52000":         true,
+		"203.0.113.9:52000":           false,
+		"127.0.0.1:52000":             false,
+		"not an address":              false,
+	} {
+		for _, path := range []string{"/", "/api/v1/health"} {
+			req := httptest.NewRequest("GET", path, nil)
+			req.RemoteAddr = remote
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if got := rec.Code != http.StatusForbidden; got != allowed {
+				t.Errorf("%s from %s = %d %s", path, remote, rec.Code, rec.Body)
+			}
+			if !allowed && !strings.Contains(rec.Body.String(), "api.address_not_allowed") {
+				t.Errorf("refusals have a code: %s", rec.Body)
+			}
+		}
 	}
 }
 

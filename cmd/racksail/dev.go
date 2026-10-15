@@ -84,7 +84,11 @@ func newDevCommand() *cobra.Command {
 				}
 			}()
 
-			srv := newHTTPServer(cfg.Panel.Listen, c.apiServer(auth.DevAuthenticator{}).Handler(), log)
+			apiServer, err := c.apiServer(auth.DevAuthenticator{})
+			if err != nil {
+				return err
+			}
+			srv := newHTTPServer(cfg.Panel.Listen, apiServer.Handler(), log)
 			log.Info("racksail dev is running", "panel", "http://"+cfg.Panel.Listen, "data", dataDir, "edge", "http://"+cfg.Edge.HTTP)
 			return serveUntilDone(ctx, srv, false)
 		},

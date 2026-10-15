@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,7 +39,10 @@ type Panel struct {
 	// the panel generates or obtains.
 	TLSCert string `toml:"tls_cert"`
 	TLSKey  string `toml:"tls_key"`
-	// AllowFrom limits panel access to these networks when not empty.
+	// AllowFrom limits who may reach the panel to these addresses and
+	// networks, such as "198.51.100.0/24", when it isn't empty. Requests from
+	// anywhere else are refused, those from the server itself included, so
+	// list 127.0.0.1 and ::1 to use the panel from the server.
 	AllowFrom []string `toml:"allow_from"`
 	// Insecure serves plain HTTP. Only development mode sets it.
 	Insecure bool `toml:"-"`
@@ -47,8 +51,6 @@ type Panel struct {
 // Agent configures the agent role.
 type Agent struct {
 	Socket string `toml:"socket"`
-	// Listen enables the mutual TLS listener for panels on other servers.
-	Listen string `toml:"listen"`
 }
 
 // Edge configures the edge role.
@@ -70,6 +72,28 @@ type Paths struct {
 	DataDisks string `toml:"data_disks"`
 }
 
+// AllowedNetworks returns allow_from as networks; an address on its own is a
+// network of one. IPv4 addresses written as IPv6 ones count as IPv4.
+func (p Panel) AllowedNetworks() ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, n := range p.AllowFrom {
+		if prefix, err := netip.ParsePrefix(n); err == nil {
+			if addr := prefix.Addr(); addr.Is4In6() && prefix.Bits() >= 96 {
+				prefix = netip.PrefixFrom(addr.Unmap(), prefix.Bits()-96)
+			}
+			out = append(out, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(n)
+		if err != nil || addr.Zone() != "" {
+			return nil, fmt.Errorf("panel.allow_from: %q isn't an address or network", n)
+		}
+		addr = addr.Unmap()
+		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return out, nil
+}
+
 // Database returns the path of the panel database.
 func (p Paths) Database() string { return filepath.Join(p.State, "state.db") }
 
@@ -77,10 +101,6 @@ func (p Paths) Database() string { return filepath.Join(p.State, "state.db") }
 type Updates struct {
 	// Channel is stable, beta or nightly.
 	Channel string `toml:"channel"`
-	// Mirrors are tried before GitHub Releases for releases and catalogs.
-	Mirrors []string `toml:"mirrors"`
-	// Automatic installs new releases of the channel without asking.
-	Automatic bool `toml:"automatic"`
 }
 
 // Log configures logging.
@@ -189,13 +209,10 @@ func (c Config) Validate() error {
 		}
 	}
 	checkAddr("panel.listen", c.Panel.Listen, false)
-	checkAddr("agent.listen", c.Agent.Listen, true)
 	checkAddr("edge.http", c.Edge.HTTP, false)
 	checkAddr("edge.https", c.Edge.HTTPS, false)
-	for _, n := range c.Panel.AllowFrom {
-		if _, _, err := net.ParseCIDR(n); err != nil && net.ParseIP(n) == nil {
-			errs = append(errs, fmt.Errorf("panel.allow_from: %q isn't an address or network", n))
-		}
+	if _, err := c.Panel.AllowedNetworks(); err != nil {
+		errs = append(errs, err)
 	}
 	if (c.Panel.TLSCert == "") != (c.Panel.TLSKey == "") {
 		errs = append(errs, errors.New("panel.tls_cert and panel.tls_key go together"))

@@ -1,8 +1,10 @@
 package config
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -26,11 +28,10 @@ func TestParse(t *testing.T) {
 [panel]
 listen = "203.0.113.10:8443"
 hostname = "panel.example.test"
-allow_from = ["198.51.100.0/24", "2001:db8::1"]
+allow_from = ["198.51.100.0/24", "2001:db8::1", "::ffff:203.0.113.7"]
 
 [updates]
 channel = "beta"
-mirrors = ["https://mirror.example.test/racksail"]
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -38,13 +39,24 @@ mirrors = ["https://mirror.example.test/racksail"]
 	if c.Panel.Hostname != "panel.example.test" || c.Updates.Channel != "beta" || c.Agent.Socket != "/run/racksail/agent.sock" {
 		t.Errorf("parsed = %+v", c)
 	}
+	nets, err := c.Panel.AllowedNetworks()
+	want := []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24"), netip.MustParsePrefix("2001:db8::1/128"), netip.MustParsePrefix("203.0.113.7/32")}
+	if err != nil || !slices.Equal(nets, want) {
+		t.Errorf("allowed networks = %v, %v", nets, err)
+	}
 	for _, bad := range []string{
 		"[panel]\nlistne = \":8443\"\n",
 		"[updates]\nchannel = \"edge\"\n",
 		"[panel]\nlisten = \"8443\"\n",
 		"[panel]\ntls_cert = \"/etc/cert.pem\"\n",
+		"[panel]\nallow_from = [\"office\"]\n",
 		"[paths]\nstate = \"relative\"\n",
 		"[log]\nlevel = \"loud\"\n",
+		// Settings nothing acts on are refused rather than silently
+		// ignored.
+		"[agent]\nlisten = \"[::]:7443\"\n",
+		"[updates]\nmirrors = [\"https://mirror.example.test\"]\n",
+		"[updates]\nautomatic = true\n",
 		"not toml",
 	} {
 		if _, err := Parse([]byte(bad)); err == nil {

@@ -3,11 +3,11 @@
 // codes and an OpenAPI 3.1 document exported to spec/openapi.json.
 //
 // Server wires the middleware every request goes through (request IDs,
-// recovery, access logs, authentication), the public health and version
-// operations, the operations modules add through modules.APIProvider and
-// the embedded web UI. Paths under /api that no operation matches answer
-// with a problem: 405 with an Allow header when the path exists for other
-// methods, 404 otherwise.
+// recovery, access logs, the panel.allow_from allowlist, authentication), the
+// public health and version operations, the operations modules add through
+// modules.APIProvider and the embedded web UI. Paths under /api that no
+// operation matches answer with a problem: 405 with an Allow header when the
+// path exists for other methods, 404 otherwise.
 //
 // Operations that need a signed-in actor declare Protected as their security
 // requirement. That only establishes who is calling: every operation also

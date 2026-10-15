@@ -148,16 +148,21 @@ func (c *core) stop(ctx context.Context) {
 	c.manager.Shutdown(ctx)
 }
 
-// apiServer builds the panel API with the embedded UI.
-func (c *core) apiServer(authn auth.Authenticator) *api.Server {
+// apiServer builds the panel API with the embedded UI, reachable only from
+// panel.allow_from when it is set.
+func (c *core) apiServer(authn auth.Authenticator) (*api.Server, error) {
+	allow, err := c.services.Config.Panel.AllowedNetworks()
+	if err != nil {
+		return nil, err
+	}
 	assets, built := webui.Assets()
 	if !built {
 		c.log.Info("this binary has no web UI; the panel serves a page explaining how to build it")
 	}
 	return api.New(api.Options{
-		Auth: authn, Modules: c.modules, Services: c.services, Health: c.health,
+		Auth: authn, Modules: c.modules, Services: c.services, Health: c.health, AllowFrom: allow,
 		UI: webui.Handler(assets), Log: c.log,
-	})
+	}), nil
 }
 
 // newHTTPServer returns a server with sensible timeouts for the panel.
