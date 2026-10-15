@@ -187,7 +187,7 @@ func TestCommandValidate(t *testing.T) {
 }
 
 func TestNames(t *testing.T) {
-	if !ValidUnitName("racksail-site-blog.service") || !ValidUnitName("racksail-acct-blog.slice") || !ValidUnitName("site@www.service") {
+	if !ValidUnitName("racksail-site-blog.service") || !ValidUnitName("racksail-accounts-blog.slice") || !ValidUnitName("site@www.service") {
 		t.Error("valid unit names rejected")
 	}
 	if ValidUnitName("../etc/passwd") || ValidUnitName("noext") {

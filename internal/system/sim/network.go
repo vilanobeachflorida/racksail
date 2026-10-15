@@ -55,6 +55,7 @@ func (f simFirewall) Check(ctx context.Context, ruleset []byte) error {
 
 func (f simFirewall) Apply(ctx context.Context, ruleset []byte) error {
 	m := f.m
+	m.delay(ctx, opFirewall, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -213,6 +214,7 @@ func (n simNetwork) Routes(ctx context.Context) ([]system.Route, error) {
 var networkdFilePattern = regexp.MustCompile(`^50-racksail[A-Za-z0-9._-]*\.(network|netdev|link)$`)
 
 func (n simNetwork) ApplyConfig(ctx context.Context, files map[string][]byte) error {
+	n.m.delay(ctx, opNetwork, 0)
 	for name := range files {
 		if !networkdFilePattern.MatchString(name) {
 			return invalid("networkd file name %q must start with 50-racksail", name)

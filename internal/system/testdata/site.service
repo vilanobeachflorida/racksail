@@ -5,7 +5,7 @@ Description=Site www of blog
 After=network.target
 
 [Service]
-Slice=racksail-acct-blog.slice
+Slice=racksail-accounts-blog.slice
 ExecStart=/opt/racksail/runtimes/php/8.4.13/sbin/php-fpm --nodaemonize
 User=blog
 Group=blog

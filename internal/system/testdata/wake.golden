@@ -1,0 +1,94 @@
+### racksail-site-blog-shop-proxy.service
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Site shop of blog (wake proxy)
+Requires=racksail-site-blog-shop.service racksail-site-blog-shop.socket
+After=racksail-site-blog-shop.service racksail-site-blog-shop.socket
+
+[Service]
+Type=exec
+Slice=racksail-accounts-blog.slice
+ExecStart=/usr/bin/racksail wake-proxy --upstream /run/racksail-sites/blog/shop.sock --idle-timeout 900s --start-timeout 60s
+User=blog
+Group=blog
+ProtectSystem=strict
+ProtectHome=tmpfs
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+InaccessiblePaths=-/run/racksail
+MemoryDenyWriteExecute=yes
+BindPaths=/run/racksail-sites/blog
+SocketBindDeny=any
+IPAddressDeny=169.254.169.254/32
+
+### racksail-site-blog-shop.service
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Site shop of blog
+StopWhenUnneeded=yes
+
+[Service]
+Type=exec
+Slice=racksail-accounts-blog.slice
+ExecStart=/opt/racksail/runtimes/node/22.11.0/bin/node server.js
+Restart=on-failure
+User=blog
+Group=blog
+ProtectSystem=strict
+ProtectHome=tmpfs
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+InaccessiblePaths=-/run/racksail
+BindPaths=/srv/racksail/accounts/blog/sites/shop
+BindReadOnlyPaths=/opt/racksail/runtimes/node/22.11.0
+SocketBindDeny=any
+SocketBindAllow=tcp:3000
+IPAddressDeny=169.254.169.254/32
+
+### racksail-site-blog-shop.socket
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Site shop of blog (socket)
+
+[Socket]
+ListenStream=/run/racksail/sites/blog-shop.sock
+SocketUser=root
+SocketGroup=racksail-edge
+SocketMode=0660
+Service=racksail-site-blog-shop-proxy.service
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
+

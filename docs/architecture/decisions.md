@@ -67,10 +67,10 @@ Settled choices. Change one by opening a pull request that edits this file and e
 
 | # | Decision |
 |---|---|
-| D1 | `/etc/racksail/racksail.toml`, `/etc/racksail/generated/`, `/var/lib/racksail/`, `/srv/racksail/accounts/<account>/`, `/opt/racksail/runtimes/`, `/opt/racksail/modules/`, `/run/racksail/`, `/mnt/racksail/` (data disks) |
+| D1 | `/etc/racksail/racksail.toml`, `/etc/racksail/generated/`, `/var/lib/racksail/`, `/var/lib/racksail-agent/` (the agent's own state, root only), `/srv/racksail/accounts/<account>/`, `/opt/racksail/runtimes/`, `/opt/racksail/modules/`, `/run/racksail/`, `/mnt/racksail/` (data disks) |
 | D2 | Panel listens on 8443 (HTTPS). When the edge is on, the panel is also served on 443 under its hostname. Dev mode listens on 127.0.0.1:7070 over HTTP. |
 | D3 | Account slugs: lowercase letters and digits, 3–16 characters, starting with a letter. Linux user name: the slug. UIDs 20000–59999. Subordinate IDs for rootless containers start at 1,000,000, 65,536 per account. |
-| D4 | systemd: `racksail.slice` for platform services, `racksail-accounts.slice` with one `racksail-acct-<slug>.slice` per account. |
+| D4 | systemd: `racksail.slice` for platform services, `racksail-accounts.slice` with one `racksail-accounts-<slug>.slice` per account. systemd nests a slice under the slice its name extends, so only this name puts an account inside `racksail-accounts.slice`; `racksail-acct-<slug>.slice` would land in an implicit `racksail-acct.slice` instead. |
 | D5 | Temporary site URLs: `<site>-<account>.<server hostname>` through a wildcard record; `sslip.io` addresses when there's no domain yet. |
 | D6 | Servers run on UTC. The UI shows times in the viewer's time zone. |
 

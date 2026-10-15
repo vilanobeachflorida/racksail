@@ -24,6 +24,8 @@ type Backend struct {
 	Sysctl    Sysctl
 	Processes Processes
 	Certs     Certificates
+	Journal   Journal
+	Metrics   Metrics
 	Exec      Exec
 }
 

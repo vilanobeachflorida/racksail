@@ -83,6 +83,14 @@ func (u *UnitFile) Render() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+var (
+	// bindRulePattern is systemd's SocketBindAllow syntax: an optional
+	// address family and protocol, then a port, a port range or "any". It
+	// only covers IP sockets; Unix sockets are guarded by file permissions.
+	bindRulePattern = regexp.MustCompile(`^((ipv4|ipv6):)?((tcp|udp):)?(any|[0-9]{1,5}(-[0-9]{1,5})?)$`)
+	ipDenyPattern   = regexp.MustCompile(`^(any|localhost|link-local|multicast|[0-9a-fA-F.:]+(/[0-9]{1,3})?)$`)
+)
+
 // Sandbox describes the confinement of an account workload such as a site or
 // a worker. Its entries always include the minimum settings required by the
 // security rules; nothing here can turn them off.
@@ -115,9 +123,14 @@ func (s Sandbox) Entries() ([]UnitEntry, error) {
 			return nil, fmt.Errorf("sandbox path %q: %w", p, ErrInvalid)
 		}
 	}
-	for _, v := range append(append([]string{}, s.SocketBindAllow...), s.IPAddressDeny...) {
-		if v == "" || strings.ContainsAny(v, " \t\r\n") {
-			return nil, fmt.Errorf("sandbox value %q: %w", v, ErrInvalid)
+	for _, v := range s.SocketBindAllow {
+		if !bindRulePattern.MatchString(v) {
+			return nil, fmt.Errorf("socket bind rule %q: %w", v, ErrInvalid)
+		}
+	}
+	for _, v := range s.IPAddressDeny {
+		if !ipDenyPattern.MatchString(v) {
+			return nil, fmt.Errorf("denied address %q: %w", v, ErrInvalid)
 		}
 	}
 	e := []UnitEntry{{"User", s.User}}

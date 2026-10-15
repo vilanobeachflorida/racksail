@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -264,10 +266,18 @@ func (f *facts) Facts(ctx context.Context) (system.MachineFacts, error) {
 	if data, err := os.ReadFile(f.h.path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")); err == nil && len(data) >= 5 {
 		facts.Firmware.SecureBoot = data[4] == 1
 	}
+	if facts.TPM {
+		facts.TPMVersion = f.read("/sys/class/tpm/tpm0/tpm_version_major")
+	}
 	if fi, err := os.Stat(f.h.path("/dev/kvm")); err == nil && fi.Mode()&fs.ModeCharDevice != 0 {
 		facts.KVM = true
 		facts.CPU.Virtualization = true
+		if facts.CPU.VirtualizationType == "" && facts.Arch == "arm64" {
+			facts.CPU.VirtualizationType = "arm64"
+		}
 	}
+	facts.Disks = f.disks()
+	facts.NICs = f.nics()
 	if entries, err := os.ReadDir(f.h.path("/sys/class/iommu")); err == nil && len(entries) > 0 {
 		facts.IOMMU = true
 	}
@@ -319,9 +329,16 @@ func parseOSRelease(data []byte) system.OSRelease {
 	return r
 }
 
+// armImplementers names the arm64 CPU implementer codes servers report.
+var armImplementers = map[string]string{
+	"0x41": "ARM", "0x42": "Broadcom", "0x43": "Cavium", "0x46": "Fujitsu", "0x48": "HiSilicon",
+	"0x4e": "NVIDIA", "0x50": "APM", "0x51": "Qualcomm", "0x61": "Apple", "0x6d": "Microsoft", "0xc0": "Ampere",
+}
+
 func parseCPUInfo(data []byte) system.CPUInfo {
 	var c system.CPUInfo
 	cores := map[string]bool{}
+	sockets := map[string]bool{}
 	physical := ""
 	eachLine(data, func(line string) {
 		key, value, ok := strings.Cut(line, ":")
@@ -336,15 +353,25 @@ func parseCPUInfo(data []byte) system.CPUInfo {
 			if c.Model == "" {
 				c.Model = value
 			}
+		case "vendor_id":
+			if c.Vendor == "" {
+				c.Vendor = value
+			}
+		case "CPU implementer":
+			if c.Vendor == "" {
+				c.Vendor = armImplementers[strings.ToLower(value)]
+				if c.Vendor == "" {
+					c.Vendor = value
+				}
+			}
 		case "physical id":
 			physical = value
+			sockets[value] = true
 		case "core id":
 			cores[physical+"/"+value] = true
-		case "flags":
-			for _, flag := range strings.Fields(value) {
-				if flag == "vmx" || flag == "svm" {
-					c.Virtualization = true
-				}
+		case "flags", "Features":
+			if c.Flags == nil {
+				c.Flags = strings.Fields(value)
 			}
 		}
 	})
@@ -352,7 +379,98 @@ func parseCPUInfo(data []byte) system.CPUInfo {
 	if c.Cores == 0 {
 		c.Cores = c.Threads
 	}
+	c.Sockets = len(sockets)
+	if c.Sockets == 0 && c.Threads > 0 {
+		c.Sockets = 1
+	}
+	if flag := system.VirtualizationFlag(c.Flags); flag != "" {
+		c.Virtualization, c.VirtualizationType = true, flag
+	}
 	return c
+}
+
+// skippedBlockDevices are block devices that aren't disks.
+var skippedBlockDevices = []string{"loop", "ram", "zram", "dm-", "md", "sr", "fd", "nbd", "zd"}
+
+// disks lists the machine's disks from sysfs.
+func (f *facts) disks() []system.DiskFact {
+	entries, err := os.ReadDir(f.h.path("/sys/block"))
+	if err != nil {
+		return nil
+	}
+	var out []system.DiskFact
+	for _, e := range entries {
+		name := e.Name()
+		if slices.ContainsFunc(skippedBlockDevices, func(p string) bool { return strings.HasPrefix(name, p) }) {
+			continue
+		}
+		dir := path.Join("/sys/block", name)
+		d := system.DiskFact{
+			Name:       name,
+			SizeBytes:  atoi64(f.read(dir+"/size")) * 512,
+			Rotational: f.read(dir+"/queue/rotational") == "1",
+			Removable:  f.read(dir+"/removable") == "1",
+			Model:      f.read(dir + "/device/model"),
+			Serial:     f.read(dir + "/device/serial"),
+		}
+		if d.SizeBytes == 0 {
+			continue
+		}
+		if target, err := filepath.EvalSymlinks(f.h.path(dir)); err == nil {
+			d.Transport = transportOf(name, filepath.ToSlash(target))
+		} else {
+			d.Transport = transportOf(name, "")
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// transportOf guesses how a disk is attached from its sysfs path.
+func transportOf(name, devicePath string) string {
+	switch {
+	case strings.HasPrefix(name, "nvme"):
+		return "nvme"
+	case strings.Contains(devicePath, "/usb"):
+		return "usb"
+	case strings.HasPrefix(name, "vd") || strings.Contains(devicePath, "/virtio"):
+		return "virtio"
+	case strings.Contains(devicePath, "/ata"):
+		return "sata"
+	case strings.Contains(devicePath, "/sas") || strings.Contains(devicePath, "/end_device"):
+		return "sas"
+	case strings.HasPrefix(name, "sd"):
+		return "scsi"
+	}
+	return ""
+}
+
+// nics lists the network interfaces backed by a device.
+func (f *facts) nics() []system.NICFact {
+	entries, err := os.ReadDir(f.h.path("/sys/class/net"))
+	if err != nil {
+		return nil
+	}
+	var out []system.NICFact
+	for _, e := range entries {
+		dir := path.Join("/sys/class/net", e.Name())
+		if !f.exists(dir + "/device") {
+			continue
+		}
+		n := system.NICFact{
+			Name: e.Name(),
+			MAC:  f.read(dir + "/address"),
+			Up:   f.read(dir+"/operstate") == "up",
+		}
+		if speed, err := strconv.Atoi(f.read(dir + "/speed")); err == nil && speed > 0 {
+			n.SpeedMbps = speed
+		}
+		if driver, err := os.Readlink(f.h.path(dir + "/device/driver")); err == nil {
+			n.Driver = path.Base(filepath.ToSlash(driver))
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func parseMeminfo(data []byte) (mem, swap int64) {

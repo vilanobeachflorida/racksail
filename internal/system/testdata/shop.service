@@ -1,0 +1,58 @@
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Site shop of blog
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+Slice=racksail-accounts-blog.slice
+ExecStartPre=/opt/racksail/runtimes/node/22.11.0/bin/node migrate.js
+ExecStart=/opt/racksail/runtimes/node/22.11.0/bin/node server.js --title "Blog & shop" --discount "50%%" --price "$$5"
+ExecReload=/usr/bin/kill -s HUP $MAINPID
+RuntimeDirectory=racksail-sites/blog
+RuntimeDirectoryMode=0750
+WorkingDirectory=/srv/racksail/accounts/blog/sites/shop
+Environment="GREETING=say \"hi\""
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+EnvironmentFile=/srv/racksail/accounts/blog/sites/shop/.env
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=1500ms
+LogNamespace=blog
+SyslogIdentifier=blog-shop
+MemoryHigh=402653184
+MemoryMax=536870912
+CPUQuota=150%
+TasksMax=256
+User=blog
+Group=blog
+ProtectSystem=strict
+ProtectHome=tmpfs
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+InaccessiblePaths=-/run/racksail
+BindPaths=/srv/racksail/accounts/blog/sites/shop
+BindReadOnlyPaths=/opt/racksail/runtimes/node/22.11.0
+SocketBindDeny=any
+SocketBindAllow=tcp:3000
+IPAddressDeny=169.254.169.254/32
+
+[Install]
+WantedBy=multi-user.target

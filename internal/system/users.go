@@ -1,6 +1,9 @@
 package system
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Users manages Linux users and groups.
 type Users interface {
@@ -51,4 +54,27 @@ type Group struct {
 	GID     int      `json:"gid"`
 	Members []string `json:"members,omitempty"`
 	System  bool     `json:"system,omitempty"`
+}
+
+// AllocateAccountID returns the lowest ID in the account range that no user
+// or group on the machine has and that isn't in exclude. Accounts get the
+// same number as user ID and group ID, so both must be free.
+func AllocateAccountID(users []User, groups []Group, exclude []int) (int, error) {
+	used := make(map[int]bool, len(users)+len(groups)+len(exclude))
+	for _, u := range users {
+		used[u.UID] = true
+		used[u.GID] = true
+	}
+	for _, g := range groups {
+		used[g.GID] = true
+	}
+	for _, id := range exclude {
+		used[id] = true
+	}
+	for id := AccountUIDMin; id <= AccountUIDMax; id++ {
+		if !used[id] {
+			return id, nil
+		}
+	}
+	return 0, fmt.Errorf("every account ID from %d to %d is taken: %w", AccountUIDMin, AccountUIDMax, ErrExists)
 }

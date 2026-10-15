@@ -39,6 +39,7 @@ const (
 	progGpasswd     = "/usr/bin/gpasswd"
 	progAptGet      = "/usr/bin/apt-get"
 	progAptCache    = "/usr/bin/apt-cache"
+	progAptMark     = "/usr/bin/apt-mark"
 	progDpkgQuery   = "/usr/bin/dpkg-query"
 	progTar         = "/usr/bin/tar"
 	progBtrfs       = "/usr/bin/btrfs"
@@ -89,6 +90,8 @@ func NewWith(opts Options) *system.Backend {
 		Sysctl:    &sysctl{h},
 		Processes: &processes{h},
 		Certs:     system.NewCertStore(files, system.CertsDir),
+		Journal:   &journal{h},
+		Metrics:   &metrics{h: h, systemd: opts.Systemd},
 		Exec:      opts.Runner,
 	}
 }

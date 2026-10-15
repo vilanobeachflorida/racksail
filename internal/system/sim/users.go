@@ -70,6 +70,7 @@ func (u simUsers) ListGroups(ctx context.Context) ([]system.Group, error) {
 
 func (u simUsers) CreateUser(ctx context.Context, usr system.User) error {
 	m := u.m
+	m.delay(ctx, opCreateUser, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}

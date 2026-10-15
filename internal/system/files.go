@@ -22,6 +22,11 @@ type Files interface {
 	WriteFrom(ctx context.Context, path string, r io.Reader, perm fs.FileMode, owner Owner) error
 	// Open streams a file's contents.
 	Open(ctx context.Context, path string) (io.ReadCloser, error)
+	// OpenRandom opens a regular file for reading at any offset.
+	OpenRandom(ctx context.Context, path string) (RandomReader, error)
+	// OpenTree opens a directory as a Tree, for work inside directories
+	// other users can change.
+	OpenTree(ctx context.Context, dir string) (Tree, error)
 	// Mkdir creates one directory. The parent must exist; an existing path
 	// fails with ErrExists.
 	Mkdir(ctx context.Context, path string, perm fs.FileMode, owner Owner) error

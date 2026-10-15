@@ -279,10 +279,10 @@ func TestUnitsAdapter(t *testing.T) {
 	if err := b.Units.Kill(ctx, "racksail-site-blog.service", system.SIGUSR1); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Units.SetProperties(ctx, "racksail-acct-blog.slice", true, system.UnitProperty{Name: "MemoryMax", Value: "512M"}, system.UnitProperty{Name: "CPUQuota", Value: "50%"}); err != nil {
+	if err := b.Units.SetProperties(ctx, "racksail-accounts-blog.slice", true, system.UnitProperty{Name: "MemoryMax", Value: "512M"}, system.UnitProperty{Name: "CPUQuota", Value: "50%"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Units.SetProperties(ctx, "racksail-acct-blog.slice", true, system.UnitProperty{Name: "ExecStart", Value: "/bin/sh -c x"}); !errors.Is(err, system.ErrInvalid) {
+	if err := b.Units.SetProperties(ctx, "racksail-accounts-blog.slice", true, system.UnitProperty{Name: "ExecStart", Value: "/bin/sh -c x"}); !errors.Is(err, system.ErrInvalid) {
 		t.Errorf("unsafe property value: %v", err)
 	}
 	if err := b.Units.Start(ctx, "../evil.service"); !errors.Is(err, system.ErrInvalid) {
@@ -291,7 +291,7 @@ func TestUnitsAdapter(t *testing.T) {
 	if !slices.Contains(sd.ops, "kill racksail-site-blog.service:10") {
 		t.Errorf("USR1 should be signal 10 on Linux: %v", sd.ops)
 	}
-	if got := runner.argv(); len(got) != 1 || got[0] != "/usr/bin/systemctl set-property --runtime -- racksail-acct-blog.slice MemoryMax=512M CPUQuota=50%" {
+	if got := runner.argv(); len(got) != 1 || got[0] != "/usr/bin/systemctl set-property --runtime -- racksail-accounts-blog.slice MemoryMax=512M CPUQuota=50%" {
 		t.Errorf("commands = %v", got)
 	}
 }
@@ -630,7 +630,7 @@ func TestProcAndFacts(t *testing.T) {
 	write(t, root, "/proc/4242/stat", "4242 (php-fpm: pool (www)) S 1 4242 4242 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 1 0 1000 123456 789 18446744073709551615\n")
 	write(t, root, "/proc/4242/status", "Name:\tphp-fpm\nUid:\t20001\t20001\t20001\t20001\nVmRSS:\t   2048 kB\n")
 	write(t, root, "/proc/4242/cmdline", "php-fpm: pool www\x00")
-	write(t, root, "/proc/4242/cgroup", "0::/racksail.slice/racksail-accounts.slice/racksail-acct-blog.slice/racksail-site-blog.service\n")
+	write(t, root, "/proc/4242/cgroup", "0::/racksail.slice/racksail-accounts.slice/racksail-accounts-blog.slice/racksail-site-blog.service\n")
 	write(t, root, "/proc/self/mountinfo", "")
 	procs, err := b.Processes.List(ctx, system.ProcessFilter{User: "blog"})
 	if err != nil || len(procs) != 1 {

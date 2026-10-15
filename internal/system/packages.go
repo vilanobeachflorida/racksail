@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"path"
 	"regexp"
@@ -11,7 +12,7 @@ import (
 )
 
 // Packages installs software: Debian packages from pinned apt sources and
-// vendor archives verified against checksums.
+// vendor archives verified against signatures or checksums.
 type Packages interface {
 	// Installed returns the installed packages among names. Packages that
 	// aren't installed are left out.
@@ -24,15 +25,23 @@ type Packages interface {
 	Remove(ctx context.Context, purge bool, names ...string) error
 	// Upgradable lists installed packages with newer versions available.
 	Upgradable(ctx context.Context) ([]Package, error)
+	// Upgrade installs every available update that isn't held; full also
+	// takes updates that add or remove packages, such as a new kernel.
+	Upgrade(ctx context.Context, full bool) error
+	// SetHold keeps packages at their installed versions, or releases
+	// them, so automatic and scheduled upgrades leave them alone.
+	SetHold(ctx context.Context, hold bool, names ...string) error
+	// Held lists the held packages.
+	Held(ctx context.Context) ([]string, error)
 	// AddSource writes an apt source with its signing key and pin. Call
 	// UpdateIndex afterwards.
 	AddSource(ctx context.Context, src AptSource) error
 	RemoveSource(ctx context.Context, name string) error
 	// Sources lists the names of the apt sources Racksail added.
 	Sources(ctx context.Context) ([]string, error)
-	// InstallArchive downloads a vendor archive, verifies its checksum and
-	// unpacks it into a new versioned directory. An existing directory is
-	// left alone, since versioned directories never change.
+	// InstallArchive downloads a vendor archive, verifies its signature or
+	// checksum and unpacks it into a new versioned directory. An existing
+	// directory is left alone, since versioned directories never change.
 	InstallArchive(ctx context.Context, a Archive) error
 }
 
@@ -69,14 +78,18 @@ type AptSource struct {
 	Packages []string `json:"packages"`
 }
 
-// Archive is a vendor archive to unpack into a versioned directory.
+// Archive is a vendor archive to unpack into a versioned directory. It is
+// verified by its checksum, its vendor's signature, or both; one of them is
+// required.
 type Archive struct {
 	URL string `json:"url"`
-	// SHA256 is the expected checksum in hex. It is required.
-	SHA256 string `json:"sha256"`
+	// SHA256 is the expected checksum in hex.
+	SHA256 string `json:"sha256,omitempty"`
+	// Signature verifies the archive with the vendor's signing key.
+	Signature *ArchiveSignature `json:"signature,omitempty"`
 	// Size is the expected size in bytes; larger downloads are refused.
 	Size int64 `json:"size"`
-	// Format is tar.gz, tar.xz or zip.
+	// Format is tar.gz, tar.xz, tar.zst or zip.
 	Format string `json:"format"`
 	// Dest is the directory to create, such as
 	// /opt/racksail/runtimes/node/22.11.0.
@@ -167,20 +180,40 @@ func (s AptSource) Render() (AptFiles, error) {
 	return f, nil
 }
 
+var signingKeyNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`)
+
+func httpsURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
+}
+
 // Validate checks an archive request.
 func (a Archive) Validate() error {
-	u, err := url.Parse(a.URL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if !httpsURL(a.URL) {
 		return fmt.Errorf("archive URL %q must be https: %w", a.URL, ErrInvalid)
 	}
-	if !sha256Pattern.MatchString(a.SHA256) {
+	if a.SHA256 == "" && a.Signature == nil {
+		return fmt.Errorf("archive %s needs a SHA-256 or a signature: %w", a.URL, ErrInvalid)
+	}
+	if a.SHA256 != "" && !sha256Pattern.MatchString(a.SHA256) {
 		return fmt.Errorf("archive %s needs a lowercase hex SHA-256: %w", a.URL, ErrInvalid)
+	}
+	if s := a.Signature; s != nil {
+		if !signingKeyNamePattern.MatchString(s.Key) {
+			return fmt.Errorf("archive %s: signing key name %q: %w", a.URL, s.Key, ErrInvalid)
+		}
+		if !httpsURL(s.URL) || (s.Checksums != "" && !httpsURL(s.Checksums)) {
+			return fmt.Errorf("archive %s: signature and checksums must come over https: %w", a.URL, ErrInvalid)
+		}
+		if strings.ContainsAny(s.Name, "\x00\n") || len(s.Name) > 255 {
+			return fmt.Errorf("archive %s: name in the checksums list: %w", a.URL, ErrInvalid)
+		}
 	}
 	if a.Size <= 0 {
 		return fmt.Errorf("archive %s needs its expected size: %w", a.URL, ErrInvalid)
 	}
 	switch a.Format {
-	case "tar.gz", "tar.xz", "zip":
+	case "tar.gz", "tar.xz", "tar.zst", "zip":
 	default:
 		return fmt.Errorf("archive format %q: %w", a.Format, ErrInvalid)
 	}
@@ -189,6 +222,57 @@ func (a Archive) Validate() error {
 	}
 	if a.StripComponents < 0 || a.StripComponents > 8 {
 		return fmt.Errorf("archive strip components %d: %w", a.StripComponents, ErrInvalid)
+	}
+	return nil
+}
+
+// Name is the archive's name in a checksums list.
+func (a Archive) Name() string {
+	if a.Signature != nil && a.Signature.Name != "" {
+		return a.Signature.Name
+	}
+	u, err := url.Parse(a.URL)
+	if err != nil {
+		return path.Base(a.URL)
+	}
+	return path.Base(u.Path)
+}
+
+// Verify checks a downloaded archive whose SHA-256 is sum against the
+// expected checksum and the vendor's signature. open reads the downloaded
+// archive again, for signatures that cover it directly; signature and
+// checksums are what was downloaded from the signature's URLs.
+func (a Archive) Verify(sum string, open func() (io.ReadCloser, error), signature, checksums []byte) error {
+	if a.SHA256 != "" && sum != a.SHA256 {
+		return fmt.Errorf("%s has checksum %s, expected %s: %w", a.URL, sum, a.SHA256, ErrInvalid)
+	}
+	s := a.Signature
+	if s == nil {
+		return nil
+	}
+	if len(s.PublicKey) == 0 {
+		return fmt.Errorf("archive %s: signing key %s isn't known: %w", a.URL, s.Key, ErrInvalid)
+	}
+	if s.Checksums != "" {
+		if err := VerifySignature(s.PublicKey, bytes.NewReader(checksums), signature); err != nil {
+			return fmt.Errorf("checksums of %s: %w", a.URL, err)
+		}
+		expected, err := ChecksumFor(checksums, a.Name())
+		if err != nil {
+			return err
+		}
+		if expected != sum {
+			return fmt.Errorf("%s has checksum %s, but the signed list says %s: %w", a.URL, sum, expected, ErrInvalid)
+		}
+		return nil
+	}
+	r, err := open()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	if err := VerifySignature(s.PublicKey, r, signature); err != nil {
+		return fmt.Errorf("%s: %w", a.URL, err)
 	}
 	return nil
 }

@@ -140,6 +140,7 @@ func (b simBtrfs) Subvolumes(ctx context.Context, mount string) ([]system.Subvol
 }
 
 func (b simBtrfs) CreateSubvolume(ctx context.Context, p string) error {
+	b.m.delay(ctx, opSubvolume, 0)
 	p, err := cleanAbs(p)
 	if err != nil {
 		return err
@@ -205,6 +206,7 @@ func (b simBtrfs) DeleteSubvolume(ctx context.Context, p string) error {
 }
 
 func (b simBtrfs) Snapshot(ctx context.Context, source, dest string, readOnly bool) error {
+	b.m.delay(ctx, opSnapshot, 0)
 	source, err := cleanAbs(source)
 	if err != nil {
 		return err
@@ -804,52 +806,9 @@ func (s simDisks) List(ctx context.Context) ([]system.Disk, error) {
 	return out, nil
 }
 
-func (s simDisks) SMART(ctx context.Context, name string) (system.SMARTReport, error) {
-	m := s.m
-	if err := m.lock(ctx); err != nil {
-		return system.SMARTReport{}, err
-	}
-	defer m.mu.Unlock()
-	d, p := m.findDevice(name)
-	if d == nil || p != nil {
-		return system.SMARTReport{}, notFound("disk " + name)
-	}
-	h := hash(d.Serial)
-	temp := 30 + int(h%15)
-	hours := int(h % 30000)
-	return system.SMARTReport{
-		Supported: true, Healthy: true, TemperatureC: temp, PowerOnHours: hours,
-		Attributes: []system.SMARTAttribute{
-			{ID: 5, Name: "Reallocated_Sector_Ct", Value: 100, Worst: 100, Threshold: 10},
-			{ID: 9, Name: "Power_On_Hours", Value: 99, Worst: 99, Raw: int64(hours)},
-			{ID: 194, Name: "Temperature_Celsius", Value: 100 - temp, Worst: 60, Raw: int64(temp)},
-			{ID: 197, Name: "Current_Pending_Sector", Value: 100, Worst: 100},
-			{ID: 198, Name: "Offline_Uncorrectable", Value: 100, Worst: 100},
-		},
-	}, nil
-}
-
-func (s simDisks) SelfTest(ctx context.Context, name string, long bool) error {
-	m := s.m
-	if err := m.lock(ctx); err != nil {
-		return err
-	}
-	defer m.mu.Unlock()
-	kind := "short"
-	if long {
-		kind = "long"
-	}
-	if err := m.record("disks", "self_test", name+" "+kind); err != nil {
-		return err
-	}
-	if d, p := m.findDevice(name); d == nil || p != nil {
-		return notFound("disk " + name)
-	}
-	return nil
-}
-
 func (s simDisks) Wipe(ctx context.Context, device string) error {
 	m := s.m
+	m.delay(ctx, opWipe, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -876,6 +835,7 @@ func (s simDisks) Wipe(ctx context.Context, device string) error {
 
 func (s simDisks) Partition(ctx context.Context, disk string, parts []system.PartitionSpec) error {
 	m := s.m
+	m.delay(ctx, opPartition, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -931,6 +891,7 @@ func (s simDisks) Partition(ctx context.Context, disk string, parts []system.Par
 
 func (s simDisks) Format(ctx context.Context, spec system.FormatSpec) error {
 	m := s.m
+	m.delay(ctx, opFormat, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}

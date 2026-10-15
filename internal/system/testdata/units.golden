@@ -1,0 +1,60 @@
+### racksail-accounts-blog.slice
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail account blog
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+TasksAccounting=yes
+MemoryHigh=1610612736
+MemoryMax=2147483648
+MemorySwapMax=536870912
+CPUQuota=200%
+CPUWeight=100
+IOWeight=50
+TasksMax=512
+IOReadBandwidthMax=/dev/nvme0n1 104857600
+IOWriteBandwidthMax=/dev/nvme0n1 52428800
+IOReadIOPSMax=/dev/nvme0n1 2000
+IOWriteIOPSMax=/dev/nvme0n1 1000
+
+### racksail-job-blog-nightly.timer
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Nightly job of blog
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+OnCalendar=Mon..Fri 12:00
+RandomizedDelaySec=600s
+AccuracySec=60s
+Persistent=yes
+Unit=racksail-job-blog-nightly.service
+
+[Install]
+WantedBy=timers.target
+
+### racksail-site-blog-shop.socket
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Site shop of blog (socket)
+
+[Socket]
+ListenStream=/run/racksail-sites/blog/shop.sock
+ListenStream=127.0.0.1:8080
+SocketUser=root
+SocketGroup=racksail-edge
+SocketMode=0660
+Service=racksail-site-blog-shop.service
+RemoveOnStop=yes
+Backlog=1024
+
+[Install]
+WantedBy=sockets.target
+

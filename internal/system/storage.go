@@ -142,13 +142,44 @@ type Partition struct {
 	MountPoints []string `json:"mountPoints,omitempty"`
 }
 
-// SMARTReport is the health of a disk.
+// SMARTReport is the health of a disk, as smartctl reports it.
 type SMARTReport struct {
-	Supported    bool             `json:"supported"`
-	Healthy      bool             `json:"healthy"`
-	TemperatureC int              `json:"temperatureC,omitempty"`
-	PowerOnHours int              `json:"powerOnHours,omitempty"`
-	Attributes   []SMARTAttribute `json:"attributes,omitempty"`
+	Supported bool `json:"supported"`
+	Healthy   bool `json:"healthy"`
+	// Protocol is ATA, NVMe or SCSI.
+	Protocol     string `json:"protocol,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Serial       string `json:"serial,omitempty"`
+	Firmware     string `json:"firmware,omitempty"`
+	TemperatureC int    `json:"temperatureC,omitempty"`
+	PowerOnHours int    `json:"powerOnHours,omitempty"`
+	PowerCycles  int    `json:"powerCycles,omitempty"`
+	// ReallocatedSectors and PendingSectors are the ATA attributes that
+	// most often warn of a failing disk.
+	ReallocatedSectors int64 `json:"reallocatedSectors,omitempty"`
+	PendingSectors     int64 `json:"pendingSectors,omitempty"`
+	// NVMe health: wear in percent of the rated endurance, spare capacity
+	// left, and error counts.
+	PercentageUsed   int              `json:"percentageUsed,omitempty"`
+	AvailableSpare   int              `json:"availableSpare,omitempty"`
+	MediaErrors      int64            `json:"mediaErrors,omitempty"`
+	UnsafeShutdowns  int64            `json:"unsafeShutdowns,omitempty"`
+	CriticalWarning  int              `json:"criticalWarning,omitempty"`
+	DataReadBytes    int64            `json:"dataReadBytes,omitempty"`
+	DataWrittenBytes int64            `json:"dataWrittenBytes,omitempty"`
+	SelfTest         *SMARTSelfTest   `json:"selfTest,omitempty"`
+	Attributes       []SMARTAttribute `json:"attributes,omitempty"`
+}
+
+// SMARTSelfTest is the state of the latest self-test.
+type SMARTSelfTest struct {
+	// Status is running, passed, failed or aborted.
+	Status string `json:"status" enum:"running,passed,failed,aborted"`
+	// Type is short or long.
+	Type             string `json:"type,omitempty"`
+	RemainingPercent int    `json:"remainingPercent,omitempty"`
+	// LifetimeHours is the disk's power-on hours when the test ran.
+	LifetimeHours int `json:"lifetimeHours,omitempty"`
 }
 
 // SMARTAttribute is one SMART attribute.

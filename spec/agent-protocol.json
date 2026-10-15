@@ -46,6 +46,9 @@
           "sha256": {
             "type": "string"
           },
+          "signature": {
+            "$ref": "#/components/schemas/ArchiveSignature"
+          },
           "size": {
             "format": "int64",
             "type": "integer"
@@ -60,10 +63,35 @@
         },
         "required": [
           "url",
-          "sha256",
           "size",
           "format",
           "dest"
+        ],
+        "type": "object"
+      },
+      "ArchiveSignature": {
+        "additionalProperties": false,
+        "properties": {
+          "checksums": {
+            "description": "Signed list of SHA-256 checksums that includes the archive",
+            "type": "string"
+          },
+          "key": {
+            "description": "Name of a vendor signing key built into Racksail",
+            "type": "string"
+          },
+          "name": {
+            "description": "The archive's name in the checksums list",
+            "type": "string"
+          },
+          "url": {
+            "description": "Detached OpenPGP signature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "url"
         ],
         "type": "object"
       },
@@ -122,15 +150,37 @@
             "format": "int64",
             "type": "integer"
           },
+          "flags": {
+            "description": "Feature flags such as vmx, svm, aes or avx2",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "model": {
             "type": "string"
+          },
+          "sockets": {
+            "format": "int64",
+            "type": "integer"
           },
           "threads": {
             "format": "int64",
             "type": "integer"
           },
+          "vendor": {
+            "description": "GenuineIntel, AuthenticAMD or the arm64 implementer",
+            "type": "string"
+          },
           "virtualization": {
             "type": "boolean"
+          },
+          "virtualizationType": {
+            "description": "vmx (Intel VT-x), svm (AMD-V) or arm64",
+            "type": "string"
           }
         },
         "required": [
@@ -378,6 +428,42 @@
           "rotational",
           "removable",
           "system"
+        ],
+        "type": "object"
+      },
+      "DiskFact": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Kernel name, such as sda or nvme0n1",
+            "type": "string"
+          },
+          "removable": {
+            "type": "boolean"
+          },
+          "rotational": {
+            "type": "boolean"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "transport": {
+            "description": "sata, nvme, usb, sas, virtio or scsi",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "sizeBytes",
+          "rotational",
+          "removable"
         ],
         "type": "object"
       },
@@ -1039,6 +1125,16 @@
           "cpu": {
             "$ref": "#/components/schemas/CPUInfo"
           },
+          "disks": {
+            "description": "Physical disks",
+            "items": {
+              "$ref": "#/components/schemas/DiskFact"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "firmware": {
             "$ref": "#/components/schemas/Firmware"
           },
@@ -1065,6 +1161,16 @@
             "format": "int64",
             "type": "integer"
           },
+          "nics": {
+            "description": "Network interfaces backed by a device",
+            "items": {
+              "$ref": "#/components/schemas/NICFact"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "os": {
             "$ref": "#/components/schemas/OSRelease"
           },
@@ -1078,6 +1184,10 @@
           "tpm": {
             "description": "A TPM 2.0 device is present",
             "type": "boolean"
+          },
+          "tpmVersion": {
+            "description": "Major version of the TPM, such as 2",
+            "type": "string"
           },
           "virtualization": {
             "type": "string"
@@ -1170,6 +1280,32 @@
         },
         "required": [
           "mount"
+        ],
+        "type": "object"
+      },
+      "NICFact": {
+        "additionalProperties": false,
+        "properties": {
+          "driver": {
+            "type": "string"
+          },
+          "mac": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "speedMbps": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "up": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "up"
         ],
         "type": "object"
       },
@@ -1845,12 +1981,63 @@
               "null"
             ]
           },
+          "availableSpare": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "criticalWarning": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dataReadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dataWrittenBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "firmware": {
+            "type": "string"
+          },
           "healthy": {
             "type": "boolean"
+          },
+          "mediaErrors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "pendingSectors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "percentageUsed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "powerCycles": {
+            "format": "int64",
+            "type": "integer"
           },
           "powerOnHours": {
             "format": "int64",
             "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "reallocatedSectors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "selfTest": {
+            "$ref": "#/components/schemas/SMARTSelfTest"
+          },
+          "serial": {
+            "type": "string"
           },
           "supported": {
             "type": "boolean"
@@ -1858,11 +2045,44 @@
           "temperatureC": {
             "format": "int64",
             "type": "integer"
+          },
+          "unsafeShutdowns": {
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
           "supported",
           "healthy"
+        ],
+        "type": "object"
+      },
+      "SMARTSelfTest": {
+        "additionalProperties": false,
+        "properties": {
+          "lifetimeHours": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "remainingPercent": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "passed",
+              "failed",
+              "aborted"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
         ],
         "type": "object"
       },

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,19 +48,99 @@ func parseNftTables(out []byte) ([]system.RulesetTable, error) {
 }
 
 // script builds one nft transaction that deletes Racksail's current tables
-// and creates the new ones, so the switch is atomic.
+// and creates the new ones, so the switch is atomic. Addresses in sets with
+// timeouts, such as bans, survive the switch with the time they had left
+// when the new ruleset declares the same sets.
 func (f *firewall) script(ctx context.Context, ruleset []byte) ([]byte, error) {
-	if _, err := system.CheckRuleset(ruleset); err != nil {
+	tables, err := system.CheckRuleset(ruleset)
+	if err != nil {
 		return nil, err
 	}
 	current, err := f.racksailTables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return buildNftScript(current, ruleset), nil
+	kept, err := f.keptElements(ctx, tables, ruleset)
+	if err != nil {
+		return nil, err
+	}
+	return buildNftScript(current, ruleset, kept), nil
 }
 
-func buildNftScript(current []system.RulesetTable, ruleset []byte) []byte {
+// keptSet is a set whose elements are carried over to a new ruleset.
+type keptSet struct {
+	ref   system.SetRef
+	elems []system.SetElement
+}
+
+func (f *firewall) keptElements(ctx context.Context, newTables []system.RulesetTable, ruleset []byte) ([]keptSet, error) {
+	out, err := f.h.exec(ctx, progNft, "--json", "list", "sets")
+	if err != nil {
+		return nil, fmt.Errorf("listing nftables sets: %w", err)
+	}
+	var kept []keptSet
+	for _, ref := range parseTimeoutSets(out) {
+		if !rulesetDeclaresSet(newTables, ruleset, ref) {
+			continue
+		}
+		elems, err := f.Elements(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		if len(elems) > 0 {
+			kept = append(kept, keptSet{ref: ref, elems: elems})
+		}
+	}
+	return kept, nil
+}
+
+// parseTimeoutSets returns Racksail's sets with the timeout flag.
+func parseTimeoutSets(out []byte) []system.SetRef {
+	var doc struct {
+		Nftables []struct {
+			Set *struct {
+				Family string   `json:"family"`
+				Name   string   `json:"name"`
+				Table  string   `json:"table"`
+				Flags  []string `json:"flags"`
+			} `json:"set"`
+		} `json:"nftables"`
+	}
+	if json.Unmarshal(out, &doc) != nil {
+		return nil
+	}
+	var refs []system.SetRef
+	for _, item := range doc.Nftables {
+		s := item.Set
+		if s == nil || !strings.HasPrefix(s.Table, "racksail") {
+			continue
+		}
+		dynamic := false
+		for _, fl := range s.Flags {
+			dynamic = dynamic || fl == "dynamic"
+		}
+		for _, fl := range s.Flags {
+			// Dynamic sets are rate-limit meters; starting them over is fine.
+			if fl == "timeout" && !dynamic {
+				refs = append(refs, system.SetRef{Family: s.Family, Table: s.Table, Set: s.Name})
+			}
+		}
+	}
+	return refs
+}
+
+func rulesetDeclaresSet(tables []system.RulesetTable, ruleset []byte, ref system.SetRef) bool {
+	found := false
+	for _, t := range tables {
+		found = found || (t.Family == ref.Family && t.Name == ref.Table)
+	}
+	if !found {
+		return false
+	}
+	return regexp.MustCompile(`\bset\s+` + regexp.QuoteMeta(ref.Set) + `\s*\{`).Match(ruleset)
+}
+
+func buildNftScript(current []system.RulesetTable, ruleset []byte, kept []keptSet) []byte {
 	var b bytes.Buffer
 	for _, t := range current {
 		fmt.Fprintf(&b, "delete table %s %s\n", t.Family, t.Name)
@@ -67,6 +148,13 @@ func buildNftScript(current []system.RulesetTable, ruleset []byte) []byte {
 	b.Write(ruleset)
 	if !bytes.HasSuffix(ruleset, []byte("\n")) {
 		b.WriteByte('\n')
+	}
+	for _, k := range kept {
+		list, err := elementList(k.elems, true)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "add element %s %s %s %s\n", k.ref.Family, k.ref.Table, k.ref.Set, list)
 	}
 	return b.Bytes()
 }
