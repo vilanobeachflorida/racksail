@@ -23,6 +23,9 @@ export default defineConfig({
   timeout: 30_000,
   reporter: [["list"], ["html", { open: "never", outputFolder: process.env.RACKSAIL_E2E_REPORT ?? "playwright-report" }]],
   outputDir: process.env.RACKSAIL_E2E_RESULTS ?? "test-results",
+  // The visual baselines, one directory per project, which the Screenshots
+  // workflow writes on Linux.
+  snapshotPathTemplate: "{testDir}/__screenshots__/{projectName}/{arg}{ext}",
   use: {
     baseURL: external ?? `http://${devAddr}`,
     ignoreHTTPSErrors: Boolean(process.env.RACKSAIL_E2E_INSECURE),

@@ -30,6 +30,12 @@ npx playwright test --ui
 
 The suites check what holds for every panel: the API's health, version, document and errors, the UI's security headers, that it loads nothing from other origins and starts without errors, that its screens meet WCAG 2.2 AA as far as [axe](https://github.com/dequelabs/axe-core) can tell, on a desktop and on a phone, that the first screen loads within the bundle budget of 250 KiB of code and styles compressed, and, where a signed-in session is available, the shell's landmarks, keyboard access and pages. Each module adds its own flows next to them, and runs axe on its screens the same way.
 
+## Visual regression
+
+With `RACKSAIL_E2E_VISUAL=1`, as CI runs `make e2e-local`, the browser suite also takes a screenshot of every screen the navigation reaches, on a desktop and on a phone, and compares it with the baseline in `e2e/specs/__screenshots__/`. A screen that looks different fails the run, and Playwright's report shows the baseline, the new screenshot and their difference. [visual.spec.ts](e2e/specs/visual.spec.ts) pins what changes from build to build, such as the Go version the panel reports and the browser's clock, and leaves out `<time>` elements; anything else that differs from run to run belongs there too.
+
+The baselines are rendered on CI's Linux runner, the only place the comparison runs. When a change alters screens on purpose, run the **Screenshots** workflow on its branch: it renders the screens there with `make e2e-screenshots` and commits the new baselines, whose differences the pull request then shows. Until the first baselines are committed, the suite compares nothing and CI says so.
+
 ## Pseudo-locales and right to left
 
 ```sh
@@ -41,7 +47,7 @@ It builds the UI with two pseudo-locales next to English and checks every screen
 - **en-XA** accents every letter of every message, puts it in brackets and makes it a third longer. Any unaccented word left on a screen, apart from what the API sent, didn't come from a message catalog. Text a third longer must neither make the page scroll sideways nor get cut off without an ellipsis.
 - **ar-XB** makes every word read right to left, and since the UI takes it for Arabic, the whole panel lays itself out right to left. The suite checks that each landmark sits where it would left to right, mirrored, and that nothing overflows.
 
-[e2e/pseudo/pseudo.mjs](e2e/pseudo/pseudo.mjs) rewrites the messages, leaving their arguments, plurals and tags alone, and [e2e/pseudo/serve.mjs](e2e/pseudo/serve.mjs) builds the UI with them from a copy of `ui/` in `build/pseudo/`, so the source tree stays as it is. `make check` runs the rewriter's own tests over every catalog the UI has. Playwright's report, in `build/e2e-pseudo/`, has a screenshot of every screen in both pseudo-locales; CI keeps it for two weeks. Text that is data rather than words, such as a hostname in a table, goes in an element with `translate="no"`, which the suite and browsers' translators both leave alone.
+[e2e/pseudo/pseudo.mjs](e2e/pseudo/pseudo.mjs) rewrites the messages, leaving their arguments, plurals and tags alone, and [e2e/pseudo/serve.mjs](e2e/pseudo/serve.mjs) builds the UI with them from a copy of `ui/` in `build/pseudo/`, so the source tree stays as it is. `make check` runs the rewriter's own tests over every catalog the UI has. Playwright's report, in `build/e2e-pseudo/`, has a screenshot of every screen in both pseudo-locales; CI keeps it for two weeks. What the API sends is shown as it is and doesn't count. Other text that isn't words to translate, such as a key's fingerprint the UI works out, goes in an element with `translate="no"`, which the suite and browsers' translators both leave alone.
 
 ## Installing on a virtual machine
 

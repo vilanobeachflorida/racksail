@@ -71,6 +71,7 @@ help:
 	@echo "make e2e         install the ISO on a QEMU machine and run the end-to-end suites; ISO, E2E_FLAGS"
 	@echo "make e2e-local   run the end-to-end suites against racksail dev on $(E2E_ADDR)"
 	@echo "make e2e-pseudo  check the UI in the pseudo-locales en-XA and ar-XB, right to left included"
+	@echo "make e2e-screenshots  rewrite the browser suite's visual baselines; Linux only, as CI renders them"
 	@echo "make cloud-image download Debian's cloud image for the end-to-end tests; CLOUD_ARCH"
 	@echo "make catalog     check the catalog and build its index into $(CATALOG_OUT)"
 	@echo "make licenses    check that every dependency's license is allowed"
@@ -223,8 +224,8 @@ CATALOG_PUBLIC ?= catalog/keys/official.pub
 
 FUZZ_TIME ?= 1m
 
-.PHONY: release deb sbom notices iso e2e e2e-local e2e-pseudo e2e-check cloud-image catalog catalog-check \
-	catalog-publish licenses vulncheck fuzz gen-check sdk-check ci-lint
+.PHONY: release deb sbom notices iso e2e e2e-local e2e-pseudo e2e-screenshots e2e-check cloud-image catalog \
+	catalog-check catalog-publish licenses vulncheck fuzz gen-check sdk-check ci-lint
 
 check: sdk-check e2e-check
 
@@ -299,6 +300,14 @@ e2e: $(E2E_DEPS)
 
 e2e-local: build $(E2E_DEPS)
 	E2E_ADDR=$(E2E_ADDR) E2E_DATA=$(E2E_DATA) test/e2e/local.sh $(BIN)/racksail
+
+# The browser suite compares every screen with the baselines in
+# test/e2e/specs/__screenshots__ when RACKSAIL_E2E_VISUAL is set, as CI sets
+# it. This rewrites them from this machine's rendering; CI's are Linux's, so
+# its Screenshots workflow runs this and commits the result.
+e2e-screenshots: build $(E2E_DEPS)
+	@test "$$(uname -s)" = Linux || { echo "the visual baselines are rendered on Linux; run the Screenshots workflow on your branch instead"; exit 1; }
+	E2E_ADDR=$(E2E_ADDR) E2E_DATA=$(E2E_DATA) RACKSAIL_E2E_VISUAL=1 test/e2e/local.sh $(BIN)/racksail --update-snapshots=all specs/visual.spec.ts
 
 # Builds the UI with the pseudo-locales and checks every screen in them on a
 # desktop and a phone: text that skipped the message catalogs, layouts that

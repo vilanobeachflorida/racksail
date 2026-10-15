@@ -27,6 +27,7 @@ make dev
 - Add tests: table-driven Go tests, golden files for anything that renders configuration, and flows against the simulated server for anything that changes a machine.
 - Update the docs when behaviour changes. User-visible strings go through the message catalogs.
 - Run `make check` before you push. After changing an API operation, an agent operation, the add-on protocol or the default theme, run `make gen` too.
+- For a change to the UI, run `make e2e-pseudo` to see it in the pseudo-locales, right to left included. If it changes how screens look on purpose, ask a maintainer to run the Screenshots workflow on your branch, so the visual baselines follow.
 
 The conventions are in [conventions.md](https://github.com/vilanobeachflorida/racksail/blob/main/docs/architecture/conventions.md). The short version:
 

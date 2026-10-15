@@ -3,14 +3,16 @@
 # machine. It starts racksail dev on its own address and data directory, so
 # it runs next to a development instance, and stops it afterwards.
 #
-#   test/e2e/local.sh [BINARY]
+#   test/e2e/local.sh [BINARY [PLAYWRIGHT ARGUMENTS...]]
 #
 # E2E_ADDR and E2E_DATA choose the address and data directory; the binary is
-# bin/racksail by default, which make e2e-local builds with the UI.
+# bin/racksail by default, which make e2e-local builds with the UI. Further
+# arguments go to Playwright, such as the files to run.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.." || exit 1
 binary=${1:-bin/racksail}
+[ $# -eq 0 ] || shift
 addr=${E2E_ADDR:-127.0.0.1:7170}
 data=${E2E_DATA:-.dev-e2e}
 logs=build/e2e-local
@@ -43,6 +45,6 @@ status=0
 go test -count=1 ./test/e2e/api || status=1
 (
 	cd test/e2e || exit 1
-	RACKSAIL_E2E_REPORT="../../$logs/playwright-report" RACKSAIL_E2E_RESULTS="../../$logs/playwright-results" npx playwright test
+	RACKSAIL_E2E_REPORT="../../$logs/playwright-report" RACKSAIL_E2E_RESULTS="../../$logs/playwright-results" npx playwright test "$@"
 ) || status=1
 exit "$status"

@@ -45,7 +45,11 @@ It runs gofmt, go vet and staticcheck for macOS and Linux, builds for darwin, li
 | `make vulncheck` | Known vulnerabilities, with govulncheck for the Go code and osv-scanner for every lockfile; advisories that don't affect Racksail are listed with their reasons in `packaging/osv-scanner.toml` |
 | `make docs` | That this site builds |
 | `make catalog-check` | Every item of the official catalog |
-| `make e2e-local` | The end-to-end suites against `racksail dev` |
+| `make e2e-local` | The end-to-end suites against `racksail dev`, comparing every screen with its visual baseline |
+| `make e2e-pseudo` | Every screen in the pseudo-locales en-XA and ar-XB: text that skipped the message catalogs, layouts that can't take longer text, and right-to-left layouts that don't mirror |
+| `make ci-lint` | The workflows, with actionlint, and the shell scripts, with shellcheck |
+
+Pull requests also need every commit signed off, which CI checks; see [Contributing](../../community/contributing/).
 
 ## Generated files
 
@@ -66,6 +70,8 @@ make e2e-local
 `make e2e-local` builds the binary with the UI, starts `racksail dev` on 127.0.0.1:7170, runs both suites against it and stops it. To work on browser tests, run `npx playwright test --ui` in `test/e2e`.
 
 Besides each module's flows, the browser suite holds every panel to the rules in the [conventions](https://github.com/vilanobeachflorida/racksail/blob/main/docs/architecture/conventions.md): its screens meet WCAG 2.2 AA as far as axe can tell, on a desktop and on a phone, and the first screen loads within the bundle budget of 250 KiB of code and styles, compressed. A module's tests run axe on its own screens the same way.
+
+In CI, the suite also compares every screen with a screenshot from before, so a change that moves or restyles something shows up for review. The baselines are rendered on CI's Linux runner: when you change screens on purpose, run the **Screenshots** workflow on your branch, which commits the new ones, and check them in the pull request. `make e2e-pseudo` shows every screen in two pseudo-locales, an accented one a third longer than English and a right-to-left one, and fails on text that didn't come from a message catalog, on text that doesn't fit, and on layouts that don't mirror right to left. [test/README.md](https://github.com/vilanobeachflorida/racksail/blob/main/test/README.md) has the details of both.
 
 On Linux with KVM, the QEMU harness installs Racksail from the ISO onto a virtual machine, checks that Racksail's own services idle within the memory budget, 100 MiB with every module off, and runs the same suites against the real thing:
 
