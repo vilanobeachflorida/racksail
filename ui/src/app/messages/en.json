@@ -87,5 +87,7 @@
   "error.notify.unknown_type": "There is no notification channel type called {type}.",
   "error.reconcile.check_failed": "The {check} health check didn't pass: {reason}.",
   "error.secrets.bad_ref": "{ref} isn't a secret reference; use the owner's id, a slash and the secret's name.",
-  "error.secrets.not_found": "The secret {ref} doesn't exist."
+  "error.secrets.not_found": "The secret {ref} doesn't exist.",
+  "error.webhook.delivery_not_found": "The webhook has no delivery {delivery}.",
+  "error.webhook.no_secret": "Give the webhook a signing secret, so receivers can check that events come from this server."
 }

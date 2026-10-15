@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -112,9 +113,35 @@ var kinds = func() *KindRegistry {
 // Kinds returns the process-wide kind registry.
 func Kinds() *KindRegistry { return kinds }
 
-// RegisterKind adds a kind to the process-wide registry. Modules don't call
-// it directly: modules.Register registers the kinds a module declares.
-func RegisterKind(k Kind) error { return kinds.Register(k) }
+// registerErrs are the problems RegisterKind and ReservePrefix met while
+// packages initialized.
+var registerErrs = struct {
+	sync.Mutex
+	errs []error
+}{}
 
-// ReservePrefix claims a TypeID prefix in the process-wide registry.
-func ReservePrefix(prefix, purpose string) error { return kinds.Reserve(prefix, purpose) }
+func recordErr(err error) error {
+	if err != nil {
+		registerErrs.Lock()
+		registerErrs.errs = append(registerErrs.errs, err)
+		registerErrs.Unlock()
+	}
+	return err
+}
+
+// RegisterKind adds a kind to the process-wide registry, as the core does
+// for its own kinds from init functions. Modules don't call it: their kinds
+// are registered with them. Problems are also reported by Err.
+func RegisterKind(k Kind) error { return recordErr(kinds.Register(k)) }
+
+// ReservePrefix claims a TypeID prefix in the process-wide registry, for IDs
+// that aren't resources. Problems are also reported by Err.
+func ReservePrefix(prefix, purpose string) error { return recordErr(kinds.Reserve(prefix, purpose)) }
+
+// Err reports the problems RegisterKind and ReservePrefix met, which every
+// role checks before it starts.
+func Err() error {
+	registerErrs.Lock()
+	defer registerErrs.Unlock()
+	return errors.Join(registerErrs.errs...)
+}
