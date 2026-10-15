@@ -16,6 +16,14 @@
   "app.status.unreachable": "The panel isn't answering. Check that racksail is running, then reload this page.",
   "app.status.version": "Racksail {version}, {channel, select, stable {stable channel} beta {beta channel} nightly {nightly channel} other {development build}}",
   "app.status.build": "Built with {goVersion} for {os}/{arch}",
+  "app.activity.title": "Recent activity",
+  "app.activity.empty": "Nothing has happened yet",
+  "app.activity.emptyHelp": "Changes, deploys and alerts show up here as they happen.",
+  "app.activity.failed": "The recent activity couldn't load",
+  "app.activity.severity": "{severity, select, info {Info:} notice {Notice:} warning {Warning:} error {Error:} critical {Critical:} other {}}",
+  "app.activity.when": "{hasActor, select, yes {{time} by {actor}} other {{time}}}",
+  "app.quickActions.title": "Quick actions",
+  "app.quickActions.more": "Search or run a command",
   "app.notFound.title": "This page doesn't exist",
   "app.notFound.body": "The address may be mistyped, or the page has moved.",
   "app.notFound.home": "Go to the home screen",
@@ -422,5 +430,10 @@
   "error.notify.unknown_type": "There is no notification channel type called {type}.",
   "error.reconcile.check_failed": "The {check} health check didn't pass: {reason}.",
   "error.secrets.bad_ref": "{ref} isn't a secret reference; use the owner's id, a slash and the secret's name.",
-  "error.secrets.not_found": "The secret {ref} doesn't exist."
+  "error.secrets.not_found": "The secret {ref} doesn't exist.",
+  "event.core.panel.started": "The panel started.",
+  "event.core.hook.disabled": "A hook failed too many times in a row and was switched off.",
+  "event.core.changeset.applied": "Applied: {title}",
+  "event.core.changeset.failed": "Couldn't apply: {title}",
+  "event.core.changeset.undone": "Undone: {title}"
 }

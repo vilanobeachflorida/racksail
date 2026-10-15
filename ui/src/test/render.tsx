@@ -190,6 +190,7 @@ export function renderShell({
   states = null,
   can,
   theme = {},
+  live = fakeLive().live,
 }: {
   modules: ModuleUI[];
   messages: Messages;
@@ -199,6 +200,8 @@ export function renderShell({
   can?: (permission: string) => boolean;
   /** Theme layers, file URLs and a brand name, as the app gets them from the panel. */
   theme?: Omit<ThemeProviderProps, "children">;
+  /** Live data connections, for tests that send events. */
+  live?: LiveClient;
 }) {
   const client = testQueryClient();
   const router = createAppRouter(modules, client, createMemoryHistory({ initialEntries: [path] }));
@@ -208,7 +211,7 @@ export function renderShell({
   const result = render(
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>
-        <LiveProvider client={fakeLive().live}>
+        <LiveProvider client={live}>
           <ThemeProvider {...theme}>
             <I18nProvider locale="en" messages={messages} onError={failOnIntlError}>
               <TooltipProvider delayDuration={0}>

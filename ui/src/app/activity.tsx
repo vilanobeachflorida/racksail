@@ -1,0 +1,162 @@
+import { useNavigate } from "@tanstack/react-router";
+import {
+  Bell,
+  CircleX,
+  Info,
+  type LucideIcon,
+  OctagonAlert,
+  Search,
+  TriangleAlert,
+} from "lucide-react";
+import { useIntl } from "react-intl";
+import { Button } from "@/design/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
+import { Skeleton } from "@/design/components/ui/skeleton";
+import { EmptyState, ErrorState } from "@/design/components/ui/states";
+import { requestJSON } from "@/lib/api/client";
+import { useApi } from "@/lib/api/context";
+import { eventText, type Severity, type TimelineEvent, type TimelineEventList } from "@/lib/events";
+import { useFormat } from "@/lib/format";
+import { useLiveQuery } from "@/lib/live";
+import { cn } from "@/lib/utils";
+import { messages } from "./messages";
+import { moduleCommands, useActiveModules, usePermission } from "./modules";
+import { useShell } from "./shell-state";
+import { ariaKeyShortcuts } from "./shortcuts";
+
+/** Where the event timeline lives. */
+export const timeline = {
+  list: (limit: number) => `/api/v1/events?limit=${limit}`,
+  stream: "/api/v1/events/stream",
+};
+
+const shown = 8;
+
+const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }> = {
+  info: { icon: Info, tone: "text-muted-foreground" },
+  notice: { icon: Bell, tone: "text-info" },
+  warning: { icon: TriangleAlert, tone: "text-warning" },
+  error: { icon: CircleX, tone: "text-danger" },
+  critical: { icon: OctagonAlert, tone: "text-danger" },
+};
+
+/** The home card of the latest events, kept current as they happen. */
+export function RecentActivity() {
+  const intl = useIntl();
+  const f = useFormat();
+  const api = useApi();
+  const events = useLiveQuery<TimelineEvent[], TimelineEvent>({
+    queryKey: ["events", "recent"],
+    queryFn: async () =>
+      (await requestJSON<TimelineEventList>(api, "GET", timeline.list(shown))).events ?? [],
+    stream: { url: timeline.stream, types: ["event"] },
+    apply: (list, event) =>
+      [event.data, ...(list ?? []).filter((e) => e.id !== event.data.id)].slice(0, shown),
+  });
+  const title = intl.formatMessage(messages.activityTitle);
+  return (
+    <Card aria-labelledby="activity-title" aria-busy={events.isPending}>
+      <CardHeader>
+        <CardTitle id="activity-title">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {events.isPending ? (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        ) : events.isError ? (
+          <ErrorState
+            title={intl.formatMessage(messages.activityFailed)}
+            error={events.error}
+            onRetry={() => void events.refetch()}
+          />
+        ) : events.data.length === 0 ? (
+          <EmptyState
+            title={intl.formatMessage(messages.activityEmpty)}
+            description={intl.formatMessage(messages.activityEmptyHelp)}
+            className="py-6"
+          />
+        ) : (
+          <ol className="flex flex-col gap-3">
+            {events.data.map((event) => {
+              const { icon: Icon, tone } = severityIcons[event.severity] ?? severityIcons.info;
+              return (
+                <li key={event.id} className="flex gap-3">
+                  <Icon className={cn("mt-0.5 size-4 shrink-0", tone)} aria-hidden="true" />
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <p className="text-sm">
+                      <span className="sr-only">
+                        {intl.formatMessage(messages.activitySeverity, {
+                          severity: event.severity,
+                        })}{" "}
+                      </span>
+                      {eventText(intl, event)}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      {intl.formatMessage(messages.activityWhen, {
+                        time: (
+                          <time dateTime={event.time} title={f.dateTime(new Date(event.time))}>
+                            {f.relative(new Date(event.time))}
+                          </time>
+                        ),
+                        hasActor: event.actor?.name ? "yes" : "no",
+                        actor: event.actor?.name ?? "",
+                      })}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The home card of things to start: the command bar and the actions
+ * modules offer to the person.
+ */
+export function QuickActions() {
+  const intl = useIntl();
+  const shell = useShell();
+  const navigate = useNavigate();
+  const modules = useActiveModules();
+  const allowed = usePermission();
+  const actions = moduleCommands(modules, allowed).slice(0, 6);
+  return (
+    <Card aria-labelledby="quick-actions-title">
+      <CardHeader>
+        <CardTitle id="quick-actions-title">
+          {intl.formatMessage(messages.quickActionsTitle)}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {actions.map((action) => (
+          <Button
+            key={action.key}
+            variant="outline"
+            className="justify-start"
+            aria-keyshortcuts={action.shortcut ? ariaKeyShortcuts(action.shortcut) : undefined}
+            onClick={() => void action.run({ navigate: (to) => void navigate({ to }) })}
+          >
+            {action.icon ? <action.icon aria-hidden="true" /> : null}
+            {intl.formatMessage(action.label)}
+          </Button>
+        ))}
+        <Button
+          variant="ghost"
+          className="justify-start text-muted-foreground"
+          aria-keyshortcuts={ariaKeyShortcuts("mod+k")}
+          onClick={() => shell.setCommandOpen(true)}
+        >
+          <Search aria-hidden="true" />
+          {intl.formatMessage(messages.quickActionsMore)}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}

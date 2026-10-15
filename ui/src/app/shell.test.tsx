@@ -1,12 +1,13 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Globe, Plus, Sparkles } from "lucide-react";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinTheme } from "@/design/theme/spec";
+import type { TimelineEvent } from "@/lib/events";
 import { shellMessages } from "@/lib/i18n";
 import type { AssistantPanelProps, ModuleUI } from "@/modules/types";
 import { axeViolations } from "@/test/axe";
-import { fakeApi, json, renderShell } from "@/test/render";
+import { fakeApi, fakeLive, json, renderShell } from "@/test/render";
 import { dockQuery } from "./shell-state";
 
 const realMatchMedia = window.matchMedia;
@@ -99,7 +100,8 @@ const api = fakeApi({
       os: "linux",
       arch: "arm64",
     }),
-  "GET /api/v1/jobs": () => json({ items: [] }),
+  "GET /api/v1/jobs": () => json({ jobs: [] }),
+  "GET /api/v1/events": () => json({ events: [] }),
 });
 
 async function shell(options: Partial<Parameters<typeof renderShell>[0]> = {}) {
@@ -289,6 +291,80 @@ describe("the assistant dock", () => {
     expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
     await user.keyboard("{Control>}k{/Control}");
     expect(await screen.findByPlaceholderText("Go to a page or run a command")).toBeInTheDocument();
+  });
+});
+
+describe("the home screen", () => {
+  const event = (id: string, extra: Partial<TimelineEvent>): TimelineEvent => ({
+    id,
+    type: "web.site.created",
+    time: new Date(Date.now() - 120_000).toISOString(),
+    severity: "info",
+    scope: { level: "account", id: "acct_1" },
+    message: "Created the site example.com",
+    ...extra,
+  });
+
+  it("offers the modules' actions and the command bar", async () => {
+    const user = userEvent.setup();
+    await shell();
+    const actions = screen.getByRole("region", { name: "Quick actions" });
+    await user.click(within(actions).getByRole("button", { name: "Create a site" }));
+    expect(await screen.findByRole("heading", { name: "All sites" })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Home" }),
+    );
+    await user.click(
+      within(await screen.findByRole("region", { name: "Quick actions" })).getByRole("button", {
+        name: "Search or run a command",
+      }),
+    );
+    expect(await screen.findByRole("dialog", { name: "Command bar" })).toBeInTheDocument();
+  });
+
+  it("shows recent activity in the user's language as it happens", async () => {
+    const { live, sources } = fakeLive();
+    const events = fakeApi({
+      "GET /api/v1/events": () =>
+        json({
+          events: [
+            event("evt_2", {
+              type: "core.changeset.failed",
+              severity: "error",
+              message: "Applying Create example.com failed",
+              data: { title: "Create example.com", resources: ["site_01"] },
+              actor: { type: "user", name: "Ana", source: "ui" },
+            }),
+            event("evt_1", {}),
+          ],
+        }),
+      "GET /api/v1/jobs": () => json({ jobs: [] }),
+    });
+    await shell({ api: events, live });
+    const activity = screen.getByRole("region", { name: "Recent activity" });
+    const items = await within(activity).findAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual([
+      "Error: Couldn't apply: Create example.com2 minutes ago by Ana",
+      "Info: Created the site example.com2 minutes ago",
+    ]);
+
+    const stream = sources.find((s) => s.url === "/api/v1/events/stream");
+    act(() =>
+      stream?.emit(
+        "event",
+        event("evt_3", { type: "core.panel.started", severity: "notice", message: "Started" }),
+      ),
+    );
+    expect(await within(activity).findByText("The panel started.")).toBeInTheDocument();
+    expect(within(activity).getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("explains an empty timeline, and leaves it out for people who can't read it", async () => {
+    const { unmount } = await shell();
+    expect(await screen.findByText("Nothing has happened yet")).toBeInTheDocument();
+    unmount();
+    await shell({ can: (p) => p !== "core.event.read" });
+    expect(screen.queryByRole("region", { name: "Recent activity" })).not.toBeInTheDocument();
   });
 });
 

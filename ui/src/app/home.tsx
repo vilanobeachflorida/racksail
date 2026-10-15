@@ -3,9 +3,13 @@ import { useIntl } from "react-intl";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { HomeCard, LazyComponent } from "@/modules/types";
+import { QuickActions, RecentActivity } from "./activity";
 import { messages } from "./messages";
 import { homeCards, useActiveModules, usePermission } from "./modules";
 import { PanelStatus } from "./status";
+
+/** Who may see the event timeline, as internal/api checks it. */
+const eventReadPermission = "core.event.read";
 
 // One lazy component per card loader, so re-rendering the home screen never
 // loads or remounts a card.
@@ -26,7 +30,10 @@ const spans: Record<NonNullable<HomeCard["size"]>, string> = {
   large: "md:col-span-2 xl:col-span-3",
 };
 
-/** The home screen: the panel's status and the cards modules add. */
+/**
+ * The home screen: the panel's status, quick actions, recent activity and
+ * the cards modules add.
+ */
 export function Home() {
   const intl = useIntl();
   const modules = useActiveModules();
@@ -36,6 +43,8 @@ export function Home() {
       <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.homeTitle)}</h1>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <PanelStatus />
+        <QuickActions />
+        {allowed(eventReadPermission) ? <RecentActivity /> : null}
         {homeCards(modules, intl, allowed).map((card) => {
           const Card = lazyCard(card.card);
           return (
