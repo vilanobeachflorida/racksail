@@ -9,6 +9,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -23,21 +24,10 @@ const (
 	PermAuditRead     auth.Permission = "core.audit.read"
 )
 
-// person returns who is behind an actor: the user it acts for, or itself.
-func person(a *auth.Actor) store.ID {
-	if a == nil {
-		return ""
-	}
-	if a.User != "" {
-		return a.User
-	}
-	return a.ID
-}
-
 // sameParty reports whether two actors are, or act for, the same person.
 func sameParty(a, b *auth.Actor) bool {
-	p := person(a)
-	return p != "" && p == person(b)
+	p := jobs.Of(a)
+	return p != "" && p == jobs.Of(b)
 }
 
 // canSeeChangeSet reports whether the signed-in actor may see a change set:
@@ -64,6 +54,40 @@ func (s *Server) canSeeChangeSet(ctx context.Context, cs *changeset.ChangeSet) b
 		}
 	}
 	return true
+}
+
+// changeSetVisibility narrows a list to the change sets the signed-in actor
+// may see, roughly: nil when they may read every change set, and otherwise
+// their own and those whose resources are all in scopes or resources their
+// grants reach. canSeeChangeSet decides about each one.
+func (s *Server) changeSetVisibility(ctx context.Context) (*changeset.Visibility, error) {
+	actor, err := Actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	authz := s.authorizer()
+	if Authorize(ctx, authz, PermChangeSetRead, auth.Target{Scope: store.ServerScope()}) == nil {
+		return nil, nil
+	}
+	v := &changeset.Visibility{Person: jobs.Of(actor)}
+	if authz == nil {
+		return v, nil
+	}
+	if !narrowable(authz, actor) {
+		// Every change set is read, and canSeeChangeSet decides.
+		return nil, nil
+	}
+	// Grants of any permission count here, since reading a resource is a
+	// permission of its kind; canSeeChangeSet checks each kind.
+	if v.Scopes, err = grantScopes(ctx, authz, actor, ""); err != nil {
+		return nil, err
+	}
+	for _, g := range actor.Grants {
+		if g.Object != "" && g.Role.Valid() {
+			v.Objects = append(v.Objects, g.Object)
+		}
+	}
+	return v, nil
 }
 
 // changeSet reads a change set the signed-in actor may see.
@@ -128,41 +152,42 @@ func (s *Server) registerChangeSets() {
 	tags := []string{"Changes"}
 	op := huma.Operation{
 		OperationID: "listChangeSets", Method: http.MethodGet, Path: Prefix + "/changesets", Tags: tags, Security: Protected,
-		Summary:     "List changes",
-		Description: "Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied.",
+		Summary: "List changes",
+		Description: "Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied. " +
+			"You see the change sets you made and those whose every resource you may read; core.changeset.read on the server shows all of them.",
 	}
-	Describe(&op, Info{Permission: string(PermChangeSetRead), Risk: store.RiskRead})
+	// Anyone signed in may list and read the change sets they can see, so
+	// the catalog lists no permission for these.
+	Describe(&op, Info{Risk: store.RiskRead})
 	huma.Register(s.api, op, func(ctx context.Context, in *listChangeSetsInput) (*changeSetList, error) {
-		if _, err := Actor(ctx); err != nil {
-			return nil, err
-		}
 		p := s.pipeline()
 		if p == nil {
 			return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 		}
-		list, next, err := p.List(ctx, changeset.ListQuery{
-			State: changeset.State(in.State), Resource: in.Resource, Actor: in.Actor, DryRuns: in.Previews, Cursor: in.Cursor, Limit: in.Limit,
-		})
+		visible, err := s.changeSetVisibility(ctx)
+		if err != nil {
+			return nil, err
+		}
+		q := changeset.ListQuery{State: changeset.State(in.State), Resource: in.Resource, Actor: in.Actor, DryRuns: in.Previews, Visible: visible}
+		list, next, err := fill(in.Cursor, in.Limit, func(cursor string, limit int) ([]*changeset.ChangeSet, string, error) {
+			q.Cursor, q.Limit = cursor, limit
+			return p.List(ctx, q)
+		}, func(cs *changeset.ChangeSet) bool { return s.canSeeChangeSet(ctx, cs) }, func(cs *changeset.ChangeSet) store.ID { return cs.ID })
 		if err != nil {
 			return nil, err
 		}
 		out := &changeSetList{}
-		out.Body.ChangeSets = []*changeset.ChangeSet{}
+		out.Body.ChangeSets = list
 		out.Body.Next = next
-		for _, cs := range list {
-			if s.canSeeChangeSet(ctx, cs) {
-				out.Body.ChangeSets = append(out.Body.ChangeSets, cs)
-			}
-		}
 		return out, nil
 	})
 
 	op = huma.Operation{
 		OperationID: "getChangeSet", Method: http.MethodGet, Path: Prefix + "/changesets/{id}", Tags: tags, Security: Protected,
 		Summary:     "Get a change",
-		Description: "Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went.",
+		Description: "Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went, change by change.",
 	}
-	Describe(&op, Info{Permission: string(PermChangeSetRead), Risk: store.RiskRead})
+	Describe(&op, Info{Risk: store.RiskRead})
 	huma.Register(s.api, op, func(ctx context.Context, in *changeSetInput) (*changeSetOutput, error) {
 		cs, err := s.changeSet(ctx, in.ID)
 		if err != nil {
@@ -175,9 +200,13 @@ func (s *Server) registerChangeSets() {
 		OperationID: "submitChangeSet", Method: http.MethodPost, Path: Prefix + "/changesets", Tags: tags, Security: Protected,
 		Summary: "Make several changes at once",
 		Description: "Plans several changes to resources as one change set, previewed, applied and undone together: creating a database and the site that uses it, say. " +
-			"Choose IDs for new resources up front to refer to them from later changes. With dryRun=true the answer is the preview.",
-		Responses: map[string]*huma.Response{"202": jsonResponse("The change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet"))},
+			"Choose IDs for new resources up front to refer to them from later changes; an ID a deleted resource had can't be used again. With dryRun=true the answer is the preview.",
+		Responses: map[string]*huma.Response{
+			"200": jsonResponse("The change set without applying it, for a dry run", s.schemaOf(typeOfChangeSet, "ChangeSet")),
+			"202": jsonResponse("The change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet")),
+		},
 	}
+	s.withProblems(&op)
 	Describe(&op, Info{Operation: "submit", Risk: store.RiskHigh, DryRun: true, Reversible: true})
 	huma.Register(s.api, op, func(ctx context.Context, in *submitInput) (*ChangeSetOutput, error) {
 		p := s.pipeline()
@@ -191,9 +220,12 @@ func (s *Server) registerChangeSets() {
 		OperationID: "applyChangeSet", Method: http.MethodPost, Path: Prefix + "/changesets/{id}/apply", Tags: tags, Security: Protected,
 		Summary: "Apply a preview",
 		Description: "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, " +
-			"nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again.",
-		Responses: map[string]*huma.Response{"202": jsonResponse("The change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet"))},
+			"nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. " +
+			"A preview is applied once: while it is being applied, applying it again answers changeset.applying.",
+		DefaultStatus: http.StatusAccepted,
+		Responses:     map[string]*huma.Response{"202": jsonResponse("The change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet"))},
 	}
+	s.withProblems(&op)
 	Describe(&op, Info{Operation: "apply", Risk: store.RiskHigh, Reversible: true})
 	huma.Register(s.api, op, func(ctx context.Context, in *applyInput) (*ChangeSetOutput, error) {
 		actor, err := Actor(ctx)
@@ -220,6 +252,7 @@ func (s *Server) registerChangeSets() {
 			"202": jsonResponse("The undo's change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet")),
 		},
 	}
+	s.withProblems(&op)
 	Describe(&op, Info{Operation: "undo", Risk: store.RiskMedium, DryRun: true, Reversible: true})
 	huma.Register(s.api, op, func(ctx context.Context, in *undoInput) (*ChangeSetOutput, error) {
 		actor, err := Actor(ctx)

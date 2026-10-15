@@ -644,6 +644,14 @@
           "source": {
             "$ref": "#/components/schemas/Source"
           },
+          "state": {
+            "description": "How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts",
+            "enum": [
+              "started",
+              "done"
+            ],
+            "type": "string"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/Step"

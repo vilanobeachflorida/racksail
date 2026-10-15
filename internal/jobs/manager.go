@@ -22,24 +22,32 @@ type Manager struct {
 	log       *slog.Logger
 	now       func() time.Time
 	base      context.Context
+	stop      context.CancelFunc
 	workers   int
 	retention Retention
 	wake      chan struct{}
 	startOnce sync.Once
+	// work counts the dispatcher and the jobs running here, which Stop
+	// waits for.
+	work sync.WaitGroup
 
 	mu       sync.Mutex
+	started  bool
 	handlers map[string]Type
 	running  map[store.ID]*running
 	// dropped are queued jobs being canceled, which must not start.
 	dropped  map[store.ID]bool
 	waiters  map[store.ID]chan struct{}
 	watchers map[store.ID]map[chan Update]bool
+	counts   Stats
 }
 
 // running is a job this process is running.
 type running struct {
-	job    *Job
-	cancel context.CancelFunc
+	job *Job
+	// cancel ends the job's context with the reason, which the handler
+	// learns from Stopped.
+	cancel context.CancelCauseFunc
 	// canceled is set when someone canceled the job, as opposed to the
 	// panel stopping under it.
 	canceled bool
@@ -69,17 +77,68 @@ func newManager(ctx context.Context, s storage, opts ManagerOptions) *Manager {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	base, stop := context.WithCancel(ctx)
 	return &Manager{
-		storage: s, log: opts.Log, now: opts.Now, base: ctx, workers: opts.Workers, retention: opts.Retention.withDefaults(),
+		storage: s, log: opts.Log, now: opts.Now, base: base, stop: stop, workers: opts.Workers, retention: opts.Retention.withDefaults(),
 		wake: make(chan struct{}, 1), handlers: map[string]Type{}, running: map[store.ID]*running{}, dropped: map[store.ID]bool{},
 		waiters: map[store.ID]chan struct{}{}, watchers: map[store.ID]map[chan Update]bool{},
 	}
 }
 
 // NewMemory returns a queue kept in memory, for tests and tools. Jobs stop
-// when ctx is done.
+// when ctx is done, or when Stop is called.
 func NewMemory(ctx context.Context, opts ManagerOptions) *Manager {
 	return newManager(ctx, newMemoryStorage(), opts)
+}
+
+// Stop stops the queue: no more jobs start, and the running ones see their
+// context end with jobs.interrupted, after which they're left for the next
+// start to pick up. It waits for them and the dispatcher to return, or for
+// ctx to be done, so whoever owns the database can close it afterwards.
+func (m *Manager) Stop(ctx context.Context) error {
+	m.stop()
+	done := make(chan struct{})
+	go func() {
+		m.work.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("jobs: waiting for the running jobs to stop: %w", ctx.Err())
+	}
+}
+
+// Stats describes the queue for the panel's metrics.
+func (m *Manager) Stats(ctx context.Context) (Stats, error) {
+	now := m.now()
+	ready, waiting, oldest, err := m.storage.backlog(ctx, now)
+	if err != nil {
+		return Stats{}, err
+	}
+	m.mu.Lock()
+	st := m.counts
+	st.Running = len(m.running)
+	m.mu.Unlock()
+	st.Queued, st.Waiting = ready, waiting
+	if !oldest.IsZero() && now.After(oldest) {
+		st.OldestQueued = now.Sub(oldest)
+	}
+	return st, nil
+}
+
+// Check is the queue's health check: it fails when the queue isn't running
+// or its storage can't be read.
+func (m *Manager) Check(ctx context.Context) error {
+	m.mu.Lock()
+	started := m.started
+	m.mu.Unlock()
+	if !started || m.base.Err() != nil {
+		return i18n.ErrUnavailable.New("what", "The job queue")
+	}
+	_, _, _, err := m.storage.backlog(ctx, m.now())
+	return err
 }
 
 var _ Queue = (*Manager)(nil)
@@ -114,10 +173,20 @@ func (m *Manager) typeFor(name string) (Type, bool) {
 // queuing a job starts the queue too.
 func (m *Manager) Start() {
 	m.startOnce.Do(func() {
+		if m.base.Err() != nil {
+			return
+		}
 		if err := m.recover(); err != nil {
 			m.log.Error("picking up the jobs left from before the panel restarted", "error", err)
 		}
-		go m.dispatch()
+		m.mu.Lock()
+		m.started = true
+		m.mu.Unlock()
+		m.work.Add(1)
+		go func() {
+			defer m.work.Done()
+			m.dispatch()
+		}()
 	})
 }
 
@@ -144,8 +213,23 @@ func (m *Manager) recover() error {
 		if err := m.storage.update(ctx, job); err != nil {
 			return err
 		}
+		m.ended(job)
 	}
 	return nil
+}
+
+// ended tells the job's type how the job ended, once that is recorded.
+func (m *Manager) ended(job *Job) {
+	typ, ok := m.typeFor(job.Type)
+	if !ok || typ.Ended == nil {
+		return
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			m.log.Error("a job type's end handler panicked", "job", job.ID, "type", job.Type, "panic", p)
+		}
+	}()
+	typ.Ended(context.WithoutCancel(m.base), job.clone())
 }
 
 // appendLog adds a line to the log of a job that isn't running here.
@@ -227,31 +311,42 @@ func (m *Manager) start(job *Job) {
 	}
 	now := m.now().UTC()
 	job.State, job.StartedAt = StateRunning, &now
-	runCtx, cancel := context.WithTimeout(m.base, typ.timeout())
+	// The context's cause tells the handler why it ended: Cancel says
+	// core.canceled, the timer core.timeout, and the panel stopping nothing,
+	// which Stopped reports as jobs.interrupted.
+	cancelable, cancel := context.WithCancelCause(m.base)
+	runCtx, stopTimer := context.WithTimeoutCause(cancelable, typ.timeout(), i18n.ErrTimeout.Wrap(context.DeadlineExceeded, "what", job.Title))
+	release := func() {
+		stopTimer()
+		cancel(nil)
+	}
 	r := &running{job: job.clone(), cancel: cancel, logSeq: seq, saved: now}
 	// Registering the job before it is marked as running in storage lets
 	// Cancel find it either way.
 	m.mu.Lock()
 	if m.dropped[job.ID] {
 		m.mu.Unlock()
-		cancel()
+		release()
 		return
 	}
 	m.running[job.ID] = r
+	m.counts.Started++
 	m.mu.Unlock()
 	if err := m.storage.update(ctx, job); err != nil {
 		m.log.Error("starting a job", "job", job.ID, "error", err)
 		m.mu.Lock()
 		delete(m.running, job.ID)
 		m.mu.Unlock()
-		cancel()
+		release()
 		return
 	}
 	m.mu.Lock()
 	m.send(job.ID, Update{Job: job.clone()})
 	m.mu.Unlock()
+	m.work.Add(1)
 	go func() {
-		defer cancel()
+		defer m.work.Done()
+		defer release()
 		result, err := m.safeRun(runCtx, typ, job.clone(), &reporter{m: m, r: r, id: job.ID})
 		m.finish(job, r, result, err)
 		m.signal()
@@ -303,7 +398,7 @@ func (m *Manager) finish(job *Job, r *running, result any, err error) {
 		}
 	default:
 		job.State = StateFailed
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) && !i18n.ErrTimeout.Is(err) {
 			err = i18n.ErrTimeout.Wrap(err, "what", job.Title)
 		}
 		f := i18n.From(err)
@@ -313,14 +408,23 @@ func (m *Manager) finish(job *Job, r *running, result any, err error) {
 		}
 		job.Error = &Failure{Code: f.Code, Message: f.Message}
 		typ, ok := m.typeFor(job.Type)
-		retry = ok && job.Attempt <= typ.Retries
+		retry = ok && job.Attempt <= typ.Retries && (typ.Retryable == nil || typ.Retryable(ctx, job.clone()) == nil)
 	}
 	if err := m.storage.update(ctx, job); err != nil {
 		m.log.Error("recording how a job ended", "job", job.ID, "error", err)
 	}
 	m.mu.Lock()
+	switch job.State {
+	case StateSucceeded:
+		m.counts.Succeeded++
+	case StateFailed:
+		m.counts.Failed++
+	case StateCanceled:
+		m.counts.Canceled++
+	}
 	m.send(job.ID, Update{Job: job.clone()})
 	m.mu.Unlock()
+	m.ended(job)
 	m.closeWaiters(job.ID)
 	if retry {
 		typ, _ := m.typeFor(job.Type)
@@ -441,7 +545,7 @@ func (m *Manager) Cancel(ctx context.Context, id store.ID) error {
 	m.mu.Lock()
 	if r, ok := m.running[id]; ok {
 		r.canceled = true
-		r.cancel()
+		r.cancel(i18n.ErrCanceled.New())
 		m.mu.Unlock()
 		return nil
 	}
@@ -472,6 +576,11 @@ func (m *Manager) Retry(ctx context.Context, id store.ID) (*Job, error) {
 	if prev.State != StateFailed && prev.State != StateCanceled {
 		return nil, ErrNotRetryable.New()
 	}
+	if typ, ok := m.typeFor(prev.Type); ok && typ.Retryable != nil {
+		if err := typ.Retryable(ctx, prev.clone()); err != nil {
+			return nil, err
+		}
+	}
 	return m.requeue(ctx, prev, time.Time{})
 }
 
@@ -490,9 +599,9 @@ func (m *Manager) LogsAfter(ctx context.Context, id store.ID, seq int64, limit i
 }
 
 // Watch implements Queue. The channel closes when the job finishes.
-func (m *Manager) Watch(id store.ID) (<-chan Update, func()) {
+func (m *Manager) Watch(ctx context.Context, id store.ID) (<-chan Update, func()) {
 	ch := make(chan Update, 64)
-	job, err := m.Get(context.Background(), id)
+	job, err := m.Get(ctx, id)
 	m.mu.Lock()
 	if err != nil || job.State.Done() {
 		m.mu.Unlock()
@@ -505,7 +614,7 @@ func (m *Manager) Watch(id store.ID) (<-chan Update, func()) {
 	m.watchers[id][ch] = true
 	m.mu.Unlock()
 	// The job may have finished between reading it and registering.
-	if again, err := m.storage.get(context.Background(), id); err == nil && again.State.Done() {
+	if again, err := m.storage.get(ctx, id); err == nil && again.State.Done() {
 		m.closeWaiters(id)
 	}
 	var once sync.Once

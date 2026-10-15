@@ -9,9 +9,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/events"
@@ -78,8 +80,13 @@ type Options struct {
 	Store   store.Store
 	Log     *events.Log
 	Secrets secrets.Reader
+	// AllowNetworks are the networks deliveries may reach besides public
+	// addresses: webhooks.allow_networks in racksail.toml. Loopback,
+	// private and link-local addresses are refused unless listed here.
+	AllowNetworks []netip.Prefix
 	// Client sends deliveries; nil means a client that waits ten seconds
-	// for an answer and doesn't follow redirects.
+	// for an answer, doesn't follow redirects, and connects only to public
+	// addresses and AllowNetworks.
 	Client *http.Client
 	// Schedule replaces the package's Schedule, for tests.
 	Schedule []time.Duration
@@ -100,17 +107,61 @@ type Dispatcher struct {
 	opts    Options
 	storage storage
 	wake    chan struct{}
+	guard   guard
+	running atomic.Bool
+	counts  struct {
+		attempts, succeeded, failed, given atomic.Int64
+	}
+}
+
+// Stats describe deliveries for the panel's metrics.
+type Stats struct {
+	// Pending deliveries wait to be sent, or sent again.
+	Pending int
+	// Lag is how many events the dispatcher hasn't turned into deliveries
+	// yet.
+	Lag int64
+	// The counts of attempts made since the panel started, of those the
+	// receiver accepted and of those that failed, and of deliveries that
+	// failed for good.
+	Attempts, Succeeded, Failed, GaveUp int64
+}
+
+// Stats describes deliveries for the panel's metrics.
+func (d *Dispatcher) Stats(ctx context.Context) (Stats, error) {
+	pending, err := d.storage.pending(ctx)
+	if err != nil {
+		return Stats{}, err
+	}
+	st := Stats{
+		Pending: pending, Attempts: d.counts.attempts.Load(), Succeeded: d.counts.succeeded.Load(),
+		Failed: d.counts.failed.Load(), GaveUp: d.counts.given.Load(),
+	}
+	if cursor, ok, err := d.storage.cursor(ctx); err == nil && ok {
+		if last, err := d.opts.Log.LastSeq(ctx); err == nil && last > cursor {
+			st.Lag = last - cursor
+		}
+	}
+	return st, nil
+}
+
+// Check is the dispatcher's health check: it fails while the dispatcher
+// isn't running or can't read its deliveries.
+func (d *Dispatcher) Check(ctx context.Context) error {
+	if !d.running.Load() {
+		return i18n.ErrUnavailable.New("what", "Webhook deliveries")
+	}
+	_, err := d.storage.pending(ctx)
+	return err
 }
 
 // maxResponse is how much of an answer an attempt keeps.
 const maxResponse = 1024
 
 func newDispatcher(s storage, opts Options) *Dispatcher {
+	g := guard{allow: opts.AllowNetworks}
 	if opts.Client == nil {
-		opts.Client = &http.Client{
-			Timeout:       10 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
+		opts.Client = g.client()
 	}
 	if len(opts.Schedule) == 0 {
 		opts.Schedule = Schedule
@@ -133,7 +184,7 @@ func newDispatcher(s storage, opts Options) *Dispatcher {
 	if opts.Version == "" {
 		opts.Version = "dev"
 	}
-	return &Dispatcher{opts: opts, storage: s, wake: make(chan struct{}, 1)}
+	return &Dispatcher{opts: opts, storage: s, wake: make(chan struct{}, 1), guard: g}
 }
 
 // NewMemory returns a dispatcher that keeps its deliveries in memory.
@@ -150,6 +201,8 @@ func (d *Dispatcher) signal() {
 // dispatcher that never ran before starts with the events published from
 // now on.
 func (d *Dispatcher) Run(ctx context.Context) {
+	d.running.Store(true)
+	defer d.running.Store(false)
 	sub := d.opts.Log.Subscribe(events.Filter{}, 256)
 	defer sub.Close()
 	if _, ok, err := d.storage.cursor(ctx); err == nil && !ok {
@@ -269,8 +322,16 @@ func (d *Dispatcher) sendDue(ctx context.Context) time.Duration {
 	}
 	sem := make(chan struct{}, d.opts.Workers)
 	var wg sync.WaitGroup
+	// No attempt starts once ctx is done; the deliveries left stay due, to
+	// be sent when the dispatcher runs again.
 	for _, dl := range due {
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -290,18 +351,31 @@ func (d *Dispatcher) sendDue(ctx context.Context) time.Duration {
 }
 
 // attempt sends a delivery once, records the attempt and decides what comes
-// next.
+// next. Only sending depends on ctx: what an attempt finds is recorded even
+// when ctx ends during it, as when the test action's job is canceled, so a
+// delivery never stays pending with nothing to send it again.
 func (d *Dispatcher) attempt(ctx context.Context, dl *Delivery) *Delivery {
-	w, err := Kind.Get(ctx, d.opts.Store, dl.Webhook)
+	record := context.WithoutCancel(ctx)
+	w, err := Kind.Get(record, d.opts.Store, dl.Webhook)
 	now := d.opts.Now().UTC()
 	var a DeliveryAttempt
 	var retryAfter time.Duration
+	// sent says the receiver was tried, so the attempt tells how it does.
+	var sent bool
 	switch {
-	case err != nil || w.Deleted():
+	case store.ErrNotFound.Is(err) || (err == nil && w.Deleted()):
 		a = DeliveryAttempt{Time: now, Error: "the webhook was deleted"}
+		dl.State = DeliveryFailed
+	case err != nil:
+		a = DeliveryAttempt{Time: now, Error: "the webhook couldn't be read: " + i18n.From(err).Message}
+	case w.Spec.Disabled:
+		// Deliveries queued before the webhook was turned off aren't sent
+		// either; Redeliver sends one again once it is back on.
+		a = DeliveryAttempt{Time: now, Error: "the webhook is disabled"}
 		dl.State = DeliveryFailed
 	default:
 		a, retryAfter = d.send(ctx, w, dl)
+		sent = ctx.Err() == nil
 	}
 	dl.AttemptCount++
 	a.Number = dl.AttemptCount
@@ -321,11 +395,20 @@ func (d *Dispatcher) attempt(ctx context.Context, dl *Delivery) *Delivery {
 	if dl.State != DeliveryPending {
 		dl.FinishedAt = &now
 	}
-	if err := d.storage.record(ctx, dl, a); err != nil {
+	if err := d.storage.record(record, dl, a); err != nil {
 		d.opts.Logger.Warn("recording a webhook delivery", "delivery", dl.ID, "error", err)
 	}
-	if w != nil && !w.Deleted() {
-		d.noteResult(ctx, w.ID, a)
+	d.counts.attempts.Add(1)
+	if a.Error == "" {
+		d.counts.succeeded.Add(1)
+	} else {
+		d.counts.failed.Add(1)
+	}
+	if dl.State == DeliveryFailed {
+		d.counts.given.Add(1)
+	}
+	if sent {
+		d.noteResult(record, w.ID, a)
 	}
 	dl.Attempts = append(dl.Attempts, a)
 	return dl
@@ -360,8 +443,14 @@ func (d *Dispatcher) send(ctx context.Context, w *store.Object[WebhookSpec, Webh
 	resp, err := d.opts.Client.Do(req)
 	a.Duration = d.opts.Now().Sub(start).Milliseconds()
 	if err != nil {
+		var blocked *blockedError
 		var urlErr interface{ Timeout() bool }
-		if errors.As(err, &urlErr) && urlErr.Timeout() {
+		switch {
+		case ctx.Err() != nil:
+			return fail("the attempt was stopped before the receiver answered")
+		case errors.As(err, &blocked):
+			return fail("%s", blocked.Error())
+		case errors.As(err, &urlErr) && urlErr.Timeout():
 			return fail("the receiver didn't answer in time")
 		}
 		return fail("the request failed: %v", errors.Unwrap(err))

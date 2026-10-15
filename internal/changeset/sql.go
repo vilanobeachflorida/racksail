@@ -92,7 +92,8 @@ func (s *SQLStorage) write(ctx context.Context, tx *sql.Tx, cs *ChangeSet, reque
 		return err
 	}
 	for _, c := range cs.Changes {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO change_set_resources (change_set, resource) VALUES (?, ?)`, cs.ID, c.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO change_set_resources (change_set, resource, scope_level, scope_id) VALUES (?, ?, ?, ?)`,
+			cs.ID, c.ID, c.Scope.Level, c.Scope.ID); err != nil {
 			return err
 		}
 	}
@@ -143,7 +144,7 @@ func (s *SQLStorage) Request(ctx context.Context, id store.ID) (*StoredRequest, 
 }
 
 // Update implements Storage.
-func (s *SQLStorage) Update(ctx context.Context, id store.ID, fn func(cs *ChangeSet)) (*ChangeSet, error) {
+func (s *SQLStorage) Update(ctx context.Context, id store.ID, fn func(cs *ChangeSet) error) (*ChangeSet, error) {
 	var out *ChangeSet
 	err := s.db.Write(ctx, func(tx *sql.Tx) error {
 		var body string
@@ -158,11 +159,16 @@ func (s *SQLStorage) Update(ctx context.Context, id store.ID, fn func(cs *Change
 		if err != nil {
 			return err
 		}
-		fn(cs)
+		if err := fn(cs); err != nil {
+			return err
+		}
 		out = cs
 		return s.write(ctx, tx, cs, nil, true)
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // List implements Storage.
@@ -187,6 +193,28 @@ func (s *SQLStorage) List(ctx context.Context, q ListQuery) ([]*ChangeSet, strin
 	}
 	if q.Resource != "" {
 		where, args = append(where, "id IN (SELECT change_set FROM change_set_resources WHERE resource = ?)"), append(args, q.Resource)
+	}
+	if v := q.Visible; v != nil {
+		// Their own, or every resource is in reach.
+		var reach []string
+		var reachArgs []any
+		for _, sc := range v.Scopes {
+			reach, reachArgs = append(reach, "(r.scope_level = ? AND r.scope_id = ?)"), append(reachArgs, sc.Level, sc.ID)
+		}
+		if len(v.Objects) > 0 {
+			reach = append(reach, "r.resource IN ("+strings.TrimSuffix(strings.Repeat("?, ", len(v.Objects)), ", ")+")")
+			for _, id := range v.Objects {
+				reachArgs = append(reachArgs, id)
+			}
+		}
+		inReach := "0"
+		if len(reach) > 0 {
+			inReach = strings.Join(reach, " OR ")
+		}
+		where = append(where, `((? <> '' AND CASE WHEN actor_user <> '' THEN actor_user ELSE actor_id END = ?)
+			OR (EXISTS (SELECT 1 FROM change_set_resources r WHERE r.change_set = change_sets.id)
+				AND NOT EXISTS (SELECT 1 FROM change_set_resources r WHERE r.change_set = change_sets.id AND NOT (`+inReach+`))))`)
+		args = append(append(args, v.Person, v.Person), reachArgs...)
 	}
 	limit := q.limit()
 	rows, err := s.db.Reader().QueryContext(ctx, `SELECT body FROM change_sets WHERE `+strings.Join(where, " AND ")+` ORDER BY id DESC LIMIT ?`, append(args, limit+1)...)

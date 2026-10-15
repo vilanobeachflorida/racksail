@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -22,7 +23,15 @@ type webhookReconciler struct {
 	d *Dispatcher
 }
 
-func (webhookReconciler) Plan(ctx context.Context, obj *store.Object[WebhookSpec, WebhookStatus], req reconcile.Request) (reconcile.Plan, error) {
+// Plan has nothing to do on the machine. It refuses a URL written with an
+// address deliveries may not go to, so the preview says so rather than
+// every delivery failing later.
+func (r webhookReconciler) Plan(ctx context.Context, obj *store.Object[WebhookSpec, WebhookStatus], req reconcile.Request) (reconcile.Plan, error) {
+	if r.d != nil && !obj.Deleted() {
+		if err := r.d.guard.checkURL(obj.Spec.URL); err != nil {
+			return reconcile.Plan{}, i18n.Invalid(i18n.Field("spec.url", i18n.ErrBadValue, "reason", err.Error()))
+		}
+	}
 	return reconcile.Plan{}, nil
 }
 

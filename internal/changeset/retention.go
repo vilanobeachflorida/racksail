@@ -90,7 +90,7 @@ func (e *Engine) save(ctx context.Context, cs *ChangeSet, request *StoredRequest
 	if err := e.storage.Save(ctx, cs, request); err != nil {
 		return err
 	}
-	evicted, err := e.storage.Prune(ctx, e.retention, e.opts.Now(), e.isUndoing)
+	evicted, err := e.storage.Prune(ctx, e.retention, e.opts.Now(), e.claimed)
 	if err != nil {
 		e.opts.Log.Warn("dropping old change sets", "error", err)
 		return nil
@@ -104,9 +104,13 @@ func (e *Engine) save(ctx context.Context, cs *ChangeSet, request *StoredRequest
 	return nil
 }
 
-// update changes a kept change set.
+// update changes a kept change set, whatever becomes of ctx.
 func (e *Engine) update(ctx context.Context, id store.ID, fn func(cs *ChangeSet)) {
-	if _, err := e.storage.Update(context.WithoutCancel(ctx), id, fn); err != nil {
+	_, err := e.storage.Update(context.WithoutCancel(ctx), id, func(cs *ChangeSet) error {
+		fn(cs)
+		return nil
+	})
+	if err != nil {
 		e.opts.Log.Warn("updating a change set", "changeSet", id, "error", err)
 	}
 }

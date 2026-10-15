@@ -261,6 +261,14 @@ func (q Query) before() (int64, error) {
 	return decodeSeq(q.Cursor)
 }
 
+// CheckCursor refuses a cursor queries wouldn't accept, for callers that
+// must refuse it before they start answering, such as an export that
+// streams.
+func CheckCursor(cursor string) error {
+	_, err := Query{Cursor: cursor}.before()
+	return err
+}
+
 func encodeSeq(seq int64) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(seq, 10)))
 }

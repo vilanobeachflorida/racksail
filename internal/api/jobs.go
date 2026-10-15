@@ -89,45 +89,63 @@ type jobStreamInput struct {
 	LastEventID string   `header:"Last-Event-ID" doc:"Resume after this log line, as browsers do when they reconnect"`
 }
 
+// jobVisibility narrows a list to the jobs the signed-in actor may see: nil
+// when they may see every job, and otherwise the jobs of the owners they
+// hold core.job.read on and those they started.
+func (s *Server) jobVisibility(ctx context.Context) (*jobs.Visibility, error) {
+	actor, err := Actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.grantReach(ctx, PermJobRead)
+	if err != nil || r.all || !narrowable(s.authorizer(), actor) {
+		// Without narrowing, every job is read and mayUseJob decides.
+		return nil, err
+	}
+	return &jobs.Visibility{Scopes: r.scopes, Person: jobs.Of(actor)}, nil
+}
+
 func (s *Server) registerJobs() {
 	tags := []string{"Jobs"}
+	// Anyone signed in may use these on the jobs they started; core.job.read,
+	// core.job.cancel and core.job.retry reach the jobs of the owners they're
+	// held on. The catalog lists no permission for them, since none is needed.
 	op := huma.Operation{
 		OperationID: "listJobs", Method: http.MethodGet, Path: Prefix + "/jobs", Tags: tags, Security: Protected,
-		Summary:     "List jobs",
-		Description: "Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why.",
+		Summary: "List jobs",
+		Description: "Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why. " +
+			"You see the jobs you started, and those of the owners you hold core.job.read on.",
 	}
-	Describe(&op, Info{Permission: string(PermJobRead), Risk: store.RiskRead})
+	Describe(&op, Info{Risk: store.RiskRead})
 	huma.Register(s.api, op, func(ctx context.Context, in *listJobsInput) (*jobList, error) {
-		if _, err := Actor(ctx); err != nil {
-			return nil, err
-		}
 		q := s.jobs()
 		if q == nil {
 			return nil, i18n.ErrUnavailable.New("what", "The job queue")
 		}
-		list, next, err := q.List(ctx, jobs.Filter{
-			State: jobs.State(in.State), Type: in.Type, ChangeSet: in.ChangeSet, Resource: in.Resource, Cursor: in.Cursor, Limit: in.Limit,
-		})
+		visible, err := s.jobVisibility(ctx)
+		if err != nil {
+			return nil, err
+		}
+		filter := jobs.Filter{State: jobs.State(in.State), Type: in.Type, ChangeSet: in.ChangeSet, Resource: in.Resource, Visible: visible}
+		list, next, err := fill(in.Cursor, in.Limit, func(cursor string, limit int) ([]*jobs.Job, string, error) {
+			filter.Cursor, filter.Limit = cursor, limit
+			return q.List(ctx, filter)
+		}, func(j *jobs.Job) bool { return s.mayUseJob(ctx, PermJobRead, j) == nil }, func(j *jobs.Job) store.ID { return j.ID })
 		if err != nil {
 			return nil, err
 		}
 		out := &jobList{}
-		out.Body.Jobs = []*jobs.Job{}
+		out.Body.Jobs = list
 		out.Body.Next = next
-		for _, j := range list {
-			if s.mayUseJob(ctx, PermJobRead, j) == nil {
-				out.Body.Jobs = append(out.Body.Jobs, j)
-			}
-		}
 		return out, nil
 	})
 
 	op = huma.Operation{
 		OperationID: "getJob", Method: http.MethodGet, Path: Prefix + "/jobs/{id}", Tags: tags, Security: Protected,
 		Summary:     "Get a job",
-		Description: "Returns a job: its state, its progress, what it returned and, when it failed, why.",
+		Description: "Returns a job: its state, its progress, what it returned and, when it failed, why. Any job you started, or one of an owner you hold core.job.read on.",
 	}
-	Describe(&op, Info{Permission: string(PermJobRead), Risk: store.RiskRead})
+	Describe(&op, Info{Risk: store.RiskRead})
 	huma.Register(s.api, op, func(ctx context.Context, in *jobInput) (*jobOutput, error) {
 		job, err := s.job(ctx, in.ID)
 		if err != nil {
@@ -141,7 +159,7 @@ func (s *Server) registerJobs() {
 		Summary:     "Read a job's log",
 		Description: "Returns the lines of a job's log, numbered from 1. Pass after to get only the lines after the ones you have.",
 	}
-	Describe(&op, Info{Permission: string(PermJobRead), Risk: store.RiskRead})
+	Describe(&op, Info{Risk: store.RiskRead})
 	huma.Register(s.api, op, func(ctx context.Context, in *jobLogsInput) (*jobLogsOutput, error) {
 		if _, err := s.job(ctx, in.ID); err != nil {
 			return nil, err
@@ -161,7 +179,7 @@ func (s *Server) registerJobs() {
 		Description: "Streams a job as Server-Sent Events: a job event with its state and progress whenever they change, and a log event for every line of its log, " +
 			"starting with the lines written so far. The stream ends after the job finishes. Log events carry their line number as their ID, so a client that reconnects with Last-Event-ID misses nothing.",
 	}
-	Describe(&op, Info{Permission: string(PermJobRead), Risk: store.RiskRead, Stream: true})
+	Describe(&op, Info{Risk: store.RiskRead, Stream: true})
 	registerStream(s, op, map[string]any{"job": jobs.Job{}, "log": jobs.LogLine{}}, func(ctx context.Context, in *jobStreamInput) (stream, error) {
 		if _, err := s.job(ctx, in.ID); err != nil {
 			return nil, err
@@ -179,10 +197,12 @@ func (s *Server) registerJobs() {
 
 	op = huma.Operation{
 		OperationID: "cancelJob", Method: http.MethodPost, Path: Prefix + "/jobs/{id}/cancel", Tags: tags, Security: Protected,
-		Summary:     "Cancel a job",
-		Description: "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done.",
+		Summary: "Cancel a job",
+		Description: "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done; " +
+			"a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. " +
+			"You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
 	}
-	Describe(&op, Info{Operation: "cancel", Permission: string(PermJobCancel), Risk: store.RiskMedium})
+	Describe(&op, Info{Operation: "cancel", Risk: store.RiskMedium})
 	huma.Register(s.api, op, func(ctx context.Context, in *jobInput) (*jobOutput, error) {
 		job, err := s.job(ctx, in.ID)
 		if err != nil {
@@ -203,11 +223,15 @@ func (s *Server) registerJobs() {
 
 	op = huma.Operation{
 		OperationID: "retryJob", Method: http.MethodPost, Path: Prefix + "/jobs/{id}/retry", Tags: tags, Security: Protected,
-		Summary:     "Retry a job",
-		Description: "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job.",
-		Responses:   map[string]*huma.Response{"202": jsonResponse("The new job", s.schemaOf(typeOfJob, "Job"))},
+		Summary: "Retry a job",
+		Description: "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. " +
+			"Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, " +
+			"and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
+		DefaultStatus: http.StatusAccepted,
+		Responses:     map[string]*huma.Response{"202": jsonResponse("The new job", s.schemaOf(typeOfJob, "Job"))},
 	}
-	Describe(&op, Info{Operation: "retry", Permission: string(PermJobRetry), Risk: store.RiskMedium})
+	s.withProblems(&op)
+	Describe(&op, Info{Operation: "retry", Risk: store.RiskMedium})
 	huma.Register(s.api, op, func(ctx context.Context, in *jobInput) (*retryOutput, error) {
 		job, err := s.job(ctx, in.ID)
 		if err != nil {
@@ -236,7 +260,7 @@ type retryOutput struct {
 // job before reading it, and its first message opens the stream.
 func (s *Server) followJob(ctx context.Context, id store.ID, after int64, out send) error {
 	q := s.jobs()
-	updates, stop := q.Watch(id)
+	updates, stop := q.Watch(ctx, id)
 	defer stop()
 	sendLines := func() error {
 		lines, err := q.LogsAfter(ctx, id, after, 0)

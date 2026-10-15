@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -18,7 +19,28 @@ var (
 	ErrConflict = i18n.ErrConflict
 	// ErrExists means the ID or a unique index value is already taken.
 	ErrExists = i18n.ErrAlreadyExists
+	// ErrIDUsed refuses a new resource with the ID of one that was purged;
+	// see CheckReuse.
+	ErrIDUsed = i18n.Define("store.id_used", http.StatusConflict, "{id} belonged to a resource that was deleted, so a new resource can't use it. Leave the ID out to get a new one.")
 )
+
+// CheckReuse decides whether r may be created although its ID has history,
+// oldest version first. A purged resource keeps its history and the secrets
+// it stored, for undo, so its ID only comes back for the undo of the change
+// set that deleted it, as the same kind with the same owner; anything else
+// would hand them to a new resource, perhaps of another account. undoOf is
+// the change set the write undoes, if any.
+func CheckReuse(history []Version, r *Resource, undoOf ID) error {
+	if len(history) == 0 {
+		return nil
+	}
+	last := history[len(history)-1]
+	sameOwner := last.Scope.Level == "" || last.Scope == r.Scope
+	if undoOf != "" && last.Deleted && last.ChangeSet == undoOf && last.Kind == r.Kind && sameOwner {
+		return nil
+	}
+	return ErrIDUsed.New("id", string(r.ID))
+}
 
 // Reader reads resources.
 type Reader interface {
@@ -77,13 +99,22 @@ type WriteMeta struct {
 	// Actor describes who acted, for example "user:user_01..." or
 	// "automation:auto_01... for user:user_01...".
 	Actor string
+	// UndoOf is the change set the write undoes. Only then may a resource
+	// that change set deleted, and that was purged since, be created again
+	// under its old ID.
+	UndoOf ID
 }
 
 // Version is one recorded spec version of a resource.
 type Version struct {
-	Generation int64             `json:"generation" doc:"The generation this version of the spec had"`
-	Spec       json.RawMessage   `json:"spec" doc:"The desired state as it was; secret fields hold references, never values"`
-	Labels     map[string]string `json:"labels,omitempty"`
+	Generation int64 `json:"generation" doc:"The generation this version of the spec had"`
+	// Kind and Scope are the resource's, which never change, kept so a
+	// resource brought back under its ID can be checked against the one it
+	// was.
+	Kind   string            `json:"-"`
+	Scope  Scope             `json:"scope,omitzero" doc:"Who the resource belonged to"`
+	Spec   json.RawMessage   `json:"spec" doc:"The desired state as it was; secret fields hold references, never values"`
+	Labels map[string]string `json:"labels,omitempty"`
 	// Server is the cluster server the resource was placed on.
 	Server    ID        `json:"server,omitempty" doc:"The cluster server the resource was placed on; empty for the panel's own server"`
 	ChangeSet ID        `json:"changeSet,omitempty" doc:"The change set that wrote this version"`

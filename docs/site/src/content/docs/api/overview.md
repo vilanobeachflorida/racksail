@@ -49,10 +49,12 @@ Match on `code`, never on `detail`: the English text can be reworded, while code
   "code": "core.invalid",
   "detail": "Some values aren't valid. Fix the highlighted fields and try again.",
   "errors": [
-    { "location": "body.spec.domains[0]", "code": "core.bad_value", "message": "…" }
+    { "location": "spec.domains[0]", "code": "core.bad_value", "message": "…" }
   ]
 }
 ```
+
+A `location` starting with `spec.` points into a resource's settings, `secrets.` at a secret value and `input.` into an action's input. When a request makes several changes, it starts with the change, as in `changes[1].spec.domains[0]`. The request itself is `body.`, `query.` or `header.`, as in `body.scope` or `query.limit`.
 
 A few codes you'll meet anywhere:
 
@@ -105,11 +107,13 @@ curl -X DELETE "https://panel.example.com:8443/api/v1/dns/zones/zone_01j9…?dry
 
 The preview answers `200` with the field-by-field differences, what it would do to the server (packages to install, files to write, ports to open, services to restart, disk and memory it needs), what hooks and add-ons would add, and how risky it is. Nothing changes.
 
-To go ahead, send the request again without `dryRun`, or apply the preview itself with `POST /api/v1/changesets/{id}/apply`. Applying a preview carries out exactly what it showed: if things changed since and the change would now do something else, the answer is `changeset.preview_stale` with a new preview to look at. Previews can be applied for an hour.
+To go ahead, send the request again without `dryRun`, or apply the preview itself with `POST /api/v1/changesets/{id}/apply`. Applying a preview carries out exactly what it showed: if things changed since and the change would now do something else, the answer is `changeset.preview_stale` with a new preview to look at. A preview is applied once; applying it again while that is under way answers `changeset.applying`. Previews can be applied for an hour.
 
-Without `dryRun`, the settings change at once and the answer is `202 Accepted` with the change set. Its `job` carries out the change on the server; follow it to see the progress (see [Live updates](#live-updates)). Actions that finish quickly answer `200` once they're done, with what they returned in the change set's `output`.
+Without `dryRun`, the settings change at once and the answer is `202 Accepted` with the change set. Its `job` carries out the change on the server; follow it to see the progress (see [Live updates](#live-updates)). Each change in the change set has a `state`: `started` while it runs, `done` once it is in place. Actions that finish quickly answer `200` once they're done, with what they returned in the change set's `output`.
 
-`POST /api/v1/changesets` makes several changes at once, as one change set: a database and the site that uses it, say. The changes are planned in order, and each sees what the ones before it create, so give new resources an `id` up front to refer to them:
+If the job fails, or you cancel it with `POST /api/v1/jobs/{id}/cancel`, the change set ends `failed` with the reason in `error`, and you can undo it. The settings it stored stay, and the panel carries them out at its next resync unless you undo it. `POST /api/v1/jobs/{id}/retry` carries on from the change that didn't finish. It never runs an action that may already have run a second time: run that action again instead.
+
+`POST /api/v1/changesets` makes several changes at once, as one change set: a database and the site that uses it, say. The changes are planned in order, and each sees what the ones before it create, so give new resources an `id` up front to refer to them. An ID that belonged to a resource that was deleted can't be used again (`store.id_used`), so its history and secrets stay its own; undoing the delete is the only way to bring it back:
 
 ```json
 {
@@ -172,18 +176,23 @@ curl -N -H "Authorization: Bearer $RACKSAIL_TOKEN" \
   "https://panel.example.com:8443/api/v1/events/stream?type=*.failed"
 ```
 
-Events and log lines carry an ID. A client that reconnects with a `Last-Event-ID` header gets what it missed while it was away. Resource notices don't: after a reconnect, or a `resync` event saying you read too slowly to be told about every change, read your lists again. Quiet streams send a comment every 20 seconds, so proxies keep them open.
+Events and log lines carry an ID. A client that reconnects with a `Last-Event-ID` header gets what it missed while it was away. Resource notices don't: after a reconnect, or a `resync` event saying you read too slowly to be told about every change, read your lists again. Quiet streams send a comment every 20 seconds, so proxies keep them open. When the panel stops or restarts, it ends every stream; reconnect, as `EventSource` does by itself.
 
 ## Limits
 
-Each user and each token may make 600 requests a minute, and each address without credentials 120. `rate_limit` and `anonymous_rate_limit` under `[api]` in `racksail.toml` change them. Every answer says where you stand:
+Each user and each token may make 600 requests a minute, and each address without credentials 120. `rate_limit` and `anonymous_rate_limit` under `[api]` in `racksail.toml` change them. Requests come out of a bucket that holds a quarter of a minute's requests and ten more, 160 for a user, and refills at the steady rate, so short bursts are fine. Every answer says where you stand:
 
 ```
-RateLimit-Limit: 600
-RateLimit-Remaining: 597
+RateLimit-Limit: 160
+RateLimit-Remaining: 157
+RateLimit-Reset: 1
 ```
 
-Short bursts are fine. Past the limit, the answer is `429` with `core.rate_limited` and a `Retry-After` header saying how many seconds to wait. The health check is never limited, so monitors and load balancers can call it as often as they like.
+`RateLimit-Limit` is how many requests the bucket holds, `RateLimit-Remaining` how many you can make right away, and `RateLimit-Reset` how many seconds until the bucket is full again. Past the limit, the answer is `429` with `core.rate_limited` and a `Retry-After` header saying how many seconds to wait. The health check is never limited, so monitors and load balancers can call it as often as they like.
+
+## Metrics
+
+`GET /api/v1/metrics` reports how the panel's own machinery is doing, in the Prometheus text format: jobs waiting and running, the reconcile queue and its failures, webhook deliveries, and requests refused by the limits. Reading it takes the `core.metrics.read` permission, so give the token your monitoring scrapes with just that one.
 
 ## Request IDs
 

@@ -255,6 +255,8 @@ type envConfig struct {
 	machine   *sim.Machine
 	vault     *secrets.Memory
 	ctx       context.Context
+	// audit, when set, wraps the audit log the engine writes to.
+	audit func(events.AuditLog) events.AuditLog
 }
 
 func buildEnv(t *testing.T, cfg envConfig) *env {
@@ -264,7 +266,7 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		ctx = context.Background()
 	}
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind} {
+	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -293,7 +295,7 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		m = sim.New(sim.Options{})
 	}
 	recs := reconcile.NewRegistry()
-	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{}), reconcile.Typed(ticketKind, ticketReconciler{})} {
+	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{}), reconcile.Typed(ticketKind, ticketReconciler{}), reconcile.Typed(gateKind, gateReconciler{})} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}
@@ -305,8 +307,12 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		vault = secrets.NewMemory(box)
 	}
 	hooks := &fakeHooks{}
+	var audit events.AuditLog = bus
+	if cfg.audit != nil {
+		audit = cfg.audit(bus)
+	}
 	engine, err := NewEngine(Options{
-		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: bus, Hooks: hooks, Secrets: vault, Storage: storage,
+		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: audit, Hooks: hooks, Secrets: vault, Storage: storage,
 		Runner:     &reconcile.Runner{Store: st, Agent: agent.NewLocal(m.Backend(), nil), Registry: recs, Secrets: vault},
 		Authorizer: auth.NewRoleAuthorizer(nil), Retention: cfg.retention, Now: cfg.now,
 	})
@@ -314,6 +320,8 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		t.Fatal(err)
 	}
 	q.Start()
+	// The queue stops before the database it may be writing to closes.
+	t.Cleanup(func() { q.Stop(context.Background()) })
 	acct := store.NewID("acct")
 	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}}
 	return &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault, owner: owner, acct: acct}

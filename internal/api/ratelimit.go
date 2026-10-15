@@ -28,6 +28,15 @@ type limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
 	swept   time.Time
+	// refused counts the requests refused since the panel started.
+	refused int64
+}
+
+// quota is where a caller stands: how many requests their bucket holds when
+// full, how many it holds now, and how long it takes to fill up again.
+type quota struct {
+	limit, remaining int
+	reset            time.Duration
 }
 
 type bucket struct {
@@ -64,31 +73,47 @@ func (l *limiter) key(actor *auth.Actor, remote string) (string, int) {
 	return "address:" + ip.String(), l.limits.PerAddress
 }
 
-// allow takes a token for the caller. When there is none it reports how
-// long until there will be.
-func (l *limiter) allow(actor *auth.Actor, remote string) (ok bool, limit, remaining int, wait time.Duration) {
+// capacity is how many requests a bucket of a per-minute limit holds.
+func capacity(limit int) int { return limit/4 + 10 }
+
+// allow takes a token for the caller and says where they stand. When there
+// is no token it reports how long until there will be. A zero quota means
+// the caller isn't limited.
+func (l *limiter) allow(actor *auth.Actor, remote string) (ok bool, q quota, wait time.Duration) {
 	key, limit := l.key(actor, remote)
 	if limit <= 0 {
-		return true, 0, 0, 0
+		return true, quota{}, 0
 	}
 	now := l.now()
-	capacity := float64(limit)/4 + 10
+	full := float64(capacity(limit))
 	rate := float64(limit) / 60
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep(now)
 	b := l.buckets[key]
 	if b == nil {
-		b = &bucket{tokens: capacity, last: now}
+		b = &bucket{tokens: full, last: now}
 		l.buckets[key] = b
 	}
-	b.tokens = math.Min(capacity, b.tokens+now.Sub(b.last).Seconds()*rate)
+	b.tokens = math.Min(full, b.tokens+now.Sub(b.last).Seconds()*rate)
 	b.last = now
-	if b.tokens < 1 {
-		return false, limit, 0, time.Duration((1 - b.tokens) / rate * float64(time.Second))
+	if b.tokens >= 1 {
+		b.tokens--
+		ok = true
+	} else {
+		l.refused++
+		wait = time.Duration((1 - b.tokens) / rate * float64(time.Second))
 	}
-	b.tokens--
-	return true, limit, int(b.tokens), 0
+	q = quota{limit: int(full), remaining: int(b.tokens), reset: time.Duration((full - b.tokens) / rate * float64(time.Second))}
+	return ok, q, wait
+}
+
+// stats returns how many requests were refused since the panel started and
+// how many callers have buckets now.
+func (l *limiter) stats() (refused int64, callers int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.refused, len(l.buckets)
 }
 
 // sweep forgets, every few minutes, the buckets of callers that have been
@@ -106,7 +131,8 @@ func (l *limiter) sweep(now time.Time) {
 	}
 }
 
-// retryAfter rounds a wait up to whole seconds, for the Retry-After header.
+// retryAfter rounds a wait up to whole seconds, for the Retry-After and
+// RateLimit-Reset headers.
 func retryAfter(wait time.Duration) string {
 	return strconv.Itoa(int(math.Ceil(wait.Seconds())))
 }

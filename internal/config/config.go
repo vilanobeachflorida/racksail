@@ -28,8 +28,25 @@ type Config struct {
 	Edge      Edge      `toml:"edge"`
 	Paths     Paths     `toml:"paths"`
 	Retention Retention `toml:"retention"`
+	Webhooks  Webhooks  `toml:"webhooks"`
 	Updates   Updates   `toml:"updates"`
 	Log       Log       `toml:"log"`
+}
+
+// Webhooks configures outgoing webhooks.
+type Webhooks struct {
+	// AllowNetworks are networks webhooks may send events to besides public
+	// addresses, such as "10.0.0.0/8" for a receiver on the private network
+	// or "127.0.0.1" for one on the server itself. Loopback, private and
+	// link-local addresses are refused unless listed, so a webhook can't be
+	// used to reach the server's own services or the network behind it.
+	AllowNetworks []string `toml:"allow_networks"`
+}
+
+// AllowedNetworks returns allow_networks as networks; an address on its own
+// is a network of one.
+func (w Webhooks) AllowedNetworks() ([]netip.Prefix, error) {
+	return networks("webhooks.allow_networks", w.AllowNetworks)
 }
 
 // API configures the panel API.
@@ -154,8 +171,13 @@ type Paths struct {
 // AllowedNetworks returns allow_from as networks; an address on its own is a
 // network of one. IPv4 addresses written as IPv6 ones count as IPv4.
 func (p Panel) AllowedNetworks() ([]netip.Prefix, error) {
+	return networks("panel.allow_from", p.AllowFrom)
+}
+
+// networks reads a list of addresses and networks.
+func networks(setting string, list []string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
-	for _, n := range p.AllowFrom {
+	for _, n := range list {
 		if prefix, err := netip.ParsePrefix(n); err == nil {
 			if addr := prefix.Addr(); addr.Is4In6() && prefix.Bits() >= 96 {
 				prefix = netip.PrefixFrom(addr.Unmap(), prefix.Bits()-96)
@@ -165,7 +187,7 @@ func (p Panel) AllowedNetworks() ([]netip.Prefix, error) {
 		}
 		addr, err := netip.ParseAddr(n)
 		if err != nil || addr.Zone() != "" {
-			return nil, fmt.Errorf("panel.allow_from: %q isn't an address or network", n)
+			return nil, fmt.Errorf("%s: %q isn't an address or network", setting, n)
 		}
 		addr = addr.Unmap()
 		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
@@ -248,6 +270,8 @@ func Dev(dataDir string, addrs DevAddresses) (Config, error) {
 	}
 	c.Updates = Updates{Channel: "nightly"}
 	c.Log = Log{Level: "debug", Format: "text"}
+	// A developer's webhook receivers usually run on the same machine.
+	c.Webhooks = Webhooks{AllowNetworks: []string{"127.0.0.0/8", "::1"}}
 	return c, c.Validate()
 }
 
@@ -296,6 +320,9 @@ func (c Config) Validate() error {
 	checkAddr("edge.http", c.Edge.HTTP, false)
 	checkAddr("edge.https", c.Edge.HTTPS, false)
 	if _, err := c.Panel.AllowedNetworks(); err != nil {
+		errs = append(errs, err)
+	}
+	if _, err := c.Webhooks.AllowedNetworks(); err != nil {
 		errs = append(errs, err)
 	}
 	if (c.Panel.TLSCert == "") != (c.Panel.TLSKey == "") {

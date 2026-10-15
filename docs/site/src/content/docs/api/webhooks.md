@@ -37,12 +37,25 @@ curl -X POST https://panel.example.com:8443/api/v1/core/webhooks \
 | `events` | The event types to send, as patterns: `*` matches any run of characters and `?` one, so `web.site.*` is every event about sites, `*.failed` every failure and `*` everything |
 | `minSeverity` | Leaves out events less urgent than this: `info`, `notice`, `warning`, `error` or `critical` |
 | `owner` | Only sends events about the resources of one reseller or account, such as `{"level": "account", "id": "acct_01j9…"}` |
-| `disabled` | Stops sending events until you turn it back on |
+| `disabled` | Stops sending events until you turn it back on, including deliveries waiting to be tried again, which are given up |
 | `description` | What the webhook is for |
 
 `GET /api/v1/events/types` lists every event type with what it means and the schema of its data. A webhook gets the events that happen after it was created.
 
 To change the secret, update the webhook with the new value in `secrets`. Deliveries signed after that use the new one.
+
+## Where deliveries can go
+
+Deliveries only go to public addresses. A URL that points at the server itself, at its private network or at a cloud's metadata service, such as `http://localhost:8080`, `http://10.0.0.5` or `http://169.254.169.254`, is refused when you save it, and a name that turns out to lead to such an address is refused when a delivery is sent. Otherwise a webhook could read the server's own services, since every answer's start is kept in the delivery log.
+
+To send events to a receiver on your own network, list its network under `[webhooks]` in `racksail.toml`:
+
+```toml
+[webhooks]
+allow_networks = ["10.0.0.0/8", "127.0.0.1"]
+```
+
+Deliveries go straight to the receiver, never through a proxy.
 
 ## What a delivery looks like
 
@@ -126,7 +139,7 @@ export function verify(secret, headers, body, tolerance = 300) {
 
 Answer with any `2xx` status within ten seconds to accept a delivery; Racksail ignores the body. Do the work afterwards, or in the background, if it takes longer.
 
-Any other answer, no answer in time or a connection that fails counts as a failed attempt, and the delivery is tried again after 30 seconds, 2 minutes, 10 minutes, 30 minutes, 1 hour, 3 hours, 6 hours and 12 hours: nine attempts over almost a day. Then it's marked failed. A few answers change that:
+Any other answer, no answer in time or a connection that fails counts as a failed attempt, and the delivery is tried again after 30 seconds, 2 minutes, 10 minutes, 30 minutes, 1 hour, 3 hours, 6 hours and 12 hours: nine attempts over almost a day. Then it's marked failed. An attempt cut short, because the panel stopped or the test you started was canceled, counts as a failed one too, since the receiver may have seen it. A few answers change that:
 
 - `Retry-After` with a number of seconds makes the next attempt wait at least that long, up to 12 hours.
 - `410 Gone` stops trying that delivery at once.
@@ -140,7 +153,7 @@ After five failed attempts in a row the webhook shows as degraded, and the first
 |---|---|
 | `GET /api/v1/core/webhooks/{id}/deliveries` | Lists the webhook's deliveries, newest first, with how many attempts each took and how the last one went; `state=failed` lists only those that gave up |
 | `GET /api/v1/core/webhooks/{id}/deliveries/{delivery}` | Shows one delivery with the body that was sent and every attempt: when, how the receiver answered and the start of its answer |
-| `POST /api/v1/core/webhooks/{id}/actions/test` | Sends a `core.webhook.ping` event right away and reports how the receiver answered. Tests aren't tried again |
-| `POST /api/v1/core/webhooks/{id}/actions/redeliver` | Sends an earlier delivery's event again, given as `{"delivery": "dlv_…"}`, as a new delivery with the usual retries |
+| `POST /api/v1/core/webhooks/{id}/actions/test` | Sends a `core.webhook.ping` event right away and reports how the receiver answered. Tests aren't tried again, and a webhook that is turned off sends nothing |
+| `POST /api/v1/core/webhooks/{id}/actions/redeliver` | Sends an earlier delivery's event again, given as `{"delivery": "dlv_…"}`, as a new delivery with the usual retries; the way to send what was given up while the webhook was off |
 
 Deliveries are kept for 30 days; `deliveries` under `[retention]` in `racksail.toml` changes that.

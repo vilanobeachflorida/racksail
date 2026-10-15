@@ -14,4 +14,10 @@
 // automatic retries with a growing wait between them; each retry is a job of
 // its own, linked to the one before. Finished jobs and their logs are kept
 // within a Retention. NewMemory keeps a queue in memory, for tests and tools.
+//
+// A handler whose context ends learns why from Stopped: someone canceled the
+// job, it ran out of time, or the panel is stopping. A type's Ended hears how
+// each of its jobs ended, even one whose handler never ran, and Retryable can
+// refuse a retry, so work that keeps records of its own keeps them in line
+// with its jobs. Stop stops the queue and waits for the jobs running here.
 package jobs

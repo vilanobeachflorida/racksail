@@ -2030,6 +2030,14 @@
           "source": {
             "$ref": "#/components/schemas/Source"
           },
+          "state": {
+            "description": "How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts",
+            "enum": [
+              "started",
+              "done"
+            ],
+            "type": "string"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/Step"
@@ -2244,6 +2252,10 @@
               "type": "string"
             },
             "type": "object"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who the resource belonged to"
           },
           "server": {
             "description": "The cluster server the resource was placed on; empty for the panel's own server",
@@ -2477,29 +2489,6 @@
             }
           },
           {
-            "description": "Continues a list where the page before it ended",
-            "explode": false,
-            "in": "query",
-            "name": "cursor",
-            "schema": {
-              "description": "Continues a list where the page before it ended",
-              "type": "string"
-            }
-          },
-          {
-            "description": "How many to return; 50 when left out",
-            "explode": false,
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "description": "How many to return; 50 when left out",
-              "format": "int64",
-              "maximum": 1000,
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
             "description": "Only these actions, as patterns such as web.site.*; repeat it for several",
             "explode": false,
             "in": "query",
@@ -2538,6 +2527,29 @@
                 "failed"
               ],
               "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Continues a list where the page before it ended",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return; 50 when left out",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "How many to return; 50 when left out",
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer"
             }
           }
         ],
@@ -2581,7 +2593,7 @@
     },
     "/api/v1/audit/export": {
       "get": {
-        "description": "Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, up to 100,000 records; narrow the time window for more.",
+        "description": "Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, up to 100,000 records, or as many as limit says; narrow the time window, or start after a cursor, for more. In the CSV, text that starts like a spreadsheet formula gets a leading apostrophe, so opening the file never runs it.",
         "operationId": "exportAudit",
         "parameters": [
           {
@@ -2647,29 +2659,6 @@
             }
           },
           {
-            "description": "Continues a list where the page before it ended",
-            "explode": false,
-            "in": "query",
-            "name": "cursor",
-            "schema": {
-              "description": "Continues a list where the page before it ended",
-              "type": "string"
-            }
-          },
-          {
-            "description": "How many to return; 50 when left out",
-            "explode": false,
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "description": "How many to return; 50 when left out",
-              "format": "int64",
-              "maximum": 1000,
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
             "description": "Only these actions, as patterns such as web.site.*; repeat it for several",
             "explode": false,
             "in": "query",
@@ -2708,6 +2697,29 @@
                 "failed"
               ],
               "type": "string"
+            }
+          },
+          {
+            "description": "Start after the record a page of the audit log ended with, as its next cursor says",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Start after the record a page of the audit log ended with, as its next cursor says",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Export at most this many records; up to 100,000 when left out",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Export at most this many records; up to 100,000 when left out",
+              "format": "int64",
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "integer"
             }
           },
           {
@@ -2771,7 +2783,7 @@
     },
     "/api/v1/changesets": {
       "get": {
-        "description": "Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied.",
+        "description": "Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied. You see the change sets you made and those whose every resource you may read; core.changeset.read on the server shows all of them.",
         "operationId": "listChangeSets",
         "parameters": [
           {
@@ -2879,11 +2891,10 @@
         "tags": [
           "Changes"
         ],
-        "x-racksail-permission": "core.changeset.read",
         "x-racksail-risk": "read"
       },
       "post": {
-        "description": "Plans several changes to resources as one change set, previewed, applied and undone together: creating a database and the site that uses it, say. Choose IDs for new resources up front to refer to them from later changes. With dryRun=true the answer is the preview.",
+        "description": "Plans several changes to resources as one change set, previewed, applied and undone together: creating a database and the site that uses it, say. Choose IDs for new resources up front to refer to them from later changes; an ID a deleted resource had can't be used again. With dryRun=true the answer is the preview.",
         "operationId": "submitChangeSet",
         "parameters": [
           {
@@ -2926,7 +2937,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
           },
           "202": {
             "content": {
@@ -2937,6 +2948,16 @@
               }
             },
             "description": "The change set, applied to the settings; its job carries out the rest"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -2959,7 +2980,7 @@
     },
     "/api/v1/changesets/{id}": {
       "get": {
-        "description": "Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went.",
+        "description": "Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went, change by change.",
         "operationId": "getChangeSet",
         "parameters": [
           {
@@ -3007,13 +3028,12 @@
         "tags": [
           "Changes"
         ],
-        "x-racksail-permission": "core.changeset.read",
         "x-racksail-risk": "read"
       }
     },
     "/api/v1/changesets/{id}/apply": {
       "post": {
-        "description": "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again.",
+        "description": "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.",
         "operationId": "applyChangeSet",
         "parameters": [
           {
@@ -3038,16 +3058,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChangeSet"
-                }
-              }
-            },
-            "description": "OK"
-          },
           "202": {
             "content": {
               "application/json": {
@@ -3057,6 +3067,16 @@
               }
             },
             "description": "The change set, applied to the settings; its job carries out the rest"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -3132,6 +3152,16 @@
               }
             },
             "description": "The undo's change set, applied to the settings; its job carries out the rest"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -4405,7 +4435,7 @@
     },
     "/api/v1/jobs": {
       "get": {
-        "description": "Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why.",
+        "description": "Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why. You see the jobs you started, and those of the owners you hold core.job.read on.",
         "operationId": "listJobs",
         "parameters": [
           {
@@ -4513,13 +4543,12 @@
         "tags": [
           "Jobs"
         ],
-        "x-racksail-permission": "core.job.read",
         "x-racksail-risk": "read"
       }
     },
     "/api/v1/jobs/{id}": {
       "get": {
-        "description": "Returns a job: its state, its progress, what it returned and, when it failed, why.",
+        "description": "Returns a job: its state, its progress, what it returned and, when it failed, why. Any job you started, or one of an owner you hold core.job.read on.",
         "operationId": "getJob",
         "parameters": [
           {
@@ -4567,13 +4596,12 @@
         "tags": [
           "Jobs"
         ],
-        "x-racksail-permission": "core.job.read",
         "x-racksail-risk": "read"
       }
     },
     "/api/v1/jobs/{id}/cancel": {
       "post": {
-        "description": "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done.",
+        "description": "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
         "operationId": "cancelJob",
         "parameters": [
           {
@@ -4622,7 +4650,6 @@
           "Jobs"
         ],
         "x-racksail-operation": "cancel",
-        "x-racksail-permission": "core.job.cancel",
         "x-racksail-risk": "medium"
       }
     },
@@ -4701,13 +4728,12 @@
         "tags": [
           "Jobs"
         ],
-        "x-racksail-permission": "core.job.read",
         "x-racksail-risk": "read"
       }
     },
     "/api/v1/jobs/{id}/retry": {
       "post": {
-        "description": "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job.",
+        "description": "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
         "operationId": "retryJob",
         "parameters": [
           {
@@ -4722,16 +4748,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            },
-            "description": "OK"
-          },
           "202": {
             "content": {
               "application/json": {
@@ -4741,6 +4757,16 @@
               }
             },
             "description": "The new job"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -4756,7 +4782,6 @@
           "Jobs"
         ],
         "x-racksail-operation": "retry",
-        "x-racksail-permission": "core.job.retry",
         "x-racksail-risk": "medium"
       }
     },
@@ -4869,7 +4894,6 @@
         "tags": [
           "Jobs"
         ],
-        "x-racksail-permission": "core.job.read",
         "x-racksail-risk": "read",
         "x-racksail-stream": true
       }
@@ -4965,6 +4989,49 @@
         "tags": [
           "System"
         ],
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "description": "Reports how the panel's own machinery is doing, in the Prometheus text format: jobs waiting and running, the reconcile queue and its failures, webhook deliveries, and requests refused by the rate limits. Monitoring tools can scrape it with an API token that has the core.metrics.read permission.",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The metrics, one per line with its help and type"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read the panel's metrics",
+        "tags": [
+          "System"
+        ],
+        "x-racksail-operation": "metrics",
+        "x-racksail-permission": "core.metrics.read",
         "x-racksail-risk": "read"
       }
     },

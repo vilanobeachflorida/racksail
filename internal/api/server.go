@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -101,6 +102,9 @@ type Options struct {
 	AllowFrom []netip.Prefix
 	// RateLimit bounds how often callers may call the API.
 	RateLimit RateLimit
+	// Metrics returns the panel's metrics for GET /api/v1/metrics, besides
+	// those of the API itself; nil means those alone.
+	Metrics func(ctx context.Context) ([]Metric, error)
 	// UI serves everything outside /api.
 	UI  http.Handler
 	Log *slog.Logger
@@ -129,7 +133,20 @@ type Server struct {
 	// noSignIn is set when no authenticator is configured outside
 	// development mode.
 	noSignIn bool
+	// closing ends when Close is called: live streams and waits for jobs
+	// end with it, so shutting down isn't held up by them.
+	closing  context.Context
+	close    context.CancelFunc
+	streams  atomic.Int64
+	requests atomic.Int64
 }
+
+// Close ends the live streams and the waits for actions to finish, at once
+// and for requests that come later, so the HTTP server's Shutdown, which
+// waits for every request to finish, isn't held up by clients that would
+// otherwise stay connected. Clients reconnect to streams by themselves. The
+// panel calls it from http.Server.RegisterOnShutdown.
+func (s *Server) Close() { s.close() }
 
 // New builds the server.
 func New(opts Options) *Server {
@@ -166,9 +183,10 @@ func New(opts Options) *Server {
 		SessionScheme: {Type: "apiKey", In: "cookie", Name: SessionCookie, Description: "The session cookie set when signing in to the panel."},
 		TokenScheme:   {Type: "http", Scheme: "bearer", Description: "An API token, scoped to permissions and accounts."},
 	}
+	closing, close := context.WithCancel(context.Background())
 	s := &Server{
 		opts: opts, mux: mux, api: humago.New(mux, cfg), kinds: kinds, docs: map[string]kindDoc{},
-		limiter: newLimiter(opts.RateLimit, opts.Now), noSignIn: noSignIn,
+		limiter: newLimiter(opts.RateLimit, opts.Now), noSignIn: noSignIn, closing: closing, close: close,
 	}
 	if noSignIn && opts.Services.Store != nil {
 		opts.Log.Error("the panel has no way to sign anyone in, so it refuses every request that needs a signed-in user")
@@ -181,6 +199,7 @@ func New(opts Options) *Server {
 	s.registerChangeSets()
 	s.registerJobs()
 	s.registerTimeline()
+	s.registerMetrics()
 	if opts.Modules != nil {
 		for _, m := range opts.Modules.All() {
 			if p, ok := m.(modules.APIProvider); ok {
@@ -409,6 +428,7 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		s.requests.Add(1)
 		id := r.Header.Get("X-Request-Id")
 		if !requestIDPattern.MatchString(id) {
 			id = string(store.NewID(store.PrefixRequest))
@@ -453,10 +473,14 @@ func (s *Server) Handler() http.Handler {
 			rec.Header().Set("X-Content-Type-Options", "nosniff")
 			// Load balancers ask for the health often; it is never limited.
 			if r.URL.Path != Prefix+"/health" {
-				ok, limit, remaining, wait := s.limiter.allow(actor, r.RemoteAddr)
-				if limit > 0 {
-					rec.Header().Set("RateLimit-Limit", strconv.Itoa(limit))
-					rec.Header().Set("RateLimit-Remaining", strconv.Itoa(remaining))
+				// The headers describe the caller's bucket: how many requests
+				// it holds when full, how many are left, and the seconds
+				// until it is full again.
+				ok, q, wait := s.limiter.allow(actor, r.RemoteAddr)
+				if q.limit > 0 {
+					rec.Header().Set("RateLimit-Limit", strconv.Itoa(q.limit))
+					rec.Header().Set("RateLimit-Remaining", strconv.Itoa(q.remaining))
+					rec.Header().Set("RateLimit-Reset", retryAfter(q.reset))
 				}
 				if !ok {
 					after := retryAfter(wait)

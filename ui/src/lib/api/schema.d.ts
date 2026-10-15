@@ -33,7 +33,7 @@ export interface paths {
         };
         /**
          * Export the audit log
-         * @description Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, up to 100,000 records; narrow the time window for more.
+         * @description Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, up to 100,000 records, or as many as limit says; narrow the time window, or start after a cursor, for more. In the CSV, text that starts like a spreadsheet formula gets a leading apostrophe, so opening the file never runs it.
          */
         get: operations["exportAudit"];
         put?: never;
@@ -53,13 +53,13 @@ export interface paths {
         };
         /**
          * List changes
-         * @description Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied.
+         * @description Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied. You see the change sets you made and those whose every resource you may read; core.changeset.read on the server shows all of them.
          */
         get: operations["listChangeSets"];
         put?: never;
         /**
          * Make several changes at once
-         * @description Plans several changes to resources as one change set, previewed, applied and undone together: creating a database and the site that uses it, say. Choose IDs for new resources up front to refer to them from later changes. With dryRun=true the answer is the preview.
+         * @description Plans several changes to resources as one change set, previewed, applied and undone together: creating a database and the site that uses it, say. Choose IDs for new resources up front to refer to them from later changes; an ID a deleted resource had can't be used again. With dryRun=true the answer is the preview.
          */
         post: operations["submitChangeSet"];
         delete?: never;
@@ -77,7 +77,7 @@ export interface paths {
         };
         /**
          * Get a change
-         * @description Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went.
+         * @description Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went, change by change.
          */
         get: operations["getChangeSet"];
         put?: never;
@@ -99,7 +99,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a preview
-         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again.
+         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.
          */
         post: operations["applyChangeSet"];
         delete?: never;
@@ -369,7 +369,7 @@ export interface paths {
         };
         /**
          * List jobs
-         * @description Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why.
+         * @description Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why. You see the jobs you started, and those of the owners you hold core.job.read on.
          */
         get: operations["listJobs"];
         put?: never;
@@ -389,7 +389,7 @@ export interface paths {
         };
         /**
          * Get a job
-         * @description Returns a job: its state, its progress, what it returned and, when it failed, why.
+         * @description Returns a job: its state, its progress, what it returned and, when it failed, why. Any job you started, or one of an owner you hold core.job.read on.
          */
         get: operations["getJob"];
         put?: never;
@@ -411,7 +411,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a job
-         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done.
+         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
          */
         post: operations["cancelJob"];
         delete?: never;
@@ -451,7 +451,7 @@ export interface paths {
         put?: never;
         /**
          * Retry a job
-         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job.
+         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
          */
         post: operations["retryJob"];
         delete?: never;
@@ -512,6 +512,26 @@ export interface paths {
          * @description Describes one kind of resource, with the JSON Schemas of its settings, its status and its actions' inputs and outputs, so forms can be built from them.
          */
         get: operations["getKind"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the panel's metrics
+         * @description Reports how the panel's own machinery is doing, in the Prometheus text format: jobs waiting and running, the reconcile queue and its failures, webhook deliveries, and requests refused by the rate limits. Monitoring tools can scrape it with an API token that has the core.metrics.read permission.
+         */
+        get: operations["getMetrics"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1336,6 +1356,11 @@ export interface components {
             scope: components["schemas"]["Scope"];
             server?: string;
             source: components["schemas"]["Source"];
+            /**
+             * @description How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts
+             * @enum {string}
+             */
+            state?: "started" | "done";
             steps?: components["schemas"]["Step"][] | null;
         };
         ResyncNotice: {
@@ -1406,6 +1431,8 @@ export interface components {
             labels?: {
                 [key: string]: string;
             };
+            /** @description Who the resource belonged to */
+            scope?: components["schemas"]["Scope"];
             /** @description The cluster server the resource was placed on; empty for the panel's own server */
             server?: string;
             /** @description The desired state as it was; secret fields hold references, never values */
@@ -1494,16 +1521,16 @@ export interface operations {
                 since?: string;
                 /** @description Only those before this time */
                 until?: string;
-                /** @description Continues a list where the page before it ended */
-                cursor?: string;
-                /** @description How many to return; 50 when left out */
-                limit?: number;
                 /** @description Only these actions, as patterns such as web.site.*; repeat it for several */
                 action?: string[] | null;
                 /** @description Only what this user, token, automation or add-on did, or did for this user */
                 actor?: string;
                 /** @description Only records with this outcome */
                 outcome?: "success" | "denied" | "failed";
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1546,16 +1573,16 @@ export interface operations {
                 since?: string;
                 /** @description Only those before this time */
                 until?: string;
-                /** @description Continues a list where the page before it ended */
-                cursor?: string;
-                /** @description How many to return; 50 when left out */
-                limit?: number;
                 /** @description Only these actions, as patterns such as web.site.*; repeat it for several */
                 action?: string[] | null;
                 /** @description Only what this user, token, automation or add-on did, or did for this user */
                 actor?: string;
                 /** @description Only records with this outcome */
                 outcome?: "success" | "denied" | "failed";
+                /** @description Start after the record a page of the audit log ended with, as its next cursor says */
+                cursor?: string;
+                /** @description Export at most this many records; up to 100,000 when left out */
+                limit?: number;
                 /** @description csv for spreadsheets, or json for one record per line */
                 format?: "csv" | "json";
             };
@@ -1647,7 +1674,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1663,6 +1690,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -1714,15 +1750,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSet"];
-                };
-            };
             /** @description The change set, applied to the settings; its job carries out the rest */
             202: {
                 headers: {
@@ -1730,6 +1757,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -1768,6 +1804,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2525,15 +2570,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Job"];
-                };
-            };
             /** @description The new job */
             202: {
                 headers: {
@@ -2541,6 +2577,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2649,6 +2694,35 @@ export interface operations {
                 };
             };
             /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The metrics, one per line with its help and type */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;

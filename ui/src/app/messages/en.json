@@ -53,6 +53,8 @@
   "error.agent.unreachable": "The agent isn't reachable: {reason}.",
   "error.api.address_not_allowed": "The panel doesn't accept requests from {address}.",
   "error.api.no_sign_in": "This panel has no way to sign anyone in yet, so it refuses requests that need a signed-in user.",
+  "error.changeset.action_not_repeated": "{title} stopped while running {action}, which a retry doesn't run a second time. Run {action} again instead.",
+  "error.changeset.applying": "{title} is already being applied.",
   "error.changeset.bad_contribution": "{source} added a change hooks can't add: {reason}.",
   "error.changeset.conflicts": "The change has {count} conflicting contributions from hooks. Resolve them before applying it.",
   "error.changeset.contribution_denied": "{source} added a change you aren't allowed to make: {reason}",
@@ -61,6 +63,7 @@
   "error.changeset.hook_tampered": "A hook changed {what}, which hooks can't change, so the change was stopped.",
   "error.changeset.not_applied": "Only applied changes can be undone.",
   "error.changeset.not_preview": "{title} isn't a preview, so it can't be applied again.",
+  "error.changeset.not_retryable": "Only a change that failed can be carried out again, and {title} is {state}.",
   "error.changeset.nothing_to_undo": "{title} can't be undone because it didn't change any settings.",
   "error.changeset.preview_has_secrets": "{title} carried secret values, which previews don't keep. Send the change again to apply it.",
   "error.changeset.preview_stale": "{title} would now do something other than its preview showed. Look at the new preview, {preview}, and apply that instead.",
@@ -89,6 +92,7 @@
   "error.reconcile.check_failed": "The {check} health check didn't pass: {reason}.",
   "error.secrets.bad_ref": "{ref} isn't a secret reference; use the owner's id, a slash and the secret's name.",
   "error.secrets.not_found": "The secret {ref} doesn't exist.",
+  "error.store.id_used": "{id} belonged to a resource that was deleted, so a new resource can't use it. Leave the ID out to get a new one.",
   "error.webhook.delivery_not_found": "The webhook has no delivery {delivery}.",
   "error.webhook.no_secret": "Give the webhook a signing secret, so receivers can check that events come from this server."
 }

@@ -149,3 +149,28 @@ func TestDev(t *testing.T) {
 		t.Errorf("load = %+v, %v", loaded.Log, err)
 	}
 }
+
+func TestWebhookNetworks(t *testing.T) {
+	if nets, err := Default().Webhooks.AllowedNetworks(); err != nil || len(nets) != 0 {
+		t.Errorf("by default webhooks reach public addresses only: %v, %v", nets, err)
+	}
+	c, err := Parse([]byte("[webhooks]\nallow_networks = [\"10.0.0.0/8\", \"127.0.0.1\", \"fd00::/8\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nets, err := c.Webhooks.AllowedNetworks()
+	want := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("127.0.0.1/32"), netip.MustParsePrefix("fd00::/8")}
+	if err != nil || !slices.Equal(nets, want) {
+		t.Errorf("allowed = %v, %v", nets, err)
+	}
+	if _, err := Parse([]byte("[webhooks]\nallow_networks = [\"the office\"]\n")); err == nil || !strings.Contains(err.Error(), "webhooks.allow_networks") {
+		t.Errorf("a bad network: %v", err)
+	}
+	dev, err := Dev(t.TempDir(), DevAddresses{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nets, _ := dev.Webhooks.AllowedNetworks(); !slices.Contains(nets, netip.MustParsePrefix("127.0.0.0/8")) {
+		t.Errorf("racksail dev reaches receivers on the same machine: %v", nets)
+	}
+}

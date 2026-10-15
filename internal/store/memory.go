@@ -184,13 +184,17 @@ func (tx *memTx) Create(ctx context.Context, r *Resource) error {
 	if err != nil {
 		return err
 	}
+	h := tx.state.history[r.ID]
+	if err := CheckReuse(h, r, tx.meta.UndoOf); err != nil {
+		return err
+	}
 	if err := tx.claim(info, keys, r.ID); err != nil {
 		return err
 	}
-	// A resource created again with an ID it had before, as when a delete
-	// is undone, carries on from the generations it had.
+	// A resource brought back under its ID, as when a delete is undone,
+	// carries on from the generations it had.
 	r.Generation, r.Revision = 1, 1
-	if h := tx.state.history[r.ID]; len(h) > 0 {
+	if len(h) > 0 {
 		r.Generation = h[len(h)-1].Generation + 1
 	}
 	r.CreatedAt, r.UpdatedAt, r.DeletedAt = tx.now, tx.now, nil
@@ -357,6 +361,8 @@ func (tx *memTx) claim(info *KindInfo, keys []uniqueKey, id ID) error {
 func (tx *memTx) record(r *Resource, deleted bool) {
 	v := Version{
 		Generation: r.Generation,
+		Kind:       r.Kind,
+		Scope:      r.Scope,
 		Spec:       slices.Clone(r.Spec),
 		Labels:     maps.Clone(r.Labels),
 		Server:     r.Server,

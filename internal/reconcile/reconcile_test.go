@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -611,18 +612,114 @@ func TestStatusShowsWorkInProgress(t *testing.T) {
 	}
 }
 
+// orderReconciler writes notes like noteReconciler and records the order it
+// reconciles them in.
+type orderReconciler struct {
+	noteReconciler
+	mu   *sync.Mutex
+	seen *[]store.ID
+}
+
+func (o orderReconciler) Apply(ctx context.Context, obj *store.Object[noteSpec, noteStatus], plan Plan, ex Executor) (noteStatus, error) {
+	o.mu.Lock()
+	*o.seen = append(*o.seen, obj.ID)
+	o.mu.Unlock()
+	return o.noteReconciler.Apply(ctx, obj, plan, ex)
+}
+
 func TestRunCarriesOutUnfinishedChangesFirst(t *testing.T) {
-	r, m, s := setup(t)
 	ctx := context.Background()
-	done := createNote(t, s, "done")
-	if err := r.Reconcile(ctx, done, nil); err != nil {
+	reg := store.NewKindRegistry()
+	if err := reg.Register(noteKind); err != nil {
 		t.Fatal(err)
 	}
+	s := store.NewMemory(reg)
+	m := sim.New(sim.Options{})
+	var mu sync.Mutex
+	var seen []store.ID
+	recs := NewRegistry()
+	if err := recs.Register(Typed(noteKind, orderReconciler{mu: &mu, seen: &seen})); err != nil {
+		t.Fatal(err)
+	}
+	// One worker, so the order the queue takes resources in is the order
+	// they are reconciled in.
+	r := &Runner{Store: s, Agent: agent.NewLocal(m.Backend(), nil), Registry: recs, Workers: 1}
+	// The notes that are in place were created first, so going by creation
+	// alone would leave the waiting one for last.
+	var done []store.ID
+	for i := range 3 {
+		id := createNote(t, s, fmt.Sprint("done ", i))
+		if err := r.Reconcile(ctx, id, nil); err != nil {
+			t.Fatal(err)
+		}
+		done = append(done, id)
+	}
 	waiting := createNote(t, s, "waiting")
-	m.ResetCalls()
+	mu.Lock()
+	seen = nil
+	mu.Unlock()
 	run(t, r, time.Hour)
-	waitFor(t, "wrote the waiting note", func() bool {
-		data, _ := m.Backend().Files.ReadFile(ctx, notePath(waiting), 0)
-		return string(data) == "waiting"
+	waitFor(t, "reconciled every note", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) >= 4
 	})
+	mu.Lock()
+	// The resync pass that follows may take the waiting note once more.
+	order := slices.Clone(seen[:4])
+	mu.Unlock()
+	if order[0] != waiting || !slices.Equal(order[1:], done) {
+		t.Errorf("reconciled %v, want the waiting note %s first, then %v", order, waiting, done)
+	}
+	if data, _ := m.Backend().Files.ReadFile(ctx, notePath(waiting), 0); string(data) != "waiting" {
+		t.Errorf("the waiting note = %q", data)
+	}
+}
+
+// A reconcile stopped part way, as when its job is canceled, says so in the
+// status rather than leaving the resource looking busy.
+func TestStoppedReconcilesSaySo(t *testing.T) {
+	r, m, s := setup(t)
+	id := createNote(t, s, "slow")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	m.ResetCalls()
+	err := r.Reconcile(ctx, id, func(_ store.ID, step int, _ agent.Step) {
+		if step == 1 {
+			cancel(i18n.ErrCanceled.New())
+		}
+	})
+	if !errors.Is(err, i18n.ErrCanceled) {
+		t.Errorf("a canceled reconcile = %v", err)
+	}
+	got, _ := noteKind.Get(context.Background(), s, id)
+	if got.Status.Phase != store.PhaseFailed || got.Status.Code != i18n.ErrCanceled.Code || got.Status.IsTrue(ConditionReady) {
+		t.Errorf("status after it stopped = %+v", got.Status)
+	}
+	st := r.Stats()
+	if st.Reconciles != 1 || st.Failures != 1 || st.Running != 0 {
+		t.Errorf("stats = %+v", st)
+	}
+	// The next reconcile finishes the job.
+	if err := r.Reconcile(context.Background(), id, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := noteKind.Get(context.Background(), s, id); got.Status.Phase != store.PhaseReady {
+		t.Errorf("status after another reconcile = %+v", got.Status)
+	}
+}
+
+func TestQueueHealthAndStats(t *testing.T) {
+	r, _, s := setup(t)
+	if err := r.Check(context.Background()); err == nil {
+		t.Error("a queue that isn't running isn't healthy")
+	}
+	createNote(t, s, "one")
+	run(t, r, time.Hour)
+	waitFor(t, "started the queue", func() bool { return r.Check(context.Background()) == nil })
+	// The first pass takes the note as unfinished, and the second may take
+	// it again.
+	waitFor(t, "reconciled the note", func() bool { st := r.Stats(); return st.Reconciles >= 1 && st.Running == 0 && st.Queued == 0 })
+	if st := r.Stats(); st.Failures != 0 || st.Retrying != 0 {
+		t.Errorf("stats = %+v", st)
+	}
 }

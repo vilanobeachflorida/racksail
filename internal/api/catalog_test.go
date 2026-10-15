@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
@@ -301,16 +303,23 @@ func TestEveryChangeHasHookPoints(t *testing.T) {
 
 func TestRateLimits(t *testing.T) {
 	s := newStack(t, RateLimit{PerActor: 4, PerAddress: 4})
-	// A bucket holds a quarter of a minute's requests and ten more.
+	// A bucket holds a quarter of a minute's requests and ten more, which
+	// is what the headers count: eleven, and how many of them are left.
 	var limited *http.Response
-	for range 12 {
+	for i := range 12 {
 		resp := s.call("owner", "GET", "/api/v1/kinds", nil, nil)
 		if resp.StatusCode == http.StatusTooManyRequests {
 			limited = resp
 			break
 		}
-		if resp.Header.Get("RateLimit-Limit") != "4" {
-			t.Errorf("limit header = %q", resp.Header.Get("RateLimit-Limit"))
+		if got := resp.Header.Get("RateLimit-Limit"); got != "11" {
+			t.Errorf("limit header = %q", got)
+		}
+		if got := resp.Header.Get("RateLimit-Remaining"); got != strconv.Itoa(10-i) {
+			t.Errorf("remaining after %d requests = %q", i+1, got)
+		}
+		if reset, err := strconv.Atoi(resp.Header.Get("RateLimit-Reset")); err != nil || reset < 1 {
+			t.Errorf("reset header = %q", resp.Header.Get("RateLimit-Reset"))
 		}
 	}
 	if limited == nil {
@@ -340,8 +349,30 @@ func TestRateLimits(t *testing.T) {
 	}
 
 	l := newLimiter(RateLimit{PerActor: 60}, func() time.Time { return time.Unix(0, 0) })
-	if ok, _, _, _ := l.allow(nil, "203.0.113.1:1"); !ok {
+	if ok, q, _ := l.allow(nil, "203.0.113.1:1"); !ok || q.limit != 0 {
 		t.Error("a limit of 0 is no limit")
+	}
+	// A full bucket holds a quarter of a minute and ten more, and refills
+	// at the steady rate.
+	now := time.Unix(0, 0)
+	l = newLimiter(RateLimit{PerActor: 600}, func() time.Time { return now })
+	user := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user")}
+	if ok, q, _ := l.allow(user, ""); !ok || q.limit != 160 || q.remaining != 159 || q.reset != 100*time.Millisecond {
+		t.Errorf("after one request = %+v", q)
+	}
+	for range 159 {
+		l.allow(user, "")
+	}
+	ok, q, wait := l.allow(user, "")
+	if ok || q.remaining != 0 || wait != 100*time.Millisecond || q.reset != 16*time.Second {
+		t.Errorf("over the limit = %v %+v %v", ok, q, wait)
+	}
+	now = now.Add(time.Second)
+	if _, q, _ := l.allow(user, ""); q.remaining != 9 {
+		t.Errorf("a second later = %+v", q)
+	}
+	if refused, callers := l.stats(); refused != 1 || callers != 1 {
+		t.Errorf("stats = %d refused, %d callers", refused, callers)
 	}
 	if a, _ := l.key(nil, "[2001:db8::1]:443"); a != "address:2001:db8::" {
 		t.Errorf("IPv6 addresses share a bucket per /64: %s", a)

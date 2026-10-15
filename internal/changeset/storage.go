@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -23,8 +24,9 @@ type Storage interface {
 	Get(ctx context.Context, id store.ID) (*ChangeSet, error)
 	// Request returns the request a kept preview came from.
 	Request(ctx context.Context, id store.ID) (*StoredRequest, error)
-	// Update changes a kept change set and returns it as stored.
-	Update(ctx context.Context, id store.ID, fn func(cs *ChangeSet)) (*ChangeSet, error)
+	// Update changes a kept change set and returns it as stored. When fn
+	// returns an error nothing changes and Update returns it.
+	Update(ctx context.Context, id store.ID, fn func(cs *ChangeSet) error) (*ChangeSet, error)
 	// List returns kept change sets matching q, newest first, and the
 	// cursor of the next page.
 	List(ctx context.Context, q ListQuery) ([]*ChangeSet, string, error)
@@ -69,8 +71,36 @@ type ListQuery struct {
 	DryRuns bool
 	// UndoOf keeps the change sets that undo another.
 	UndoOf store.ID
-	Cursor string
-	Limit  int
+	// Visible, when set, keeps only change sets someone may see.
+	Visible *Visibility
+	Cursor  string
+	Limit   int
+}
+
+// Visibility narrows a list to the change sets someone may see: those Person
+// made, or that were made for them, and those whose every resource belongs
+// to one of Scopes or is one of Objects. It may keep a few they can't read,
+// as when a grant on a scope doesn't cover every kind, so lists check each
+// change set they return as well.
+type Visibility struct {
+	Person  store.ID
+	Scopes  []store.Scope
+	Objects []store.ID
+}
+
+func (v *Visibility) shows(cs *ChangeSet) bool {
+	if v.Person != "" && jobs.Of(cs.Actor) == v.Person {
+		return true
+	}
+	if len(cs.Changes) == 0 {
+		return false
+	}
+	for _, c := range cs.Changes {
+		if !slices.Contains(v.Scopes, c.Scope) && !slices.Contains(v.Objects, c.ID) {
+			return false
+		}
+	}
+	return true
 }
 
 func (q ListQuery) limit() int {
@@ -91,6 +121,8 @@ func (q ListQuery) matches(cs *ChangeSet) bool {
 	case q.Actor != "" && (cs.Actor == nil || (cs.Actor.ID != q.Actor && cs.Actor.User != q.Actor)):
 		return false
 	case q.Resource != "" && !slices.ContainsFunc(cs.Changes, func(c ResourceChange) bool { return c.ID == q.Resource }):
+		return false
+	case q.Visible != nil && !q.Visible.shows(cs):
 		return false
 	}
 	return true
@@ -162,14 +194,18 @@ func (m *MemoryStorage) Request(ctx context.Context, id store.ID) (*StoredReques
 }
 
 // Update implements Storage.
-func (m *MemoryStorage) Update(ctx context.Context, id store.ID, fn func(cs *ChangeSet)) (*ChangeSet, error) {
+func (m *MemoryStorage) Update(ctx context.Context, id store.ID, fn func(cs *ChangeSet) error) (*ChangeSet, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cs, ok := m.sets[id]
+	kept, ok := m.sets[id]
 	if !ok {
 		return nil, notFound(id)
 	}
-	fn(cs)
+	cs := kept.Clone()
+	if err := fn(cs); err != nil {
+		return nil, err
+	}
+	m.sets[id] = cs
 	return cs.Clone(), nil
 }
 

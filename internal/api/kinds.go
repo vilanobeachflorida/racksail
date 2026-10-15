@@ -37,7 +37,7 @@ func KindPath(info *store.KindInfo) string {
 
 // reservedModules are the first path segments of the core's own
 // operations, which no module's kinds may use.
-var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream"}
+var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream", "metrics"}
 
 // registerKinds generates the operations of every registered kind.
 func (s *Server) registerKinds() {
@@ -465,7 +465,8 @@ func (s *Server) submit(ctx context.Context, params ChangeParams, req changeset.
 }
 
 // awaitJob waits for a job to finish, up to actionWait, and reports
-// whether it finished in time.
+// whether it finished in time. The server closing ends the wait, and the
+// answer is 202 with the change set, whose job carries on.
 func (s *Server) awaitJob(ctx context.Context, id store.ID) bool {
 	q := s.jobs()
 	if q == nil {
@@ -473,6 +474,7 @@ func (s *Server) awaitJob(ctx context.Context, id store.ID) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, actionWait)
 	defer cancel()
+	defer context.AfterFunc(s.closing, cancel)()
 	_, err := q.Wait(ctx, id)
 	return err == nil
 }

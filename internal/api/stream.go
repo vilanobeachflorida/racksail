@@ -121,7 +121,8 @@ type stream func(ctx context.Context, out send, ready func() error) error
 
 // registerStream registers an operation that answers with Server-Sent
 // Events. open runs before anything is sent, so its errors are problems
-// like any other operation's.
+// like any other operation's. A stream ends when the client goes away, when
+// what it follows ends, or when the server closes.
 func registerStream[I any](s *Server, op huma.Operation, messages map[string]any, open func(ctx context.Context, in *I) (stream, error)) {
 	if op.Responses == nil {
 		op.Responses = map[string]*huma.Response{}
@@ -153,9 +154,16 @@ func registerStream[I any](s *Server, op huma.Operation, messages map[string]any
 				}
 				return out.send(event, id, data)
 			}
+			s.streams.Add(1)
+			defer s.streams.Add(-1)
 			ctx, cancel := context.WithCancel(hc.Context())
 			defer cancel()
+			// Shutting down waits for every request, so the server closing
+			// ends the stream; the client reconnects once the panel is back.
+			defer context.AfterFunc(s.closing, cancel)()
+			beat := make(chan struct{})
 			go func() {
+				defer close(beat)
 				ticker := time.NewTicker(heartbeat)
 				defer ticker.Stop()
 				for {
@@ -173,6 +181,9 @@ func registerStream[I any](s *Server, op huma.Operation, messages map[string]any
 			if err := run(ctx, emit, ready); err != nil && ctx.Err() == nil {
 				s.opts.Log.Debug("a stream ended early", "operation", op.OperationID, "error", err)
 			}
+			// Nothing writes to the response once the handler has returned.
+			cancel()
+			<-beat
 		}}, nil
 	})
 }

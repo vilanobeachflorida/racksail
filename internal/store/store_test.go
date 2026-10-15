@@ -241,27 +241,94 @@ func TestUniqueIndexes(t *testing.T) {
 	})
 }
 
-func TestRecreatedResourcesKeepTheirGenerations(t *testing.T) {
+// A purged resource's ID only comes back through the undo of the change set
+// that deleted it, as the same resource, which carries on from the
+// generations it had. Its history and secrets never pass to anything else.
+func TestPurgedIDsComeBackOnlyThroughUndo(t *testing.T) {
 	forEachStore(t, func(t *testing.T, s Store, k *KindOf[testSiteSpec, testSiteStatus]) {
 		ctx := context.Background()
 		r := createSite(t, s, k, NewID("acct"), "again.test")
-		if err := write(ctx, s, func(tx Tx) error {
-			if err := tx.Delete(ctx, r.ID, 0); err != nil {
-				return err
-			}
-			return tx.Purge(ctx, r.ID)
-		}); err != nil {
+		deletedBy := NewID(PrefixChangeSet)
+		if err := s.Write(ctx, WriteMeta{ChangeSet: deletedBy}, func(tx Tx) error { return tx.Delete(ctx, r.ID, 0) }); err != nil {
 			t.Fatal(err)
 		}
-		back := &Resource{Meta: Meta{ID: r.ID, Kind: r.Kind, Scope: r.Scope}, Spec: r.Spec}
-		if err := write(ctx, s, func(tx Tx) error { return tx.Create(ctx, back) }); err != nil {
+		if err := write(ctx, s, func(tx Tx) error { return tx.Purge(ctx, r.ID) }); err != nil {
+			t.Fatal(err)
+		}
+		recreate := func(scope Scope, undoOf ID) (*Resource, error) {
+			back := &Resource{Meta: Meta{ID: r.ID, Kind: r.Kind, Scope: scope}, Spec: r.Spec}
+			return back, s.Write(ctx, WriteMeta{ChangeSet: NewID(PrefixChangeSet), UndoOf: undoOf}, func(tx Tx) error { return tx.Create(ctx, back) })
+		}
+		for name, tc := range map[string]struct {
+			scope  Scope
+			undoOf ID
+		}{
+			"a new resource":              {r.Scope, ""},
+			"the undo of another change":  {r.Scope, NewID(PrefixChangeSet)},
+			"another account's, undoing":  {AccountScope(NewID("acct")), deletedBy},
+			"another account's, as a new": {AccountScope(NewID("acct")), ""},
+		} {
+			if _, err := recreate(tc.scope, tc.undoOf); !errors.Is(err, ErrIDUsed) {
+				t.Errorf("%s: %v", name, err)
+			}
+		}
+		if h, _ := s.History(ctx, r.ID); len(h) != 2 || h[0].Scope != r.Scope || h[0].Kind != r.Kind || !h[1].Deleted {
+			t.Errorf("history after the refusals = %+v", h)
+		}
+		back, err := recreate(r.Scope, deletedBy)
+		if err != nil {
 			t.Fatal(err)
 		}
 		h, _ := s.History(ctx, r.ID)
-		if back.Generation != 3 || len(h) != 3 || h[2].Generation != 3 || h[2].Deleted {
+		if back.Generation != 3 || len(h) != 3 || h[2].Generation != 3 || h[2].Deleted || h[2].Scope != r.Scope {
 			t.Errorf("generation %d, history %+v", back.Generation, h)
 		}
+		// Once back, its ID is as used as any other.
+		if err := s.Write(ctx, WriteMeta{ChangeSet: deletedBy, UndoOf: deletedBy}, func(tx Tx) error {
+			return tx.Create(ctx, &Resource{Meta: Meta{ID: r.ID, Kind: r.Kind, Scope: r.Scope}, Spec: r.Spec})
+		}); !errors.Is(err, ErrExists) {
+			t.Errorf("creating it twice: %v", err)
+		}
 	})
+}
+
+// Versions recorded before the history kept owners don't know theirs; the
+// migration fills in those of resources that still exist.
+func TestHistoryScopeMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	v1, err := LoadMigrations("core", CoreMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := fstest.MapFS{"0001_create_resources.sql": {Data: []byte(v1[0].SQL)}}
+	if err := db.Migrate(ctx, "core", first); err != nil {
+		t.Fatal(err)
+	}
+	live, gone := NewID("tsite"), NewID("tsite")
+	if _, err := db.Exec(ctx, `INSERT INTO resources (id, kind, scope_level, scope_id, spec, generation, revision, created_at, updated_at)
+		VALUES (?, 'test.site', 'account', 'acct_1', '{}', 1, 1, '2026-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z')`, live); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []ID{live, gone} {
+		if _, err := db.Exec(ctx, `INSERT INTO resource_history (resource_id, generation, kind, spec, time) VALUES (?, 1, 'test.site', '{}', '2026-01-01T00:00:00.000000000Z')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg := NewKindRegistry()
+	if err := reg.Register(testSiteKind()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewSQLite(ctx, db, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, err := s.History(ctx, live); err != nil || h[0].Scope != (Scope{Level: ScopeAccount, ID: "acct_1"}) {
+		t.Errorf("a resource that exists = %+v, %v", h, err)
+	}
+	if h, err := s.History(ctx, gone); err != nil || h[0].Scope != (Scope{}) {
+		t.Errorf("a resource purged before = %+v, %v", h, err)
+	}
 }
 
 func TestTransactionsAreAtomic(t *testing.T) {

@@ -159,7 +159,19 @@ func (s *SQLite) List(ctx context.Context, q Query) (*Page, error) {
 
 // History implements Store.
 func (s *SQLite) History(ctx context.Context, id ID) ([]Version, error) {
-	rows, err := s.db.Reader().QueryContext(ctx, `SELECT generation, spec, labels, server, change_set, actor, time, deleted
+	out, err := history(ctx, s.db.Reader(), id)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, ErrNotFound.New("what", string(id))
+	}
+	return out, nil
+}
+
+// history reads every recorded version of a resource, oldest first.
+func history(ctx context.Context, q querier, id ID) ([]Version, error) {
+	rows, err := q.QueryContext(ctx, `SELECT generation, kind, scope_level, scope_id, spec, labels, server, change_set, actor, time, deleted
 		FROM resource_history WHERE resource_id = ? ORDER BY generation`, id)
 	if err != nil {
 		return nil, fmt.Errorf("store: reading the history of %s: %w", id, err)
@@ -168,10 +180,11 @@ func (s *SQLite) History(ctx context.Context, id ID) ([]Version, error) {
 	var out []Version
 	for rows.Next() {
 		var v Version
-		var spec, labels, when string
-		if err := rows.Scan(&v.Generation, &spec, &labels, &v.Server, &v.ChangeSet, &v.Actor, &when, &v.Deleted); err != nil {
+		var level, spec, labels, when string
+		if err := rows.Scan(&v.Generation, &v.Kind, &level, &v.Scope.ID, &spec, &labels, &v.Server, &v.ChangeSet, &v.Actor, &when, &v.Deleted); err != nil {
 			return nil, err
 		}
+		v.Scope.Level = ScopeLevel(level)
 		v.Spec = json.RawMessage(spec)
 		if labels != "{}" {
 			if err := json.Unmarshal([]byte(labels), &v.Labels); err != nil {
@@ -183,13 +196,7 @@ func (s *SQLite) History(ctx context.Context, id ID) ([]Version, error) {
 		}
 		out = append(out, v)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return nil, ErrNotFound.New("what", string(id))
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // Write implements Store.
@@ -288,11 +295,19 @@ func (tx *sqliteTx) Create(ctx context.Context, r *Resource) error {
 	if err := tx.checkUnique(ctx, info, keys, r.ID); err != nil {
 		return err
 	}
-	var last sql.NullInt64
-	if err := tx.tx.QueryRowContext(ctx, `SELECT max(generation) FROM resource_history WHERE resource_id = ?`, r.ID).Scan(&last); err != nil {
+	versions, err := history(ctx, tx.tx, r.ID)
+	if err != nil {
 		return err
 	}
-	r.Generation, r.Revision = last.Int64+1, 1
+	if err := CheckReuse(versions, r, tx.meta.UndoOf); err != nil {
+		return err
+	}
+	// A resource brought back under its ID, as when a delete is undone,
+	// carries on from the generations it had.
+	r.Generation, r.Revision = 1, 1
+	if len(versions) > 0 {
+		r.Generation = versions[len(versions)-1].Generation + 1
+	}
 	r.CreatedAt, r.UpdatedAt, r.DeletedAt = tx.now, tx.now, nil
 	labels, err := encodeLabels(r.Labels)
 	if err != nil {
@@ -505,9 +520,9 @@ func (tx *sqliteTx) record(ctx context.Context, r *Resource, deleted bool) error
 	if err != nil {
 		return err
 	}
-	err = tx.exec(ctx, `INSERT INTO resource_history (resource_id, generation, kind, spec, labels, server, change_set, actor, time, deleted)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.Generation, r.Kind, string(r.Spec), labels, r.Server, tx.meta.ChangeSet, tx.meta.Actor, timeKey(tx.now), deleted)
+	err = tx.exec(ctx, `INSERT INTO resource_history (resource_id, generation, kind, scope_level, scope_id, spec, labels, server, change_set, actor, time, deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Generation, r.Kind, r.Scope.Level, r.Scope.ID, string(r.Spec), labels, r.Server, tx.meta.ChangeSet, tx.meta.Actor, timeKey(tx.now), deleted)
 	if err != nil {
 		return fmt.Errorf("store: recording the history of %s: %w", r.ID, err)
 	}

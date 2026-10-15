@@ -17,4 +17,8 @@
 // Changes go through Submit, which carries the dryRun and Idempotency-Key
 // parameters every mutating operation accepts (ChangeParams) into the
 // pipeline, where each change is authorized again.
+//
+// Close ends the live streams and the waits for actions when the panel
+// shuts down, and GET /api/v1/metrics reports the API's own counts with
+// those Options.Metrics adds.
 package api

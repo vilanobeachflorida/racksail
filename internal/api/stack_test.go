@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -139,8 +140,29 @@ type stack struct {
 	machine *sim.Machine
 	kinds   *store.KindRegistry
 	hooks   *hooks.Registry
+	authz   *auth.RoleAuthorizer
 	account store.ID
-	actors  map[string]*auth.Actor
+	// reseller owns the account the stack makes.
+	reseller store.ID
+	actors   map[string]*auth.Actor
+}
+
+// owners says the stack's account belongs to its reseller, and can list a
+// reseller's accounts.
+type owners map[store.ID]store.ID
+
+func (o owners) ResellerOf(ctx context.Context, account store.ID) (store.ID, error) {
+	return o[account], nil
+}
+
+func (o owners) AccountsOf(ctx context.Context, reseller store.ID) ([]store.ID, error) {
+	var out []store.ID
+	for account, r := range o {
+		if r == reseller {
+			out = append(out, account)
+		}
+	}
+	return out, nil
 }
 
 func newStack(t *testing.T, limits RateLimit) *stack {
@@ -179,7 +201,9 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	vault := secrets.NewMemory(box)
 	machine := sim.New(sim.Options{})
 	agentClient := agent.NewLocal(machine.Backend(), nil)
-	dispatcher, err := webhook.NewSQL(ctx, db, webhook.Options{Store: st, Log: log, Secrets: vault, Logger: slog.New(slog.DiscardHandler)})
+	// The receivers the tests run listen on the loopback address.
+	loopback := []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
+	dispatcher, err := webhook.NewSQL(ctx, db, webhook.Options{Store: st, Log: log, Secrets: vault, Logger: slog.New(slog.DiscardHandler), AllowNetworks: loopback})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +213,7 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 			t.Fatal(err)
 		}
 	}
-	s := &stack{t: t, store: st, log: log, jobs: q, machine: machine, kinds: kinds, account: store.NewID("acct")}
+	s := &stack{t: t, store: st, log: log, jobs: q, machine: machine, kinds: kinds, account: store.NewID("acct"), reseller: store.NewID("rsl")}
 	registry := hooks.NewRegistry()
 	for _, k := range kinds.All() {
 		registry.DeclareKind(k)
@@ -213,7 +237,8 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	}
 	s.hooks = registry
 	runner := &reconcile.Runner{Store: st, Agent: agentClient, Registry: recs, Secrets: vault, Events: log, Log: slog.New(slog.DiscardHandler)}
-	authz := auth.NewRoleAuthorizer(nil)
+	authz := auth.NewRoleAuthorizer(owners{s.account: s.reseller})
+	s.authz = authz
 	engine, err := changeset.NewEngine(changeset.Options{
 		Store: st, Kinds: kinds, Runner: runner, Jobs: q, Events: log, Audit: log, Secrets: vault, Storage: storage,
 		Hooks: &hooks.Runner{Registry: registry, Events: log}, Authorizer: authz, Log: slog.New(slog.DiscardHandler),
@@ -231,6 +256,8 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 		"stranger": {Type: auth.ActorUser, ID: store.NewID("user"), Name: "stranger", Source: auth.SourceUI,
 			Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(store.NewID("acct"))}}},
 		"nobody": {Type: auth.ActorUser, ID: store.NewID("user"), Name: "nobody", Source: auth.SourceUI},
+		"reseller": {Type: auth.ActorUser, ID: store.NewID("user"), Name: "reseller", Source: auth.SourceUI,
+			Grants: []auth.Grant{{Role: auth.RoleReseller, Scope: store.ResellerScope(s.reseller)}}},
 	}
 	s.server = New(Options{
 		Auth: testAuth{actors: s.actors}, Modules: modules.NewRegistry(),

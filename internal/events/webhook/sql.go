@@ -234,9 +234,16 @@ func (s *sqlStorage) list(ctx context.Context, webhook store.ID, state DeliveryS
 	return out, "", nil
 }
 
+func (s *sqlStorage) pending(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.Reader().QueryRowContext(ctx, `SELECT count(*) FROM webhook_deliveries WHERE state = 'pending'`).Scan(&n)
+	return n, err
+}
+
 func (s *sqlStorage) prune(ctx context.Context, before time.Time, max int) error {
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM webhook_deliveries WHERE state <> 'pending' AND created_at < ?`, store.FormatTime(before)); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM webhook_deliveries WHERE created_at < ?
+			AND (state <> 'pending' OR next_attempt IS NULL)`, store.FormatTime(before)); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `DELETE FROM webhook_deliveries WHERE state <> 'pending' AND id <= (

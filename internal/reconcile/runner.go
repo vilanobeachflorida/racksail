@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
@@ -64,6 +65,45 @@ type Runner struct {
 	locks  keyLocks
 	limits limits
 	queue  workQueue
+	stats  counters
+}
+
+// counters count what the runner did since the panel started.
+type counters struct {
+	running                     atomic.Int64
+	reconciles, failures, drift atomic.Int64
+}
+
+// Stats describe the reconcile queue for the panel's metrics.
+type Stats struct {
+	// Queued resources wait to be reconciled, now or after a wait;
+	// Retrying is how many resources failed their last reconciles.
+	Queued, Retrying int
+	// Running is how many reconciles run now, for the queue and for change
+	// sets' jobs.
+	Running int
+	// Reconciles, Failures and Drift count, since the panel started, the
+	// reconciles that ran, those that failed, and the times the machine was
+	// found to differ from a resource.
+	Reconciles, Failures, Drift int64
+}
+
+// Stats describes the queue for the panel's metrics.
+func (r *Runner) Stats() Stats {
+	queued, retrying := r.queue.counts()
+	return Stats{
+		Queued: queued, Retrying: retrying, Running: int(r.stats.running.Load()),
+		Reconciles: r.stats.reconciles.Load(), Failures: r.stats.failures.Load(), Drift: r.stats.drift.Load(),
+	}
+}
+
+// Check is the reconcile queue's health check: it fails while the queue
+// isn't running, as when nothing started it or it stopped.
+func (r *Runner) Check(ctx context.Context) error {
+	if !r.queue.isRunning() {
+		return i18n.ErrUnavailable.New("what", "The reconcile queue")
+	}
+	return nil
 }
 
 // Progress receives the steps of a reconcile as they run.
@@ -83,6 +123,10 @@ func (e *executor) Run(ctx context.Context, steps []agent.Step) ([]agent.StepRes
 			e.progress(e.owner, i, s)
 		}
 	})
+	if err != nil && ctx.Err() != nil {
+		// The status says why the steps stopped, not how the call broke off.
+		err = stopped(ctx)
+	}
 	for _, res := range results {
 		if res.Result == nil || !res.Result.Changed {
 			continue
@@ -99,6 +143,20 @@ func (e *executor) Run(ctx context.Context, steps []agent.Step) ([]agent.StepRes
 
 // ErrNoReconciler is returned for kinds without a reconciler.
 var ErrNoReconciler = errors.New("reconcile: the kind has no reconciler")
+
+// stopped describes why ctx ended, for a status: what ended it when that
+// was said, as the job queue says why it stops a job, or that it was
+// canceled or ran out of time.
+func stopped(ctx context.Context) error {
+	cause := context.Cause(ctx)
+	switch {
+	case i18n.CodeOf(cause) != "":
+		return cause
+	case errors.Is(cause, context.DeadlineExceeded):
+		return i18n.ErrTimeout.Wrap(cause, "what", "The reconcile")
+	}
+	return i18n.ErrCanceled.Wrap(cause)
+}
 
 // Reconcile brings one resource in line with its desired state and verifies
 // the result with the plan's health checks.
@@ -130,7 +188,16 @@ func (r *Runner) reconcile(ctx context.Context, id store.ID, progress Progress, 
 		return err
 	}
 	defer release()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.stats.running.Add(1)
 	err = r.reconcileResource(ctx, res, rec, progress)
+	r.stats.running.Add(-1)
+	r.stats.reconciles.Add(1)
+	if err != nil {
+		r.stats.failures.Add(1)
+	}
 	r.settle(ctx, res, err, background)
 	return err
 }
@@ -145,8 +212,12 @@ func (r *Runner) reconcileResource(ctx context.Context, res *store.Resource, rec
 	// should need nothing; whatever its plan changes now had drifted.
 	inSync := !pending && st.Phase == store.PhaseReady
 	wasDrifted := st.IsTrue(ConditionDrifted)
+	// What a reconcile found is recorded even when its context ends, as
+	// when its job is canceled, so the status never claims work that
+	// stopped is still going on.
+	record := context.WithoutCancel(ctx)
 	if pending {
-		r.markPending(ctx, res, st)
+		r.markPending(record, res, st)
 	}
 	facts, err := r.facts(ctx, res.Server)
 	if err != nil {
@@ -177,7 +248,7 @@ func (r *Runner) reconcileResource(ctx context.Context, res *store.Resource, rec
 				return err
 			}
 		}
-		if err := r.writeStatus(ctx, res.ID, raw); err != nil {
+		if err := r.writeStatus(record, res.ID, raw); err != nil {
 			return err
 		}
 	}
@@ -188,6 +259,7 @@ func (r *Runner) reconcileResource(ctx context.Context, res *store.Resource, rec
 		return applyErr
 	}
 	if drifted {
+		r.stats.drift.Add(1)
 		r.log().Warn("the machine had drifted from a resource; its settings were put back", "resource", res.ID, "kind", res.Kind, "changes", ex.changed)
 		r.publish(ctx, res, events.Event{
 			Type: res.Kind + ".drifted", Severity: events.SeverityWarning,
@@ -338,8 +410,12 @@ func (r *Runner) perKind(rec Reconciler) int {
 }
 
 // fail records a failure the reconciler couldn't express in its own status,
-// with reason as the Ready condition's reason.
+// with reason as the Ready condition's reason. A reconcile whose context
+// ended failed because of that, which is what the status says.
 func (r *Runner) fail(ctx context.Context, res *store.Resource, err error, reason string) error {
+	if ctx.Err() != nil {
+		err, reason = stopped(ctx), "Stopped"
+	}
 	e := i18n.From(err)
 	raw, mergeErr := WithCommonStatus(res.Status, func(st *store.Status) {
 		st.Phase = store.PhaseFailed
@@ -349,10 +425,14 @@ func (r *Runner) fail(ctx context.Context, res *store.Resource, err error, reaso
 	if mergeErr != nil {
 		return errors.Join(err, mergeErr)
 	}
-	if setErr := r.writeStatus(ctx, res.ID, raw); setErr != nil {
+	if setErr := r.writeStatus(context.WithoutCancel(ctx), res.ID, raw); setErr != nil {
 		return errors.Join(err, setErr)
 	}
-	r.log().Warn("reconcile failed", "resource", res.ID, "kind", res.Kind, "reason", reason, "error", err)
+	level := slog.LevelWarn
+	if ctx.Err() != nil {
+		level = slog.LevelInfo
+	}
+	r.log().Log(ctx, level, "reconcile failed", "resource", res.ID, "kind", res.Kind, "reason", reason, "error", err)
 	return err
 }
 

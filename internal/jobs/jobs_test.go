@@ -70,6 +70,59 @@ func init() {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}})
+	RegisterType(Type{
+		Name: "test.watched", Timeout: time.Second,
+		Run: func(ctx context.Context, job *Job, args json.RawMessage, r Reporter) (any, error) {
+			var wait bool
+			if err := json.Unmarshal(args, &wait); err != nil {
+				return nil, err
+			}
+			if !wait {
+				return "done", nil
+			}
+			r.Log(slog.LevelInfo, "waiting")
+			<-ctx.Done()
+			why := Stopped(ctx)
+			ended.stopped(job.ID, why)
+			return nil, why
+		},
+		Ended: func(ctx context.Context, job *Job) { ended.add(job) },
+		Retryable: func(ctx context.Context, job *Job) error {
+			if job.Title == "final" {
+				return i18n.ErrConflict.New("what", job.Title)
+			}
+			return nil
+		},
+	})
+}
+
+// ended records what test.watched jobs said when they stopped and how they
+// ended.
+var ended = &endings{why: map[store.ID]error{}, jobs: map[store.ID]*Job{}}
+
+type endings struct {
+	mu   sync.Mutex
+	why  map[store.ID]error
+	jobs map[store.ID]*Job
+}
+
+func (e *endings) stopped(id store.ID, why error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.why[id] = why
+}
+
+func (e *endings) add(job *Job) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.jobs[job.ID] = job
+}
+
+// get returns how a job ended and why its handler said it stopped.
+func (e *endings) get(id store.ID) (*Job, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.jobs[id], e.why[id]
 }
 
 // forEachQueue runs a test against a queue kept in memory and one kept in
@@ -87,6 +140,8 @@ func forEachQueue(t *testing.T, opts ManagerOptions, test func(t *testing.T, q *
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The queue stops before its database closes.
+		t.Cleanup(func() { q.Stop(context.Background()) })
 		test(t, q)
 	})
 }
@@ -213,7 +268,7 @@ func TestCancelAndWatch(t *testing.T) {
 	forEachQueue(t, ManagerOptions{Workers: 1}, func(t *testing.T, q *Manager) {
 		ctx := context.Background()
 		job, _ := q.Enqueue(ctx, "test.block", nil, Options{})
-		updates, stop := q.Watch(job.ID)
+		updates, stop := q.Watch(ctx, job.ID)
 		defer stop()
 		deadline := time.After(2 * time.Second)
 		for running := false; !running; {
@@ -249,9 +304,156 @@ func TestCancelAndWatch(t *testing.T) {
 		if err := q.Cancel(ctx, job.ID); err != nil {
 			t.Errorf("canceling a finished job changes nothing: %v", err)
 		}
-		closed, _ := q.Watch(job.ID)
+		closed, _ := q.Watch(ctx, job.ID)
 		if _, open := <-closed; open {
 			t.Error("watching a finished job ends at once")
+		}
+	})
+}
+
+// started waits until a job is running.
+func started(t *testing.T, q *Manager, id store.ID) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		j, _ := q.Get(context.Background(), id)
+		if j != nil && j.State == StateRunning {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s never started", id)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A handler learns why its context ended, and the job's type learns how
+// every job ended, even one whose handler never ran.
+func TestHowJobsEnd(t *testing.T) {
+	forEachQueue(t, ManagerOptions{Workers: 1}, func(t *testing.T, q *Manager) {
+		ctx := context.Background()
+		done, _ := q.Enqueue(ctx, "test.watched", false, Options{})
+		wait(t, q, done.ID)
+		if job, _ := ended.get(done.ID); job == nil || job.State != StateSucceeded {
+			t.Errorf("a job that succeeded: %+v", job)
+		}
+
+		running, _ := q.Enqueue(ctx, "test.watched", true, Options{})
+		started(t, q, running.ID)
+		// The only worker is busy, so this one is canceled before it runs.
+		queued, _ := q.Enqueue(ctx, "test.watched", true, Options{})
+		if err := q.Cancel(ctx, queued.ID); err != nil {
+			t.Fatal(err)
+		}
+		if job, why := ended.get(queued.ID); why != nil || job == nil || job.State != StateCanceled || job.Error.Code != i18n.ErrCanceled.Code {
+			t.Errorf("a job canceled while it waited: %v, %+v", why, job)
+		}
+		if err := q.Cancel(ctx, running.ID); err != nil {
+			t.Fatal(err)
+		}
+		wait(t, q, running.ID)
+		if job, why := ended.get(running.ID); !errors.Is(why, i18n.ErrCanceled) || job == nil || job.State != StateCanceled {
+			t.Errorf("a job canceled while it ran: %v, %+v", why, job)
+		}
+
+		slow, _ := q.Enqueue(ctx, "test.watched", true, Options{Title: "The import"})
+		got := wait(t, q, slow.ID)
+		if job, why := ended.get(slow.ID); !errors.Is(why, i18n.ErrTimeout) || !errors.Is(why, context.DeadlineExceeded) || job == nil || got.Error.Code != i18n.ErrTimeout.Code {
+			t.Errorf("a job out of time: %v, %+v", why, got)
+		}
+
+		// Retrying asks the type first.
+		final, _ := q.Enqueue(ctx, "test.watched", true, Options{Title: "final"})
+		started(t, q, final.ID)
+		q.Cancel(ctx, final.ID)
+		wait(t, q, final.ID)
+		if _, err := q.Retry(ctx, final.ID); !errors.Is(err, i18n.ErrConflict) {
+			t.Errorf("a retry the type refuses: %v", err)
+		}
+		if again, err := q.Retry(ctx, running.ID); err != nil || again.RetryOf != running.ID {
+			t.Errorf("a retry the type allows: %+v, %v", again, err)
+		} else {
+			started(t, q, again.ID)
+			q.Cancel(ctx, again.ID)
+			wait(t, q, again.ID)
+		}
+	})
+}
+
+// Stopping the queue stops its jobs and waits for them, so the database
+// can be closed after it. They're left for the next start to pick up.
+func TestStop(t *testing.T) {
+	db := openTestDB(t)
+	q, err := NewSQL(context.Background(), db, ManagerOptions{Workers: 2, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := q.Check(ctx); err == nil {
+		t.Error("a queue that hasn't started isn't healthy")
+	}
+	job, _ := q.Enqueue(ctx, "test.watched", true, Options{})
+	started(t, q, job.ID)
+	if err := q.Check(ctx); err != nil {
+		t.Errorf("a running queue is healthy: %v", err)
+	}
+	stats, err := q.Stats(ctx)
+	if err != nil || stats.Running != 1 || stats.Started < 1 {
+		t.Errorf("stats = %+v, %v", stats, err)
+	}
+	stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := q.Stop(stopCtx); err != nil {
+		t.Fatal(err)
+	}
+	// The handler has returned by now, so it said why it stopped.
+	if _, why := ended.get(job.ID); !errors.Is(why, ErrInterrupted) {
+		t.Errorf("a job the panel stopped under learns it was interrupted: %v", why)
+	}
+	if got, _ := q.Get(ctx, job.ID); got.State != StateRunning {
+		t.Errorf("it is left for the next start: %+v", got)
+	}
+	if err := q.Check(ctx); err == nil {
+		t.Error("a stopped queue isn't healthy")
+	}
+	waiting, _ := q.Enqueue(ctx, "test.count", 1, Options{})
+	time.Sleep(20 * time.Millisecond)
+	if got, _ := q.Get(ctx, waiting.ID); got.State != StateQueued {
+		t.Errorf("a stopped queue runs nothing: %+v", got)
+	}
+
+	// The next start reports it, and its type hears about that.
+	q2, err := NewSQL(ctx, db, ManagerOptions{Workers: 2, Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { q2.Stop(context.Background()) })
+	q2.Start()
+	if got, _ := ended.get(job.ID); got == nil || got.State != StateFailed || got.Error.Code != ErrInterrupted.Code {
+		t.Errorf("an interrupted job's type learns how it ended: %+v", got)
+	}
+	wait(t, q2, waiting.ID)
+}
+
+func TestStats(t *testing.T) {
+	forEachQueue(t, ManagerOptions{Workers: 1}, func(t *testing.T, q *Manager) {
+		ctx := context.Background()
+		blocking, _ := q.Enqueue(ctx, "test.watched", true, Options{})
+		started(t, q, blocking.ID)
+		q.Enqueue(ctx, "test.count", 1, Options{})
+		q.Enqueue(ctx, "test.count", 1, Options{RunAfter: time.Now().Add(time.Hour)})
+		time.Sleep(20 * time.Millisecond)
+		st, err := q.Stats(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Running != 1 || st.Queued != 1 || st.Waiting != 1 || st.OldestQueued <= 0 {
+			t.Errorf("stats = %+v", st)
+		}
+		q.Cancel(ctx, blocking.ID)
+		wait(t, q, blocking.ID)
+		if st, _ := q.Stats(ctx); st.Canceled != 1 {
+			t.Errorf("after a cancel = %+v", st)
 		}
 	})
 }
@@ -330,9 +532,25 @@ func TestListFilters(t *testing.T) {
 		if got := ids(Filter{Actor: user}); !same(got, a.ID) {
 			t.Errorf("by the person behind the token = %v", got)
 		}
-		first, next, _ := q.List(ctx, Filter{Limit: 2})
-		rest, last, _ := q.List(ctx, Filter{Limit: 2, Cursor: next})
-		if len(first) != 2 || len(rest) != 1 || last != "" || rest[0].ID != a.ID {
+		// Someone sees the jobs of the owners they may read and their own,
+		// and pages hold only those.
+		d, _ := q.Enqueue(ctx, "test.count", 1, Options{Actor: &auth.Actor{Type: auth.ActorUser, ID: user}})
+		wait(t, q, d.ID)
+		if got := ids(Filter{Visible: &Visibility{Person: user}}); !same(got, d.ID, a.ID) {
+			t.Errorf("their own jobs = %v", got)
+		}
+		if got := ids(Filter{Visible: &Visibility{Scopes: []store.Scope{store.ServerScope()}}, Limit: 2}); !same(got, d.ID, c.ID) {
+			t.Errorf("the jobs of an owner they may read = %v", got)
+		}
+		if got := ids(Filter{Visible: &Visibility{Scopes: []store.Scope{acct}, Person: store.NewID("user")}}); !same(got, a.ID) {
+			t.Errorf("someone else = %v", got)
+		}
+		if got := ids(Filter{Visible: &Visibility{}}); len(got) != 0 {
+			t.Errorf("nobody = %v", got)
+		}
+		first, next, _ := q.List(ctx, Filter{Limit: 3})
+		rest, last, _ := q.List(ctx, Filter{Limit: 3, Cursor: next})
+		if len(first) != 3 || len(rest) != 1 || last != "" || rest[0].ID != a.ID {
 			t.Errorf("pages = %v / %v", first, rest)
 		}
 		if _, _, err := q.List(ctx, Filter{Cursor: "?"}); !errors.Is(err, i18n.ErrBadRequest) {
@@ -409,6 +627,7 @@ func TestRetention(t *testing.T) {
 // A queue kept in the database carries on after the panel restarts: what
 // waited runs, what may run again does, and the rest is reported.
 func TestRestart(t *testing.T) {
+	gate = make(chan struct{})
 	db := openTestDB(t)
 	ctx, stop := context.WithCancel(context.Background())
 	q, err := NewSQL(ctx, db, ManagerOptions{Workers: 2, Log: slog.New(slog.DiscardHandler)})
@@ -433,7 +652,9 @@ func TestRestart(t *testing.T) {
 	}
 	// The panel stops while two jobs run and one waits.
 	stop()
-	time.Sleep(50 * time.Millisecond)
+	if err := q.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx2, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -441,6 +662,7 @@ func TestRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { q2.Stop(context.Background()) })
 	q2.Start()
 	close(gate)
 	if got := wait(t, q2, resumable.ID); got.State != StateSucceeded || string(got.Result) != `"resumed"` {

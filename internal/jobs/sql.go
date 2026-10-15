@@ -249,6 +249,16 @@ func (s *sqlStorage) list(ctx context.Context, f Filter) ([]*Job, string, error)
 	if f.Actor != "" {
 		add("(actor_id = ? OR actor_user = ?)", f.Actor, f.Actor)
 	}
+	if v := f.Visible; v != nil {
+		// A job is someone's when its actor is them or acts for them.
+		alts := []string{"(? <> '' AND CASE WHEN actor_user <> '' THEN actor_user ELSE actor_id END = ?)"}
+		args = append(args, v.Person, v.Person)
+		for _, sc := range v.Scopes {
+			alts = append(alts, "(scope_level = ? AND scope_id = ?)")
+			args = append(args, sc.Level, sc.ID)
+		}
+		where = append(where, "("+strings.Join(alts, " OR ")+")")
+	}
 	clause := ""
 	if len(where) > 0 {
 		clause = " WHERE " + strings.Join(where, " AND ")
@@ -282,6 +292,27 @@ func (s *sqlStorage) nextRunAfter(ctx context.Context, now time.Time) (time.Time
 
 func (s *sqlStorage) interrupted(ctx context.Context) ([]*Job, error) {
 	return s.query(ctx, `SELECT `+jobColumns+` FROM jobs WHERE state = 'running' ORDER BY id`)
+}
+
+func (s *sqlStorage) backlog(ctx context.Context, now time.Time) (int, int, time.Time, error) {
+	at := store.FormatTime(now)
+	var ready, waiting int
+	var oldest sql.NullString
+	err := s.db.Reader().QueryRowContext(ctx, `SELECT
+			coalesce(sum(run_after IS NULL OR run_after <= ?), 0),
+			coalesce(sum(run_after > ?), 0),
+			min(CASE WHEN run_after IS NULL OR run_after <= ? THEN coalesce(run_after, created_at) END)
+		FROM jobs WHERE state = 'queued'`, at, at, at).Scan(&ready, &waiting, &oldest)
+	if err != nil {
+		return 0, 0, time.Time{}, fmt.Errorf("jobs: counting the queue: %w", err)
+	}
+	var since time.Time
+	if oldest.Valid {
+		if since, err = store.ParseTime(oldest.String); err != nil {
+			return 0, 0, time.Time{}, err
+		}
+	}
+	return ready, waiting, since, nil
 }
 
 func (s *sqlStorage) appendLog(ctx context.Context, id store.ID, line *LogLine) error {

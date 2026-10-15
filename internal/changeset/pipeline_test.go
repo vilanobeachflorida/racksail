@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -186,8 +187,12 @@ func TestApplyingAnUndoPreview(t *testing.T) {
 }
 
 func TestListingChangeSets(t *testing.T) {
+	t.Run("memory", func(t *testing.T) { testListingChangeSets(t, newEnv(t, Retention{}, nil)) })
+	t.Run("sqlite", func(t *testing.T) { testListingChangeSets(t, buildEnv(t, envConfig{db: openDB(t)})) })
+}
+
+func testListingChangeSets(t *testing.T, e *env) {
 	ctx := context.Background()
-	e := newEnv(t, Retention{}, nil)
 	first := e.submit(t, false, e.createPage(pageSpec{Path: "a.html", Content: "a"}))
 	id := first.Changes[0].ID
 	raw, _ := json.Marshal(pageSpec{Path: "a.html", Content: "b"})
@@ -221,6 +226,34 @@ func TestListingChangeSets(t *testing.T) {
 	_, next, _ := e.engine.List(ctx, ListQuery{Limit: 2})
 	if got := ids(ListQuery{Limit: 2, Cursor: next}); !slices.Equal(got, []store.ID{first.ID}) {
 		t.Errorf("second page = %v", got)
+	}
+
+	// What someone may see: their own change sets, and those whose every
+	// resource they reach.
+	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	label, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{e.create("test.label", labelSpec{Name: "x"})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.wait(t, label)
+	otherAcct := store.AccountScope(store.NewID("acct"))
+	elsewhere, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{{Op: OpCreate, Kind: "test.label", Scope: otherAcct, Spec: json.RawMessage(`{"name":"y"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.wait(t, elsewhere)
+	mine := store.AccountScope(e.acct)
+	if got := ids(ListQuery{Visible: &Visibility{Person: e.owner.ID}}); !slices.Equal(got, []store.ID{other.ID, second.ID, first.ID}) {
+		t.Errorf("their own = %v", got)
+	}
+	if got := ids(ListQuery{Visible: &Visibility{Scopes: []store.Scope{mine}}}); !slices.Equal(got, []store.ID{label.ID, other.ID, second.ID, first.ID}) {
+		t.Errorf("in an account they reach = %v", got)
+	}
+	if got := ids(ListQuery{Visible: &Visibility{Objects: []store.ID{elsewhere.Changes[0].ID}}}); !slices.Equal(got, []store.ID{elsewhere.ID}) {
+		t.Errorf("of a resource they hold a grant on = %v", got)
+	}
+	if got := ids(ListQuery{Visible: &Visibility{Person: store.NewID("user")}}); len(got) != 0 {
+		t.Errorf("someone with no reach = %v", got)
 	}
 }
 
@@ -405,8 +438,8 @@ func TestHookStagesRunInOrder(t *testing.T) {
 }
 
 // The panel keeps change sets, previews and idempotency keys in its
-// database, so they outlive a restart: an apply job cut short runs again,
-// and change sets from before can still be undone.
+// database, so they outlive a restart: previews from before can be applied,
+// keys still answer, and change sets from before can still be undone.
 func TestChangeSetsOutliveARestart(t *testing.T) {
 	db, err := store.OpenDB(context.Background(), filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -455,5 +488,38 @@ func TestChangeSetsOutliveARestart(t *testing.T) {
 	actorEvents, _, _ := second.bus.QueryEvents(context.Background(), events.Query{Subject: created.Changes[0].ID})
 	if len(actorEvents) < 3 || actorEvents[len(actorEvents)-1].Actor == nil || actorEvents[len(actorEvents)-1].Actor.Type != auth.ActorUser {
 		t.Errorf("events = %+v", actorEvents)
+	}
+}
+
+// Change sets kept before their resources' owners were recorded get them
+// from what they changed.
+func TestResourceScopesMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	all, err := store.LoadMigrations(MigrationOwner, Migrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, MigrationOwner, fstest.MapFS{"0001_create_change_sets.sql": {Data: []byte(all[0].SQL)}}); err != nil {
+		t.Fatal(err)
+	}
+	acct := store.AccountScope(store.NewID("acct"))
+	cs := &ChangeSet{ID: store.NewID(store.PrefixChangeSet), Title: "Create page", State: StateApplied, CreatedAt: time.Now().UTC(),
+		Changes: []ResourceChange{{Op: OpCreate, Kind: "test.page", ID: store.NewID("page"), Scope: acct}}}
+	body, _ := json.Marshal(cs)
+	if _, err := db.Exec(ctx, `INSERT INTO change_sets (id, title, state, dry_run, created_at, body) VALUES (?, ?, 'applied', 0, ?, ?)`,
+		cs.ID, cs.Title, store.FormatTime(cs.CreatedAt), string(body)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO change_set_resources (change_set, resource) VALUES (?, ?)`, cs.ID, cs.Changes[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewSQLStorage(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, _, err := s.List(ctx, ListQuery{Visible: &Visibility{Scopes: []store.Scope{acct}}})
+	if err != nil || len(list) != 1 || list[0].ID != cs.ID {
+		t.Errorf("found by its resource's owner = %v, %v", list, err)
 	}
 }

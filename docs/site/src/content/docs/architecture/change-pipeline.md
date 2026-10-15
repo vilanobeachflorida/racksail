@@ -19,11 +19,21 @@ A request holds one or more changes: create a resource, change its settings, del
 
 **5. Preview.** With `dryRun=true` the pipeline stops here and answers with the change set: field-by-field differences, what it does to the server, what hooks added and how risky it is. The store writes are made in a transaction that's thrown away, so even a name that's already taken shows up in the preview. Previews can be applied for an hour; applying one carries out exactly what it showed, or answers with a fresh preview if things changed since.
 
-**6. Apply.** When a change deletes data, the pipeline first takes read-only snapshots of what it removes, where the storage allows it. Then all the changes are written in one transaction: either every setting changes or none does. An apply job carries out the plans on the server, with live progress and a log, and runs the health checks of each plan afterwards: a site that answers, a service that's running, a certificate that's valid. A check that doesn't pass fails the change set, which can then be undone.
+**6. Apply.** When a change deletes data, the pipeline first takes read-only snapshots of what it removes, where the storage allows it. Then all the changes are written in one transaction: either every setting changes or none does. An apply job carries out the plans on the server, with live progress and a log, and runs the health checks of each plan afterwards: a site that answers, a service that's running, a certificate that's valid. A check that doesn't pass fails the change set, which can then be undone. The same preview is applied once, however many times it's sent at the same moment.
 
 **7. Record.** Events go out as things happen (`web.site.created`, `core.changeset.applied`), to the timeline, live streams, webhooks and automations. The audit log records who did what, through what and from where, including attempts that were refused. Every version of a resource's settings stays in its history.
 
-**8. Undo.** Undoing a change set makes a new one that puts back the settings it replaced: creates become deletes, deletes come back with the same ID, and changed settings return to what they were, secrets included. The undo goes through every stage above, so it's checked, previewed and recorded like any other change. Bringing back deleted data is a restore from the snapshots stage 6 took.
+**8. Undo.** Undoing a change set makes a new one that puts back the settings it replaced: creates become deletes, deletes come back with the same ID, and changed settings return to what they were, secrets included. The undo goes through every stage above, so it's checked, previewed and recorded like any other change. Bringing back deleted data is a restore from the snapshots stage 6 took. A deleted resource's ID is never given to a new resource, so its history and its secrets can't pass to anyone else; only undoing the delete brings it back.
+
+## When applying stops
+
+The apply job records each change as started before it runs and as done once it's in place, so the change set always says how far it got. However the job stops, the change set ends failed, saying why:
+
+- **Canceled.** Canceling the job stops it where it is. What was done stays done.
+- **Out of time.** A job that runs longer than its limit is stopped the same way.
+- **The panel stopped.** A job the panel stopped under isn't run again by itself when the panel starts; its change set is marked failed then.
+
+The settings stay as the change set stored them, and the panel carries them out at its next resync, unless you undo the change set. Retrying its job carries on from the change that didn't finish, and marks the change set applied once everything is in place. A retry never runs an action that may already have run a second time, since it doesn't go through the permission checks and validate hooks again: run that action again instead, as a change of its own. A change set that was undone is never carried out again.
 
 ## Hooks
 
@@ -47,4 +57,4 @@ A request can carry an `Idempotency-Key`. Sending it again with the same key ret
 
 ## Keeping the server in line
 
-The pipeline isn't the only thing that runs reconcilers. The panel also reconciles every resource when it starts and every 15 minutes after. When the server no longer matches a resource, because something was changed by hand, the reconcile puts it back and `<kind>.drifted` says what it put back; drift the agent reports as it happens is put back at once. Changes whose apply job never ran, because the panel stopped, are finished the same way. Reconciles that fail are retried with a growing wait, and a limit on how many run at once, per kind and in all, keeps a large server responsive.
+The pipeline isn't the only thing that runs reconcilers. The panel also reconciles every resource when it starts, the ones whose latest change isn't carried out yet first, and every 15 minutes after. When the server no longer matches a resource, because something was changed by hand, the reconcile puts it back and `<kind>.drifted` says what it put back. Changes whose apply job never ran, or stopped part way, are finished the same way. Reconciles that fail are retried with a growing wait, and a limit on how many run at once, per kind and in all, keeps a large server responsive.

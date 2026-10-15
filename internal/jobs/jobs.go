@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -146,6 +147,32 @@ type Type struct {
 	// Others are reported as interrupted.
 	Resume bool
 	Run    Handler
+	// Ended, when set, is told about every job of the type once its end is
+	// recorded, however it ended: also when its handler never ran, as for a
+	// job canceled while it waited or one the panel stopped under that
+	// doesn't resume. Work that keeps records of its own uses it to keep
+	// them in line with the job.
+	Ended func(ctx context.Context, job *Job)
+	// Retryable, when set, is asked before a failed or canceled job of the
+	// type is retried, by Retry or on its own; an error refuses the retry
+	// and says why.
+	Retryable func(ctx context.Context, job *Job) error
+}
+
+// Stopped says why a job's context ended: core.canceled when someone
+// canceled the job, core.timeout when it ran out of time, and
+// jobs.interrupted when the panel is stopping, in which case the job runs
+// again or is reported as interrupted once the panel is back. It returns nil
+// while the context hasn't ended. Handlers use it to tell how they stopped.
+func Stopped(ctx context.Context) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	cause := context.Cause(ctx)
+	if i18n.ErrCanceled.Is(cause) || i18n.ErrTimeout.Is(cause) {
+		return cause
+	}
+	return ErrInterrupted.Wrap(cause)
 }
 
 func (t Type) timeout() time.Duration {
@@ -239,9 +266,37 @@ type Filter struct {
 	Scopes []store.Scope
 	// Actor keeps the jobs this user, token or automation started, or that
 	// were started for this user.
-	Actor  store.ID
-	Cursor string
-	Limit  int
+	Actor store.ID
+	// Visible, when set, keeps only the jobs someone may see.
+	Visible *Visibility
+	Cursor  string
+	Limit   int
+}
+
+// Visibility is what someone may see of the queue: every job of the owners
+// in Scopes, and the jobs Person started or that were started for them,
+// whatever their owner.
+type Visibility struct {
+	Scopes []store.Scope
+	// Person is a user, or the token or automation acting when it acts for
+	// nobody; a job is theirs when its actor is, or acts for, them.
+	Person store.ID
+}
+
+// Of returns the person behind an actor, as Visibility.Person names them:
+// the user it acts for, or itself.
+func Of(a *auth.Actor) store.ID {
+	if a == nil {
+		return ""
+	}
+	if a.User != "" {
+		return a.User
+	}
+	return a.ID
+}
+
+func (v *Visibility) shows(j *Job) bool {
+	return slices.Contains(v.Scopes, j.Scope) || (v.Person != "" && Of(j.Actor) == v.Person)
 }
 
 func (f Filter) limit() int {
@@ -276,10 +331,24 @@ type Queue interface {
 	// LogsAfter returns up to limit lines of a job's log after the line
 	// numbered seq; zero means every line.
 	LogsAfter(ctx context.Context, id store.ID, seq int64, limit int) ([]LogLine, error)
-	// Watch streams updates until the job finishes or stop is called.
-	Watch(id store.ID) (updates <-chan Update, stop func())
+	// Watch streams updates until the job finishes or stop is called. ctx
+	// bounds reading the job to start with.
+	Watch(ctx context.Context, id store.ID) (updates <-chan Update, stop func())
 	// Wait blocks until the job finishes.
 	Wait(ctx context.Context, id store.ID) (*Job, error)
+}
+
+// Stats describe a queue for the panel's metrics.
+type Stats struct {
+	// Queued jobs wait for a worker, Waiting ones for a later time, such as
+	// automatic retries, and Running ones are running here.
+	Queued, Waiting, Running int
+	// OldestQueued is how long the job that has waited longest for a worker
+	// has waited.
+	OldestQueued time.Duration
+	// The counts of jobs this process started and saw end, since it
+	// started.
+	Started, Succeeded, Failed, Canceled int64
 }
 
 // Retention bounds the finished jobs a queue keeps, with their logs, so

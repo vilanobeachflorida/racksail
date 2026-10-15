@@ -110,7 +110,21 @@ type ResourceChange struct {
 	Checks []reconcile.HealthCheck `json:"checks,omitempty"`
 	// Output is what an action returned once it was applied.
 	Output json.RawMessage `json:"output,omitempty" doc:"What the action returned, once it was applied"`
+	// State says how far carrying the change out got: started while it runs
+	// and after it failed, done once it is in place. It is recorded before
+	// a change starts, so a retry knows what may have run already.
+	State ChangeState `json:"state,omitempty" enum:"started,done" doc:"How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts"`
 }
+
+// ChangeState is how far carrying out one change of an applied change set
+// got.
+type ChangeState string
+
+// Change states.
+const (
+	ChangeStarted ChangeState = "started"
+	ChangeDone    ChangeState = "done"
+)
 
 // Clone returns a copy of rc whose maps, documents and lists can be changed
 // without affecting rc. Action steps keep sharing their inputs.

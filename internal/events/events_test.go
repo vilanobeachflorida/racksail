@@ -170,6 +170,9 @@ func TestTimelinePages(t *testing.T) {
 		if len(all) != 5 {
 			t.Errorf("paged through %d events", len(all))
 		}
+		if err := CheckCursor("nope"); !errors.Is(err, i18n.ErrBadRequest) || CheckCursor("") != nil || CheckCursor(encodeSeq(5)) != nil {
+			t.Errorf("checking cursors: %v", err)
+		}
 		if _, _, err := m.QueryEvents(ctx, Query{Cursor: "nope"}); !errors.Is(err, i18n.ErrBadRequest) {
 			t.Errorf("a bad cursor: %v", err)
 		}

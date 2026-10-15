@@ -79,7 +79,10 @@ func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Q
 	err = Authorize(ctx, authz, perm, auth.Target{Scope: scope})
 	var scopes []store.Scope
 	if err != nil && i18n.ErrForbidden.Is(err) && q.Scope == nil {
-		scopes = grantScopes(ctx, authz, actor, perm)
+		var scopeErr error
+		if scopes, scopeErr = grantScopes(ctx, authz, actor, perm); scopeErr != nil {
+			return nil, scopeErr
+		}
 	}
 	switch {
 	case err == nil:
@@ -119,19 +122,69 @@ func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Q
 	return &store.Page{Items: items, Next: page.Next}, nil
 }
 
-// grantScopes returns the scopes of the actor's grants on whole scopes that
-// carry perm.
-func grantScopes(ctx context.Context, authz auth.Authorizer, actor *auth.Actor, perm auth.Permission) []store.Scope {
+// grantScopes returns the scopes the actor's grants on whole scopes reach
+// with perm, other than the server's. Authorizers that can list them
+// (auth.ScopeAuthorizer) include the accounts of a reseller the actor holds
+// a grant on; with others, a grant reaches its own scope.
+func grantScopes(ctx context.Context, authz auth.Authorizer, actor *auth.Actor, perm auth.Permission) ([]store.Scope, error) {
+	if sa, ok := authz.(auth.ScopeAuthorizer); ok {
+		scopes, _, err := sa.Scopes(ctx, actor, perm)
+		return slices.DeleteFunc(scopes, func(sc store.Scope) bool { return sc.Level == store.ScopeServer }), err
+	}
 	var out []store.Scope
 	for _, g := range actor.Grants {
 		if g.Object != "" || g.Scope.Level == store.ScopeServer || slices.Contains(out, g.Scope) {
 			continue
 		}
-		if authz.Authorize(ctx, actor, perm, auth.Target{Scope: g.Scope}) == nil {
+		if perm == "" || authz.Authorize(ctx, actor, perm, auth.Target{Scope: g.Scope}) == nil {
 			out = append(out, g.Scope)
 		}
 	}
-	return out
+	return out, nil
+}
+
+// narrowable reports whether grantScopes names every scope the actor's
+// grants reach, so a query can be narrowed to them: always with an
+// authorizer that lists scopes, and otherwise unless a reseller's grant
+// reaches accounts nothing can name.
+func narrowable(authz auth.Authorizer, actor *auth.Actor) bool {
+	if _, ok := authz.(auth.ScopeAuthorizer); ok {
+		return true
+	}
+	return !slices.ContainsFunc(actor.Grants, func(g auth.Grant) bool { return g.Scope.Level == store.ScopeReseller })
+}
+
+// fill reads pages from list until it has limit items keep accepts, or
+// there are none left, and returns them with the cursor of the next page.
+// Lists whose storage can only narrow down roughly what someone may see use
+// it, so their pages stay full and a short page means the last.
+func fill[T any](cursor string, limit int, list func(cursor string, limit int) ([]T, string, error), keep func(T) bool, id func(T) store.ID) ([]T, string, error) {
+	if limit <= 0 || limit > store.MaxLimit {
+		limit = store.DefaultLimit
+	}
+	out := []T{}
+	for {
+		batch, next, err := list(cursor, limit)
+		if err != nil {
+			return nil, "", err
+		}
+		for i, item := range batch {
+			if !keep(item) {
+				continue
+			}
+			out = append(out, item)
+			if len(out) == limit {
+				if i == len(batch)-1 && next == "" {
+					return out, "", nil
+				}
+				return out, store.EncodeCursor(id(item)), nil
+			}
+		}
+		if next == "" {
+			return out, "", nil
+		}
+		cursor = next
+	}
 }
 
 // Readable keeps the resources the signed-in actor may read, in order,

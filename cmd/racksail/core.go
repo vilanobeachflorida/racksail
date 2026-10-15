@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
@@ -40,6 +41,12 @@ type core struct {
 	db       *store.DB
 	timeline *events.Log
 	webhooks *webhook.Dispatcher
+	queue    *jobs.Manager
+	runner   *reconcile.Runner
+	// cancel ends the background work, which work counts, so stop can wait
+	// for it before closing the database.
+	cancel context.CancelFunc
+	work   sync.WaitGroup
 }
 
 // newCore wires the panel's services around an agent client and an edge
@@ -49,12 +56,20 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err := checkRegistries(); err != nil {
 		return nil, err
 	}
+	hooksAllowed, err := cfg.Webhooks.AllowedNetworks()
+	if err != nil {
+		return nil, err
+	}
 	db, err := store.OpenDB(ctx, cfg.Paths.Database())
 	if err != nil {
 		return nil, err
 	}
+	// The background work lives until stop ends it, whether or not the
+	// command's context ends first.
+	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
 		if err != nil {
+			cancel()
 			db.Close()
 		}
 	}()
@@ -124,7 +139,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	vault := secrets.NewMemory(box)
 	log.Warn("this build keeps secret values in memory, so settings that hold secrets need them entered again after a restart")
 	dispatcher, err := webhook.NewSQL(ctx, db, webhook.Options{
-		Store: st, Log: timeline, Secrets: vault, Version: updates.Build().Version,
+		Store: st, Log: timeline, Secrets: vault, Version: updates.Build().Version, AllowNetworks: hooksAllowed,
 		Retention: time.Duration(keep.Deliveries), Logger: log,
 	})
 	if err != nil {
@@ -170,7 +185,10 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		authorizer.SetOwnership(owners)
 	}
 	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
-	c = &core{log: log, agent: agentClient, modules: reg, manager: manager, services: svc, db: db, timeline: timeline, webhooks: dispatcher}
+	c = &core{
+		log: log, agent: agentClient, modules: reg, manager: manager, services: svc, db: db, timeline: timeline, webhooks: dispatcher,
+		queue: queue, runner: runner, cancel: cancel,
+	}
 	c.health = append([]api.HealthCheck{
 		{Name: "agent", Check: func(ctx context.Context) error {
 			_, err := facts(ctx)
@@ -179,6 +197,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		{Name: "database", Check: func(ctx context.Context) error {
 			return db.Reader().PingContext(ctx)
 		}},
+		{Name: "jobs", Check: queue.Check},
+		{Name: "reconcile", Check: runner.Check},
+		{Name: "webhooks", Check: dispatcher.Check},
 		{Name: "modules", Check: func(ctx context.Context) error {
 			failed := manager.Failed()
 			ids := slices.Sorted(maps.Keys(failed))
@@ -199,9 +220,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	queue.Start()
 	// The resync puts back what drifts on the machine and carries out
 	// changes whose apply job never ran.
-	go runner.Run(ctx, reconcile.ResyncInterval)
-	go dispatcher.Run(ctx)
-	go timeline.Run(ctx, time.Hour)
+	c.work.Go(func() { runner.Run(ctx, reconcile.ResyncInterval) })
+	c.work.Go(func() { dispatcher.Run(ctx) })
+	c.work.Go(func() { timeline.Run(ctx, time.Hour) })
 	if err := timeline.Publish(ctx, events.Event{
 		Type: events.PanelStarted.Name, Severity: events.PanelStarted.Severity, Scope: store.ServerScope(),
 		Actor: auth.System("core"), Message: "Racksail " + updates.Build().Version + " started.",
@@ -235,8 +256,30 @@ func moduleHealthChecks(reg *modules.Registry, manager *modules.Manager, svc *mo
 	return out
 }
 
-// stop stops the modules that are running and closes the database.
+// stopTimeout bounds how long stopping waits for running jobs and the
+// background work to wind down.
+const stopTimeout = 30 * time.Second
+
+// stop stops the background work and the jobs running here, then the
+// modules that are running, and closes the database once nothing writes to
+// it any more. Jobs it stops are picked up again when the panel starts.
 func (c *core) stop(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, stopTimeout)
+	defer cancel()
+	c.cancel()
+	if err := c.queue.Stop(ctx); err != nil {
+		c.log.Warn("stopping the job queue", "error", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		c.work.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		c.log.Warn("the reconcile queue, webhook deliveries or the timeline's pruning didn't stop in time")
+	}
 	c.manager.Shutdown(ctx)
 	if err := c.db.Close(); err != nil {
 		c.log.Warn("closing the panel database", "error", err)
@@ -260,17 +303,68 @@ func (c *core) apiServer(authn auth.Authenticator, dev bool) (*api.Server, error
 	return api.New(api.Options{
 		Auth: authn, Dev: dev, Modules: c.modules, Services: c.services, Timeline: c.timeline, Webhooks: c.webhooks,
 		Health: c.health, AllowFrom: allow, RateLimit: api.RateLimit{PerActor: cfg.API.RateLimit, PerAddress: cfg.API.AnonymousRateLimit},
-		UI: webui.Handler(assets), Log: c.log,
+		Metrics: c.metrics, UI: webui.Handler(assets), Log: c.log,
 	}), nil
 }
 
-// newHTTPServer returns a server with sensible timeouts for the panel.
-func newHTTPServer(addr string, h http.Handler, log *slog.Logger) *http.Server {
-	return &http.Server{
+// metrics reports how the job queue, the reconcile queue and webhook
+// deliveries are doing, for GET /api/v1/metrics.
+func (c *core) metrics(ctx context.Context) ([]api.Metric, error) {
+	q, err := c.queue.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := c.webhooks.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	published, err := c.timeline.LastSeq(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r := c.runner.Stats()
+	gauge := func(name, help string, v float64) api.Metric { return api.Metric{Name: name, Help: help, Value: v} }
+	counter := func(name, help string, v int64) api.Metric {
+		return api.Metric{Name: name, Help: help, Counter: true, Value: float64(v)}
+	}
+	return []api.Metric{
+		gauge("racksail_jobs_queued", "Jobs waiting for a worker.", float64(q.Queued)),
+		gauge("racksail_jobs_waiting", "Jobs waiting for a later time, such as automatic retries.", float64(q.Waiting)),
+		gauge("racksail_jobs_running", "Jobs running now.", float64(q.Running)),
+		gauge("racksail_jobs_oldest_queued_seconds", "How long the job that has waited longest for a worker has waited.", q.OldestQueued.Seconds()),
+		counter("racksail_jobs_started_total", "Jobs started.", q.Started),
+		counter("racksail_jobs_succeeded_total", "Jobs that succeeded.", q.Succeeded),
+		counter("racksail_jobs_failed_total", "Jobs that failed.", q.Failed),
+		counter("racksail_jobs_canceled_total", "Jobs that were canceled.", q.Canceled),
+		gauge("racksail_reconcile_queued", "Resources waiting to be reconciled.", float64(r.Queued)),
+		gauge("racksail_reconcile_retrying", "Resources whose last reconciles failed.", float64(r.Retrying)),
+		gauge("racksail_reconcile_running", "Reconciles running now.", float64(r.Running)),
+		counter("racksail_reconciles_total", "Reconciles that ran.", r.Reconciles),
+		counter("racksail_reconcile_failures_total", "Reconciles that failed.", r.Failures),
+		counter("racksail_drift_total", "Times the server was found to differ from a resource's settings.", r.Drift),
+		gauge("racksail_webhook_deliveries_pending", "Webhook deliveries waiting to be sent, or sent again.", float64(d.Pending)),
+		gauge("racksail_webhook_events_behind", "Events not yet turned into webhook deliveries.", float64(d.Lag)),
+		counter("racksail_webhook_attempts_total", "Attempts to send webhook deliveries.", d.Attempts),
+		counter("racksail_webhook_attempts_succeeded_total", "Attempts the receiver accepted.", d.Succeeded),
+		counter("racksail_webhook_attempts_failed_total", "Attempts that failed.", d.Failed),
+		counter("racksail_webhook_deliveries_failed_total", "Deliveries given up on.", d.GaveUp),
+		// Sequence numbers are never reused, so the last one counts every
+		// event the timeline took.
+		counter("racksail_events_total", "Events published.", published),
+	}, nil
+}
+
+// newHTTPServer returns a server with sensible timeouts for the panel. When
+// it shuts down, the API's live streams and waits end, so shutting down
+// doesn't wait for clients that would stay connected.
+func newHTTPServer(addr string, apiServer *api.Server, log *slog.Logger) *http.Server {
+	srv := &http.Server{
 		Addr:              addr,
-		Handler:           h,
+		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
+	srv.RegisterOnShutdown(apiServer.Close)
+	return srv
 }

@@ -28,6 +28,10 @@ type storage interface {
 	// interrupted returns the jobs marked as running, which a panel that
 	// just started isn't running.
 	interrupted(ctx context.Context) ([]*Job, error)
+	// backlog counts the queued jobs whose time has come and those waiting
+	// for a later time, and returns when the job that has waited longest
+	// for a worker could first run.
+	backlog(ctx context.Context, now time.Time) (ready, waiting int, oldest time.Time, err error)
 	appendLog(ctx context.Context, id store.ID, line *LogLine) error
 	lastLogSeq(ctx context.Context, id store.ID) (int64, error)
 	logs(ctx context.Context, id store.ID, after int64, limit int) ([]LogLine, error)
@@ -52,6 +56,8 @@ func (f Filter) matches(j *Job) bool {
 	case len(f.Scopes) > 0 && !slices.Contains(f.Scopes, j.Scope):
 		return false
 	case f.Actor != "" && (j.Actor == nil || (j.Actor.ID != f.Actor && j.Actor.User != f.Actor)):
+		return false
+	case f.Visible != nil && !f.Visible.shows(j):
 		return false
 	}
 	return true
@@ -159,6 +165,31 @@ func (m *memoryStorage) interrupted(ctx context.Context) ([]*Job, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+func (m *memoryStorage) backlog(ctx context.Context, now time.Time) (int, int, time.Time, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var ready, waiting int
+	var oldest time.Time
+	for _, j := range m.jobs {
+		if j.State != StateQueued {
+			continue
+		}
+		if j.RunAfter != nil && j.RunAfter.After(now) {
+			waiting++
+			continue
+		}
+		ready++
+		since := j.CreatedAt
+		if j.RunAfter != nil {
+			since = *j.RunAfter
+		}
+		if oldest.IsZero() || since.Before(oldest) {
+			oldest = since
+		}
+	}
+	return ready, waiting, oldest, nil
 }
 
 func (m *memoryStorage) appendLog(ctx context.Context, id store.ID, line *LogLine) error {

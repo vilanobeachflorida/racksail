@@ -47,7 +47,7 @@ func newPanelCommand() *cobra.Command {
 			if len(cfg.Panel.AllowFrom) > 0 {
 				log.Info("the panel only accepts requests from panel.allow_from", "networks", cfg.Panel.AllowFrom)
 			}
-			srv := newHTTPServer(cfg.Panel.Listen, apiServer.Handler(), log)
+			srv := newHTTPServer(cfg.Panel.Listen, apiServer, log)
 			if cfg.Panel.Insecure {
 				return serveUntilDone(ctx, srv, false)
 			}
@@ -109,5 +109,11 @@ func serveUntilDone(ctx context.Context, srv *http.Server, secure bool) error {
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdown)
+	if err := srv.Shutdown(shutdown); err != nil {
+		// Whatever is still going on is cut off, so nothing is left
+		// answering once the panel's database closes.
+		srv.Close()
+		return fmt.Errorf("shutting down %s: %w", srv.Addr, err)
+	}
+	return nil
 }

@@ -20,8 +20,9 @@
 //
 // Runner.Run works a queue: resources whose latest generation was never
 // carried out go first, failed reconciles are retried with a growing wait,
-// resources the agent reports as drifted (ReportDrift) are put back, and
-// everything is reconciled again at every resync. A reconcile of a resource
+// resources reported as drifted (ReportDrift) are put back, and everything
+// is reconciled again at every resync. Stats and Check are the queue's
+// metrics and health check. A reconcile of a resource
 // that was ready which still changes something has found drift: the Drifted
 // condition and a <kind>.drifted event say what was put back.
 package reconcile

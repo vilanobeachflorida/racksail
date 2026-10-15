@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -82,6 +83,52 @@ func TestSetOwnership(t *testing.T) {
 	}
 	if err := az.Authorize(ctx, res, "web.site.read", Target{Scope: store.AccountScope(store.NewID("acct"))}); !errors.Is(err, i18n.ErrForbidden) {
 		t.Errorf("but not other accounts: %v", err)
+	}
+}
+
+// listedOwners can also list each reseller's accounts.
+type listedOwners struct{ owners }
+
+func (o listedOwners) AccountsOf(ctx context.Context, reseller store.ID) ([]store.ID, error) {
+	var out []store.ID
+	for account, r := range o.owners {
+		if r == reseller {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
+func TestScopes(t *testing.T) {
+	ctx := context.Background()
+	reseller, customer, own, other := store.NewID("rsl"), store.NewID("acct"), store.NewID("acct"), store.NewID("acct")
+	az := NewRoleAuthorizer(owners{customer: reseller})
+	actor := &Actor{Type: ActorUser, Grants: []Grant{
+		{Role: RoleReseller, Scope: store.ResellerScope(reseller)},
+		{Role: RoleReadOnly, Scope: store.AccountScope(own)},
+		{Role: RoleCollaborator, Scope: store.AccountScope(other), Object: store.NewID("site")},
+	}}
+	scopes, all, err := az.Scopes(ctx, actor, "web.site.read")
+	if err != nil || all || len(scopes) != 2 || !slices.Contains(scopes, store.ResellerScope(reseller)) || !slices.Contains(scopes, store.AccountScope(own)) {
+		t.Errorf("without a list of accounts = %v, %v, %v", scopes, all, err)
+	}
+	az.SetOwnership(listedOwners{owners{customer: reseller}})
+	scopes, _, _ = az.Scopes(ctx, actor, "web.site.read")
+	if len(scopes) != 3 || !slices.Contains(scopes, store.AccountScope(customer)) {
+		t.Errorf("a reseller's grant reaches their customers = %v", scopes)
+	}
+	if scopes, _, _ := az.Scopes(ctx, actor, "web.site.delete"); len(scopes) != 2 || slices.Contains(scopes, store.AccountScope(own)) {
+		t.Errorf("only grants that carry the permission count = %v", scopes)
+	}
+	if scopes, _, _ := az.Scopes(ctx, actor, ""); len(scopes) != 3 {
+		t.Errorf("any permission = %v", scopes)
+	}
+	admin := &Actor{Type: ActorUser, Grants: []Grant{{Role: RoleAdmin, Scope: store.ServerScope()}}}
+	if _, all, _ := az.Scopes(ctx, admin, "web.site.read"); !all {
+		t.Error("a grant on the server covers everything")
+	}
+	if _, _, err := az.Scopes(ctx, nil, "web.site.read"); !errors.Is(err, i18n.ErrUnauthenticated) {
+		t.Errorf("nobody: %v", err)
 	}
 }
 

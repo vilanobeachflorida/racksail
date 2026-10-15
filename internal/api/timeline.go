@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-	"slices"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -29,35 +29,38 @@ type reach struct {
 }
 
 // reachOf works out the reach of a permission. scope, when given, is the
-// one owner the caller asks about.
+// one owner the caller asks about; without one, the actor needs the
+// permission somewhere.
 func (s *Server) reachOf(ctx context.Context, perm auth.Permission, scope *store.Scope) (reach, error) {
+	if scope != nil {
+		if err := Authorize(ctx, s.authorizer(), perm, auth.Target{Scope: *scope}); err != nil {
+			return reach{}, err
+		}
+		return reach{scopes: []store.Scope{*scope}}, nil
+	}
+	r, err := s.grantReach(ctx, perm)
+	if err == nil && !r.all && len(r.scopes) == 0 {
+		err = i18n.ErrForbidden.New("action", string(perm))
+	}
+	return r, err
+}
+
+// grantReach is what the actor's grants reach with a permission: every
+// scope, or some, a reseller's customers' accounts included, or none.
+func (s *Server) grantReach(ctx context.Context, perm auth.Permission) (reach, error) {
 	actor, err := Actor(ctx)
 	if err != nil {
 		return reach{}, err
 	}
 	authz := s.authorizer()
-	if scope != nil {
-		if err := Authorize(ctx, authz, perm, auth.Target{Scope: *scope}); err != nil {
-			return reach{}, err
-		}
-		return reach{scopes: []store.Scope{*scope}}, nil
-	}
 	if Authorize(ctx, authz, perm, auth.Target{Scope: store.ServerScope()}) == nil {
 		return reach{all: true}, nil
 	}
-	var scopes []store.Scope
-	for _, g := range actor.Grants {
-		if g.Object != "" || slices.Contains(scopes, g.Scope) {
-			continue
-		}
-		if Authorize(ctx, authz, perm, auth.Target{Scope: g.Scope}) == nil {
-			scopes = append(scopes, g.Scope)
-		}
+	if authz == nil {
+		return reach{}, nil
 	}
-	if len(scopes) == 0 {
-		return reach{}, i18n.ErrForbidden.New("action", string(perm))
-	}
-	return reach{scopes: scopes}, nil
+	scopes, err := grantScopes(ctx, authz, actor, perm)
+	return reach{scopes: scopes}, err
 }
 
 // TimelineFilter holds the filters lists of events and audit records share.
@@ -68,8 +71,12 @@ type TimelineFilter struct {
 	ChangeSet store.ID  `query:"changeSet" doc:"Only those of this change set"`
 	Since     time.Time `query:"since" doc:"Only those from this time on"`
 	Until     time.Time `query:"until" doc:"Only those before this time"`
-	Cursor    string    `query:"cursor" doc:"Continues a list where the page before it ended"`
-	Limit     int       `query:"limit" minimum:"0" maximum:"1000" doc:"How many to return; 50 when left out"`
+}
+
+// PageParams page through a list.
+type PageParams struct {
+	Cursor string `query:"cursor" doc:"Continues a list where the page before it ended"`
+	Limit  int    `query:"limit" minimum:"0" maximum:"1000" doc:"How many to return; 50 when left out"`
 }
 
 // query turns the filters into a query within what the actor may read.
@@ -91,10 +98,7 @@ func (s *Server) timelineQuery(ctx context.Context, perm auth.Permission, f Time
 	if err != nil {
 		return events.Query{}, err
 	}
-	q := events.Query{
-		Since: f.Since, Until: f.Until, Subject: f.Subject, Kind: f.Kind, ChangeSet: f.ChangeSet, Types: patterns,
-		Cursor: f.Cursor, Limit: f.Limit,
-	}
+	q := events.Query{Since: f.Since, Until: f.Until, Subject: f.Subject, Kind: f.Kind, ChangeSet: f.ChangeSet, Types: patterns}
 	if !r.all {
 		q.Scopes = r.scopes
 	}
@@ -103,6 +107,7 @@ func (s *Server) timelineQuery(ctx context.Context, perm auth.Permission, f Time
 
 type listEventsInput struct {
 	TimelineFilter
+	PageParams
 	Types       []string        `query:"type" explode:"true" doc:"Only events of these types, as patterns such as web.site.*; repeat it for several"`
 	Job         store.ID        `query:"job" doc:"Only the events of this job"`
 	MinSeverity events.Severity `query:"minSeverity" enum:"info,notice,warning,error,critical" doc:"Only events at least this urgent"`
@@ -148,6 +153,7 @@ type AuditFilter struct {
 
 type listAuditInput struct {
 	AuditFilter
+	PageParams
 }
 
 type auditList struct {
@@ -159,6 +165,8 @@ type auditList struct {
 
 type exportAuditInput struct {
 	AuditFilter
+	Cursor string `query:"cursor" doc:"Start after the record a page of the audit log ended with, as its next cursor says"`
+	Limit  int    `query:"limit" minimum:"0" maximum:"100000" doc:"Export at most this many records; up to 100,000 when left out"`
 	Format string `query:"format" enum:"csv,json" default:"csv" doc:"csv for spreadsheets, or json for one record per line"`
 }
 
@@ -215,7 +223,7 @@ func (s *Server) registerTimeline() {
 		if err != nil {
 			return nil, err
 		}
-		q.Job, q.MinSeverity = in.Job, in.MinSeverity
+		q.Job, q.MinSeverity, q.Cursor, q.Limit = in.Job, in.MinSeverity, in.Cursor, in.Limit
 		list, next, err := log.QueryEvents(ctx, q)
 		if err != nil {
 			return nil, err
@@ -298,6 +306,7 @@ func (s *Server) registerTimeline() {
 		if err != nil {
 			return nil, err
 		}
+		q.Cursor, q.Limit = in.Cursor, in.Limit
 		list, next, err := s.services().Audit.QueryAudit(ctx, q)
 		if err != nil {
 			return nil, err
@@ -312,7 +321,8 @@ func (s *Server) registerTimeline() {
 		OperationID: "exportAudit", Method: http.MethodGet, Path: Prefix + "/audit/export", Tags: tags, Security: Protected,
 		Summary: "Export the audit log",
 		Description: "Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, " +
-			"up to 100,000 records; narrow the time window for more.",
+			"up to 100,000 records, or as many as limit says; narrow the time window, or start after a cursor, for more. " +
+			"In the CSV, text that starts like a spreadsheet formula gets a leading apostrophe, so opening the file never runs it.",
 		Responses: map[string]*huma.Response{"200": {
 			Description: "The records",
 			Content: map[string]*huma.MediaType{
@@ -327,6 +337,14 @@ func (s *Server) registerTimeline() {
 		if err != nil {
 			return nil, err
 		}
+		if err := events.CheckCursor(in.Cursor); err != nil {
+			return nil, err
+		}
+		q.Cursor = in.Cursor
+		most := exportLimit
+		if in.Limit > 0 {
+			most = min(in.Limit, exportLimit)
+		}
 		audit := s.services().Audit
 		return &huma.StreamResponse{Body: func(hc huma.Context) {
 			ext, ct := "csv", "text/csv; charset=utf-8"
@@ -336,7 +354,7 @@ func (s *Server) registerTimeline() {
 			hc.SetHeader("Content-Type", ct)
 			hc.SetHeader("Content-Disposition", `attachment; filename="racksail-audit.`+ext+`"`)
 			hc.SetStatus(http.StatusOK)
-			if err := exportAudit(hc.Context(), audit, q, in.Format, hc.BodyWriter()); err != nil {
+			if err := exportAudit(hc.Context(), audit, q, most, in.Format, hc.BodyWriter()); err != nil {
 				s.opts.Log.Warn("exporting the audit log", "error", err)
 			}
 		}}, nil
@@ -426,9 +444,9 @@ func followEvents(ctx context.Context, log *events.Log, filter events.Filter, af
 	}
 }
 
-// exportAudit writes every record q selects.
-func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, format string, w io.Writer) error {
-	q.Limit = store.MaxLimit
+// exportAudit writes up to most of the records q selects.
+func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, most int, format string, w io.Writer) error {
+	q.Limit = min(store.MaxLimit, most)
 	var cw *csv.Writer
 	enc := json.NewEncoder(w)
 	if format != "json" {
@@ -447,14 +465,18 @@ func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, for
 				if r.Actor.ID == "" {
 					who = string(r.Actor.Type) + ":" + r.Actor.Name
 				}
-				cw.Write([]string{
+				row := []string{
 					string(r.ID), r.Time.Format(time.RFC3339Nano), string(r.Outcome), r.Action, r.Kind, string(r.Subject), r.Scope.String(),
 					who, string(r.Actor.User), string(r.Actor.Source), r.Actor.IP, string(r.ChangeSet), r.RequestID, r.Summary, r.Reason,
-				})
+				}
+				for i, cell := range row {
+					row[i] = spreadsheetSafe(cell)
+				}
+				cw.Write(row)
 			} else if err := enc.Encode(r); err != nil {
 				return err
 			}
-			if written++; written >= exportLimit {
+			if written++; written >= most {
 				break
 			}
 		}
@@ -464,9 +486,20 @@ func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, for
 				return err
 			}
 		}
-		if next == "" || written >= exportLimit {
+		if next == "" || written >= most {
 			return nil
 		}
-		q.Cursor = next
+		q.Cursor, q.Limit = next, min(store.MaxLimit, most-written)
 	}
+}
+
+// spreadsheetSafe keeps a CSV cell from being read as a formula by the
+// spreadsheet that opens the export: text that starts with a character that
+// begins a formula gets an apostrophe in front, which spreadsheets show as
+// text. Summaries, reasons, names and request IDs come from users.
+func spreadsheetSafe(cell string) string {
+	if cell != "" && strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+		return "'" + cell
+	}
+	return cell
 }

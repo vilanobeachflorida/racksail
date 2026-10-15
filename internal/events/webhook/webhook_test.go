@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -172,7 +173,8 @@ func newWorld(t *testing.T, ctx context.Context, db *store.DB, vault *secrets.Me
 	log := events.NewMemory(1000)
 	q := jobs.NewMemory(ctx, jobs.ManagerOptions{})
 	var storage changeset.Storage
-	opts := Options{Secrets: vault, Schedule: schedule, Version: "test", Logger: slog.New(slog.DiscardHandler)}
+	// The receivers the tests run listen on the loopback address.
+	opts := Options{Secrets: vault, Schedule: schedule, Version: "test", Logger: slog.New(slog.DiscardHandler), AllowNetworks: loopback}
 	var d *Dispatcher
 	if db != nil {
 		var err error
@@ -212,6 +214,8 @@ func newWorld(t *testing.T, ctx context.Context, db *store.DB, vault *secrets.Me
 	return &world{store: st, log: log, engine: engine, dispatcher: d, vault: vault, jobs: q, runner: runner,
 		admin: &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}}
 }
+
+var loopback = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
 
 func newVault() *secrets.Memory {
 	key, _ := secrets.NewKey()
@@ -508,4 +512,198 @@ func TestDispatcherResumes(t *testing.T) {
 	if got := recv.types(); !slices.Equal(got, []string{"test.thing.first", "test.thing.second"}) {
 		t.Errorf("delivered = %v", got)
 	}
+}
+
+// Turning a webhook off stops the deliveries already queued for it too, not
+// just new ones; sending one again works once it is back on.
+func TestDisablingStopsQueuedDeliveries(t *testing.T) {
+	forEachWorld(t, func(t *testing.T, newWorld func(...time.Duration) *world) {
+		ctx := context.Background()
+		// The retry waits long enough for the webhook to be turned off first.
+		w := newWorld(300*time.Millisecond, 300*time.Millisecond, 300*time.Millisecond)
+		recv := newReceiver(t, "k", http.StatusServiceUnavailable)
+		w.run(t)
+		id := w.createWebhook(t, recv.srv.URL, "k", "test.*")
+		if err := w.log.Publish(ctx, events.Event{Type: "test.thing.happened"}); err != nil {
+			t.Fatal(err)
+		}
+		var queued *Delivery
+		waitFor(t, "failed the first attempt", func() bool {
+			list, _, _ := w.dispatcher.Deliveries(ctx, id, DeliveryPending, "", 10)
+			if len(list) == 1 && list[0].AttemptCount == 1 {
+				queued = list[0]
+			}
+			return queued != nil
+		})
+		got, _ := Kind.Get(ctx, w.store, id)
+		got.Spec.Disabled = true
+		raw, _ := json.Marshal(got.Spec)
+		if cs := w.submit(t, changeset.Change{Op: changeset.OpUpdate, Kind: Kind.Name(), ID: id, Spec: raw}); cs.State != changeset.StateApplied {
+			t.Fatalf("turning it off: %+v", cs)
+		}
+		waitFor(t, "gave the queued delivery up", func() bool {
+			d, _ := w.dispatcher.Delivery(ctx, id, queued.ID)
+			return d.State == DeliveryFailed
+		})
+		d, _ := w.dispatcher.Delivery(ctx, id, queued.ID)
+		if len(d.Attempts) != 2 || d.LastError != "the webhook is disabled" || d.NextAttempt != nil {
+			t.Errorf("the queued delivery = %+v", d)
+		}
+		if n := len(recv.types()); n != 1 {
+			t.Errorf("the receiver heard from a webhook that was off: %d deliveries", n)
+		}
+		if got, _ := Kind.Get(ctx, w.store, id); got.Status.ConsecutiveFailures != 1 {
+			t.Errorf("being off isn't the receiver failing: %+v", got.Status)
+		}
+		got.Spec.Disabled = false
+		raw, _ = json.Marshal(got.Spec)
+		w.submit(t, changeset.Change{Op: changeset.OpUpdate, Kind: Kind.Name(), ID: id, Spec: raw})
+		redo := w.submit(t, changeset.Change{Op: changeset.OpAction, Kind: Kind.Name(), ID: id, Action: "redeliver", Input: json.RawMessage(`{"delivery":"` + string(queued.ID) + `"}`)})
+		var again Delivery
+		if err := json.Unmarshal(redo.Changes[0].Output, &again); err != nil || again.State != DeliverySucceeded {
+			t.Errorf("sending it again once it's back on = %s", redo.Changes[0].Output)
+		}
+	})
+}
+
+// A test whose job is canceled while the receiver takes its time is
+// recorded as failed, rather than left pending with nothing to send it.
+func TestCanceledAttemptsAreRecorded(t *testing.T) {
+	forEachWorld(t, func(t *testing.T, newWorld func(...time.Duration) *world) {
+		ctx := context.Background()
+		w := newWorld()
+		hold := make(chan struct{})
+		slow := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			select {
+			case <-hold:
+			case <-r.Context().Done():
+			}
+		}))
+		t.Cleanup(func() {
+			close(hold)
+			slow.Close()
+		})
+		id := w.createWebhook(t, slow.URL, "k", "*")
+		testCtx, cancel := context.WithCancel(ctx)
+		time.AfterFunc(50*time.Millisecond, cancel)
+		dl, err := w.dispatcher.Test(testCtx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dl.State != DeliveryFailed || !strings.Contains(dl.LastError, "stopped") {
+			t.Errorf("the canceled test = %+v", dl)
+		}
+		kept, err := w.dispatcher.Delivery(ctx, id, dl.ID)
+		if err != nil || kept.State != DeliveryFailed || kept.FinishedAt == nil || len(kept.Attempts) != 1 {
+			t.Errorf("the test as kept = %+v, %v", kept, err)
+		}
+		if got, _ := Kind.Get(ctx, w.store, id); got.Status.ConsecutiveFailures != 0 {
+			t.Errorf("a canceled attempt says nothing about the receiver: %+v", got.Status)
+		}
+	})
+}
+
+// Deliveries only reach public addresses, unless racksail.toml allows the
+// network, whatever name the URL uses.
+func TestDeliveriesStayOffPrivateNetworks(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"93.184.215.14": true, "2606:2800:21f:cb07:6820:80da:af6b:8b2c": true,
+		"127.0.0.1": false, "::1": false, "10.1.2.3": false, "172.16.0.1": false, "192.168.1.1": false,
+		"169.254.169.254": false, "fe80::1": false, "fd00::1": false, "100.64.0.1": false, "0.0.0.0": false,
+		"::": false, "224.0.0.1": false, "::ffff:10.0.0.1": false, "::ffff:93.184.215.14": true, "192.0.2.1": false,
+		"64:ff9b::a00:1": false,
+	} {
+		if got := public(netip.MustParseAddr(addr)); got != want {
+			t.Errorf("public(%s) = %v", addr, got)
+		}
+	}
+	strict, open := guard{}, guard{allow: loopback}
+	for _, u := range []string{"http://127.0.0.1:8080/x", "https://[::1]/x", "http://localhost/x", "http://api.localhost./x", "https://169.254.169.254/latest", "http://[::ffff:127.0.0.1]/"} {
+		if err := strict.checkURL(u); err == nil {
+			t.Errorf("%s should be refused", u)
+		}
+	}
+	for _, u := range []string{"https://hooks.example.com/x", "https://93.184.215.14/x", "not a url"} {
+		if err := strict.checkURL(u); err != nil {
+			t.Errorf("%s: %v", u, err)
+		}
+	}
+	if err := open.checkURL("http://localhost:9000/x"); err != nil {
+		t.Errorf("an allowed network: %v", err)
+	}
+	if err := (guard{allow: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}).checkURL("http://localhost:9000/x"); err != nil {
+		t.Errorf("one loopback address allowed: %v", err)
+	}
+
+	// Checked when connecting, a name that leads to a private address is
+	// refused like the address itself.
+	recv := newReceiver(t, "k")
+	byName := strings.Replace(recv.srv.URL, "127.0.0.1", "localhost", 1)
+	if _, err := strict.client().Post(byName, "application/json", strings.NewReader("{}")); err == nil || !strings.Contains(err.Error(), "isn't a public address") {
+		t.Errorf("a name for the loopback address: %v", err)
+	}
+	resp, err := open.client().Post(byName, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("an allowed network: %v", err)
+	}
+	resp.Body.Close()
+
+	// Planning refuses an address the dispatcher wouldn't send to, so the
+	// preview says so.
+	ctx := context.Background()
+	w := newWorld(t, ctx, nil, newVault())
+	w.dispatcher.guard = guard{}
+	spec, _ := json.Marshal(WebhookSpec{URL: "http://10.0.0.8/hook", Events: []string{"*"}})
+	_, err = w.engine.Submit(ctx, changeset.Request{Actor: w.admin, DryRun: true, Changes: []changeset.Change{{
+		Op: changeset.OpCreate, Kind: Kind.Name(), Scope: store.ServerScope(), Spec: spec, Secrets: map[string]string{"secret": "k"},
+	}}})
+	if e := i18n.From(err); e == nil || e.Code != i18n.ErrInvalid.Code || len(e.Fields) == 0 || e.Fields[0].Path != "spec.url" {
+		t.Errorf("a private address = %v", err)
+	}
+}
+
+// Old deliveries go, and so do pending ones nothing will ever send.
+func TestPruningDeliveries(t *testing.T) {
+	forEachWorld(t, func(t *testing.T, newWorld func(...time.Duration) *world) {
+		ctx := context.Background()
+		w := newWorld()
+		old := time.Now().Add(-48 * time.Hour)
+		next := time.Now().Add(time.Hour)
+		hook := store.NewID("whk")
+		stranded := &Delivery{ID: store.NewID(DeliveryPrefix), Webhook: hook, EventType: PingType, State: DeliveryPending, Test: true, CreatedAt: old, Payload: json.RawMessage(`{}`)}
+		waiting := &Delivery{ID: store.NewID(DeliveryPrefix), Webhook: hook, EventType: "x.y.z", State: DeliveryPending, NextAttempt: &next, CreatedAt: old, Payload: json.RawMessage(`{}`)}
+		done := &Delivery{ID: store.NewID(DeliveryPrefix), Webhook: hook, EventType: "x.y.z", State: DeliverySucceeded, CreatedAt: old, Payload: json.RawMessage(`{}`)}
+		for _, d := range []*Delivery{stranded, waiting, done} {
+			if err := w.dispatcher.storage.insert(ctx, d); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if st, err := w.dispatcher.Stats(ctx); err != nil || st.Pending != 2 {
+			t.Errorf("stats = %+v, %v", st, err)
+		}
+		if err := w.dispatcher.storage.prune(ctx, time.Now().Add(-24*time.Hour), 100); err != nil {
+			t.Fatal(err)
+		}
+		list, _, _ := w.dispatcher.Deliveries(ctx, hook, "", "", 10)
+		if len(list) != 1 || list[0].ID != waiting.ID {
+			t.Errorf("kept = %+v", list)
+		}
+	})
+}
+
+func TestDispatcherHealth(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t, ctx, nil, newVault())
+	if err := w.dispatcher.Check(ctx); err == nil {
+		t.Error("a dispatcher that isn't running isn't healthy")
+	}
+	w.run(t)
+	waitFor(t, "started", func() bool { return w.dispatcher.Check(ctx) == nil })
+	if err := w.log.Publish(ctx, events.Event{Type: "test.thing.happened"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "caught up", func() bool {
+		st, err := w.dispatcher.Stats(ctx)
+		return err == nil && st.Lag == 0
+	})
 }

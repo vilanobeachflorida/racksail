@@ -30,8 +30,11 @@ type storage interface {
 	record(ctx context.Context, d *Delivery, a DeliveryAttempt) error
 	get(ctx context.Context, id store.ID) (*Delivery, error)
 	list(ctx context.Context, webhook store.ID, state DeliveryState, cursor string, limit int) ([]*Delivery, string, error)
+	// pending counts the deliveries waiting to be sent.
+	pending(ctx context.Context) (int, error)
 	// prune drops finished deliveries older than before, and the oldest
-	// beyond max.
+	// beyond max, and pending ones older than before that nothing will send,
+	// as when recording their only attempt failed.
 	prune(ctx context.Context, before time.Time, max int) error
 }
 
@@ -167,12 +170,27 @@ func (m *memoryStorage) list(ctx context.Context, webhook store.ID, state Delive
 	return out, "", nil
 }
 
+func (m *memoryStorage) pending(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, d := range m.deliveries {
+		if d.State == DeliveryPending {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (m *memoryStorage) prune(ctx context.Context, before time.Time, max int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var finished []*Delivery
 	for id, d := range m.deliveries {
 		if d.State == DeliveryPending {
+			if d.NextAttempt == nil && d.CreatedAt.Before(before) {
+				delete(m.deliveries, id)
+			}
 			continue
 		}
 		if d.CreatedAt.Before(before) {

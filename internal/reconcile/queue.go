@@ -124,6 +124,7 @@ func (r *Runner) ReportDrift(ctx context.Context, report DriftReport) error {
 	if err != nil {
 		return err
 	}
+	r.stats.drift.Add(1)
 	r.publish(ctx, res, events.Event{Type: res.Kind + ".drifted", Severity: events.SeverityWarning, Message: message},
 		events.Drift{Source: "agent", Changes: report.Changes})
 	r.Enqueue(res.ID, "drift")
@@ -219,6 +220,20 @@ func (q *workQueue) setRunning(running bool) {
 	defer q.mu.Unlock()
 	q.init()
 	q.running = running
+}
+
+func (q *workQueue) isRunning() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.running
+}
+
+// counts returns how many resources are queued, and how many failed their
+// last reconciles.
+func (q *workQueue) counts() (queued, retrying int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items), len(q.failures)
 }
 
 // push queues a resource for due, or moves it up when it is already queued

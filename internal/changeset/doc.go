@@ -27,6 +27,20 @@
 // set built from the recorded previous specs, labels and placement, planned
 // and applied like any other.
 //
+// The job records each change as started before it runs and as done once it
+// is in place. However the job ends, canceled, out of time, or cut short by
+// the panel stopping, the change set ends failed with the reason, and the
+// resync carries out the settings it stored. Retrying the job carries on
+// from the change that didn't finish; it doesn't run an action that may
+// already have run a second time, since a retry doesn't go through
+// authorization and validate hooks again, and it never touches a change set
+// that was undone.
+//
+// A resource that was purged keeps its history, and the secrets its change
+// sets stored stay until those are no longer kept, so its ID is never given
+// to a new resource: only undoing the change set that deleted it brings it
+// back under that ID.
+//
 // Secret values never enter specs. A kind's sensitive fields hold references
 // to the resource's own secrets; values arrive in Change.Secrets and are
 // stored, under a new name for each change set, only when it is applied.

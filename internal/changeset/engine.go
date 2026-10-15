@@ -38,6 +38,9 @@ var (
 	ErrNotPreview        = i18n.Define("changeset.not_preview", http.StatusConflict, "{title} isn't a preview, so it can't be applied again.")
 	ErrPreviewHasSecrets = i18n.Define("changeset.preview_has_secrets", http.StatusConflict, "{title} carried secret values, which previews don't keep. Send the change again to apply it.")
 	ErrPreviewStale      = i18n.Define("changeset.preview_stale", http.StatusConflict, "{title} would now do something other than its preview showed. Look at the new preview, {preview}, and apply that instead.")
+	ErrApplying          = i18n.Define("changeset.applying", http.StatusConflict, "{title} is already being applied.")
+	ErrNotRetryable      = i18n.Define("changeset.not_retryable", http.StatusConflict, "Only a change that failed can be carried out again, and {title} is {state}.")
+	ErrActionNotRepeated = i18n.Define("changeset.action_not_repeated", http.StatusConflict, "{title} stopped while running {action}, which a retry doesn't run a second time. Run {action} again instead.")
 )
 
 // ApplyJob is the job type that carries out applied change sets.
@@ -70,13 +73,22 @@ type Engine struct {
 	storage   Storage
 	retention Retention
 
-	mu      sync.Mutex
-	undoing map[store.ID]bool
+	mu sync.Mutex
+	// claims are the change sets an undo or the apply of a preview is
+	// working on, which no other may start on and retention keeps.
+	claims map[store.ID]bool
 }
 
 var _ Pipeline = (*Engine)(nil)
 
 // NewEngine returns an engine and registers its apply job on the queue.
+//
+// An apply job that the panel stopped under isn't run again when the panel
+// starts: its change set is marked failed, the resync carries out the
+// settings it stored, and a retry of the job finishes it. A retry carries on
+// from the change that didn't finish, and never runs what an action does
+// once a second time, since the retry doesn't go through authorization and
+// the validate hooks again.
 func NewEngine(opts Options) (*Engine, error) {
 	if opts.Store == nil || opts.Kinds == nil || opts.Jobs == nil {
 		return nil, errors.New("changeset: an engine needs a store, kinds and a job queue")
@@ -90,10 +102,8 @@ func NewEngine(opts Options) (*Engine, error) {
 	if opts.Storage == nil {
 		opts.Storage = NewMemoryStorage()
 	}
-	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), undoing: map[store.ID]bool{}}
-	// Applying a change set only ever brings the machine in line with what
-	// is stored, so a job cut short by a restart can safely run again.
-	if err := opts.Jobs.Handle(jobs.Type{Name: ApplyJob, Run: e.runApply, Resume: true}); err != nil {
+	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), claims: map[store.ID]bool{}}
+	if err := opts.Jobs.Handle(jobs.Type{Name: ApplyJob, Run: e.runApply, Ended: e.applyEnded, Retryable: e.retryable}); err != nil {
 		return nil, err
 	}
 	return e, nil
@@ -108,7 +118,7 @@ func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 			return earlier, err
 		}
 	}
-	p, err := e.plan(ctx, req, "")
+	p, err := e.plan(ctx, req, "", "")
 	if err != nil {
 		e.settle(ctx, key, "")
 		return nil, err
@@ -133,6 +143,9 @@ type draft struct {
 	view    *store.Overlay
 	secrets map[secrets.Ref][]byte
 	titles  []string
+	// undoOf is the change set the draft undoes, whose deleted resources it
+	// may bring back under their IDs.
+	undoOf store.ID
 }
 
 func (p *draft) reader(base secrets.Store) secrets.Reader {
@@ -143,8 +156,9 @@ func (p *draft) reader(base secrets.Store) secrets.Reader {
 }
 
 // plan runs the validate and plan stages for every change of a request. id
-// is the change set's ID, or empty for a new one.
-func (e *Engine) plan(ctx context.Context, req Request, id store.ID) (*draft, error) {
+// is the change set's ID, or empty for a new one; undoOf is the change set
+// the request undoes, if it is an undo.
+func (e *Engine) plan(ctx context.Context, req Request, id, undoOf store.ID) (*draft, error) {
 	if len(req.Changes) == 0 {
 		return nil, ErrEmpty.New()
 	}
@@ -159,7 +173,9 @@ func (e *Engine) plan(ctx context.Context, req Request, id store.ID) (*draft, er
 		},
 		view:    store.NewOverlay(e.opts.Store, e.opts.Kinds),
 		secrets: map[secrets.Ref][]byte{},
+		undoOf:  undoOf,
 	}
+	p.cs.UndoOf = undoOf
 	for i, ch := range req.Changes {
 		if err := e.planChange(ctx, p, req.Actor, ch, now); err != nil {
 			return nil, atChange(err, i, len(req.Changes))
@@ -239,6 +255,8 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		}
 		if next.ID == "" {
 			next.ID = store.NewID(info.Prefix)
+		} else if err := e.checkReuse(ctx, p, next); err != nil {
+			return err
 		}
 		if p.view.Planned(next.ID) {
 			return store.ErrExists.New("what", string(next.ID))
@@ -382,6 +400,27 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	return nil
 }
 
+// checkReuse refuses a chosen ID that a purged resource had, unless the
+// draft undoes the change set that deleted it; the store refuses it too, but
+// this says so before anything is planned.
+func (e *Engine) checkReuse(ctx context.Context, p *draft, r *store.Resource) error {
+	if r.Scope.Level == "" {
+		// The scope is checked later; the kind's own fills it in.
+		return nil
+	}
+	history, err := e.opts.Store.History(ctx, r.ID)
+	switch {
+	case store.ErrNotFound.Is(err):
+		return nil
+	case err != nil:
+		return err
+	}
+	if last := history[len(history)-1]; !last.Deleted {
+		return store.ErrExists.New("what", string(r.ID))
+	}
+	return store.CheckReuse(history, r, p.undoOf)
+}
+
 // validate runs a kind's validation and checks its secret fields.
 func validate(ctx context.Context, kind store.Kind, next, old *store.Resource) error {
 	if err := kind.Validate(ctx, next, old); err != nil {
@@ -509,6 +548,13 @@ func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string) 
 		return nil, err
 	}
 	e.settle(ctx, key, cs.ID)
+	// What follows the writes happens even when the client that asked went
+	// away meanwhile: the original of an undo is marked as undone, and the
+	// answer is the change set as kept.
+	ctx = context.WithoutCancel(ctx)
+	if cs.UndoOf != "" {
+		e.markUndone(ctx, cs.UndoOf, cs.ID)
+	}
 	if kept, getErr := e.Get(ctx, cs.ID); getErr == nil {
 		cs = kept
 	}
@@ -522,7 +568,7 @@ var errRollback = errors.New("changeset: dry run")
 // is thrown away, so a preview reports what applying it would run into,
 // such as a name another resource already uses.
 func (e *Engine) checkWrites(ctx context.Context, cs *ChangeSet) error {
-	err := e.opts.Store.Write(ctx, store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String()}, func(tx store.Tx) error {
+	err := e.opts.Store.Write(ctx, writeMeta(cs), func(tx store.Tx) error {
 		if err := writeChanges(ctx, tx, cs.Changes); err != nil {
 			return err
 		}
@@ -554,7 +600,7 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 			return false, err
 		}
 	}
-	err := e.opts.Store.Write(ctx, store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String()}, func(tx store.Tx) error {
+	err := e.opts.Store.Write(ctx, writeMeta(cs), func(tx store.Tx) error {
 		return writeChanges(ctx, tx, cs.Changes)
 	})
 	if err != nil {
@@ -575,7 +621,13 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 		message := i18n.From(err).Message
 		e.update(ctx, cs.ID, func(s *ChangeSet) { s.State, s.Error = StateFailed, message })
 	} else {
-		e.update(ctx, cs.ID, func(s *ChangeSet) { s.Job = job.ID })
+		cs.Job = job.ID
+		// The job may already have started and claimed the change set.
+		e.update(ctx, cs.ID, func(s *ChangeSet) {
+			if s.Job == "" {
+				s.Job = job.ID
+			}
+		})
 	}
 	for _, c := range cs.Changes {
 		op := string(c.Op)
@@ -585,6 +637,11 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 		e.audit(ctx, cs.Actor, string(auth.KindPermission(c.Kind, op)), &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}}, cs.ID, events.OutcomeSuccess, "", cs.Title)
 	}
 	return true, err
+}
+
+// writeMeta is what the store records with the writes of a change set.
+func writeMeta(cs *ChangeSet) store.WriteMeta {
+	return store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String(), UndoOf: cs.UndoOf}
 }
 
 // scopeOf returns the owner of everything a change set touches, or the
@@ -634,76 +691,239 @@ func writeChange(ctx context.Context, tx store.Tx, c ResourceChange) error {
 	return fmt.Errorf("unknown operation %q", c.Op)
 }
 
-// runApply is the job that reconciles every resource a change set touched.
+// runApply is the job that carries out a change set: each change that isn't
+// done yet, in order, until one fails. A change is marked as started before
+// it runs and as done once it is in place, so a retry carries on from the
+// change that didn't finish.
 func (e *Engine) runApply(ctx context.Context, job *jobs.Job, args json.RawMessage, r jobs.Reporter) (any, error) {
 	var id store.ID
 	if err := json.Unmarshal(args, &id); err != nil {
 		return nil, err
 	}
-	cs, err := e.Get(ctx, id)
+	cs, err := e.claim(ctx, id, job)
 	if err != nil {
 		return nil, err
 	}
+	// Records outlive the job's context, so a canceled job still says how
+	// its change set ended.
+	record := context.WithoutCancel(ctx)
 	total := int64(len(cs.Changes))
 	var failure error
-	outputs := map[int]json.RawMessage{}
 	for i, c := range cs.Changes {
+		if c.State == ChangeDone {
+			continue
+		}
 		r.Progress(int64(i), total, "Applying "+cs.Title)
+		if err := e.markChange(record, cs.ID, job.ID, i, ChangeStarted, nil); err != nil {
+			failure = err
+			break
+		}
 		output, err := e.applyChange(ctx, c, r)
-		if len(output) > 0 {
-			outputs[i] = output
+		if stopped := jobs.Stopped(ctx); stopped != nil {
+			if jobs.ErrInterrupted.Is(stopped) {
+				// The panel is stopping: the job is reported as interrupted
+				// when it starts again, which marks the change set failed.
+				return nil, stopped
+			}
+			// Canceled or out of time; whatever the change got to is
+			// unknown, so it doesn't count as done.
+			err = stopped
 		}
 		eventType, severity := e.eventType(c), events.SeverityInfo
-		if err != nil {
-			failure = err
-			eventType, severity = c.Kind+".failed", events.SeverityError
-			r.Log(slog.LevelError, "applying failed", "resource", c.ID, "error", i18n.From(err).Message)
-		}
 		msg := cs.Title
 		if err != nil {
-			msg = i18n.From(err).Message
+			eventType, severity, msg = c.Kind+".failed", events.SeverityError, i18n.From(err).Message
+			r.Log(slog.LevelError, "applying failed", "resource", c.ID, "error", msg)
 		}
-		e.publish(ctx, events.Event{
+		e.publish(record, events.Event{
 			Type: eventType, Severity: severity, Subject: c.ID, Kind: c.Kind, Scope: c.Scope,
 			Actor: cs.Actor, ChangeSet: cs.ID, Job: job.ID, Message: msg, Data: output,
 		})
 		if err != nil {
+			failure = err
+			if len(output) > 0 {
+				e.update(record, cs.ID, func(s *ChangeSet) { s.Changes[i].Output = output })
+			}
 			break
+		}
+		if err := e.markChange(record, cs.ID, job.ID, i, ChangeDone, output); err != nil {
+			// The change is in place; only a retry would run it again.
+			e.opts.Log.Warn("recording a change as done", "changeSet", cs.ID, "change", i, "error", err)
 		}
 	}
 	now := e.opts.Now().UTC()
-	final, updateErr := e.storage.Update(ctx, cs.ID, func(s *ChangeSet) {
-		for i, out := range outputs {
-			if i < len(s.Changes) {
-				s.Changes[i].Output = out
-			}
+	final, err := e.storage.Update(record, cs.ID, func(s *ChangeSet) error {
+		if s.State != StateApplying || s.Job != job.ID {
+			return errNotClaimed
 		}
 		if failure != nil {
 			s.State, s.Error = StateFailed, i18n.From(failure).Message
 		} else {
-			s.State, s.AppliedAt = StateApplied, &now
+			s.State, s.Error, s.AppliedAt = StateApplied, "", &now
 		}
+		return nil
 	})
-	if updateErr != nil {
-		e.opts.Log.Error("recording how a change set ended", "changeSet", cs.ID, "error", updateErr)
-		final = cs
+	if err != nil {
+		e.opts.Log.Error("recording how a change set ended", "changeSet", cs.ID, "error", err)
+		return nil, err
 	}
 	setEvent := events.ChangeSetApplied
 	if failure != nil {
 		setEvent = events.ChangeSetFailed
 	}
-	e.publishSet(ctx, setEvent, final, "")
+	e.publishSet(record, setEvent, final, "")
 	if failure == nil && e.opts.Hooks != nil {
 		for _, pc := range pointsOf(final.Changes, StageApplied) {
-			e.opts.Hooks.Applied(ctx, pc.point, final.Clone(), pc.changes)
+			e.opts.Hooks.Applied(record, pc.point, final.Clone(), pc.changes)
 		}
 	}
 	r.Progress(total, total, "Done")
 	result := map[string]any{"changeSet": cs.ID, "state": final.State}
+	outputs := map[int]json.RawMessage{}
+	for i, c := range final.Changes {
+		if len(c.Output) > 0 {
+			outputs[i] = c.Output
+		}
+	}
 	if len(outputs) > 0 {
 		result["outputs"] = outputs
 	}
 	return result, failure
+}
+
+// errNotClaimed is the update of a change set a job no longer carries out.
+var errNotClaimed = errors.New("changeset: the change set isn't this job's to carry out")
+
+// claim makes a change set the job's to carry out: the one it was queued
+// for, or, when the job retries an earlier one, a change set that failed and
+// can be carried on with. Only one job carries out a change set at a time,
+// and one that was undone or applied never runs again.
+func (e *Engine) claim(ctx context.Context, id store.ID, job *jobs.Job) (*ChangeSet, error) {
+	return e.storage.Update(context.WithoutCancel(ctx), id, func(s *ChangeSet) error {
+		switch {
+		case s.State == StateApplying && (s.Job == "" || s.Job == job.ID):
+			// The job it was queued with, which may start before the change
+			// set records it.
+		case s.State == StateFailed && job.RetryOf != "":
+			if err := e.canCarryOn(s); err != nil {
+				return err
+			}
+			s.Error = ""
+		default:
+			return ErrNotRetryable.New("title", s.Title, "state", string(s.State))
+		}
+		s.State, s.Job = StateApplying, job.ID
+		return nil
+	})
+}
+
+// markChange records how far carrying out one change got, and its output.
+func (e *Engine) markChange(ctx context.Context, id, job store.ID, i int, state ChangeState, output json.RawMessage) error {
+	_, err := e.storage.Update(ctx, id, func(s *ChangeSet) error {
+		if s.State != StateApplying || s.Job != job || i >= len(s.Changes) {
+			return errNotClaimed
+		}
+		s.Changes[i].State = state
+		if len(output) > 0 {
+			s.Changes[i].Output = output
+		}
+		return nil
+	})
+	return err
+}
+
+// canCarryOn says whether a retry may carry on with a change set that
+// failed. Changes before the one that failed are done and later ones never
+// started, so only the one that failed may have done something already; a
+// retry runs it again unless it is an action that may already have done what
+// it does once.
+func (e *Engine) canCarryOn(cs *ChangeSet) error {
+	for _, c := range cs.Changes {
+		switch {
+		case c.State == ChangeDone:
+			continue
+		case c.State == ChangeStarted && c.Op == OpAction && e.runsOnce(c):
+			title := c.Action
+			if k, ok := e.opts.Kinds.Get(c.Kind); ok {
+				if a, ok := k.Info().Action(c.Action); ok && a.Title != "" {
+					title = a.Title
+				}
+			}
+			return ErrActionNotRepeated.New("title", cs.Title, "action", title)
+		}
+		return nil
+	}
+	return nil
+}
+
+// runsOnce reports whether an action's change does something besides
+// bringing the resource in line with its settings: steps of its own, or work
+// in the panel.
+func (e *Engine) runsOnce(c ResourceChange) bool {
+	if len(c.Steps) > 0 {
+		return true
+	}
+	rec, ok := e.reconciler(c.Kind)
+	if !ok {
+		return false
+	}
+	_, applies := rec.(reconcile.ActionApplier)
+	return applies
+}
+
+// retryable is the apply job's check before a retry: its change set must
+// have failed in a way a retry can carry on from.
+func (e *Engine) retryable(ctx context.Context, job *jobs.Job) error {
+	var id store.ID
+	if err := json.Unmarshal(job.Args, &id); err != nil {
+		return err
+	}
+	cs, err := e.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if cs.State != StateFailed {
+		return ErrNotRetryable.New("title", cs.Title, "state", string(cs.State))
+	}
+	return e.canCarryOn(cs)
+}
+
+// applyEnded keeps a change set in line with its job when the job couldn't
+// say how it ended itself: canceled before it started, or cut short by the
+// panel stopping, which the next start reports.
+func (e *Engine) applyEnded(ctx context.Context, job *jobs.Job) {
+	var id store.ID
+	if err := json.Unmarshal(job.Args, &id); err != nil {
+		return
+	}
+	now := e.opts.Now().UTC()
+	cs, err := e.storage.Update(ctx, id, func(s *ChangeSet) error {
+		if s.State != StateApplying || (s.Job != "" && s.Job != job.ID) {
+			return errNotClaimed
+		}
+		s.Job = job.ID
+		switch {
+		case job.State == jobs.StateSucceeded:
+			s.State, s.AppliedAt = StateApplied, &now
+		case job.Error != nil:
+			s.State, s.Error = StateFailed, job.Error.Message
+		default:
+			s.State, s.Error = StateFailed, i18n.ErrInternal.New().Message
+		}
+		return nil
+	})
+	switch {
+	case errors.Is(err, errNotClaimed) || store.ErrNotFound.Is(err):
+		return
+	case err != nil:
+		e.opts.Log.Error("recording how a change set's job ended", "changeSet", id, "job", job.ID, "error", err)
+		return
+	}
+	t := events.ChangeSetFailed
+	if cs.State == StateApplied {
+		t = events.ChangeSetApplied
+	}
+	e.publishSet(ctx, t, cs, "")
 }
 
 // applyChange carries out one change: an action's own steps, then the
@@ -862,11 +1082,11 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
 			return earlier, err
 		}
-		if !e.startUndo(orig.ID) {
+		if !e.claimSet(orig.ID) {
 			e.settle(ctx, key, "")
 			return nil, ErrUndoing.New("title", orig.Title)
 		}
-		defer e.endUndo(orig.ID)
+		defer e.release(orig.ID)
 		// Another undo may have finished between reading the change set and
 		// claiming it.
 		if orig, err = e.Get(ctx, req.ChangeSet); err != nil || (orig.State != StateApplied && orig.State != StateFailed) {
@@ -886,50 +1106,55 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		return nil, err
 	}
 	request := Request{Actor: req.Actor, Title: "Undo: " + orig.Title, Changes: changes, DryRun: req.DryRun}
-	p, err := e.plan(ctx, request, "")
+	p, err := e.plan(ctx, request, "", orig.ID)
 	if err != nil {
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	p.cs.UndoOf = orig.ID
-	cs, err := e.finish(ctx, p, request, key)
-	if err != nil || req.DryRun {
-		return cs, err
-	}
-	e.markUndone(ctx, orig.ID, cs.ID)
-	return cs, nil
+	return e.finish(ctx, p, request, key)
 }
 
-// markUndone records that a change set was undone by another.
+// markUndone records that a change set was undone by another. Only one that
+// was applied or failed becomes undone; a change set is undone once.
 func (e *Engine) markUndone(ctx context.Context, id, by store.ID) {
-	undone, err := e.storage.Update(ctx, id, func(s *ChangeSet) { s.State = StateUndone })
+	undone, err := e.storage.Update(ctx, id, func(s *ChangeSet) error {
+		if s.State != StateApplied && s.State != StateFailed {
+			return ErrNotApplied.New()
+		}
+		s.State = StateUndone
+		return nil
+	})
 	if err != nil {
-		e.opts.Log.Warn("marking a change set as undone", "changeSet", id, "error", err)
+		e.opts.Log.Warn("marking a change set as undone", "changeSet", id, "undoneBy", by, "error", err)
 		return
 	}
 	e.publishSet(ctx, events.ChangeSetUndone, undone, by)
 }
 
-func (e *Engine) startUndo(id store.ID) bool {
+// claimSet claims a change set for an undo or for applying a preview, and
+// reports whether nothing else had it.
+func (e *Engine) claimSet(id store.ID) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.undoing[id] {
+	if e.claims[id] {
 		return false
 	}
-	e.undoing[id] = true
+	e.claims[id] = true
 	return true
 }
 
-func (e *Engine) endUndo(id store.ID) {
+func (e *Engine) release(id store.ID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	delete(e.undoing, id)
+	delete(e.claims, id)
 }
 
-func (e *Engine) isUndoing(id store.ID) bool {
+// claimed reports whether an undo or an apply is working on a change set,
+// which retention then keeps.
+func (e *Engine) claimed(id store.ID) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.undoing[id]
+	return e.claims[id]
 }
 
 // undoChanges builds the changes that revert a change set, last change
@@ -987,7 +1212,10 @@ func (e *Engine) undoChanges(ctx context.Context, orig *ChangeSet) ([]Change, er
 	return out, nil
 }
 
-// Apply implements Pipeline.
+// Apply implements Pipeline. Applies of one preview are taken one at a
+// time, so two requests that arrive together, as from a double click, apply
+// it once; the other is told it is already being applied, or that it is no
+// longer a preview.
 func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error) {
 	preview, err := e.Get(ctx, req.ChangeSet)
 	if err != nil {
@@ -1006,6 +1234,18 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 	if !preview.DryRun {
 		return refuse(ErrNotPreview.New("title", preview.Title))
 	}
+	if !e.claimSet(preview.ID) {
+		return refuse(ErrApplying.New("title", preview.Title))
+	}
+	defer e.release(preview.ID)
+	// Another apply may have finished between reading the preview and
+	// claiming it.
+	if preview, err = e.Get(ctx, req.ChangeSet); err != nil {
+		return refuse(err)
+	}
+	if !preview.DryRun {
+		return refuse(ErrNotPreview.New("title", preview.Title))
+	}
 	stored, err := e.storage.Request(ctx, preview.ID)
 	if err != nil {
 		return refuse(err)
@@ -1013,15 +1253,15 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 	if stored.HadSecrets {
 		return refuse(ErrPreviewHasSecrets.New("title", preview.Title))
 	}
-	var orig *ChangeSet
 	if preview.UndoOf != "" {
-		if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
+		orig, err := e.Get(ctx, preview.UndoOf)
+		if err != nil {
 			return refuse(err)
 		}
-		if !e.startUndo(orig.ID) {
+		if !e.claimSet(orig.ID) {
 			return refuse(ErrUndoing.New("title", orig.Title))
 		}
-		defer e.endUndo(orig.ID)
+		defer e.release(orig.ID)
 		if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
 			return refuse(err)
 		}
@@ -1030,11 +1270,10 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 		}
 	}
 	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes}
-	p, err := e.plan(ctx, request, preview.ID)
+	p, err := e.plan(ctx, request, preview.ID, preview.UndoOf)
 	if err != nil {
 		return refuse(err)
 	}
-	p.cs.UndoOf = preview.UndoOf
 	if !samePlan(preview, p.cs) {
 		e.settle(ctx, key, "")
 		// The new plan becomes a preview of its own, for the person to look
@@ -1049,14 +1288,7 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 		}
 		return nil, ErrPreviewStale.New("title", preview.Title, "preview", string(fresh.ID))
 	}
-	cs, err := e.finish(ctx, p, request, key)
-	if err != nil {
-		return cs, err
-	}
-	if orig != nil {
-		e.markUndone(ctx, orig.ID, cs.ID)
-	}
-	return cs, nil
+	return e.finish(ctx, p, request, key)
 }
 
 // samePlan reports whether a new plan does what a preview showed: the same
