@@ -152,7 +152,11 @@ var refPattern = regexp.MustCompile(`"#/components/schemas/([^"]+)"`)
 // its own, with the schemas it refers to under $defs, for forms that build
 // themselves from a kind's schema.
 func (s *Server) standalone(schema *huma.Schema) (json.RawMessage, error) {
-	reg := s.api.OpenAPI().Components.Schemas
+	return standaloneIn(s.api.OpenAPI().Components.Schemas, schema)
+}
+
+// standaloneIn is standalone for a schema of any registry.
+func standaloneIn(reg huma.Registry, schema *huma.Schema) (json.RawMessage, error) {
 	// Forms read the root's properties, so a root that only points at a
 	// named schema becomes that schema.
 	if schema.Ref != "" {

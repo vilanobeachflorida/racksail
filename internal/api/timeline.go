@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -175,6 +177,27 @@ func (s *Server) eventTypes() []events.Type {
 	return events.Catalog(s.kinds.All(), extra...)
 }
 
+// describeEventTypes describes every event type with a standalone schema of
+// its data. Kinds and modules are fixed once the server is built, so New
+// does it once, in a registry of its own, and requests never add schemas to
+// the document's registry while others read it.
+func (s *Server) describeEventTypes() ([]EventType, error) {
+	reg := huma.NewMapRegistry("#/components/schemas/", httpapi.SchemaNamer)
+	out := []EventType{}
+	for _, t := range s.eventTypes() {
+		et := EventType{Name: t.Name, Description: t.Description, Severity: t.Severity}
+		if t.Data != nil {
+			data, err := standaloneIn(reg, reg.Schema(reflect.TypeOf(t.Data), true, camel(t.Name)+"Data"))
+			if err != nil {
+				return nil, fmt.Errorf("the data of %s: %w", t.Name, err)
+			}
+			et.Data = data
+		}
+		out = append(out, et)
+	}
+	return out, nil
+}
+
 func (s *Server) registerTimeline() {
 	tags := []string{"Events"}
 	op := huma.Operation{
@@ -259,18 +282,7 @@ func (s *Server) registerTimeline() {
 			return nil, err
 		}
 		out := &eventTypesOutput{}
-		out.Body.Types = []EventType{}
-		for _, t := range s.eventTypes() {
-			et := EventType{Name: t.Name, Description: t.Description, Severity: t.Severity}
-			if t.Data != nil {
-				data, err := s.standalone(s.schemaOf(reflect.TypeOf(t.Data), camel(t.Name)+"Data"))
-				if err != nil {
-					return nil, err
-				}
-				et.Data = data
-			}
-			out.Body.Types = append(out.Body.Types, et)
-		}
+		out.Body.Types = s.typeList
 		return out, nil
 	})
 

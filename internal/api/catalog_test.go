@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,6 +117,37 @@ func TestGeneratedDocument(t *testing.T) {
 	if !strings.Contains(compact(doc.Components.Schemas["SiteSpec"]), `"minItems":1`) {
 		t.Errorf("the spec's schema comes from its Go type: %s", doc.Components.Schemas["SiteSpec"])
 	}
+}
+
+// Requests that describe things only read the document's schemas, so they
+// can run side by side with each other and with the document itself.
+func TestDescriptionsReadSideBySide(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	var wg sync.WaitGroup
+	for i := range 12 {
+		path := []string{"/api/v1/events/types", "/api/v1/openapi.json", "/api/v1/kinds/core.webhook"}[i%3]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req, err := http.NewRequest(http.MethodGet, s.http.URL+path, nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			req.Header.Set("X-Test-Actor", "owner")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer resp.Body.Close()
+			io.Copy(io.Discard, resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("%s = %d", path, resp.StatusCode)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestOperationsCatalog(t *testing.T) {
