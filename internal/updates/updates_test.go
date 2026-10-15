@@ -12,6 +12,15 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+func TestReleaseBuild(t *testing.T) {
+	defer func(v, c, ct, ch string) { version, commit, commitTime, channel = v, c, ct, ch }(version, commit, commitTime, channel)
+	version, commit, commitTime, channel = "1.2.0", "e107092bcfd5d4d9e0ab371735a97927cbf7b035", "2026-10-15T17:50:02Z", "stable"
+	b := Build()
+	if b.Version != "1.2.0" || b.Commit != commit || b.CommitTime != commitTime || b.Channel != "stable" {
+		t.Errorf("a release build reports what the release flags set: %+v", b)
+	}
+}
+
 func TestParseAndCompare(t *testing.T) {
 	order := []string{"0.9.0", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.2.0", "v2.0.0"}
 	for i := 0; i < len(order)-1; i++ {

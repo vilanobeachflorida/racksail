@@ -57,8 +57,11 @@ export interface components {
             channel: "stable" | "beta" | "nightly" | "dev";
             /** @description Source commit the binary was built from */
             commit?: string;
-            /** @description When the binary was built */
-            date?: string;
+            /**
+             * Format: date-time
+             * @description When that commit was made
+             */
+            commitTime?: string;
             /** @description Go version used to build it */
             goVersion: string;
             os: string;

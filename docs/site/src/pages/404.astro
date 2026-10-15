@@ -1,0 +1,20 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Page not found",
+    description: "The page you asked for isn't part of the Racksail documentation.",
+    template: "splash",
+    editUrl: false,
+    pagefind: false,
+    hero: {
+      title: "This page doesn't exist",
+      tagline: "The address may be mistyped, or the page has moved. Search the documentation, or start from the beginning.",
+      // The 404 page is served at whatever address was asked for, so the
+      // link can't be relative like the others.
+      actions: [{ text: "Go to the documentation", link: import.meta.env.BASE_URL, icon: "right-arrow" }],
+    },
+  }}
+/>

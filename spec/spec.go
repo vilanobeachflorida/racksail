@@ -1,8 +1,9 @@
 // Package spec holds Racksail's machine-readable specifications. The
-// OpenAPI documents of the panel API (openapi.json) and the agent protocol
-// (agent-protocol.json) are generated from the code; the JSON Schemas in
-// schemas/ describe the files people write: module manifests, themes,
-// recipes, add-on manifests, account archives, rules and installer answers.
+// OpenAPI documents of the panel API (openapi.json), the agent protocol
+// (agent-protocol.json) and the add-on protocol (addon-protocol.json) are
+// generated from the code; the JSON Schemas in schemas/ describe the files
+// people write: module manifests, themes, recipes, add-on manifests, account
+// archives, rules and installer answers.
 //
 // The schemas are embedded so the binary validates those files itself.
 package spec

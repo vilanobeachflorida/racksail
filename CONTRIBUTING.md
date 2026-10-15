@@ -10,7 +10,7 @@ Thanks for helping. Bug reports, documentation, translations, recipes and code a
 
 ## Setting up
 
-You need Go 1.27, Node.js 22.12 or later with npm, git and make, on macOS or Linux.
+You need Go 1.27, Node.js 22.22.2 or later with npm (24.15 or later on Node.js 24), git and make, on macOS or Linux.
 
 ```sh
 git clone https://github.com/vilanobeachflorida/racksail.git
@@ -18,7 +18,7 @@ cd racksail
 make dev
 ```
 
-`make dev` runs `racksail dev`, which is the panel, the agent and the edge in one process against a simulated server, on http://127.0.0.1:7070, and the UI dev server with hot reload on http://127.0.0.1:5173. Nothing touches your machine: the simulated server keeps its state in `.dev/`.
+`make dev` runs `racksail dev`, which is the panel, the agent and the edge in one process against a simulated server, on http://127.0.0.1:7070, and the UI dev server with hot reload on http://127.0.0.1:5173. Nothing touches your machine: the simulated server and the panel's state live in memory, so every start begins with a freshly installed server, and `.dev/` only holds empty working directories and the sockets of the simulated agent and the edge.
 
 [docs/architecture/internals.md](docs/architecture/internals.md) explains how the code fits together: the packages, the module contract, reconcilers and agent operations, the simulated backend and where to add things.
 
@@ -28,12 +28,12 @@ make dev
 make check
 ```
 
-This is what CI runs on Linux and macOS: gofmt, go vet and staticcheck (for darwin and Linux), builds for darwin, linux/amd64 and linux/arm64, the Go tests, and the UI's type check, lint, tests and build. A pull request needs it to pass.
+It runs gofmt, go vet and staticcheck (for darwin and Linux), builds for darwin, linux/amd64 and linux/arm64, the Go tests, and the UI's type check, lint, tests and build. A pull request needs it to pass on Linux and macOS. CI also runs `make test-race` and `make docs`.
 
 Other useful targets:
 
 - `make test` runs the Go and UI tests; `make test-race` runs the Go tests with the race detector, which needs a C compiler.
-- `make gen` regenerates `spec/openapi.json`, `spec/agent-protocol.json`, the UI's API types and its theme CSS. Tests fail when these drift from the code, so run it after changing an API operation, an agent operation or the default theme.
+- `make gen` regenerates `spec/openapi.json`, `spec/agent-protocol.json`, `spec/addon-protocol.json`, the UI's API types and its theme CSS. Tests fail when these drift from the code, so run it after changing an API operation, an agent operation, the add-on protocol or the default theme.
 - `make fmt` formats Go and UI code.
 - `make docs` builds the documentation site.
 

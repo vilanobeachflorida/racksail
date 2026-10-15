@@ -31,6 +31,7 @@ body:
       label: Area
       options:
         - Core platform, API or command line
+        - Network
         - Web hosting
         - Hosting business
         - Databases
@@ -39,15 +40,18 @@ body:
         - Containers
         - Virtual machines
         - Storage and shares
+        - Home extras
+        - Marketplace and recipes
         - Backups
         - Monitoring and analytics
         - Files and terminal
-        - Marketplace and recipes
+        - Performance
+        - Builder
+        - Assistant
         - Automations
         - Migration
         - Multi-server
         - Security
-        - Assistant
         - Installer and updates
         - UI and themes
         - Documentation

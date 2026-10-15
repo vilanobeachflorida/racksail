@@ -10,32 +10,37 @@ import (
 	"time"
 )
 
-// Set by the release build:
+// Set by release builds:
 //
 //	-ldflags "-X github.com/vilanobeachflorida/racksail/internal/updates.version=1.2.3 ..."
+//
+// commit and commitTime are the commit the release is built from and the
+// time it was made, in RFC 3339.
 var (
-	version = ""
-	commit  = ""
-	date    = ""
-	channel = ""
+	version    = ""
+	commit     = ""
+	commitTime = ""
+	channel    = ""
 )
 
-// BuildInfo describes the running binary.
+// BuildInfo describes the running binary. It names the commit the binary
+// was built from and when that commit was made, and no time of its own: a
+// build of the same commit is the same binary, whenever it was made.
 type BuildInfo struct {
-	Version   string `json:"version" example:"1.0.0" doc:"Racksail version"`
-	Commit    string `json:"commit,omitempty" doc:"Source commit the binary was built from"`
-	Date      string `json:"date,omitempty" doc:"When the binary was built"`
-	Channel   string `json:"channel" enum:"stable,beta,nightly,dev" doc:"Release channel the binary belongs to"`
-	GoVersion string `json:"goVersion" doc:"Go version used to build it"`
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
+	Version    string `json:"version" example:"1.0.0" doc:"Racksail version"`
+	Commit     string `json:"commit,omitempty" doc:"Source commit the binary was built from"`
+	CommitTime string `json:"commitTime,omitempty" format:"date-time" doc:"When that commit was made"`
+	Channel    string `json:"channel" enum:"stable,beta,nightly,dev" doc:"Release channel the binary belongs to"`
+	GoVersion  string `json:"goVersion" doc:"Go version used to build it"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
 }
 
 // Build returns information about the running binary. Builds without
 // release flags report version 0.0.0-dev on the dev channel, with the commit
-// from the Go build information when it is available.
+// and its time from Go's version control stamping when it is available.
 func Build() BuildInfo {
-	b := BuildInfo{Version: version, Commit: commit, Date: date, Channel: channel, GoVersion: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH}
+	b := BuildInfo{Version: version, Commit: commit, CommitTime: commitTime, Channel: channel, GoVersion: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH}
 	if b.Version == "" {
 		b.Version = "0.0.0-dev"
 	}
@@ -49,9 +54,7 @@ func Build() BuildInfo {
 			case "vcs.revision":
 				b.Commit = s.Value
 			case "vcs.time":
-				if b.Date == "" {
-					b.Date = s.Value
-				}
+				b.CommitTime = s.Value
 			case "vcs.modified":
 				modified = s.Value == "true"
 			}

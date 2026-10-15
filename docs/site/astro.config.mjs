@@ -179,6 +179,9 @@ export default defineConfig({
         "./src/styles/brand.css",
       ],
       lastUpdated: false,
+      // src/pages/404.astro is the 404 page. Starlight's own would look for a
+      // docs entry called 404, which would also be published as /404/.
+      disable404Route: true,
       sidebar,
     }),
   ],

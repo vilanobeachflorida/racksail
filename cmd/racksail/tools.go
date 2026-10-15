@@ -72,8 +72,8 @@ func newVersionCommand() *cobra.Command {
 			fmt.Fprintf(out, "racksail %s (%s channel)\n", b.Version, b.Channel)
 			if b.Commit != "" {
 				fmt.Fprintf(out, "commit %s", b.Commit)
-				if b.Date != "" {
-					fmt.Fprintf(out, ", built %s", b.Date)
+				if b.CommitTime != "" {
+					fmt.Fprintf(out, ", committed %s", b.CommitTime)
 				}
 				fmt.Fprintln(out)
 			}

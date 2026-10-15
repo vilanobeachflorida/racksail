@@ -15,11 +15,15 @@ DEV_EDGE_HTTP  ?= 127.0.0.1:7080
 DEV_EDGE_HTTPS ?= 127.0.0.1:7443
 DEV_DATA       ?= .dev
 
-# Release builds set these, for example `make cross VERSION=1.2.0 CHANNEL=stable`.
-# Without them the binary reports 0.0.0-dev on the dev channel; the commit
-# and its date come from Go's own version control stamping.
+# Release builds set these, for example `make cross VERSION=1.2.0 CHANNEL=stable`,
+# and then also record the commit and when it was made. A binary carries no
+# build time of its own, so building the same commit twice gives the same
+# binary. Without VERSION the binary reports 0.0.0-dev on the dev channel, and
+# the commit and its time come from Go's own version control stamping.
 VERSION     ?=
 CHANNEL     ?=
+COMMIT      := $(if $(VERSION),$(shell git rev-parse HEAD 2>/dev/null))
+COMMIT_TIME := $(if $(VERSION),$(shell TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd 2>/dev/null))
 
 # go run builds the pinned version with the current toolchain and caches the
 # build, so a Go upgrade never leaves a stale binary behind.
@@ -32,7 +36,8 @@ export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD := 1
 export ASTRO_TELEMETRY_DISABLED := 1
 
 UPDATES     := github.com/vilanobeachflorida/racksail/internal/updates
-LDFLAGS     := -s -w $(if $(VERSION),-X $(UPDATES).version=$(VERSION)) $(if $(CHANNEL),-X $(UPDATES).channel=$(CHANNEL))
+LDFLAGS     := -s -w $(if $(VERSION),-X $(UPDATES).version=$(VERSION)) $(if $(CHANNEL),-X $(UPDATES).channel=$(CHANNEL)) \
+	$(if $(COMMIT),-X $(UPDATES).commit=$(COMMIT)) $(if $(COMMIT_TIME),-X $(UPDATES).commitTime=$(COMMIT_TIME))
 GO_FILES     = $(shell git ls-files '*.go')
 PLATFORMS   := linux/amd64 linux/arm64
 
@@ -47,7 +52,8 @@ all: build
 help:
 	@echo "make build       build the UI and bin/racksail for this machine"
 	@echo "make cross       build release binaries for $(PLATFORMS)"
-	@echo "make check       everything CI checks: format, vet, staticcheck, builds, tests, UI"
+	@echo "make check       what a pull request must pass: format, vet, staticcheck, builds, tests, UI;"
+	@echo "                 CI also runs make test-race and make docs"
 	@echo "make lint        format check, go vet, staticcheck and the UI linters"
 	@echo "make test        Go and UI tests"
 	@echo "make test-race   Go tests with the race detector (needs a C compiler)"

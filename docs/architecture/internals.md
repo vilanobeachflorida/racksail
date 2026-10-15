@@ -6,13 +6,13 @@ How the code fits together, for people working on Racksail. The other documents 
 
 ```sh
 make dev                     # racksail dev on 127.0.0.1:7070 plus the UI dev server on 127.0.0.1:5173
-make check                   # everything CI runs
+make check                   # what a pull request must pass; CI also runs make test-race and make docs
 go run ./cmd/racksail dev    # just the panel, agent and edge, serving the embedded UI if it's built
 go test ./internal/store     # one package
 go test ./internal/system -update   # rewrite golden files after an intended change
 ```
 
-`racksail dev` keeps everything under `.dev/` (or `--data`): configuration in `etc/`, state in `state/`, sockets in `run/`. Everyone who reaches it is signed in as the admin, which is why it refuses to listen on anything but loopback addresses. The panel listens on `--addr` (127.0.0.1:7070 by default), and the edge on `--edge-http` and `--edge-https` (127.0.0.1:7080 and 127.0.0.1:7443) once a module adds a route. The simulated agent and the edge also answer on their Unix sockets when the path is short enough for one.
+`racksail dev` puts its directories under `.dev/` (or `--data`): `etc/`, `state/` and `run/`, where the simulated agent and the edge have their sockets. The simulated server and everything the panel holds live in memory, so every start begins with a freshly installed server. Everyone who reaches it is signed in as the admin, which is why it refuses to listen on anything but loopback addresses. The panel listens on `--addr` (127.0.0.1:7070 by default), and the edge on `--edge-http` and `--edge-https` (127.0.0.1:7080 and 127.0.0.1:7443) once a module adds a route. The simulated agent and the edge also answer on their Unix sockets when the path is short enough for one.
 
 To run several instances side by side, as separate checkouts do, give each its own addresses and data directory. Port 0 lets the edge pick free ports, which it logs when it starts:
 
@@ -433,7 +433,7 @@ The code that needs the capability lists providers with `svc.Hooks.Registry.Prov
 ch, err := hooks.Open[notify.Channel](ctx, svc.Hooks.Registry, hooks.ProvideNotifier, "gotify", settings)
 ```
 
-The consumer of a capability also defines its interface: in `internal/hooks/provide_<capability>.go` for the provide points modules share, so the DNS module and the home module's dynamic DNS see the same `provide.dns` interface; in `internal/auth` for `auth.provider` and `auth.mfa`; and `notify.Channel` for `provide.notifier`, offered next to the channel types the notify package registers itself. Provider settings are a kind's spec like any other, so secret fields in them hold references.
+The consumer of a capability also defines its interface: in `internal/hooks/provide_<capability>.go` for the provide points modules share, so the DNS module and the home module's dynamic DNS see the same `provide.dns` interface; in `internal/auth` for `auth.provider` and `auth.mfa`; and `notify.Channel` for `provide.notifier`. Channel types built into the core register with `notify.RegisterType` from `init` functions, and are offered next to the `provide.notifier` providers; none is registered yet. Provider settings are a kind's spec like any other, so secret fields in them hold references.
 
 ### Extensions
 

@@ -39,7 +39,7 @@ Each area is a module. Modules ship in the binary but install nothing until you 
 
 ## Development
 
-You need Go 1.27, Node.js 22.12 or later with npm, git and make, on macOS or Linux. No root and no Debian server are needed: `racksail dev` simulates one.
+You need Go 1.27, Node.js 22.22.2 or later with npm (24.15 or later on Node.js 24), git and make, on macOS or Linux. No root and no Debian server are needed: `racksail dev` simulates one.
 
 ```sh
 git clone https://github.com/vilanobeachflorida/racksail.git
@@ -51,7 +51,7 @@ make dev
 
 | Command | What it does |
 |---|---|
-| `make check` | Everything CI checks: formatting, vet, staticcheck, builds for darwin and Linux, Go tests and the UI checks |
+| `make check` | What a pull request must pass: formatting, vet, staticcheck, builds for darwin and Linux, Go tests and the UI checks. CI also runs the Go tests with the race detector and builds the docs |
 | `make build` | Builds the UI and `bin/racksail` with the UI embedded |
 | `make gen` | Regenerates the OpenAPI documents and the UI's generated types and theme |
 | `make docs` | Builds the documentation site |

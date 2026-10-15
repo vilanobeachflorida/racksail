@@ -12,5 +12,5 @@
 - [ ] Tests cover the change
 - [ ] User-visible strings go through the message catalogs
 - [ ] The docs are updated, or nothing user-visible changed
-- [ ] `make gen` was run if an API operation, agent operation or the default theme changed
+- [ ] `make gen` was run if an API operation, an agent operation, the add-on protocol or the default theme changed
 - [ ] Every commit is signed off (`git commit -s`)

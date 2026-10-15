@@ -115,9 +115,10 @@
       }
     },
     "recipes": {
-      "description": "Recipes the module ships, as paths inside the module.",
+      "description": "Ids of the recipes the module ships, one modules/<id>/recipes/<recipe id>.yaml each.",
       "type": "array",
-      "items": { "type": "string" }
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" }
     }
   },
   "$defs": {

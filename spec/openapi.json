@@ -21,8 +21,9 @@
             "description": "Source commit the binary was built from",
             "type": "string"
           },
-          "date": {
-            "description": "When the binary was built",
+          "commitTime": {
+            "description": "When that commit was made",
+            "format": "date-time",
             "type": "string"
           },
           "goVersion": {
