@@ -389,6 +389,17 @@ func TestTuningGolden(t *testing.T) {
 	if small["net.netfilter.nf_conntrack_max"] != "65536" || small["vm.swappiness"] != "10" || small["net.ipv4.tcp_congestion_control"] != "bbr" {
 		t.Errorf("defaults for 1 GiB = %v", small)
 	}
+	// Every default is a parameter Racksail may set.
+	for k := range KernelDefaults(4<<30, true) {
+		if !TunableSysctl(k) {
+			t.Errorf("%s is a default but not tunable", k)
+		}
+	}
+	for _, k := range []string{"vm.mmap_min_addr", "kernel.unprivileged_bpf_disabled", "net.core.bpf_jit_harden", "net.ipv4.conf.a.b.forwarding", "net.ipv6.conf.all.bogus"} {
+		if TunableSysctl(k) {
+			t.Errorf("%s shouldn't be tunable", k)
+		}
+	}
 	if big := KernelDefaults(1<<40, false); big["net.netfilter.nf_conntrack_max"] != "2097152" {
 		t.Errorf("conntrack is capped: %s", big["net.netfilter.nf_conntrack_max"])
 	}

@@ -614,3 +614,20 @@ func TestUpgradesAndHolds(t *testing.T) {
 		t.Errorf("commands = %v", got)
 	}
 }
+
+func TestUpgradablePreviewsTheRightUpgrade(t *testing.T) {
+	ctx := context.Background()
+	b, runner, _, _ := newTestBackend(t, func(cmd system.Command) (system.Output, error) {
+		return system.Output{Stdout: []byte("Inst sudo [1.9.16p2-3] (1.9.17-1 Debian:13/stable [amd64])\n")}, nil
+	})
+	for _, full := range []bool{false, true} {
+		ups, err := b.Packages.Upgradable(ctx, full)
+		if err != nil || len(ups) != 1 || ups[0].Name != "sudo" {
+			t.Errorf("upgradable(%v) = %+v, %v", full, ups, err)
+		}
+	}
+	got := runner.argv()
+	if len(got) != 2 || !strings.Contains(got[0], "apt-get upgrade --simulate") || !strings.Contains(got[1], "apt-get full-upgrade --simulate") {
+		t.Errorf("commands = %q", got)
+	}
+}

@@ -308,13 +308,24 @@ type PackageList struct {
 	Packages []system.Package `json:"packages"`
 }
 
+// UpgradableInput says which kind of upgrade to list.
+type UpgradableInput struct {
+	// Full lists what a full upgrade installs, such as a new kernel, besides
+	// what a plain upgrade does.
+	Full bool `json:"full,omitempty" doc:"List what a full upgrade installs, which may add or remove packages"`
+}
+
+// Validate implements Input.
+func (UpgradableInput) Validate() error { return nil }
+
 // UpgradablePackages lists installed packages with newer versions.
-var UpgradablePackages = Register(Def[Empty, PackageList]{
-	Name:     "UpgradablePackages",
-	Summary:  "List packages with updates",
-	ReadOnly: true,
-	Run: func(ctx context.Context, env *Env, _ Empty) (PackageList, error) {
-		pkgs, err := env.System.Packages.Upgradable(ctx)
+var UpgradablePackages = Register(Def[UpgradableInput, PackageList]{
+	Name:        "UpgradablePackages",
+	Summary:     "List packages with updates",
+	Description: "Lists the upgrades a plain upgrade installs, or with full those of a full upgrade, which may add or remove packages.",
+	ReadOnly:    true,
+	Run: func(ctx context.Context, env *Env, in UpgradableInput) (PackageList, error) {
+		pkgs, err := env.System.Packages.Upgradable(ctx, in.Full)
 		if pkgs == nil {
 			pkgs = []system.Package{}
 		}

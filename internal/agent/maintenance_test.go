@@ -25,9 +25,23 @@ func TestUpgradesSnapshotFirstAndSkipHeldPackages(t *testing.T) {
 	if _, err := UpdatePackageIndex.Call(ctx, c, Empty{}, CallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	list, err := UpgradablePackages.Call(ctx, c, Empty{}, CallOptions{})
+	list, err := UpgradablePackages.Call(ctx, c, UpgradableInput{Full: true}, CallOptions{})
 	if err != nil || len(list.Packages) == 0 {
 		t.Fatalf("the simulated server should have updates: %+v, %v", list, err)
+	}
+	// A plain upgrade keeps the new kernel back, and its preview says so.
+	plain, err := UpgradablePackages.Call(ctx, c, UpgradableInput{}, CallOptions{})
+	if err != nil || len(plain.Packages) != len(list.Packages)-1 {
+		t.Errorf("plain upgrades = %+v, full %+v, %v", plain.Packages, list.Packages, err)
+	}
+	preview, err := UpgradePackages.Call(ctx, c, UpgradeInput{}, CallOptions{Check: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range preview.Effects {
+		if strings.HasPrefix(e.Target, "linux-image-") {
+			t.Errorf("a plain upgrade's preview lists the kernel it keeps back: %+v", e)
+		}
 	}
 	held := "sudo"
 	if res, err := HoldPackages.Call(ctx, c, HoldInput{Names: []string{held}, Hold: true}, CallOptions{}); err != nil || !res.Changed {
@@ -62,7 +76,7 @@ func TestUpgradesSnapshotFirstAndSkipHeldPackages(t *testing.T) {
 			t.Errorf("snapshot %s wasn't taken: %v", s.Path, err)
 		}
 	}
-	after, _ := UpgradablePackages.Call(ctx, c, Empty{}, CallOptions{})
+	after, _ := UpgradablePackages.Call(ctx, c, UpgradableInput{Full: true}, CallOptions{})
 	if len(after.Packages) != 1 || after.Packages[0].Name != held {
 		t.Errorf("only the held package should be left: %+v", after.Packages)
 	}

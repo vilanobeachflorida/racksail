@@ -22,9 +22,6 @@ var GetFacts = Register(Def[Empty, system.MachineFacts]{
 	},
 })
 
-// sysctlPrefixes are the kernel parameters Racksail tunes.
-var sysctlPrefixes = []string{"net.", "vm.", "fs.inotify.", "fs.file-max", "kernel.pid_max", "kernel.threads-max"}
-
 var sysctlNamePattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
 // SysctlInput is a group of kernel parameters kept in one file.
@@ -42,15 +39,8 @@ func (in SysctlInput) Validate() error {
 	if len(in.Values) == 0 {
 		return fmt.Errorf("no parameters given")
 	}
-	for k, v := range in.Values {
-		if !system.ValidSysctlKey(k) || !slices.ContainsFunc(sysctlPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
-			return fmt.Errorf("parameter %s isn't one Racksail tunes", k)
-		}
-		if strings.ContainsAny(v, "\n\x00") || len(v) > 256 {
-			return fmt.Errorf("value of %s", k)
-		}
-	}
-	return nil
+	_, err := system.RenderSysctl(in.Values)
+	return err
 }
 
 // SetSysctl sets kernel parameters now and keeps them across reboots.
@@ -66,12 +56,13 @@ var SetSysctl = Register(Def[SysctlInput, Result]{
 	},
 	Run: func(ctx context.Context, env *Env, in SysctlInput) (Result, error) {
 		keys := slices.Sorted(maps.Keys(in.Values))
-		var file bytes.Buffer
-		file.WriteString(system.GeneratedHeader + "\n")
+		file, err := system.RenderSysctl(in.Values)
+		if err != nil {
+			return Result{}, err
+		}
 		var effects []system.Effect
 		var todo []string
 		for _, k := range keys {
-			fmt.Fprintf(&file, "%s = %s\n", k, in.Values[k])
 			if cur, err := env.System.Sysctl.Get(ctx, k); err != nil || cur != in.Values[k] {
 				todo = append(todo, k)
 				effects = append(effects, system.Effect{Type: system.EffectKernel, Action: "set", Target: k, Detail: in.Values[k]})
@@ -79,7 +70,7 @@ var SetSysctl = Register(Def[SysctlInput, Result]{
 		}
 		path := "/etc/sysctl.d/90-racksail-" + in.Name + ".conf"
 		current, err := env.System.Files.ReadFile(ctx, path, 1<<20)
-		fileChanged := err != nil || !bytes.Equal(current, file.Bytes())
+		fileChanged := err != nil || !bytes.Equal(current, file)
 		if fileChanged {
 			effects = append(effects, system.Effect{Type: system.EffectFile, Action: "write", Target: path})
 		}
@@ -95,7 +86,7 @@ var SetSysctl = Register(Def[SysctlInput, Result]{
 			}
 		}
 		if fileChanged {
-			if err := env.System.Files.WriteFile(ctx, path, file.Bytes(), 0o644, system.Owner{}); err != nil {
+			if err := env.System.Files.WriteFile(ctx, path, file, 0o644, system.Owner{}); err != nil {
 				return Result{}, err
 			}
 		}

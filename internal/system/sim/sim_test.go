@@ -215,7 +215,7 @@ func TestUnitsAndPackages(t *testing.T) {
 	}
 
 	m.OfferUpgrade("sudo", "1.9.17-1")
-	up, _ := b.Packages.Upgradable(ctx)
+	up, _ := b.Packages.Upgradable(ctx, false)
 	if len(up) != 1 || up[0].Version != "1.9.17-1" {
 		t.Errorf("upgradable = %+v", up)
 	}

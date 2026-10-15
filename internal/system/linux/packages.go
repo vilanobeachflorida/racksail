@@ -184,8 +184,14 @@ func (p *packages) Remove(ctx context.Context, purge bool, names ...string) erro
 	return nil
 }
 
-func (p *packages) Upgradable(ctx context.Context) ([]system.Package, error) {
-	out, err := p.apt(ctx, "full-upgrade", "--simulate", "-q")
+func (p *packages) Upgradable(ctx context.Context, full bool) ([]system.Package, error) {
+	// A plain upgrade keeps back what would add or remove packages; its
+	// simulation lists only what it would install.
+	verb := "upgrade"
+	if full {
+		verb = "full-upgrade"
+	}
+	out, err := p.apt(ctx, verb, "--simulate", "-q")
 	if err != nil {
 		return nil, fmt.Errorf("listing upgrades: %w", err)
 	}

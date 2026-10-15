@@ -23,8 +23,10 @@ type Packages interface {
 	UpdateIndex(ctx context.Context) error
 	Install(ctx context.Context, pkgs ...PackageRequest) error
 	Remove(ctx context.Context, purge bool, names ...string) error
-	// Upgradable lists installed packages with newer versions available.
-	Upgradable(ctx context.Context) ([]Package, error)
+	// Upgradable lists the upgrades an upgrade would install: with full,
+	// those of a full upgrade, which may add or remove packages, such as a
+	// new kernel; otherwise only those a plain upgrade takes.
+	Upgradable(ctx context.Context, full bool) ([]Package, error)
 	// Upgrade installs every available update that isn't held; full also
 	// takes updates that add or remove packages, such as a new kernel.
 	Upgrade(ctx context.Context, full bool) error

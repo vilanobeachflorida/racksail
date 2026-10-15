@@ -56,7 +56,7 @@ var UpgradePackages = Register(Def[UpgradeInput, UpgradeResult]{
 	},
 	Run: func(ctx context.Context, env *Env, in UpgradeInput) (UpgradeResult, error) {
 		pk := env.System.Packages
-		ups, err := pk.Upgradable(ctx)
+		ups, err := pk.Upgradable(ctx, in.Full)
 		if err != nil {
 			return UpgradeResult{}, err
 		}
@@ -292,15 +292,7 @@ func (in KernelDefaultsInput) Validate() error {
 	return nil
 }
 
-func checkTunable(k, v string) error {
-	if !system.ValidSysctlKey(k) || !slices.ContainsFunc(sysctlPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
-		return fmt.Errorf("parameter %s isn't one Racksail tunes", k)
-	}
-	if strings.ContainsAny(v, "\n\x00") || len(v) > 256 {
-		return fmt.Errorf("value of %s", k)
-	}
-	return nil
-}
+func checkTunable(k, v string) error { return system.CheckSysctl(k, v) }
 
 // zramUnit is the service zram-generator makes for the first device.
 const zramUnit = "systemd-zram-setup@zram0.service"

@@ -527,6 +527,20 @@ func TestNetworkAndSystemOps(t *testing.T) {
 	if res, _ := SetSysctl.Call(ctx, c, sysctl, CallOptions{}); res.Changed {
 		t.Error("the same parameters are no change")
 	}
+	for k, v := range map[string]string{
+		"vm.mmap_min_addr":              "0",
+		"vm.unprivileged_userfaultfd":   "1",
+		"net.core.bpf_jit_harden":       "0",
+		"kernel.core_pattern":           "|/srv/racksail/accounts/x/evil",
+		"net.ipv4.conf.eth0.forwarding": "1\rkernel.core_pattern = |/tmp/x",
+	} {
+		if _, err := SetSysctl.Call(ctx, c, SysctlInput{Name: "x", Values: map[string]string{k: v}}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("%s=%q should be refused: %v", k, v, err)
+		}
+	}
+	if _, err := SetSysctl.Call(ctx, c, SysctlInput{Name: "routing", Values: map[string]string{"net.ipv4.conf.eth0.forwarding": "1"}}, CallOptions{}); err != nil {
+		t.Errorf("a per-interface parameter: %v", err)
+	}
 	if _, err := SetSysctl.Call(ctx, c, SysctlInput{Name: "x", Values: map[string]string{"kernel.modules_disabled": "1"}}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("a parameter outside the allowlist: %v", err)
 	}

@@ -251,6 +251,10 @@
             "description": "The resource the call was made for",
             "type": "string"
           },
+          "remote": {
+            "description": "Where a refused caller connected from",
+            "type": "string"
+          },
           "targets": {
             "items": {
               "type": "string"
@@ -4102,6 +4106,16 @@
         ],
         "type": "object"
       },
+      "UpgradableInput": {
+        "additionalProperties": false,
+        "properties": {
+          "full": {
+            "description": "List what a full upgrade installs, which may add or remove packages",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "UpgradeInput": {
         "additionalProperties": false,
         "properties": {
@@ -4291,7 +4305,7 @@
   "paths": {
     "/v1/events": {
       "get": {
-        "description": "Streams what the agent notices on its own, one JSON object per line: drift from what Racksail put on the machine, and network changes confirmed or rolled back.",
+        "description": "Streams what the agent notices on its own, one JSON object per line: drift from what Racksail put on the machine, once per change, starting with the drift the last check found, and network changes confirmed or rolled back.",
         "operationId": "events",
         "responses": {
           "200": {
@@ -5583,7 +5597,7 @@
     },
     "/v1/ops/ConfirmNetworkConfig": {
       "post": {
-        "description": "Confirms a network change applied with confirmWithin, so it isn't rolled back. The browser confirms through the panel once it can still reach it.",
+        "description": "Confirms a network change applied with confirmWithin, so it isn't rolled back. The browser confirms through the panel once it can still reach it. Confirming the same change again changes nothing; a change that was already rolled back, or a token when no change is waiting, is a conflict.",
         "operationId": "ConfirmNetworkConfig",
         "parameters": [
           {
@@ -14338,6 +14352,7 @@
     },
     "/v1/ops/UpgradablePackages": {
       "post": {
+        "description": "Lists the upgrades a plain upgrade installs, or with full those of a full upgrade, which may add or remove packages.",
         "operationId": "UpgradablePackages",
         "parameters": [
           {
@@ -14364,7 +14379,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Empty"
+                "$ref": "#/components/schemas/UpgradableInput"
               }
             }
           },

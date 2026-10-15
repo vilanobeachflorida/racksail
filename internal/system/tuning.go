@@ -77,6 +77,75 @@ func KernelDefaults(memoryBytes int64, zram bool) map[string]string {
 	return v
 }
 
+// tunableSysctls are the kernel parameters Racksail sets: its defaults, and
+// what its services need, such as forwarding for containers and VMs or more
+// memory maps for databases. Nothing else can be set, so no operation can
+// weaken the kernel's own defenses, as vm.mmap_min_addr,
+// vm.unprivileged_userfaultfd or net.core.bpf_jit_harden would.
+var tunableSysctls = []string{
+	"net.core.default_qdisc", "net.core.somaxconn", "net.core.netdev_max_backlog", "net.core.rmem_default",
+	"net.core.rmem_max", "net.core.wmem_default", "net.core.wmem_max", "net.core.optmem_max",
+	"net.ipv4.tcp_congestion_control", "net.ipv4.tcp_max_syn_backlog", "net.ipv4.tcp_fastopen", "net.ipv4.tcp_mtu_probing",
+	"net.ipv4.tcp_slow_start_after_idle", "net.ipv4.tcp_notsent_lowat", "net.ipv4.tcp_fin_timeout", "net.ipv4.tcp_keepalive_time",
+	"net.ipv4.tcp_keepalive_intvl", "net.ipv4.tcp_keepalive_probes", "net.ipv4.tcp_rfc1337", "net.ipv4.tcp_syncookies",
+	"net.ipv4.tcp_tw_reuse", "net.ipv4.tcp_max_tw_buckets", "net.ipv4.tcp_rmem", "net.ipv4.tcp_wmem", "net.ipv4.udp_rmem_min",
+	"net.ipv4.udp_wmem_min", "net.ipv4.ip_local_port_range", "net.ipv4.ip_forward", "net.ipv4.ip_nonlocal_bind",
+	"net.ipv4.ping_group_range", "net.ipv6.ip_nonlocal_bind",
+	"net.ipv4.neigh.default.gc_thresh1", "net.ipv4.neigh.default.gc_thresh2", "net.ipv4.neigh.default.gc_thresh3",
+	"net.ipv6.neigh.default.gc_thresh1", "net.ipv6.neigh.default.gc_thresh2", "net.ipv6.neigh.default.gc_thresh3",
+	"net.netfilter.nf_conntrack_max", "net.netfilter.nf_conntrack_tcp_timeout_established",
+	"fs.inotify.max_user_watches", "fs.inotify.max_user_instances", "fs.inotify.max_queued_events", "fs.file-max",
+	"fs.aio-max-nr", "kernel.pid_max", "kernel.threads-max", "kernel.keys.maxkeys", "kernel.keys.maxbytes",
+	"user.max_user_namespaces",
+	"vm.max_map_count", "vm.swappiness", "vm.watermark_boost_factor", "vm.watermark_scale_factor", "vm.page-cluster",
+	"vm.overcommit_memory", "vm.dirty_ratio", "vm.dirty_background_ratio", "vm.dirty_bytes", "vm.dirty_background_bytes",
+	"vm.vfs_cache_pressure", "vm.min_free_kbytes", "vm.nr_hugepages",
+}
+
+// interfaceSysctls are the per-interface parameters Racksail sets, for all
+// interfaces, the defaults or one by name.
+var interfaceSysctls = map[string][]string{
+	"net.ipv4.conf.": {"rp_filter", "accept_redirects", "send_redirects", "accept_source_route", "forwarding",
+		"proxy_arp", "arp_ignore", "arp_announce"},
+	"net.ipv6.conf.": {"accept_redirects", "forwarding", "accept_ra", "disable_ipv6", "proxy_ndp", "use_tempaddr", "autoconf"},
+}
+
+var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,15}$`)
+
+// TunableSysctl reports whether key is a kernel parameter Racksail sets.
+func TunableSysctl(key string) bool {
+	if !ValidSysctlKey(key) {
+		return false
+	}
+	if slices.Contains(tunableSysctls, key) {
+		return true
+	}
+	for prefix, names := range interfaceSysctls {
+		rest, ok := strings.CutPrefix(key, prefix)
+		if !ok {
+			continue
+		}
+		iface, name, ok := strings.Cut(rest, ".")
+		if ok && interfaceNamePattern.MatchString(iface) && slices.Contains(names, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckSysctl checks a kernel parameter and its value: one Racksail sets,
+// and a value made of numbers and words, which can't break the file it is
+// kept in.
+func CheckSysctl(key, value string) error {
+	if !TunableSysctl(key) {
+		return fmt.Errorf("parameter %s isn't one Racksail tunes: %w", key, ErrInvalid)
+	}
+	if !sysctlValuePattern.MatchString(value) {
+		return fmt.Errorf("value %q of %s: %w", value, key, ErrInvalid)
+	}
+	return nil
+}
+
 // KernelModules are loaded at boot before the kernel parameters are set:
 // BBR, and connection tracking so its parameters exist.
 var KernelModules = []string{"tcp_bbr", "nf_conntrack"}
@@ -88,8 +157,8 @@ func RenderSysctl(values map[string]string) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString(GeneratedHeader + "\n")
 	for _, k := range slices.Sorted(maps.Keys(values)) {
-		if !ValidSysctlKey(k) || !sysctlValuePattern.MatchString(values[k]) {
-			return nil, fmt.Errorf("kernel parameter %s=%q: %w", k, values[k], ErrInvalid)
+		if err := CheckSysctl(k, values[k]); err != nil {
+			return nil, err
 		}
 		fmt.Fprintf(&b, "%s = %s\n", k, values[k])
 	}

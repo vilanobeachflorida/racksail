@@ -316,7 +316,7 @@ func (p simPackages) Remove(ctx context.Context, purge bool, names ...string) er
 	return nil
 }
 
-func (p simPackages) Upgradable(ctx context.Context) ([]system.Package, error) {
+func (p simPackages) Upgradable(ctx context.Context, full bool) ([]system.Package, error) {
 	m := p.m
 	if err := m.lock(ctx); err != nil {
 		return nil, err
@@ -324,6 +324,10 @@ func (p simPackages) Upgradable(ctx context.Context) ([]system.Package, error) {
 	defer m.mu.Unlock()
 	var out []system.Package
 	for name, pkg := range m.packages {
+		// A new kernel brings new packages, so a plain upgrade keeps it back.
+		if name == kernelPackage[m.facts.Arch] && !full {
+			continue
+		}
 		if v := m.newestVersion(name); v != pkg.Version {
 			up := catalogEntry(name).pkg(name, m.facts.Arch)
 			up.Version = v
