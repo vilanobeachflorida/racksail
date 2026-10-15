@@ -173,7 +173,7 @@ Templates are HTML files with `{{variables}}` and nothing else: no conditions, l
 - **Elements:** the ones of plain pages and emails: headings, paragraphs, lists, tables, links, images, `div`, `span`, `style`, `title` and `meta` with a name such as `viewport`. No scripts, frames, forms, inputs, SVG, `base`, `link`, `meta http-equiv` or conditional comments.
 - **Images** come from `{{logo}}` or `data:` URLs.
 - **Links** go to web and mail addresses (`https:`, `http:`, `mailto:` and `tel:`) or to a path. Following one is the reader's choice. A variable can be a whole address, which is checked when it's filled in, or come after the scheme or a path, as in `mailto:{{contact}}` or `https://example.com/?site={{siteName}}`.
-- **Styles** in a `style` element or attribute refer to nothing outside the page: no `@import`, and `url()` and `image-set()` only with `data:` URLs.
+- **Styles** in a `style` element or attribute refer to nothing outside the page: no `@import`, and `url()` and `image-set()` only with `data:` URLs. Comments are `/* */`; CSS has no `//` comments, and a `//` is refused.
 - **Variables** go in text and attribute values. `{{style}}` goes only in a `style` element and `{{logo}}` only between elements; no other variable goes in styles or comments.
 
 Every value is escaped for where it stands: as text, in an attribute, or in a link, where an address that isn't a web or mail address is dropped.

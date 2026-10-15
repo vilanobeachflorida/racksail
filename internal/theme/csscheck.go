@@ -24,6 +24,9 @@ type cssRules struct {
 	// strict requires a sheet to be only complete rules, so it can be
 	// split into rules and wrapped.
 	strict bool
+	// noLineComments refuses //, which CSS reads as two slashes but the
+	// template renderer reads as a comment to the end of the line.
+	noLineComments bool
 }
 
 var (
@@ -33,7 +36,7 @@ var (
 	}
 	templateCSSRules = cssRules{
 		what: "styles in templates", urls: []string{"data:image/", "data:font/", "#"},
-		allowed: "only data: URLs of images and fonts", important: true,
+		allowed: "only data: URLs of images and fonts", important: true, noLineComments: true,
 	}
 	svgCSSRules = cssRules{
 		what: "styles in theme files", urls: []string{"#"},
@@ -180,6 +183,13 @@ func checkCSS(css string, r cssRules, mode cssMode) ([]cssRule, error) {
 			switch t.value {
 			case "\\":
 				return nil, r.refuse("has a backslash that doesn't escape anything")
+			case "/":
+				// Text after // would vanish from the rendered page, changing
+				// what the rest of the sheet means.
+				if next := tokens[i+1]; r.noLineComments && next.start == t.end &&
+					(next.kind == cssComment || next.kind == cssDelim && next.value == "/") {
+					return nil, r.refuse("can't contain //; CSS has no line comments, so use /* */")
+				}
 			case "!":
 				if !r.important {
 					return nil, r.refuse("can't use !important; it would outrank personal preferences and the protected colors, which always win")
