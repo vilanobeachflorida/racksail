@@ -31,7 +31,7 @@ Next to the kind directories are [maintenance.yaml](maintenance.yaml), which mar
 - An item's id is unique across the whole catalog and is the name of its directory. A theme's or add-on's id, version and license are the same in its recipe and in its package.
 - Every item names its maintainers, at least one of them with a GitHub account, the license of the software it installs and its license class: open source, free to use or proprietary. An item labelled open source only installs software under licenses the Open Source Initiative approved. Nothing that isn't open source is ever installed by default.
 - Every item has an icon, an SVG or PNG file in its directory. Icons can't contain scripts, event handlers or references to anything outside the file.
-- Apps, services and stacks have a health check. Every item that creates resources has an install test that runs in CI: `tests.timeoutSeconds`, and in `tests.inputs` a value for every input the recipe requires. Recipes whose tests keep failing are marked broken, and unmaintained ones are eventually hidden.
+- Apps, services and stacks have a health check. Every item that creates resources declares an install test: `tests.timeoutSeconds`, and in `tests.inputs` a value for every input the recipe requires. The test installs the item with those inputs on a fresh server and runs its health checks. Recipes whose tests keep failing are marked broken, and unmaintained ones are eventually hidden.
 - Downloads are pinned and verified against checksums or signatures. New upstream releases wait a few days before recipes offer them, except security fixes.
 - Secrets a recipe asks for, such as an admin password, are inputs of type `password` or `secret`. They can only go into the secret fields of the resources the recipe creates, never into a plain field.
 - An item has at most 64 files of at most 2 MiB each and 8 MiB in all. Symbolic links aren't allowed.
@@ -46,7 +46,7 @@ go run ./catalog/tool validate       # the same, from the repository's root
 go run ./catalog/tool pin -write catalog/apps/wordpress   # refresh checksums after changing a download
 ```
 
-`make check` checks the catalog too, as part of the Go tests. The tool reports every problem it finds at once, with the file it's in.
+`make check` checks the catalog too, as part of the Go tests. The tool reports every problem it finds at once, with the file it's in. For the install test, it checks that `tests.inputs` gives every input the recipe requires a value the recipe accepts. Running the test itself, installing the item and checking its health, is the marketplace module's job: CI runs the install tests once that module installs recipes.
 
 ## Maintenance flags
 

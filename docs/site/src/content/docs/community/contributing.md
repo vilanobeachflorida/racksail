@@ -49,7 +49,7 @@ New dependencies need a reason, and a license approved by the Open Source Initia
 
 ## Recipes and the catalog
 
-Recipes for the official catalog live in [catalog/](https://github.com/vilanobeachflorida/racksail/tree/main/catalog). Every item names its maintainers, has an icon, health checks and an install test, and pins its downloads by checksum. `make catalog-check` checks your item the way CI does. See [Recipes](../../recipes/overview/).
+Recipes for the official catalog live in [catalog/](https://github.com/vilanobeachflorida/racksail/tree/main/catalog). Every item names its maintainers, has an icon and health checks, declares an install test with a value for every input it requires, and pins its downloads by checksum. `make catalog-check` checks your item the way CI does, the install test's inputs included. CI runs the install tests themselves once the marketplace module installs recipes. See [Recipes](../../recipes/overview/).
 
 ## Licenses
 
