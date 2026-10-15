@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaults(t *testing.T) {
@@ -66,6 +67,56 @@ channel = "beta"
 	_, err = Parse([]byte("[panel]\nlistne = \":8443\"\n"))
 	if !strings.Contains(err.Error(), "panel.listne") {
 		t.Errorf("unknown keys should be named: %v", err)
+	}
+}
+
+func TestAPIAndRetention(t *testing.T) {
+	c := Default()
+	if c.API.RateLimit != 600 || c.API.AnonymousRateLimit != 120 || time.Duration(c.Retention.Audit) != 400*24*time.Hour {
+		t.Errorf("defaults = %+v %+v", c.API, c.Retention)
+	}
+	if _, err := Parse([]byte("[retention]\naudit = \"2y\"\n")); err == nil {
+		t.Error("years aren't a unit")
+	}
+	c, err := Parse([]byte(`
+[api]
+rate_limit = 0
+anonymous_rate_limit = 30
+
+[retention]
+events = "7d"
+audit = "365d"
+jobs = "36h"
+change_sets = "1d12h"
+deliveries = "90m"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.API.RateLimit != 0 || c.API.AnonymousRateLimit != 30 {
+		t.Errorf("api = %+v", c.API)
+	}
+	for name, got := range map[string]Duration{"events": c.Retention.Events, "audit": c.Retention.Audit, "jobs": c.Retention.Jobs, "change sets": c.Retention.ChangeSets, "deliveries": c.Retention.Deliveries} {
+		want := map[string]time.Duration{"events": 7 * 24 * time.Hour, "audit": 365 * 24 * time.Hour, "jobs": 36 * time.Hour, "change sets": 36 * time.Hour, "deliveries": 90 * time.Minute}[name]
+		if time.Duration(got) != want {
+			t.Errorf("%s = %s, want %s", name, got, want)
+		}
+	}
+	if c.Retention.Events.String() != "7d" || c.Retention.Jobs.String() != "36h0m0s" {
+		t.Errorf("written back = %s, %s", c.Retention.Events, c.Retention.Jobs)
+	}
+	for _, bad := range []string{
+		"[api]\nrate_limit = -1\n",
+		"[retention]\nevents = \"1h\"\n",
+		"[retention]\naudit = \"7d\"\n",
+		"[retention]\njobs = \"soon\"\n",
+		"[retention]\njobs = \"d\"\n",
+		"[retention]\njobs = \"-3d\"\n",
+		"[retention]\njobs = \"\"\n",
+	} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("Parse(%q) should fail", bad)
+		}
 	}
 }
 
