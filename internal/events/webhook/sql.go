@@ -152,7 +152,7 @@ func (s *sqlStorage) nextDue(ctx context.Context) (time.Time, bool, error) {
 	return t, err == nil, err
 }
 
-func (s *sqlStorage) record(ctx context.Context, d *Delivery, a Attempt) error {
+func (s *sqlStorage) record(ctx context.Context, d *Delivery, a DeliveryAttempt) error {
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `UPDATE webhook_deliveries SET state = ?, attempt_count = ?, next_attempt = ?, last_status = ?, last_error = ?, finished_at = ? WHERE id = ?`,
 			d.State, d.AttemptCount, optionalTime(d.NextAttempt), d.LastStatus, d.LastError, optionalTime(d.FinishedAt), d.ID)
@@ -183,7 +183,7 @@ func (s *sqlStorage) get(ctx context.Context, id store.ID) (*Delivery, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var a Attempt
+		var a DeliveryAttempt
 		var when string
 		if err := rows.Scan(&a.Number, &when, &a.Status, &a.Error, &a.Duration, &a.Response); err != nil {
 			return nil, err

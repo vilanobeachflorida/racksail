@@ -27,7 +27,7 @@ type storage interface {
 	nextDue(ctx context.Context) (time.Time, bool, error)
 	// record stores the state of a delivery after an attempt, and the
 	// attempt.
-	record(ctx context.Context, d *Delivery, a Attempt) error
+	record(ctx context.Context, d *Delivery, a DeliveryAttempt) error
 	get(ctx context.Context, id store.ID) (*Delivery, error)
 	list(ctx context.Context, webhook store.ID, state DeliveryState, cursor string, limit int) ([]*Delivery, string, error)
 	// prune drops finished deliveries older than before, and the oldest
@@ -115,7 +115,7 @@ func (m *memoryStorage) nextDue(ctx context.Context) (time.Time, bool, error) {
 	return next, !next.IsZero(), nil
 }
 
-func (m *memoryStorage) record(ctx context.Context, d *Delivery, a Attempt) error {
+func (m *memoryStorage) record(ctx context.Context, d *Delivery, a DeliveryAttempt) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cur, ok := m.deliveries[d.ID]

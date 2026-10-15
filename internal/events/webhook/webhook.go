@@ -33,8 +33,8 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// Spec is what a webhook is set to do.
-type Spec struct {
+// WebhookSpec is what a webhook is set to do.
+type WebhookSpec struct {
 	URL string `json:"url" format:"uri" minLength:"1" maxLength:"2048" doc:"Where events are sent, with POST. Use https, so the events can't be read on the way" example:"https://hooks.example.com/racksail"`
 	// Events are the event types to send, as glob patterns.
 	Events []string `json:"events" minItems:"1" maxItems:"64" doc:"Event types to send, as patterns such as web.site.* or *.failed; * sends every event" example:"[\"web.site.*\",\"*.failed\"]"`
@@ -51,8 +51,8 @@ type Spec struct {
 	Description string `json:"description,omitempty" maxLength:"200" doc:"What the webhook is for"`
 }
 
-// Status is what the dispatcher last saw of a webhook.
-type Status struct {
+// WebhookStatus is what the dispatcher last saw of a webhook.
+type WebhookStatus struct {
 	store.Status
 	LastDelivery        *time.Time `json:"lastDelivery,omitempty" doc:"When an event was last sent"`
 	LastResponse        int        `json:"lastResponse,omitempty" doc:"The HTTP status of the last answer"`
@@ -86,7 +86,7 @@ var (
 const failingAfter = 5
 
 // Kind is core.webhook.
-var Kind = store.Define[Spec, Status](store.KindInfo{
+var Kind = store.Define[WebhookSpec, WebhookStatus](store.KindInfo{
 	Name: "core.webhook", Prefix: "whk", Scope: store.ScopeServer,
 	Title: "Webhook", Plural: "webhooks",
 	Description: "Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. " +
@@ -116,7 +116,7 @@ func init() {
 	store.ReservePrefix(DeliveryPrefix, "webhook deliveries")
 }
 
-func validate(ctx context.Context, obj, old *store.Object[Spec, Status]) error {
+func validate(ctx context.Context, obj, old *store.Object[WebhookSpec, WebhookStatus]) error {
 	var fields []i18n.FieldError
 	u, err := url.Parse(obj.Spec.URL)
 	switch {
@@ -147,7 +147,7 @@ func validate(ctx context.Context, obj, old *store.Object[Spec, Status]) error {
 }
 
 // Wants reports whether a webhook wants an event.
-func Wants(w *store.Object[Spec, Status], e events.Event) bool {
+func Wants(w *store.Object[WebhookSpec, WebhookStatus], e events.Event) bool {
 	switch {
 	case w.Deleted() || w.Spec.Disabled:
 		return false
@@ -164,9 +164,9 @@ func Wants(w *store.Object[Spec, Status], e events.Event) bool {
 // PingType is the type of the events test deliveries send.
 const PingType = "core.webhook.ping"
 
-// Actor is who caused an event, as deliveries tell it. Addresses are left
+// WebhookActor is who caused an event, as deliveries tell it. Addresses are left
 // out, so they don't leave the server.
-type Actor struct {
+type WebhookActor struct {
 	Type   string   `json:"type"`
 	ID     store.ID `json:"id,omitempty"`
 	Name   string   `json:"name,omitempty"`
@@ -174,8 +174,8 @@ type Actor struct {
 	Source string   `json:"source,omitempty"`
 }
 
-// Payload is the body of a delivery: the event.
-type Payload struct {
+// WebhookPayload is the body of a delivery: the event.
+type WebhookPayload struct {
 	ID        store.ID        `json:"id"`
 	Type      string          `json:"type"`
 	Time      time.Time       `json:"time"`
@@ -183,7 +183,7 @@ type Payload struct {
 	Subject   store.ID        `json:"subject,omitempty"`
 	Kind      string          `json:"kind,omitempty"`
 	Scope     store.Scope     `json:"scope"`
-	Actor     *Actor          `json:"actor,omitempty"`
+	Actor     *WebhookActor   `json:"actor,omitempty"`
 	ChangeSet store.ID        `json:"changeSet,omitempty"`
 	Job       store.ID        `json:"job,omitempty"`
 	Message   string          `json:"message"`
@@ -191,13 +191,13 @@ type Payload struct {
 }
 
 // PayloadOf turns an event into the body of a delivery.
-func PayloadOf(e events.Event) Payload {
-	p := Payload{
+func PayloadOf(e events.Event) WebhookPayload {
+	p := WebhookPayload{
 		ID: e.ID, Type: e.Type, Time: e.Time, Severity: e.Severity, Subject: e.Subject, Kind: e.Kind, Scope: e.Scope,
 		ChangeSet: e.ChangeSet, Job: e.Job, Message: e.Message, Data: e.Data,
 	}
 	if a := e.Actor; a != nil {
-		p.Actor = &Actor{Type: string(a.Type), ID: a.ID, Name: a.Name, User: a.User, Source: string(a.Source)}
+		p.Actor = &WebhookActor{Type: string(a.Type), ID: a.ID, Name: a.Name, User: a.User, Source: string(a.Source)}
 	}
 	return p
 }

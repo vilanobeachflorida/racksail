@@ -62,13 +62,13 @@ func TestSigning(t *testing.T) {
 func TestWants(t *testing.T) {
 	created := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	acct := store.AccountScope(store.NewID("acct"))
-	w := &store.Object[Spec, Status]{Meta: store.Meta{CreatedAt: created}, Spec: Spec{Events: []string{"web.site.*", "*.failed"}}}
+	w := &store.Object[WebhookSpec, WebhookStatus]{Meta: store.Meta{CreatedAt: created}, Spec: WebhookSpec{Events: []string{"web.site.*", "*.failed"}}}
 	event := func(typ string, sev events.Severity, scope store.Scope, at time.Time) events.Event {
 		return events.Event{Type: typ, Severity: sev, Scope: scope, Time: at}
 	}
 	later := created.Add(time.Hour)
 	for name, tc := range map[string]struct {
-		mutate func(*store.Object[Spec, Status])
+		mutate func(*store.Object[WebhookSpec, WebhookStatus])
 		event  events.Event
 		want   bool
 	}{
@@ -76,15 +76,15 @@ func TestWants(t *testing.T) {
 		"another pattern":   {nil, event("dns.zone.failed", events.SeverityError, acct, later), true},
 		"other type":        {nil, event("dns.zone.created", events.SeverityInfo, acct, later), false},
 		"before it existed": {nil, event("web.site.created", events.SeverityInfo, acct, created.Add(-time.Second)), false},
-		"disabled": {func(w *store.Object[Spec, Status]) { w.Spec.Disabled = true },
+		"disabled": {func(w *store.Object[WebhookSpec, WebhookStatus]) { w.Spec.Disabled = true },
 			event("web.site.created", events.SeverityInfo, acct, later), false},
-		"too quiet": {func(w *store.Object[Spec, Status]) { w.Spec.MinSeverity = events.SeverityWarning },
+		"too quiet": {func(w *store.Object[WebhookSpec, WebhookStatus]) { w.Spec.MinSeverity = events.SeverityWarning },
 			event("web.site.created", events.SeverityInfo, acct, later), false},
-		"urgent enough": {func(w *store.Object[Spec, Status]) { w.Spec.MinSeverity = events.SeverityWarning },
+		"urgent enough": {func(w *store.Object[WebhookSpec, WebhookStatus]) { w.Spec.MinSeverity = events.SeverityWarning },
 			event("web.site.failed", events.SeverityError, acct, later), true},
-		"its owner": {func(w *store.Object[Spec, Status]) { w.Spec.Owner = &acct },
+		"its owner": {func(w *store.Object[WebhookSpec, WebhookStatus]) { w.Spec.Owner = &acct },
 			event("web.site.created", events.SeverityInfo, acct, later), true},
-		"another owner": {func(w *store.Object[Spec, Status]) { w.Spec.Owner = &acct },
+		"another owner": {func(w *store.Object[WebhookSpec, WebhookStatus]) { w.Spec.Owner = &acct },
 			event("web.site.created", events.SeverityInfo, store.ServerScope(), later), false},
 	} {
 		c := *w
@@ -105,7 +105,7 @@ type receiver struct {
 
 	mu       sync.Mutex
 	answers  []int
-	received []Payload
+	received []WebhookPayload
 	headers  []http.Header
 	bad      int
 }
@@ -121,7 +121,7 @@ func newReceiver(t *testing.T, secret string, answers ...int) *receiver {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		var p Payload
+		var p WebhookPayload
 		if err := json.Unmarshal(body, &p); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -240,7 +240,7 @@ func (w *world) submit(t *testing.T, ch changeset.Change) *changeset.ChangeSet {
 
 func (w *world) createWebhook(t *testing.T, url, secret string, patterns ...string) store.ID {
 	t.Helper()
-	spec, _ := json.Marshal(Spec{URL: url, Events: patterns})
+	spec, _ := json.Marshal(WebhookSpec{URL: url, Events: patterns})
 	cs := w.submit(t, changeset.Change{Op: changeset.OpCreate, Kind: Kind.Name(), Scope: store.ServerScope(), Spec: spec, Secrets: map[string]string{"secret": secret}})
 	if cs.State != changeset.StateApplied {
 		t.Fatalf("creating the webhook: %+v", cs)
@@ -312,7 +312,7 @@ func TestDeliveringEvents(t *testing.T) {
 			t.Errorf("delivered = %v", got)
 		}
 		recv.mu.Lock()
-		first := recv.received[slices.IndexFunc(recv.received, func(p Payload) bool { return p.Type == "web.site.created" })]
+		first := recv.received[slices.IndexFunc(recv.received, func(p WebhookPayload) bool { return p.Type == "web.site.created" })]
 		header := recv.headers[0]
 		recv.mu.Unlock()
 		if first.Subject != site || first.Actor == nil || first.Actor.ID != w.admin.ID || first.Actor.Source != "cli" || first.ID.Prefix() != events.EventPrefix {
@@ -435,7 +435,7 @@ func TestTestAndRedeliverActions(t *testing.T) {
 func TestValidation(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t, ctx, nil, newVault())
-	submit := func(spec Spec, secret string) error {
+	submit := func(spec WebhookSpec, secret string) error {
 		raw, _ := json.Marshal(spec)
 		ch := changeset.Change{Op: changeset.OpCreate, Kind: Kind.Name(), Scope: store.ServerScope(), Spec: raw}
 		if secret != "" {
@@ -447,18 +447,18 @@ func TestValidation(t *testing.T) {
 	acct := store.AccountScope(store.NewID("acct"))
 	server := store.ServerScope()
 	for name, tc := range map[string]struct {
-		spec   Spec
+		spec   WebhookSpec
 		secret string
 		path   string
 	}{
-		"no secret":        {Spec{URL: "https://example.test/hook", Events: []string{"*"}}, "", "secrets.secret"},
-		"ftp":              {Spec{URL: "ftp://example.test/hook", Events: []string{"*"}}, "k", "spec.url"},
-		"no host":          {Spec{URL: "https:///hook", Events: []string{"*"}}, "k", "spec.url"},
-		"credentials":      {Spec{URL: "https://me:pw@example.test/hook", Events: []string{"*"}}, "k", "spec.url"},
-		"bad pattern":      {Spec{URL: "https://example.test/hook", Events: []string{"Web/Site"}}, "k", "spec.events[0]"},
-		"no events":        {Spec{URL: "https://example.test/hook", Events: []string{}}, "k", "spec.events"},
-		"server as owner":  {Spec{URL: "https://example.test/hook", Events: []string{"*"}, Owner: &server}, "k", "spec.owner"},
-		"unknown severity": {Spec{URL: "https://example.test/hook", Events: []string{"*"}, MinSeverity: "loud"}, "k", "spec.minSeverity"},
+		"no secret":        {WebhookSpec{URL: "https://example.test/hook", Events: []string{"*"}}, "", "secrets.secret"},
+		"ftp":              {WebhookSpec{URL: "ftp://example.test/hook", Events: []string{"*"}}, "k", "spec.url"},
+		"no host":          {WebhookSpec{URL: "https:///hook", Events: []string{"*"}}, "k", "spec.url"},
+		"credentials":      {WebhookSpec{URL: "https://me:pw@example.test/hook", Events: []string{"*"}}, "k", "spec.url"},
+		"bad pattern":      {WebhookSpec{URL: "https://example.test/hook", Events: []string{"Web/Site"}}, "k", "spec.events[0]"},
+		"no events":        {WebhookSpec{URL: "https://example.test/hook", Events: []string{}}, "k", "spec.events"},
+		"server as owner":  {WebhookSpec{URL: "https://example.test/hook", Events: []string{"*"}, Owner: &server}, "k", "spec.owner"},
+		"unknown severity": {WebhookSpec{URL: "https://example.test/hook", Events: []string{"*"}, MinSeverity: "loud"}, "k", "spec.minSeverity"},
 	} {
 		err := submit(tc.spec, tc.secret)
 		e := i18n.From(err)
@@ -466,7 +466,7 @@ func TestValidation(t *testing.T) {
 			t.Errorf("%s: %v (%+v)", name, err, e)
 		}
 	}
-	if err := submit(Spec{URL: "https://example.test/hook", Events: []string{"web.site.*"}, Owner: &acct, MinSeverity: events.SeverityError}, "k"); err != nil {
+	if err := submit(WebhookSpec{URL: "https://example.test/hook", Events: []string{"web.site.*"}, Owner: &acct, MinSeverity: events.SeverityError}, "k"); err != nil {
 		t.Errorf("a valid webhook: %v", err)
 	}
 }

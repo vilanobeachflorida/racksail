@@ -166,7 +166,7 @@ func (r *Runner) reconcileResource(ctx context.Context, res *store.Resource, rec
 			return err
 		}
 		if applyErr == nil && (drifted || wasDrifted) {
-			raw, err = withCommonStatus(raw, func(s *store.Status) {
+			raw, err = WithCommonStatus(raw, func(s *store.Status) {
 				s.Conditions = removeCondition(s.Conditions, ConditionDrifted)
 				s.SetCondition(store.Condition{
 					Type: ConditionDrifted, Status: store.ConditionFalse, Reason: "Corrected",
@@ -240,7 +240,7 @@ func (r *Runner) markPending(ctx context.Context, res *store.Resource, st store.
 	if st.Phase == phase {
 		return
 	}
-	raw, err := withCommonStatus(res.Status, func(s *store.Status) { s.Phase = phase })
+	raw, err := WithCommonStatus(res.Status, func(s *store.Status) { s.Phase = phase })
 	if err == nil {
 		err = r.writeStatus(ctx, res.ID, raw)
 	}
@@ -249,9 +249,9 @@ func (r *Runner) markPending(ctx context.Context, res *store.Resource, st store.
 	}
 }
 
-// withCommonStatus changes the fields every kind's status shares and keeps
+// WithCommonStatus changes the fields every kind's status shares and keeps
 // the kind's own fields as they are.
-func withCommonStatus(raw json.RawMessage, fn func(s *store.Status)) (json.RawMessage, error) {
+func WithCommonStatus(raw json.RawMessage, fn func(s *store.Status)) (json.RawMessage, error) {
 	merged := map[string]any{}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &merged); err != nil || merged == nil {
@@ -341,7 +341,7 @@ func (r *Runner) perKind(rec Reconciler) int {
 // with reason as the Ready condition's reason.
 func (r *Runner) fail(ctx context.Context, res *store.Resource, err error, reason string) error {
 	e := i18n.From(err)
-	raw, mergeErr := withCommonStatus(res.Status, func(st *store.Status) {
+	raw, mergeErr := WithCommonStatus(res.Status, func(st *store.Status) {
 		st.Phase = store.PhaseFailed
 		st.Message, st.Code = e.Message, e.Code
 		st.SetCondition(store.Condition{Type: ConditionReady, Status: store.ConditionFalse, Reason: reason, Message: e.Message, Code: e.Code, ObservedGeneration: res.Generation}, r.now())

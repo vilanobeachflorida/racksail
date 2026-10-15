@@ -22,11 +22,11 @@ type webhookReconciler struct {
 	d *Dispatcher
 }
 
-func (webhookReconciler) Plan(ctx context.Context, obj *store.Object[Spec, Status], req reconcile.Request) (reconcile.Plan, error) {
+func (webhookReconciler) Plan(ctx context.Context, obj *store.Object[WebhookSpec, WebhookStatus], req reconcile.Request) (reconcile.Plan, error) {
 	return reconcile.Plan{}, nil
 }
 
-func (r webhookReconciler) Apply(ctx context.Context, obj *store.Object[Spec, Status], plan reconcile.Plan, ex reconcile.Executor) (Status, error) {
+func (r webhookReconciler) Apply(ctx context.Context, obj *store.Object[WebhookSpec, WebhookStatus], plan reconcile.Plan, ex reconcile.Executor) (WebhookStatus, error) {
 	st := obj.Status
 	now := time.Now()
 	if r.d != nil {

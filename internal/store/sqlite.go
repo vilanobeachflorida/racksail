@@ -224,7 +224,7 @@ type sqliteTx struct {
 	meta    WriteMeta
 	now     time.Time
 	closed  bool
-	changes []Change
+	changes []Notice
 }
 
 func (tx *sqliteTx) Get(ctx context.Context, id ID) (*Resource, error) {
@@ -310,7 +310,7 @@ func (tx *sqliteTx) Create(ctx context.Context, r *Resource) error {
 	if err := tx.record(ctx, r, false); err != nil {
 		return err
 	}
-	tx.changes = append(tx.changes, changeOf(ChangeCreated, r, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeCreated, r, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -384,7 +384,7 @@ func (tx *sqliteTx) Update(ctx context.Context, r *Resource) error {
 	}
 	r.Meta = next.Meta
 	r.Labels = maps.Clone(next.Labels)
-	tx.changes = append(tx.changes, changeOf(ChangeUpdated, next, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeUpdated, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -406,7 +406,7 @@ func (tx *sqliteTx) UpdateStatus(ctx context.Context, id ID, status json.RawMess
 	if err != nil {
 		return err
 	}
-	tx.changes = append(tx.changes, changeOf(ChangeStatus, cur, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeStatus, cur, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -434,7 +434,7 @@ func (tx *sqliteTx) Delete(ctx context.Context, id ID, revision int64) error {
 	if err := tx.record(ctx, next, true); err != nil {
 		return err
 	}
-	tx.changes = append(tx.changes, changeOf(ChangeDeleted, next, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeDeleted, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -450,7 +450,7 @@ func (tx *sqliteTx) Purge(ctx context.Context, id ID) error {
 	if err := tx.exec(ctx, `DELETE FROM resources WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("store: purging %s: %w", id, err)
 	}
-	tx.changes = append(tx.changes, changeOf(ChangePurged, cur, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticePurged, cur, tx.meta.ChangeSet))
 	return nil
 }
 

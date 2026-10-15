@@ -51,11 +51,11 @@ type Delivery struct {
 	// Payload is the body sent. Lists leave it out.
 	Payload json.RawMessage `json:"payload,omitempty" doc:"The body sent, the event as JSON"`
 	// Attempts is the log of every attempt. Lists leave it out.
-	Attempts []Attempt `json:"attempts,omitempty"`
+	Attempts []DeliveryAttempt `json:"attempts,omitempty"`
 }
 
-// Attempt is one try at sending a delivery.
-type Attempt struct {
+// DeliveryAttempt is one try at sending a delivery.
+type DeliveryAttempt struct {
 	Number   int       `json:"number"`
 	Time     time.Time `json:"time"`
 	Status   int       `json:"status,omitempty" doc:"The HTTP status of the answer, when there was one"`
@@ -242,8 +242,8 @@ type pending struct {
 }
 
 // webhooks lists every webhook.
-func (d *Dispatcher) webhooks(ctx context.Context) ([]*store.Object[Spec, Status], error) {
-	var out []*store.Object[Spec, Status]
+func (d *Dispatcher) webhooks(ctx context.Context) ([]*store.Object[WebhookSpec, WebhookStatus], error) {
+	var out []*store.Object[WebhookSpec, WebhookStatus]
 	q := store.Query{Limit: store.MaxLimit}
 	for {
 		page, next, err := Kind.List(ctx, d.opts.Store, q)
@@ -294,11 +294,11 @@ func (d *Dispatcher) sendDue(ctx context.Context) time.Duration {
 func (d *Dispatcher) attempt(ctx context.Context, dl *Delivery) *Delivery {
 	w, err := Kind.Get(ctx, d.opts.Store, dl.Webhook)
 	now := d.opts.Now().UTC()
-	var a Attempt
+	var a DeliveryAttempt
 	var retryAfter time.Duration
 	switch {
 	case err != nil || w.Deleted():
-		a = Attempt{Time: now, Error: "the webhook was deleted"}
+		a = DeliveryAttempt{Time: now, Error: "the webhook was deleted"}
 		dl.State = DeliveryFailed
 	default:
 		a, retryAfter = d.send(ctx, w, dl)
@@ -333,10 +333,10 @@ func (d *Dispatcher) attempt(ctx context.Context, dl *Delivery) *Delivery {
 
 // send makes one HTTP request for a delivery. retryAfter is how long the
 // receiver asked to wait, when it said.
-func (d *Dispatcher) send(ctx context.Context, w *store.Object[Spec, Status], dl *Delivery) (a Attempt, retryAfter time.Duration) {
+func (d *Dispatcher) send(ctx context.Context, w *store.Object[WebhookSpec, WebhookStatus], dl *Delivery) (a DeliveryAttempt, retryAfter time.Duration) {
 	start := d.opts.Now()
 	a.Time = start.UTC()
-	fail := func(format string, args ...any) (Attempt, time.Duration) {
+	fail := func(format string, args ...any) (DeliveryAttempt, time.Duration) {
 		a.Error = fmt.Sprintf(format, args...)
 		return a, retryAfter
 	}
@@ -383,7 +383,7 @@ func (d *Dispatcher) send(ctx context.Context, w *store.Object[Spec, Status], dl
 
 // noteResult records the outcome of an attempt in the webhook's status.
 // Several failures in a row make it degraded until a delivery succeeds.
-func (d *Dispatcher) noteResult(ctx context.Context, id store.ID, a Attempt) {
+func (d *Dispatcher) noteResult(ctx context.Context, id store.ID, a DeliveryAttempt) {
 	err := d.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:webhooks"}, func(tx store.Tx) error {
 		w, err := Kind.Get(ctx, tx, id)
 		if err != nil {
@@ -411,7 +411,7 @@ func (d *Dispatcher) noteResult(ctx context.Context, id store.ID, a Attempt) {
 
 // health sets the phase and the Ready condition from how deliveries went,
 // once the webhook's settings are in place.
-func health(st *Status, generation int64, now time.Time) {
+func health(st *WebhookStatus, generation int64, now time.Time) {
 	if st.ObservedGeneration < generation {
 		return
 	}
@@ -433,7 +433,7 @@ func (d *Dispatcher) Test(ctx context.Context, webhook store.ID) (*Delivery, err
 	}
 	now := d.opts.Now().UTC()
 	id := store.NewID(DeliveryPrefix)
-	payload, err := json.Marshal(Payload{
+	payload, err := json.Marshal(WebhookPayload{
 		ID: id, Type: PingType, Time: now, Severity: events.SeverityInfo, Scope: store.ServerScope(),
 		Message: "This is a test delivery from Racksail. If it arrived, the webhook works.",
 	})

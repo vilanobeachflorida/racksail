@@ -135,7 +135,7 @@ type memTx struct {
 	meta    WriteMeta
 	now     time.Time
 	closed  bool
-	changes []Change
+	changes []Notice
 }
 
 func (tx *memTx) Get(ctx context.Context, id ID) (*Resource, error) {
@@ -197,7 +197,7 @@ func (tx *memTx) Create(ctx context.Context, r *Resource) error {
 	stored := r.Clone()
 	tx.state.resources[r.ID] = stored
 	tx.record(stored, false)
-	tx.changes = append(tx.changes, changeOf(ChangeCreated, stored, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeCreated, stored, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -264,7 +264,7 @@ func (tx *memTx) Update(ctx context.Context, r *Resource) error {
 	}
 	r.Meta = next.Meta
 	r.Labels = maps.Clone(next.Labels)
-	tx.changes = append(tx.changes, changeOf(ChangeUpdated, next, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeUpdated, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -282,7 +282,7 @@ func (tx *memTx) UpdateStatus(ctx context.Context, id ID, status json.RawMessage
 	next := cur.Clone()
 	next.Status = slices.Clone(status)
 	tx.state.resources[id] = next
-	tx.changes = append(tx.changes, changeOf(ChangeStatus, next, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeStatus, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -305,7 +305,7 @@ func (tx *memTx) Delete(ctx context.Context, id ID, revision int64) error {
 	next.UpdatedAt = now
 	tx.state.resources[id] = next
 	tx.record(next, true)
-	tx.changes = append(tx.changes, changeOf(ChangeDeleted, next, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticeDeleted, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -329,7 +329,7 @@ func (tx *memTx) Purge(ctx context.Context, id ID) error {
 		}
 	}
 	delete(tx.state.resources, id)
-	tx.changes = append(tx.changes, changeOf(ChangePurged, cur, tx.meta.ChangeSet))
+	tx.changes = append(tx.changes, noticeOf(NoticePurged, cur, tx.meta.ChangeSet))
 	return nil
 }
 

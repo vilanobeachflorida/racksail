@@ -111,7 +111,7 @@ func (r *Runner) ReportDrift(ctx context.Context, report DriftReport) error {
 	if len(report.Changes) > 0 {
 		message = "Changed on the server: " + strings.Join(report.Changes, ", ") + "."
 	}
-	raw, err := withCommonStatus(res.Status, func(st *store.Status) {
+	raw, err := WithCommonStatus(res.Status, func(st *store.Status) {
 		st.SetCondition(store.Condition{
 			Type: ConditionDrifted, Status: store.ConditionTrue, Reason: "ReportedByAgent",
 			Message: message, ObservedGeneration: res.Generation,

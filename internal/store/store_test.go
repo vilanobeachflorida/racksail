@@ -559,7 +559,7 @@ func TestWatch(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		var ops []ChangeOp
+		var ops []NoticeOp
 		for range 4 {
 			select {
 			case c := <-w.C:
@@ -567,17 +567,17 @@ func TestWatch(t *testing.T) {
 				if c.ID != r.ID || c.Kind != "test.site" {
 					t.Errorf("change = %+v", c)
 				}
-				if c.Op == ChangeCreated && (c.ChangeSet != cs || c.Generation != 1 || c.Phase != PhasePending) {
+				if c.Op == NoticeCreated && (c.ChangeSet != cs || c.Generation != 1 || c.Phase != PhasePending) {
 					t.Errorf("created = %+v", c)
 				}
-				if c.Op == ChangeStatus && c.Phase != PhaseReady {
+				if c.Op == NoticeStatus && c.Phase != PhaseReady {
 					t.Errorf("status = %+v", c)
 				}
 			case <-time.After(time.Second):
 				t.Fatalf("only saw %v", ops)
 			}
 		}
-		if !slices.Equal(ops, []ChangeOp{ChangeCreated, ChangeStatus, ChangeDeleted, ChangePurged}) {
+		if !slices.Equal(ops, []NoticeOp{NoticeCreated, NoticeStatus, NoticeDeleted, NoticePurged}) {
 			t.Errorf("ops = %v", ops)
 		}
 		select {
