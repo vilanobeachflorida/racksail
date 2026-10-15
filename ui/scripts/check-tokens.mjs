@@ -58,6 +58,12 @@ const rules = [
 const generated = ["design/theme.css", "lib/api/schema.d.ts"];
 
 /**
+ * Tests check color values themselves, such as contrast math; they style nothing.
+ * @param {string} name
+ */
+const isTest = (name) => /\.test\.(?:tsx?|mjs)$/.test(name);
+
+/**
  * @typedef {{ file: string, line: number, column: number, rule: string, text: string }} Problem
  */
 
@@ -90,8 +96,8 @@ export function findHardCodedColors(text, file) {
 }
 
 /**
- * Lists the files to check under dir, skipping hidden directories and
- * generated files.
+ * Lists the files to check under dir, skipping hidden directories,
+ * generated files and tests.
  * @param {string} dir
  * @returns {string[]}
  */
@@ -109,7 +115,7 @@ export function filesToCheck(dir) {
         walk(path);
       } else if (/\.(?:css|tsx?|mjs)$/.test(entry.name)) {
         const rel = relative(dir, path).split(sep).join("/");
-        if (!generated.includes(rel)) {
+        if (!generated.includes(rel) && !isTest(entry.name)) {
           files.push(path);
         }
       }

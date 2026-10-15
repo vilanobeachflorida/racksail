@@ -16,7 +16,7 @@ func TestCSS(t *testing.T) {
 		"--rs-brand: #01214F;",
 		"--rs-chart1: #007CFD;",
 		"--rs-accent-subtle: #E0ECF9;",
-		"--rs-overlay: rgb(1 33 79 / 0.4);",
+		"--rs-overlay: #01214F66;",
 		`--rs-font-sans: "Inter Variable", ui-sans-serif`,
 		"--rs-text-sm: 0.8889rem;",
 		"--rs-leading-4xl: 1.2;",

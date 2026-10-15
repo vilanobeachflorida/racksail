@@ -694,8 +694,405 @@
     }
   },
   "layerCss": {
-    "compact": "@layer rs-theme {\n  :root {\n    --rs-surface: #F7F9FC;\n    --rs-surface-raised: #FFFFFF;\n    --rs-surface-sunken: #EEF2F7;\n    --rs-text: #0B1B33;\n    --rs-text-muted: #4A5A70;\n    --rs-border: #D8E0EA;\n    --rs-border-strong: #7A889C;\n    --rs-brand: #01214F;\n    --rs-brand-text: #FFFFFF;\n    --rs-accent: #0062CC;\n    --rs-accent-text: #FFFFFF;\n    --rs-success: #1A7F37;\n    --rs-success-text: #FFFFFF;\n    --rs-warning: #9A6700;\n    --rs-warning-text: #FFFFFF;\n    --rs-danger: #CF222E;\n    --rs-danger-text: #FFFFFF;\n    --rs-info: #0062CC;\n    --rs-info-text: #FFFFFF;\n    --rs-focus: #007CFD;\n    --rs-overlay: rgb(1 33 79 / 0.4);\n    --rs-chart1: #007CFD;\n    --rs-chart2: #E2622C;\n    --rs-chart3: #139A6B;\n    --rs-chart4: #B88200;\n    --rs-chart5: #D9558B;\n    --rs-chart6: #008300;\n    --rs-chart7: #4A3AA7;\n    --rs-chart8: #E34948;\n    --rs-accent-subtle: #E0ECF9;\n    --rs-success-subtle: #E4F0E7;\n    --rs-warning-subtle: #F3EDE0;\n    --rs-danger-subtle: #F9E4E6;\n    --rs-info-subtle: #E0ECF9;\n    --rs-font-sans: \"Inter Variable\", ui-sans-serif, system-ui, sans-serif;\n    --rs-font-mono: \"JetBrains Mono Variable\", ui-monospace, monospace;\n    --rs-font-size-base: 16px;\n    --rs-weight-regular: 400;\n    --rs-weight-medium: 500;\n    --rs-weight-semibold: 600;\n    --rs-weight-bold: 700;\n    --rs-text-xs: 0.7901rem;\n    --rs-leading-xs: 1.5;\n    --rs-text-sm: 0.8889rem;\n    --rs-leading-sm: 1.5;\n    --rs-text-base: 1rem;\n    --rs-leading-base: 1.5;\n    --rs-text-lg: 1.125rem;\n    --rs-leading-lg: 1.44;\n    --rs-text-xl: 1.2656rem;\n    --rs-leading-xl: 1.38;\n    --rs-text-2xl: 1.4238rem;\n    --rs-leading-2xl: 1.32;\n    --rs-text-3xl: 1.6018rem;\n    --rs-leading-3xl: 1.26;\n    --rs-text-4xl: 1.802rem;\n    --rs-leading-4xl: 1.2;\n    --rs-radius-sm: 3px;\n    --rs-radius-md: 4px;\n    --rs-radius-lg: 6px;\n    --rs-radius-xl: 10px;\n    --rs-shadow-sm: 0 1px 2px rgba(1, 33, 79, 0.08);\n    --rs-shadow-md: 0 4px 12px rgba(1, 33, 79, 0.10);\n    --rs-shadow-lg: 0 12px 32px rgba(1, 33, 79, 0.14);\n    --rs-motion-fast: 120ms;\n    --rs-motion-normal: 200ms;\n    --rs-motion-slow: 320ms;\n    --rs-focus-width: 2px;\n    --rs-focus-offset: 2px;\n    --rs-control-sm: 1.75rem;\n    --rs-control-md: 2rem;\n    --rs-control-lg: 2.25rem;\n    --rs-row: 2.25rem;\n    --rs-cell-x: 0.5rem;\n    --rs-cell-y: 0.375rem;\n    --rs-gap: 0.75rem;\n    --rs-card-pad: 1rem;\n  }\n\n  :root[data-theme=\"dark\"] {\n    --rs-surface: #0A1626;\n    --rs-surface-raised: #0F2036;\n    --rs-surface-sunken: #06101C;\n    --rs-text: #E6EDF5;\n    --rs-text-muted: #9FB0C4;\n    --rs-border: #22344C;\n    --rs-border-strong: #5B6F88;\n    --rs-brand: #007CFD;\n    --rs-brand-text: #00142F;\n    --rs-accent: #3D9BFF;\n    --rs-accent-text: #00142F;\n    --rs-success: #3FB950;\n    --rs-success-text: #00142F;\n    --rs-warning: #D29922;\n    --rs-warning-text: #00142F;\n    --rs-danger: #F85149;\n    --rs-danger-text: #00142F;\n    --rs-info: #3D9BFF;\n    --rs-info-text: #00142F;\n    --rs-focus: #3D9BFF;\n    --rs-overlay: rgb(0 0 0 / 0.6);\n    --rs-chart1: #3390F7;\n    --rs-chart2: #D95926;\n    --rs-chart3: #199E70;\n    --rs-chart4: #C98500;\n    --rs-chart5: #D55181;\n    --rs-chart6: #1F9A1F;\n    --rs-chart7: #9085E9;\n    --rs-chart8: #E66767;\n    --rs-accent-subtle: #152F4E;\n    --rs-success-subtle: #153239;\n    --rs-warning-subtle: #262F34;\n    --rs-danger-subtle: #2B2638;\n    --rs-info-subtle: #152F4E;\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {\n      --rs-surface: #0A1626;\n      --rs-surface-raised: #0F2036;\n      --rs-surface-sunken: #06101C;\n      --rs-text: #E6EDF5;\n      --rs-text-muted: #9FB0C4;\n      --rs-border: #22344C;\n      --rs-border-strong: #5B6F88;\n      --rs-brand: #007CFD;\n      --rs-brand-text: #00142F;\n      --rs-accent: #3D9BFF;\n      --rs-accent-text: #00142F;\n      --rs-success: #3FB950;\n      --rs-success-text: #00142F;\n      --rs-warning: #D29922;\n      --rs-warning-text: #00142F;\n      --rs-danger: #F85149;\n      --rs-danger-text: #00142F;\n      --rs-info: #3D9BFF;\n      --rs-info-text: #00142F;\n      --rs-focus: #3D9BFF;\n      --rs-overlay: rgb(0 0 0 / 0.6);\n      --rs-chart1: #3390F7;\n      --rs-chart2: #D95926;\n      --rs-chart3: #199E70;\n      --rs-chart4: #C98500;\n      --rs-chart5: #D55181;\n      --rs-chart6: #1F9A1F;\n      --rs-chart7: #9085E9;\n      --rs-chart8: #E66767;\n      --rs-accent-subtle: #152F4E;\n      --rs-success-subtle: #153239;\n      --rs-warning-subtle: #262F34;\n      --rs-danger-subtle: #2B2638;\n      --rs-info-subtle: #152F4E;\n    }\n  }\n}\n",
-    "high-contrast": "@layer rs-theme {\n  :root {\n    --rs-surface: #FFFFFF;\n    --rs-surface-raised: #FFFFFF;\n    --rs-surface-sunken: #EBEBEB;\n    --rs-text: #000000;\n    --rs-text-muted: #3D3D3D;\n    --rs-border: #6B6B6B;\n    --rs-border-strong: #000000;\n    --rs-brand: #01214F;\n    --rs-brand-text: #FFFFFF;\n    --rs-accent: #0049B8;\n    --rs-accent-text: #FFFFFF;\n    --rs-success: #0A6B26;\n    --rs-success-text: #FFFFFF;\n    --rs-warning: #7A4F00;\n    --rs-warning-text: #FFFFFF;\n    --rs-danger: #A3001B;\n    --rs-danger-text: #FFFFFF;\n    --rs-info: #0049B8;\n    --rs-info-text: #FFFFFF;\n    --rs-focus: #0049B8;\n    --rs-overlay: rgb(0 0 0 / 0.702);\n    --rs-chart1: #0049B8;\n    --rs-chart2: #B33F0A;\n    --rs-chart3: #00806A;\n    --rs-chart4: #946800;\n    --rs-chart5: #B4316F;\n    --rs-chart6: #2D6E12;\n    --rs-chart7: #4A3AA7;\n    --rs-chart8: #C0262B;\n    --rs-accent-subtle: #E0E9F6;\n    --rs-success-subtle: #E2EDE5;\n    --rs-warning-subtle: #EFEAE0;\n    --rs-danger-subtle: #F4E0E4;\n    --rs-info-subtle: #E0E9F6;\n    --rs-font-sans: \"Inter Variable\", ui-sans-serif, system-ui, sans-serif;\n    --rs-font-mono: \"JetBrains Mono Variable\", ui-monospace, monospace;\n    --rs-font-size-base: 16px;\n    --rs-weight-regular: 400;\n    --rs-weight-medium: 500;\n    --rs-weight-semibold: 600;\n    --rs-weight-bold: 700;\n    --rs-text-xs: 0.7901rem;\n    --rs-leading-xs: 1.5;\n    --rs-text-sm: 0.8889rem;\n    --rs-leading-sm: 1.5;\n    --rs-text-base: 1rem;\n    --rs-leading-base: 1.5;\n    --rs-text-lg: 1.125rem;\n    --rs-leading-lg: 1.44;\n    --rs-text-xl: 1.2656rem;\n    --rs-leading-xl: 1.38;\n    --rs-text-2xl: 1.4238rem;\n    --rs-leading-2xl: 1.32;\n    --rs-text-3xl: 1.6018rem;\n    --rs-leading-3xl: 1.26;\n    --rs-text-4xl: 1.802rem;\n    --rs-leading-4xl: 1.2;\n    --rs-radius-sm: 4px;\n    --rs-radius-md: 6px;\n    --rs-radius-lg: 10px;\n    --rs-radius-xl: 16px;\n    --rs-shadow-sm: 0 0 0 1px rgba(0, 0, 0, 0.6);\n    --rs-shadow-md: 0 0 0 2px rgba(0, 0, 0, 0.6);\n    --rs-shadow-lg: 0 0 0 2px rgba(0, 0, 0, 0.8);\n    --rs-motion-fast: 120ms;\n    --rs-motion-normal: 200ms;\n    --rs-motion-slow: 320ms;\n    --rs-focus-width: 3px;\n    --rs-focus-offset: 2px;\n    --rs-control-sm: 2rem;\n    --rs-control-md: 2.25rem;\n    --rs-control-lg: 2.5rem;\n    --rs-row: 2.75rem;\n    --rs-cell-x: 0.75rem;\n    --rs-cell-y: 0.625rem;\n    --rs-gap: 1rem;\n    --rs-card-pad: 1.25rem;\n  }\n\n  :root[data-theme=\"dark\"] {\n    --rs-surface: #000000;\n    --rs-surface-raised: #0B0B0B;\n    --rs-surface-sunken: #1C1C1C;\n    --rs-text: #FFFFFF;\n    --rs-text-muted: #D4D4D4;\n    --rs-border: #8C8C8C;\n    --rs-border-strong: #FFFFFF;\n    --rs-brand: #7EB8FF;\n    --rs-brand-text: #000000;\n    --rs-accent: #8CC8FF;\n    --rs-accent-text: #000000;\n    --rs-success: #6EE58A;\n    --rs-success-text: #000000;\n    --rs-warning: #FFC94D;\n    --rs-warning-text: #000000;\n    --rs-danger: #FF7A7A;\n    --rs-danger-text: #000000;\n    --rs-info: #8CC8FF;\n    --rs-info-text: #000000;\n    --rs-focus: #FFD60A;\n    --rs-overlay: rgb(0 0 0 / 0.8);\n    --rs-chart1: #3390F7;\n    --rs-chart2: #D95926;\n    --rs-chart3: #199E70;\n    --rs-chart4: #C98500;\n    --rs-chart5: #D55181;\n    --rs-chart6: #1F9A1F;\n    --rs-chart7: #9085E9;\n    --rs-chart8: #E66767;\n    --rs-accent-subtle: #1A2228;\n    --rs-success-subtle: #17251A;\n    --rs-warning-subtle: #282213;\n    --rs-danger-subtle: #281818;\n    --rs-info-subtle: #1A2228;\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {\n      --rs-surface: #000000;\n      --rs-surface-raised: #0B0B0B;\n      --rs-surface-sunken: #1C1C1C;\n      --rs-text: #FFFFFF;\n      --rs-text-muted: #D4D4D4;\n      --rs-border: #8C8C8C;\n      --rs-border-strong: #FFFFFF;\n      --rs-brand: #7EB8FF;\n      --rs-brand-text: #000000;\n      --rs-accent: #8CC8FF;\n      --rs-accent-text: #000000;\n      --rs-success: #6EE58A;\n      --rs-success-text: #000000;\n      --rs-warning: #FFC94D;\n      --rs-warning-text: #000000;\n      --rs-danger: #FF7A7A;\n      --rs-danger-text: #000000;\n      --rs-info: #8CC8FF;\n      --rs-info-text: #000000;\n      --rs-focus: #FFD60A;\n      --rs-overlay: rgb(0 0 0 / 0.8);\n      --rs-chart1: #3390F7;\n      --rs-chart2: #D95926;\n      --rs-chart3: #199E70;\n      --rs-chart4: #C98500;\n      --rs-chart5: #D55181;\n      --rs-chart6: #1F9A1F;\n      --rs-chart7: #9085E9;\n      --rs-chart8: #E66767;\n      --rs-accent-subtle: #1A2228;\n      --rs-success-subtle: #17251A;\n      --rs-warning-subtle: #282213;\n      --rs-danger-subtle: #281818;\n      --rs-info-subtle: #1A2228;\n    }\n  }\n}\n",
-    "racksail": "@layer rs-theme {\n  :root {\n    --rs-surface: #F7F9FC;\n    --rs-surface-raised: #FFFFFF;\n    --rs-surface-sunken: #EEF2F7;\n    --rs-text: #0B1B33;\n    --rs-text-muted: #4A5A70;\n    --rs-border: #D8E0EA;\n    --rs-border-strong: #7A889C;\n    --rs-brand: #01214F;\n    --rs-brand-text: #FFFFFF;\n    --rs-accent: #0062CC;\n    --rs-accent-text: #FFFFFF;\n    --rs-success: #1A7F37;\n    --rs-success-text: #FFFFFF;\n    --rs-warning: #9A6700;\n    --rs-warning-text: #FFFFFF;\n    --rs-danger: #CF222E;\n    --rs-danger-text: #FFFFFF;\n    --rs-info: #0062CC;\n    --rs-info-text: #FFFFFF;\n    --rs-focus: #007CFD;\n    --rs-overlay: rgb(1 33 79 / 0.4);\n    --rs-chart1: #007CFD;\n    --rs-chart2: #E2622C;\n    --rs-chart3: #139A6B;\n    --rs-chart4: #B88200;\n    --rs-chart5: #D9558B;\n    --rs-chart6: #008300;\n    --rs-chart7: #4A3AA7;\n    --rs-chart8: #E34948;\n    --rs-accent-subtle: #E0ECF9;\n    --rs-success-subtle: #E4F0E7;\n    --rs-warning-subtle: #F3EDE0;\n    --rs-danger-subtle: #F9E4E6;\n    --rs-info-subtle: #E0ECF9;\n    --rs-font-sans: \"Inter Variable\", ui-sans-serif, system-ui, sans-serif;\n    --rs-font-mono: \"JetBrains Mono Variable\", ui-monospace, monospace;\n    --rs-font-size-base: 16px;\n    --rs-weight-regular: 400;\n    --rs-weight-medium: 500;\n    --rs-weight-semibold: 600;\n    --rs-weight-bold: 700;\n    --rs-text-xs: 0.7901rem;\n    --rs-leading-xs: 1.5;\n    --rs-text-sm: 0.8889rem;\n    --rs-leading-sm: 1.5;\n    --rs-text-base: 1rem;\n    --rs-leading-base: 1.5;\n    --rs-text-lg: 1.125rem;\n    --rs-leading-lg: 1.44;\n    --rs-text-xl: 1.2656rem;\n    --rs-leading-xl: 1.38;\n    --rs-text-2xl: 1.4238rem;\n    --rs-leading-2xl: 1.32;\n    --rs-text-3xl: 1.6018rem;\n    --rs-leading-3xl: 1.26;\n    --rs-text-4xl: 1.802rem;\n    --rs-leading-4xl: 1.2;\n    --rs-radius-sm: 4px;\n    --rs-radius-md: 6px;\n    --rs-radius-lg: 10px;\n    --rs-radius-xl: 16px;\n    --rs-shadow-sm: 0 1px 2px rgba(1, 33, 79, 0.08);\n    --rs-shadow-md: 0 4px 12px rgba(1, 33, 79, 0.10);\n    --rs-shadow-lg: 0 12px 32px rgba(1, 33, 79, 0.14);\n    --rs-motion-fast: 120ms;\n    --rs-motion-normal: 200ms;\n    --rs-motion-slow: 320ms;\n    --rs-focus-width: 2px;\n    --rs-focus-offset: 2px;\n    --rs-control-sm: 2rem;\n    --rs-control-md: 2.25rem;\n    --rs-control-lg: 2.5rem;\n    --rs-row: 2.75rem;\n    --rs-cell-x: 0.75rem;\n    --rs-cell-y: 0.625rem;\n    --rs-gap: 1rem;\n    --rs-card-pad: 1.25rem;\n  }\n\n  :root[data-theme=\"dark\"] {\n    --rs-surface: #0A1626;\n    --rs-surface-raised: #0F2036;\n    --rs-surface-sunken: #06101C;\n    --rs-text: #E6EDF5;\n    --rs-text-muted: #9FB0C4;\n    --rs-border: #22344C;\n    --rs-border-strong: #5B6F88;\n    --rs-brand: #007CFD;\n    --rs-brand-text: #00142F;\n    --rs-accent: #3D9BFF;\n    --rs-accent-text: #00142F;\n    --rs-success: #3FB950;\n    --rs-success-text: #00142F;\n    --rs-warning: #D29922;\n    --rs-warning-text: #00142F;\n    --rs-danger: #F85149;\n    --rs-danger-text: #00142F;\n    --rs-info: #3D9BFF;\n    --rs-info-text: #00142F;\n    --rs-focus: #3D9BFF;\n    --rs-overlay: rgb(0 0 0 / 0.6);\n    --rs-chart1: #3390F7;\n    --rs-chart2: #D95926;\n    --rs-chart3: #199E70;\n    --rs-chart4: #C98500;\n    --rs-chart5: #D55181;\n    --rs-chart6: #1F9A1F;\n    --rs-chart7: #9085E9;\n    --rs-chart8: #E66767;\n    --rs-accent-subtle: #152F4E;\n    --rs-success-subtle: #153239;\n    --rs-warning-subtle: #262F34;\n    --rs-danger-subtle: #2B2638;\n    --rs-info-subtle: #152F4E;\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {\n      --rs-surface: #0A1626;\n      --rs-surface-raised: #0F2036;\n      --rs-surface-sunken: #06101C;\n      --rs-text: #E6EDF5;\n      --rs-text-muted: #9FB0C4;\n      --rs-border: #22344C;\n      --rs-border-strong: #5B6F88;\n      --rs-brand: #007CFD;\n      --rs-brand-text: #00142F;\n      --rs-accent: #3D9BFF;\n      --rs-accent-text: #00142F;\n      --rs-success: #3FB950;\n      --rs-success-text: #00142F;\n      --rs-warning: #D29922;\n      --rs-warning-text: #00142F;\n      --rs-danger: #F85149;\n      --rs-danger-text: #00142F;\n      --rs-info: #3D9BFF;\n      --rs-info-text: #00142F;\n      --rs-focus: #3D9BFF;\n      --rs-overlay: rgb(0 0 0 / 0.6);\n      --rs-chart1: #3390F7;\n      --rs-chart2: #D95926;\n      --rs-chart3: #199E70;\n      --rs-chart4: #C98500;\n      --rs-chart5: #D55181;\n      --rs-chart6: #1F9A1F;\n      --rs-chart7: #9085E9;\n      --rs-chart8: #E66767;\n      --rs-accent-subtle: #152F4E;\n      --rs-success-subtle: #153239;\n      --rs-warning-subtle: #262F34;\n      --rs-danger-subtle: #2B2638;\n      --rs-info-subtle: #152F4E;\n    }\n  }\n}\n"
+    "compact": "@layer rs-theme {\n  :root {\n    --rs-surface: #F7F9FC;\n    --rs-surface-raised: #FFFFFF;\n    --rs-surface-sunken: #EEF2F7;\n    --rs-text: #0B1B33;\n    --rs-text-muted: #4A5A70;\n    --rs-border: #D8E0EA;\n    --rs-border-strong: #7A889C;\n    --rs-brand: #01214F;\n    --rs-brand-text: #FFFFFF;\n    --rs-accent: #0062CC;\n    --rs-accent-text: #FFFFFF;\n    --rs-success: #1A7F37;\n    --rs-success-text: #FFFFFF;\n    --rs-warning: #9A6700;\n    --rs-warning-text: #FFFFFF;\n    --rs-danger: #CF222E;\n    --rs-danger-text: #FFFFFF;\n    --rs-info: #0062CC;\n    --rs-info-text: #FFFFFF;\n    --rs-focus: #007CFD;\n    --rs-overlay: #01214F66;\n    --rs-chart1: #007CFD;\n    --rs-chart2: #E2622C;\n    --rs-chart3: #139A6B;\n    --rs-chart4: #B88200;\n    --rs-chart5: #D9558B;\n    --rs-chart6: #008300;\n    --rs-chart7: #4A3AA7;\n    --rs-chart8: #E34948;\n    --rs-accent-subtle: #E0ECF9;\n    --rs-success-subtle: #E4F0E7;\n    --rs-warning-subtle: #F3EDE0;\n    --rs-danger-subtle: #F9E4E6;\n    --rs-info-subtle: #E0ECF9;\n    --rs-font-sans: \"Inter Variable\", ui-sans-serif, system-ui, sans-serif;\n    --rs-font-mono: \"JetBrains Mono Variable\", ui-monospace, monospace;\n    --rs-font-size-base: 16px;\n    --rs-weight-regular: 400;\n    --rs-weight-medium: 500;\n    --rs-weight-semibold: 600;\n    --rs-weight-bold: 700;\n    --rs-text-xs: 0.7901rem;\n    --rs-leading-xs: 1.5;\n    --rs-text-sm: 0.8889rem;\n    --rs-leading-sm: 1.5;\n    --rs-text-base: 1rem;\n    --rs-leading-base: 1.5;\n    --rs-text-lg: 1.125rem;\n    --rs-leading-lg: 1.44;\n    --rs-text-xl: 1.2656rem;\n    --rs-leading-xl: 1.38;\n    --rs-text-2xl: 1.4238rem;\n    --rs-leading-2xl: 1.32;\n    --rs-text-3xl: 1.6018rem;\n    --rs-leading-3xl: 1.26;\n    --rs-text-4xl: 1.802rem;\n    --rs-leading-4xl: 1.2;\n    --rs-radius-sm: 3px;\n    --rs-radius-md: 4px;\n    --rs-radius-lg: 6px;\n    --rs-radius-xl: 10px;\n    --rs-shadow-sm: 0 1px 2px rgba(1, 33, 79, 0.08);\n    --rs-shadow-md: 0 4px 12px rgba(1, 33, 79, 0.10);\n    --rs-shadow-lg: 0 12px 32px rgba(1, 33, 79, 0.14);\n    --rs-motion-fast: 120ms;\n    --rs-motion-normal: 200ms;\n    --rs-motion-slow: 320ms;\n    --rs-focus-width: 2px;\n    --rs-focus-offset: 2px;\n    --rs-control-sm: 1.75rem;\n    --rs-control-md: 2rem;\n    --rs-control-lg: 2.25rem;\n    --rs-row: 2.25rem;\n    --rs-cell-x: 0.5rem;\n    --rs-cell-y: 0.375rem;\n    --rs-gap: 0.75rem;\n    --rs-card-pad: 1rem;\n  }\n\n  :root[data-theme=\"dark\"] {\n    --rs-surface: #0A1626;\n    --rs-surface-raised: #0F2036;\n    --rs-surface-sunken: #06101C;\n    --rs-text: #E6EDF5;\n    --rs-text-muted: #9FB0C4;\n    --rs-border: #22344C;\n    --rs-border-strong: #5B6F88;\n    --rs-brand: #007CFD;\n    --rs-brand-text: #00142F;\n    --rs-accent: #3D9BFF;\n    --rs-accent-text: #00142F;\n    --rs-success: #3FB950;\n    --rs-success-text: #00142F;\n    --rs-warning: #D29922;\n    --rs-warning-text: #00142F;\n    --rs-danger: #F85149;\n    --rs-danger-text: #00142F;\n    --rs-info: #3D9BFF;\n    --rs-info-text: #00142F;\n    --rs-focus: #3D9BFF;\n    --rs-overlay: #00000099;\n    --rs-chart1: #3390F7;\n    --rs-chart2: #D95926;\n    --rs-chart3: #199E70;\n    --rs-chart4: #C98500;\n    --rs-chart5: #D55181;\n    --rs-chart6: #1F9A1F;\n    --rs-chart7: #9085E9;\n    --rs-chart8: #E66767;\n    --rs-accent-subtle: #152F4E;\n    --rs-success-subtle: #153239;\n    --rs-warning-subtle: #262F34;\n    --rs-danger-subtle: #2B2638;\n    --rs-info-subtle: #152F4E;\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {\n      --rs-surface: #0A1626;\n      --rs-surface-raised: #0F2036;\n      --rs-surface-sunken: #06101C;\n      --rs-text: #E6EDF5;\n      --rs-text-muted: #9FB0C4;\n      --rs-border: #22344C;\n      --rs-border-strong: #5B6F88;\n      --rs-brand: #007CFD;\n      --rs-brand-text: #00142F;\n      --rs-accent: #3D9BFF;\n      --rs-accent-text: #00142F;\n      --rs-success: #3FB950;\n      --rs-success-text: #00142F;\n      --rs-warning: #D29922;\n      --rs-warning-text: #00142F;\n      --rs-danger: #F85149;\n      --rs-danger-text: #00142F;\n      --rs-info: #3D9BFF;\n      --rs-info-text: #00142F;\n      --rs-focus: #3D9BFF;\n      --rs-overlay: #00000099;\n      --rs-chart1: #3390F7;\n      --rs-chart2: #D95926;\n      --rs-chart3: #199E70;\n      --rs-chart4: #C98500;\n      --rs-chart5: #D55181;\n      --rs-chart6: #1F9A1F;\n      --rs-chart7: #9085E9;\n      --rs-chart8: #E66767;\n      --rs-accent-subtle: #152F4E;\n      --rs-success-subtle: #153239;\n      --rs-warning-subtle: #262F34;\n      --rs-danger-subtle: #2B2638;\n      --rs-info-subtle: #152F4E;\n    }\n  }\n}\n",
+    "high-contrast": "@layer rs-theme {\n  :root {\n    --rs-surface: #FFFFFF;\n    --rs-surface-raised: #FFFFFF;\n    --rs-surface-sunken: #EBEBEB;\n    --rs-text: #000000;\n    --rs-text-muted: #3D3D3D;\n    --rs-border: #6B6B6B;\n    --rs-border-strong: #000000;\n    --rs-brand: #01214F;\n    --rs-brand-text: #FFFFFF;\n    --rs-accent: #0049B8;\n    --rs-accent-text: #FFFFFF;\n    --rs-success: #0A6B26;\n    --rs-success-text: #FFFFFF;\n    --rs-warning: #7A4F00;\n    --rs-warning-text: #FFFFFF;\n    --rs-danger: #A3001B;\n    --rs-danger-text: #FFFFFF;\n    --rs-info: #0049B8;\n    --rs-info-text: #FFFFFF;\n    --rs-focus: #0049B8;\n    --rs-overlay: #000000B3;\n    --rs-chart1: #0049B8;\n    --rs-chart2: #B33F0A;\n    --rs-chart3: #00806A;\n    --rs-chart4: #946800;\n    --rs-chart5: #B4316F;\n    --rs-chart6: #2D6E12;\n    --rs-chart7: #4A3AA7;\n    --rs-chart8: #C0262B;\n    --rs-accent-subtle: #E0E9F6;\n    --rs-success-subtle: #E2EDE5;\n    --rs-warning-subtle: #EFEAE0;\n    --rs-danger-subtle: #F4E0E4;\n    --rs-info-subtle: #E0E9F6;\n    --rs-font-sans: \"Inter Variable\", ui-sans-serif, system-ui, sans-serif;\n    --rs-font-mono: \"JetBrains Mono Variable\", ui-monospace, monospace;\n    --rs-font-size-base: 16px;\n    --rs-weight-regular: 400;\n    --rs-weight-medium: 500;\n    --rs-weight-semibold: 600;\n    --rs-weight-bold: 700;\n    --rs-text-xs: 0.7901rem;\n    --rs-leading-xs: 1.5;\n    --rs-text-sm: 0.8889rem;\n    --rs-leading-sm: 1.5;\n    --rs-text-base: 1rem;\n    --rs-leading-base: 1.5;\n    --rs-text-lg: 1.125rem;\n    --rs-leading-lg: 1.44;\n    --rs-text-xl: 1.2656rem;\n    --rs-leading-xl: 1.38;\n    --rs-text-2xl: 1.4238rem;\n    --rs-leading-2xl: 1.32;\n    --rs-text-3xl: 1.6018rem;\n    --rs-leading-3xl: 1.26;\n    --rs-text-4xl: 1.802rem;\n    --rs-leading-4xl: 1.2;\n    --rs-radius-sm: 4px;\n    --rs-radius-md: 6px;\n    --rs-radius-lg: 10px;\n    --rs-radius-xl: 16px;\n    --rs-shadow-sm: 0 0 0 1px rgba(0, 0, 0, 0.6);\n    --rs-shadow-md: 0 0 0 2px rgba(0, 0, 0, 0.6);\n    --rs-shadow-lg: 0 0 0 2px rgba(0, 0, 0, 0.8);\n    --rs-motion-fast: 120ms;\n    --rs-motion-normal: 200ms;\n    --rs-motion-slow: 320ms;\n    --rs-focus-width: 3px;\n    --rs-focus-offset: 2px;\n    --rs-control-sm: 2rem;\n    --rs-control-md: 2.25rem;\n    --rs-control-lg: 2.5rem;\n    --rs-row: 2.75rem;\n    --rs-cell-x: 0.75rem;\n    --rs-cell-y: 0.625rem;\n    --rs-gap: 1rem;\n    --rs-card-pad: 1.25rem;\n  }\n\n  :root[data-theme=\"dark\"] {\n    --rs-surface: #000000;\n    --rs-surface-raised: #0B0B0B;\n    --rs-surface-sunken: #1C1C1C;\n    --rs-text: #FFFFFF;\n    --rs-text-muted: #D4D4D4;\n    --rs-border: #8C8C8C;\n    --rs-border-strong: #FFFFFF;\n    --rs-brand: #7EB8FF;\n    --rs-brand-text: #000000;\n    --rs-accent: #8CC8FF;\n    --rs-accent-text: #000000;\n    --rs-success: #6EE58A;\n    --rs-success-text: #000000;\n    --rs-warning: #FFC94D;\n    --rs-warning-text: #000000;\n    --rs-danger: #FF7A7A;\n    --rs-danger-text: #000000;\n    --rs-info: #8CC8FF;\n    --rs-info-text: #000000;\n    --rs-focus: #FFD60A;\n    --rs-overlay: #000000CC;\n    --rs-chart1: #3390F7;\n    --rs-chart2: #D95926;\n    --rs-chart3: #199E70;\n    --rs-chart4: #C98500;\n    --rs-chart5: #D55181;\n    --rs-chart6: #1F9A1F;\n    --rs-chart7: #9085E9;\n    --rs-chart8: #E66767;\n    --rs-accent-subtle: #1A2228;\n    --rs-success-subtle: #17251A;\n    --rs-warning-subtle: #282213;\n    --rs-danger-subtle: #281818;\n    --rs-info-subtle: #1A2228;\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {\n      --rs-surface: #000000;\n      --rs-surface-raised: #0B0B0B;\n      --rs-surface-sunken: #1C1C1C;\n      --rs-text: #FFFFFF;\n      --rs-text-muted: #D4D4D4;\n      --rs-border: #8C8C8C;\n      --rs-border-strong: #FFFFFF;\n      --rs-brand: #7EB8FF;\n      --rs-brand-text: #000000;\n      --rs-accent: #8CC8FF;\n      --rs-accent-text: #000000;\n      --rs-success: #6EE58A;\n      --rs-success-text: #000000;\n      --rs-warning: #FFC94D;\n      --rs-warning-text: #000000;\n      --rs-danger: #FF7A7A;\n      --rs-danger-text: #000000;\n      --rs-info: #8CC8FF;\n      --rs-info-text: #000000;\n      --rs-focus: #FFD60A;\n      --rs-overlay: #000000CC;\n      --rs-chart1: #3390F7;\n      --rs-chart2: #D95926;\n      --rs-chart3: #199E70;\n      --rs-chart4: #C98500;\n      --rs-chart5: #D55181;\n      --rs-chart6: #1F9A1F;\n      --rs-chart7: #9085E9;\n      --rs-chart8: #E66767;\n      --rs-accent-subtle: #1A2228;\n      --rs-success-subtle: #17251A;\n      --rs-warning-subtle: #282213;\n      --rs-danger-subtle: #281818;\n      --rs-info-subtle: #1A2228;\n    }\n  }\n}\n",
+    "racksail": "@layer rs-theme {\n  :root {\n    --rs-surface: #F7F9FC;\n    --rs-surface-raised: #FFFFFF;\n    --rs-surface-sunken: #EEF2F7;\n    --rs-text: #0B1B33;\n    --rs-text-muted: #4A5A70;\n    --rs-border: #D8E0EA;\n    --rs-border-strong: #7A889C;\n    --rs-brand: #01214F;\n    --rs-brand-text: #FFFFFF;\n    --rs-accent: #0062CC;\n    --rs-accent-text: #FFFFFF;\n    --rs-success: #1A7F37;\n    --rs-success-text: #FFFFFF;\n    --rs-warning: #9A6700;\n    --rs-warning-text: #FFFFFF;\n    --rs-danger: #CF222E;\n    --rs-danger-text: #FFFFFF;\n    --rs-info: #0062CC;\n    --rs-info-text: #FFFFFF;\n    --rs-focus: #007CFD;\n    --rs-overlay: #01214F66;\n    --rs-chart1: #007CFD;\n    --rs-chart2: #E2622C;\n    --rs-chart3: #139A6B;\n    --rs-chart4: #B88200;\n    --rs-chart5: #D9558B;\n    --rs-chart6: #008300;\n    --rs-chart7: #4A3AA7;\n    --rs-chart8: #E34948;\n    --rs-accent-subtle: #E0ECF9;\n    --rs-success-subtle: #E4F0E7;\n    --rs-warning-subtle: #F3EDE0;\n    --rs-danger-subtle: #F9E4E6;\n    --rs-info-subtle: #E0ECF9;\n    --rs-font-sans: \"Inter Variable\", ui-sans-serif, system-ui, sans-serif;\n    --rs-font-mono: \"JetBrains Mono Variable\", ui-monospace, monospace;\n    --rs-font-size-base: 16px;\n    --rs-weight-regular: 400;\n    --rs-weight-medium: 500;\n    --rs-weight-semibold: 600;\n    --rs-weight-bold: 700;\n    --rs-text-xs: 0.7901rem;\n    --rs-leading-xs: 1.5;\n    --rs-text-sm: 0.8889rem;\n    --rs-leading-sm: 1.5;\n    --rs-text-base: 1rem;\n    --rs-leading-base: 1.5;\n    --rs-text-lg: 1.125rem;\n    --rs-leading-lg: 1.44;\n    --rs-text-xl: 1.2656rem;\n    --rs-leading-xl: 1.38;\n    --rs-text-2xl: 1.4238rem;\n    --rs-leading-2xl: 1.32;\n    --rs-text-3xl: 1.6018rem;\n    --rs-leading-3xl: 1.26;\n    --rs-text-4xl: 1.802rem;\n    --rs-leading-4xl: 1.2;\n    --rs-radius-sm: 4px;\n    --rs-radius-md: 6px;\n    --rs-radius-lg: 10px;\n    --rs-radius-xl: 16px;\n    --rs-shadow-sm: 0 1px 2px rgba(1, 33, 79, 0.08);\n    --rs-shadow-md: 0 4px 12px rgba(1, 33, 79, 0.10);\n    --rs-shadow-lg: 0 12px 32px rgba(1, 33, 79, 0.14);\n    --rs-motion-fast: 120ms;\n    --rs-motion-normal: 200ms;\n    --rs-motion-slow: 320ms;\n    --rs-focus-width: 2px;\n    --rs-focus-offset: 2px;\n    --rs-control-sm: 2rem;\n    --rs-control-md: 2.25rem;\n    --rs-control-lg: 2.5rem;\n    --rs-row: 2.75rem;\n    --rs-cell-x: 0.75rem;\n    --rs-cell-y: 0.625rem;\n    --rs-gap: 1rem;\n    --rs-card-pad: 1.25rem;\n  }\n\n  :root[data-theme=\"dark\"] {\n    --rs-surface: #0A1626;\n    --rs-surface-raised: #0F2036;\n    --rs-surface-sunken: #06101C;\n    --rs-text: #E6EDF5;\n    --rs-text-muted: #9FB0C4;\n    --rs-border: #22344C;\n    --rs-border-strong: #5B6F88;\n    --rs-brand: #007CFD;\n    --rs-brand-text: #00142F;\n    --rs-accent: #3D9BFF;\n    --rs-accent-text: #00142F;\n    --rs-success: #3FB950;\n    --rs-success-text: #00142F;\n    --rs-warning: #D29922;\n    --rs-warning-text: #00142F;\n    --rs-danger: #F85149;\n    --rs-danger-text: #00142F;\n    --rs-info: #3D9BFF;\n    --rs-info-text: #00142F;\n    --rs-focus: #3D9BFF;\n    --rs-overlay: #00000099;\n    --rs-chart1: #3390F7;\n    --rs-chart2: #D95926;\n    --rs-chart3: #199E70;\n    --rs-chart4: #C98500;\n    --rs-chart5: #D55181;\n    --rs-chart6: #1F9A1F;\n    --rs-chart7: #9085E9;\n    --rs-chart8: #E66767;\n    --rs-accent-subtle: #152F4E;\n    --rs-success-subtle: #153239;\n    --rs-warning-subtle: #262F34;\n    --rs-danger-subtle: #2B2638;\n    --rs-info-subtle: #152F4E;\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {\n      --rs-surface: #0A1626;\n      --rs-surface-raised: #0F2036;\n      --rs-surface-sunken: #06101C;\n      --rs-text: #E6EDF5;\n      --rs-text-muted: #9FB0C4;\n      --rs-border: #22344C;\n      --rs-border-strong: #5B6F88;\n      --rs-brand: #007CFD;\n      --rs-brand-text: #00142F;\n      --rs-accent: #3D9BFF;\n      --rs-accent-text: #00142F;\n      --rs-success: #3FB950;\n      --rs-success-text: #00142F;\n      --rs-warning: #D29922;\n      --rs-warning-text: #00142F;\n      --rs-danger: #F85149;\n      --rs-danger-text: #00142F;\n      --rs-info: #3D9BFF;\n      --rs-info-text: #00142F;\n      --rs-focus: #3D9BFF;\n      --rs-overlay: #00000099;\n      --rs-chart1: #3390F7;\n      --rs-chart2: #D95926;\n      --rs-chart3: #199E70;\n      --rs-chart4: #C98500;\n      --rs-chart5: #D55181;\n      --rs-chart6: #1F9A1F;\n      --rs-chart7: #9085E9;\n      --rs-chart8: #E66767;\n      --rs-accent-subtle: #152F4E;\n      --rs-success-subtle: #153239;\n      --rs-warning-subtle: #262F34;\n      --rs-danger-subtle: #2B2638;\n      --rs-info-subtle: #152F4E;\n    }\n  }\n}\n"
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/theme.schema.json",
+    "title": "Racksail theme",
+    "description": "A theme is design tokens and asset files, never code. Every theme is also checked for WCAG AA contrast, for status colors that keep their meaning and for references outside the package. Themes can't set the protected colors of safety-critical screens.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "format",
+      "id",
+      "name",
+      "version",
+      "license",
+      "tokens"
+    ],
+    "properties": {
+      "format": {
+        "const": 1
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "version": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+      },
+      "license": {
+        "description": "SPDX license expression.",
+        "type": "string",
+        "minLength": 1
+      },
+      "author": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "tokens": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "light",
+          "dark"
+        ],
+        "properties": {
+          "light": {
+            "$ref": "#/$defs/palette"
+          },
+          "dark": {
+            "$ref": "#/$defs/palette"
+          },
+          "typography": {
+            "$ref": "#/$defs/typography"
+          },
+          "radius": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sm": {
+                "$ref": "#/$defs/length"
+              },
+              "md": {
+                "$ref": "#/$defs/length"
+              },
+              "lg": {
+                "$ref": "#/$defs/length"
+              },
+              "xl": {
+                "$ref": "#/$defs/length"
+              }
+            }
+          },
+          "density": {
+            "description": "How tall controls and table rows are and how much space they leave.",
+            "enum": [
+              "comfortable",
+              "compact"
+            ]
+          },
+          "shadows": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sm": {
+                "$ref": "#/$defs/shadow"
+              },
+              "md": {
+                "$ref": "#/$defs/shadow"
+              },
+              "lg": {
+                "$ref": "#/$defs/shadow"
+              }
+            }
+          },
+          "motion": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fast": {
+                "$ref": "#/$defs/duration"
+              },
+              "normal": {
+                "$ref": "#/$defs/duration"
+              },
+              "slow": {
+                "$ref": "#/$defs/duration"
+              }
+            }
+          },
+          "focusRing": {
+            "description": "The outline that shows which element has keyboard focus.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "width": {
+                "$ref": "#/$defs/length"
+              },
+              "offset": {
+                "$ref": "#/$defs/length"
+              }
+            }
+          }
+        }
+      },
+      "assets": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "logoLight": {
+            "$ref": "#/$defs/asset"
+          },
+          "logoDark": {
+            "$ref": "#/$defs/asset"
+          },
+          "mark": {
+            "$ref": "#/$defs/asset"
+          },
+          "favicon": {
+            "$ref": "#/$defs/asset"
+          },
+          "loginBackground": {
+            "$ref": "#/$defs/asset"
+          },
+          "illustrations": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/asset"
+            }
+          }
+        }
+      },
+      "templates": {
+        "description": "Logic-less templates: variables only.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "$ref": "#/$defs/asset"
+          },
+          "error": {
+            "$ref": "#/$defs/asset"
+          },
+          "maintenance": {
+            "$ref": "#/$defs/asset"
+          },
+          "suspended": {
+            "$ref": "#/$defs/asset"
+          }
+        }
+      },
+      "console": {
+        "description": "Terminal palette for the installer, the console status screen and the CLI.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "background": {
+            "$ref": "#/$defs/color"
+          },
+          "foreground": {
+            "$ref": "#/$defs/color"
+          },
+          "accent": {
+            "$ref": "#/$defs/color"
+          },
+          "success": {
+            "$ref": "#/$defs/color"
+          },
+          "warning": {
+            "$ref": "#/$defs/color"
+          },
+          "danger": {
+            "$ref": "#/$defs/color"
+          }
+        }
+      }
+    },
+    "$defs": {
+      "color": {
+        "type": "string",
+        "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+      },
+      "length": {
+        "type": "string",
+        "pattern": "^[0-9]+(\\.[0-9]+)?(px|rem)$"
+      },
+      "duration": {
+        "type": "string",
+        "pattern": "^[0-9]+ms$"
+      },
+      "shadow": {
+        "type": "string",
+        "pattern": "^[0-9a-zA-Z#(),.%\\s-]+$"
+      },
+      "asset": {
+        "description": "A path inside the theme package. URLs aren't allowed: themes never load anything from the network.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$"
+      },
+      "palette": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "surface",
+          "surfaceRaised",
+          "surfaceSunken",
+          "text",
+          "textMuted",
+          "border",
+          "borderStrong",
+          "brand",
+          "brandText",
+          "accent",
+          "accentText",
+          "success",
+          "successText",
+          "warning",
+          "warningText",
+          "danger",
+          "dangerText",
+          "info",
+          "infoText",
+          "focus",
+          "chart"
+        ],
+        "properties": {
+          "surface": {
+            "$ref": "#/$defs/color"
+          },
+          "surfaceRaised": {
+            "$ref": "#/$defs/color"
+          },
+          "surfaceSunken": {
+            "$ref": "#/$defs/color"
+          },
+          "text": {
+            "$ref": "#/$defs/color"
+          },
+          "textMuted": {
+            "$ref": "#/$defs/color"
+          },
+          "border": {
+            "$ref": "#/$defs/color"
+          },
+          "borderStrong": {
+            "$ref": "#/$defs/color"
+          },
+          "brand": {
+            "$ref": "#/$defs/color"
+          },
+          "brandText": {
+            "$ref": "#/$defs/color"
+          },
+          "accent": {
+            "$ref": "#/$defs/color"
+          },
+          "accentText": {
+            "$ref": "#/$defs/color"
+          },
+          "success": {
+            "$ref": "#/$defs/color"
+          },
+          "successText": {
+            "$ref": "#/$defs/color"
+          },
+          "warning": {
+            "$ref": "#/$defs/color"
+          },
+          "warningText": {
+            "$ref": "#/$defs/color"
+          },
+          "danger": {
+            "$ref": "#/$defs/color"
+          },
+          "dangerText": {
+            "$ref": "#/$defs/color"
+          },
+          "info": {
+            "$ref": "#/$defs/color"
+          },
+          "infoText": {
+            "$ref": "#/$defs/color"
+          },
+          "focus": {
+            "$ref": "#/$defs/color"
+          },
+          "overlay": {
+            "description": "Dims the page behind dialogs and sheets; it may be translucent.",
+            "$ref": "#/$defs/color"
+          },
+          "chart": {
+            "description": "Series colors, in order. Each must reach 3:1 against raised surfaces.",
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 12,
+            "items": {
+              "$ref": "#/$defs/color"
+            }
+          }
+        }
+      },
+      "font": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family"
+        ],
+        "properties": {
+          "family": {
+            "description": "The family name as CSS uses it: letters, digits, spaces, hyphens and underscores.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,62}$"
+          },
+          "files": {
+            "description": "Variable font files in WOFF2 or WOFF format, inside the package.",
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/$defs/asset"
+            }
+          }
+        }
+      },
+      "typography": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sans": {
+            "$ref": "#/$defs/font"
+          },
+          "mono": {
+            "$ref": "#/$defs/font"
+          },
+          "baseSize": {
+            "$ref": "#/$defs/length"
+          },
+          "scale": {
+            "description": "Ratio between steps of the type scale.",
+            "type": "number",
+            "minimum": 1,
+            "maximum": 2
+          },
+          "weights": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "regular": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 900
+              },
+              "medium": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 900
+              },
+              "semibold": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 900
+              },
+              "bold": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 900
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

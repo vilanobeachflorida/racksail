@@ -65,7 +65,7 @@ describe("findHardCodedColors", () => {
 });
 
 describe("filesToCheck", () => {
-  it("skips hidden directories and generated files", () => {
+  it("skips hidden directories, generated files and tests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tokens-"));
     for (const sub of [".hidden", "design", "lib/api", "app"]) {
       mkdirSync(join(dir, sub), { recursive: true });
@@ -76,6 +76,7 @@ describe("filesToCheck", () => {
       "design/globals.css",
       "lib/api/schema.d.ts",
       "app/shell.tsx",
+      "app/shell.test.tsx",
       "app/logo.png",
     ]) {
       writeFileSync(join(dir, file), "");

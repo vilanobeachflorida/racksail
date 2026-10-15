@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/vilanobeachflorida/racksail/spec"
 )
 
 // YAML writes a theme as a theme.yaml file.
@@ -44,6 +46,9 @@ type Spec struct {
 	// LayerCSS is each built-in theme rendered by LayerCSS, so the UI's own
 	// renderer can be checked against it.
 	LayerCSS map[string]string `json:"layerCss"`
+	// Schema is spec/schemas/theme.schema.json, which the editor checks
+	// imported themes against.
+	Schema json.RawMessage `json:"schema"`
 }
 
 // UISpec builds the spec of the built-in themes.
@@ -59,6 +64,11 @@ func UISpec() Spec {
 	for _, t := range s.Themes {
 		s.LayerCSS[t.ID] = t.LayerCSS(nil)
 	}
+	schema, err := spec.SchemaJSON(spec.Theme)
+	if err != nil {
+		panic(err)
+	}
+	s.Schema = schema
 	return s
 }
 

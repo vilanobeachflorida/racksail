@@ -23,7 +23,7 @@
     --rs-info: #0062CC;
     --rs-info-text: #FFFFFF;
     --rs-focus: #007CFD;
-    --rs-overlay: rgb(1 33 79 / 0.4);
+    --rs-overlay: #01214F66;
     --rs-chart1: #007CFD;
     --rs-chart2: #E2622C;
     --rs-chart3: #139A6B;
@@ -103,7 +103,7 @@
     --rs-info: #3D9BFF;
     --rs-info-text: #00142F;
     --rs-focus: #3D9BFF;
-    --rs-overlay: rgb(0 0 0 / 0.6);
+    --rs-overlay: #00000099;
     --rs-chart1: #3390F7;
     --rs-chart2: #D95926;
     --rs-chart3: #199E70;
@@ -141,7 +141,7 @@
       --rs-info: #3D9BFF;
       --rs-info-text: #00142F;
       --rs-focus: #3D9BFF;
-      --rs-overlay: rgb(0 0 0 / 0.6);
+      --rs-overlay: #00000099;
       --rs-chart1: #3390F7;
       --rs-chart2: #D95926;
       --rs-chart3: #199E70;
@@ -219,7 +219,7 @@
     --rs-info: #0049B8;
     --rs-info-text: #FFFFFF;
     --rs-focus: #0049B8;
-    --rs-overlay: rgb(0 0 0 / 0.702);
+    --rs-overlay: #000000B3;
     --rs-chart1: #0049B8;
     --rs-chart2: #B33F0A;
     --rs-chart3: #00806A;
@@ -260,7 +260,7 @@
     --rs-info: #8CC8FF;
     --rs-info-text: #000000;
     --rs-focus: #FFD60A;
-    --rs-overlay: rgb(0 0 0 / 0.8);
+    --rs-overlay: #000000CC;
     --rs-chart1: #3390F7;
     --rs-chart2: #D95926;
     --rs-chart3: #199E70;
@@ -298,7 +298,7 @@
       --rs-info: #8CC8FF;
       --rs-info-text: #000000;
       --rs-focus: #FFD60A;
-      --rs-overlay: rgb(0 0 0 / 0.8);
+      --rs-overlay: #000000CC;
       --rs-chart1: #3390F7;
       --rs-chart2: #D95926;
       --rs-chart3: #199E70;
@@ -337,7 +337,7 @@
       --rs-info: #0049B8;
       --rs-info-text: #FFFFFF;
       --rs-focus: #0049B8;
-      --rs-overlay: rgb(0 0 0 / 0.702);
+      --rs-overlay: #000000B3;
       --rs-chart1: #0049B8;
       --rs-chart2: #B33F0A;
       --rs-chart3: #00806A;
@@ -378,7 +378,7 @@
       --rs-info: #8CC8FF;
       --rs-info-text: #000000;
       --rs-focus: #FFD60A;
-      --rs-overlay: rgb(0 0 0 / 0.8);
+      --rs-overlay: #000000CC;
       --rs-chart1: #3390F7;
       --rs-chart2: #D95926;
       --rs-chart3: #199E70;
@@ -416,7 +416,7 @@
         --rs-info: #8CC8FF;
         --rs-info-text: #000000;
         --rs-focus: #FFD60A;
-        --rs-overlay: rgb(0 0 0 / 0.8);
+        --rs-overlay: #000000CC;
         --rs-chart1: #3390F7;
         --rs-chart2: #D95926;
         --rs-chart3: #199E70;

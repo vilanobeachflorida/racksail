@@ -44,7 +44,7 @@ func paletteVars(p Palette) [][2]string {
 		{"brand", string(p.Brand)}, {"brandText", string(p.BrandText)}, {"accent", string(p.Accent)}, {"accentText", string(p.AccentText)},
 		{"success", string(p.Success)}, {"successText", string(p.SuccessText)}, {"warning", string(p.Warning)}, {"warningText", string(p.WarningText)},
 		{"danger", string(p.Danger)}, {"dangerText", string(p.DangerText)}, {"info", string(p.Info)}, {"infoText", string(p.InfoText)},
-		{"focus", string(p.Focus)}, {"overlay", overlayCSS(p.Overlay)},
+		{"focus", string(p.Focus)}, {"overlay", string(p.Overlay)},
 	}
 	for i, c := range p.Chart {
 		vars = append(vars, [2]string{"chart" + strconv.Itoa(i+1), string(c)})
@@ -54,16 +54,6 @@ func paletteVars(p Palette) [][2]string {
 		vars = append(vars, [2]string{d.Name, string(colors[d.Name])})
 	}
 	return vars
-}
-
-// overlayCSS writes a translucent color as rgb() with alpha, which every
-// browser reads, and an opaque one as it is.
-func overlayCSS(c Color) string {
-	rgb, err := c.Parse()
-	if err != nil || rgb.A == 1 {
-		return string(c)
-	}
-	return fmt.Sprintf("rgb(%d %d %d / %s)", int(rgb.R), int(rgb.G), int(rgb.B), trimFloat(rgb.A, 3))
 }
 
 func trimFloat(v float64, decimals int) string {
