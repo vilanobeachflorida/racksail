@@ -11,9 +11,11 @@
 // with -deb, the harness installs the Debian package with apt. With
 // -upgrade-from it installs an earlier release's package first, checks it,
 // upgrades it to -deb and checks that the server came back on the new
-// version with its state. Then it tests the server the same way. The
-// consoles, the server's journal and the suites' output are saved in the
-// work directory's logs, whatever happens.
+// version with its state. A run with -deb then removes the package and
+// installs it again, and checks that the server comes back as it was.
+// Then it tests the server the same way. The consoles, the server's journal
+// and the suites' output are saved in the work directory's logs, whatever
+// happens, the panel never answering included.
 //
 //	go run ./test/qemu -iso dist/racksail-1.2.3-amd64.iso -firmware secureboot
 //	go run ./test/qemu -iso dist/racksail-1.2.3-amd64.iso -disks 2 -answers test/fixtures/answers/install-mirror.yaml
@@ -323,20 +325,22 @@ func run(ctx context.Context, c Config) error {
 			return err
 		}
 	}
-	if err := WaitForPanel(bootCtx, panel, 5*time.Second); err != nil {
-		return fmt.Errorf("%w\nlast console lines:\n%s", err, tail(m.SerialLog, 30))
-	}
-	log.Printf("the panel answers at %s", panel)
-
+	panelErr := WaitForPanel(bootCtx, panel, 5*time.Second)
 	var errs []error
 	if !sshReady {
-		if err := ssh.Wait(bootCtx, 5*time.Second); err != nil {
+		// The server's diagnostics matter most when the panel never
+		// answered, so they're collected then too.
+		if err := waitForSSH(ctx, bootCtx, ssh, panelErr != nil); err != nil {
 			errs = append(errs, err)
 		} else {
 			sshReady = true
 			defer collectLogs()
 		}
 	}
+	if panelErr != nil {
+		return errors.Join(append([]error{fmt.Errorf("%w\nlast console lines:\n%s", panelErr, tail(m.SerialLog, 30))}, errs...)...)
+	}
+	log.Printf("the panel answers at %s", panel)
 	// The installed system boots with the firmware's variables the installer
 	// image booted with. Secure Boot on there means the firmware enforced it
 	// all along, so the image's own boot chain passed its checks too: the
@@ -359,6 +363,11 @@ func run(ctx context.Context, c Config) error {
 			return errors.Join(append(errs, err)...)
 		}
 	}
+	if c.Deb != "" {
+		if err := reinstall(ctx, ssh, panel, files+"/"+packageName, c.BootTimeout, logs); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
+	}
 	// Before the suites, which leave the panel busier than an idle server.
 	if sshReady && c.MemoryBudget > 0 {
 		if err := checkIdleMemory(ctx, ssh, "/sys/fs/cgroup", c.Settle, memorySamples, memoryEvery, c.MemoryBudget, logs); err != nil {
@@ -376,6 +385,23 @@ func run(ctx context.Context, c Config) error {
 		<-ctx.Done()
 	}
 	return errors.Join(errs...)
+}
+
+// sshGrace is how long SSH may take once the panel has failed to answer in
+// the time the boot had, so the server's journal can still say why.
+const sshGrace = 2 * time.Minute
+
+// waitForSSH waits for the server to accept the harness's key within the
+// boot's time, or, when the panel never answered and that time is spent,
+// for sshGrace more.
+func waitForSSH(ctx, bootCtx context.Context, s SSH, panelFailed bool) error {
+	wait := bootCtx
+	if panelFailed {
+		var cancel context.CancelFunc
+		wait, cancel = context.WithTimeout(ctx, sshGrace)
+		defer cancel()
+	}
+	return s.Wait(wait, 5*time.Second)
 }
 
 func exists(path string) bool {

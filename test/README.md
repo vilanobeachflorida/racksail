@@ -43,7 +43,7 @@ The harness, `go run ./test/qemu`, does what a person would:
 3. boots the installed system without the ISO, waits for the panel's health endpoint and for SSH,
 4. lets the server settle for a minute and measures what Racksail's own services hold: the memory of each service in `racksail.slice`, as its cgroup counts it, without the inactive file cache the kernel drops first. The median of five samples must stay under the idle memory budget, 100 MiB with every module off (decision R5 in [decisions.md](../docs/architecture/decisions.md)),
 5. runs the API and browser suites against the panel through a forwarded port, with `RACKSAIL_E2E_INSECURE=1` for the panel's own certificate,
-6. saves everything to `build/e2e/logs/`: both serial consoles, QEMU's output, the answers it used, the memory samples, the suites' output and Playwright's report, and from the server its journal, Racksail's units, disks and network.
+6. saves everything to `build/e2e/logs/`: both serial consoles, QEMU's output, the answers it used, the memory samples, the suites' output and Playwright's report, and from the server its journal, Racksail's units, disks and network. When the panel never answers, the harness still signs in over SSH, giving it two more minutes if the boot's time is spent, and collects the server's diagnostics before it stops.
 
 Options choose the machine: `-arch amd64|arm64`, `-firmware bios|uefi|secureboot`, `-disks N`, `-disk-bus virtio|sata|nvme`, `-answers FILE`, `-memory`, `-cpus`. With `-firmware secureboot` it boots OVMF with Microsoft's keys enrolled, which enforces Secure Boot, so the installer image only boots when its shim, GRUB and kernel are signed, and then checks that the installed system booted with Secure Boot on too. `-memory-budget MiB` and `-settle` change the idle memory check, and `-memory-budget 0` skips it. `-keep` leaves the machine running after the suites, and prints how to reach it.
 
@@ -54,7 +54,7 @@ The harness gives disks to the installer as `/dev/disk/by-id/` paths, so a USB s
 With `-cloud-image` the harness boots one of Debian's cloud images instead of the ISO, with a cloud-init seed that creates the admin it signs in as, and sets the server up one of two ways:
 
 - `-binary bin/racksail-linux-amd64`: the seed downloads the binary from the harness and converts the server with `racksail install --convert`, as the install script does.
-- `-deb dist/racksail_<version>_amd64.deb`: the harness waits for cloud-init, downloads the package onto the server and installs it with `apt-get install`, as people install the Debian package.
+- `-deb dist/racksail_<version>_amd64.deb`: the harness waits for cloud-init, downloads the package onto the server and installs it with `apt-get install`, as people install the Debian package. Before the suites, it removes the package with `apt-get remove`, checks that Racksail's services stopped, installs the package again and checks that they come back enabled and running, with the panel serving the certificate it had, so its state survived. apt's output is in the logs as `apt-remove.txt` and `apt-reinstall.txt`.
 
 `make cloud-image` downloads Debian's image into `build/cloud/` and checks it against Debian's published checksums.
 

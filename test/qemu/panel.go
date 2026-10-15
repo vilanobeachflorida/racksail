@@ -146,6 +146,12 @@ func (s SSH) CollectLogs(ctx context.Context, dir string) error {
 // RunSuites runs the API and browser suites against the panel, writing
 // their output into the logs directory.
 func RunSuites(ctx context.Context, repo, panel, version, logs string, suites []string) error {
+	// Playwright reads relative paths from its configuration's directory,
+	// which would put its report outside the logs.
+	logs, err := filepath.Abs(logs)
+	if err != nil {
+		return err
+	}
 	env := append(os.Environ(),
 		"RACKSAIL_E2E_URL="+panel,
 		"RACKSAIL_E2E_INSECURE=1",
