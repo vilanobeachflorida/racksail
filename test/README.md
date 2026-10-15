@@ -8,6 +8,7 @@ This directory is for tests that need a whole Racksail: running against the simu
 |---|---|
 | [e2e/api/](e2e/api/) | The API suite: Go tests that run against a panel at `RACKSAIL_E2E_URL` |
 | [e2e/specs/](e2e/specs/) | The browser suite: Playwright tests of the panel, with [playwright.config.ts](e2e/playwright.config.ts) |
+| [e2e/pseudo/](e2e/pseudo/) | The pseudo-locale suite, with [pseudo.config.ts](e2e/pseudo.config.ts): the UI in en-XA and ar-XB |
 | [qemu/](qemu/) | The harness that installs Racksail on a virtual machine and runs both suites against it |
 | [fixtures/](fixtures/) | Shared test data: answers files, and later synthetic servers to migrate from (CWP, cPanel, DirectAdmin, HestiaCP, Plesk, Unraid), zone files, backup archives and recipes |
 
@@ -28,6 +29,19 @@ npx playwright test --ui
 ```
 
 The suites check what holds for every panel: the API's health, version, document and errors, the UI's security headers, that it loads nothing from other origins and starts without errors, that its screens meet WCAG 2.2 AA as far as [axe](https://github.com/dequelabs/axe-core) can tell, on a desktop and on a phone, that the first screen loads within the bundle budget of 250 KiB of code and styles compressed, and, where a signed-in session is available, the shell's landmarks, keyboard access and pages. Each module adds its own flows next to them, and runs axe on its screens the same way.
+
+## Pseudo-locales and right to left
+
+```sh
+make e2e-pseudo
+```
+
+It builds the UI with two pseudo-locales next to English and checks every screen in each, on a desktop and on a phone, against a `racksail dev` of its own on 127.0.0.1:7270:
+
+- **en-XA** accents every letter of every message, puts it in brackets and makes it a third longer. Any unaccented word left on a screen, apart from what the API sent, didn't come from a message catalog. Text a third longer must neither make the page scroll sideways nor get cut off without an ellipsis.
+- **ar-XB** makes every word read right to left, and since the UI takes it for Arabic, the whole panel lays itself out right to left. The suite checks that each landmark sits where it would left to right, mirrored, and that nothing overflows.
+
+[e2e/pseudo/pseudo.mjs](e2e/pseudo/pseudo.mjs) rewrites the messages, leaving their arguments, plurals and tags alone, and [e2e/pseudo/serve.mjs](e2e/pseudo/serve.mjs) builds the UI with them from a copy of `ui/` in `build/pseudo/`, so the source tree stays as it is. `make check` runs the rewriter's own tests over every catalog the UI has. Playwright's report, in `build/e2e-pseudo/`, has a screenshot of every screen in both pseudo-locales; CI keeps it for two weeks. Text that is data rather than words, such as a hostname in a table, goes in an element with `translate="no"`, which the suite and browsers' translators both leave alone.
 
 ## Installing on a virtual machine
 

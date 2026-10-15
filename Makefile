@@ -70,6 +70,7 @@ help:
 	@echo "make iso         build the installer ISO in a Debian container; ISO_ARCH, ISO_VARIANT"
 	@echo "make e2e         install the ISO on a QEMU machine and run the end-to-end suites; ISO, E2E_FLAGS"
 	@echo "make e2e-local   run the end-to-end suites against racksail dev on $(E2E_ADDR)"
+	@echo "make e2e-pseudo  check the UI in the pseudo-locales en-XA and ar-XB, right to left included"
 	@echo "make cloud-image download Debian's cloud image for the end-to-end tests; CLOUD_ARCH"
 	@echo "make catalog     check the catalog and build its index into $(CATALOG_OUT)"
 	@echo "make licenses    check that every dependency's license is allowed"
@@ -222,10 +223,10 @@ CATALOG_PUBLIC ?= catalog/keys/official.pub
 
 FUZZ_TIME ?= 1m
 
-.PHONY: release deb sbom notices iso e2e e2e-local cloud-image catalog catalog-check catalog-publish \
-	licenses vulncheck fuzz gen-check sdk-check ci-lint
+.PHONY: release deb sbom notices iso e2e e2e-local e2e-pseudo e2e-check cloud-image catalog catalog-check \
+	catalog-publish licenses vulncheck fuzz gen-check sdk-check ci-lint
 
-check: sdk-check
+check: sdk-check e2e-check
 
 $(E2E_DEPS): test/e2e/package.json test/e2e/package-lock.json
 	cd test/e2e && $(NPM) ci --no-audit --no-fund
@@ -298,6 +299,19 @@ e2e: $(E2E_DEPS)
 
 e2e-local: build $(E2E_DEPS)
 	E2E_ADDR=$(E2E_ADDR) E2E_DATA=$(E2E_DATA) test/e2e/local.sh $(BIN)/racksail
+
+# Builds the UI with the pseudo-locales and checks every screen in them on a
+# desktop and a phone: text that skipped the message catalogs, layouts that
+# don't fit text a third longer, and right-to-left layouts that don't mirror.
+# Playwright's report, with a screenshot of every screen, goes to
+# build/e2e-pseudo.
+e2e-pseudo: $(UI_DEPS) $(E2E_DEPS)
+	cd test/e2e && RACKSAIL_E2E_REPORT=$(CURDIR)/build/e2e-pseudo/playwright-report \
+		RACKSAIL_E2E_RESULTS=$(CURDIR)/build/e2e-pseudo/playwright-results npx playwright test --config pseudo.config.ts
+
+# The end-to-end suites' own tools.
+e2e-check: $(E2E_DEPS)
+	cd test/e2e && node --test 'pseudo/*.test.mjs'
 
 cloud-image:
 	mkdir -p $(dir $(CLOUD_IMAGE))
