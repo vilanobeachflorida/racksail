@@ -1,4 +1,5 @@
 # A mirror needs exactly two disks.
+# want: the mirror layout takes exactly two disks
 format: 1
 mode: install
 network: {mode: dhcp}

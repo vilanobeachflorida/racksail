@@ -86,4 +86,4 @@ The release workflow runs this before it publishes anything, from the newest ear
 - Fixtures are synthetic. Nothing here comes from a real server, customer or mailbox.
 - Every migration source has fixtures, and every parser that reads outside input has a fuzz test next to its code.
 - Tests clean up after themselves and don't depend on the order they run in.
-- Answers files in [fixtures/answers/](fixtures/answers/) are ones the installer accepts, and those in `invalid/` each break one rule; `go test ./test/fixtures` checks both.
+- Answers files in [fixtures/answers/](fixtures/answers/) are ones the installer accepts, and those in `invalid/` each break one rule, with part of the error it must cause on a `# want:` line; `go test ./test/fixtures` checks both.

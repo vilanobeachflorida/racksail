@@ -1,4 +1,5 @@
 # Restoring needs to know where the backup is.
+# want: missing property 'restore'
 format: 1
 mode: restore
 network: {mode: dhcp}

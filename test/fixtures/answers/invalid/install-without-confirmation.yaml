@@ -1,4 +1,5 @@
 # Installing erases the chosen disks, so it needs confirmWipe.
+# want: set disks.confirmWipe to true
 format: 1
 mode: install
 network: {mode: dhcp}
