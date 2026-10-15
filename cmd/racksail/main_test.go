@@ -107,6 +107,16 @@ func TestInstallDryRun(t *testing.T) {
 	if _, err := run(t, "install", "--answers", wipe); err == nil || !strings.Contains(err.Error(), "installer image") {
 		t.Errorf("install mode on a running system: %v", err)
 	}
+	if _, err := run(t, "install", "--convert", "--answers", wipe); err == nil || !strings.Contains(err.Error(), "for the install mode") {
+		t.Errorf("--convert with an install answers file: %v", err)
+	}
+	if _, err := run(t, "install"); err == nil || !strings.Contains(err.Error(), "--convert") {
+		t.Errorf("install without answers: %v", err)
+	}
+	out, err = run(t, "install", "--convert", "--dry-run", "--binary", "/usr/local/bin/racksail")
+	if err != nil || !strings.Contains(out, "Install Racksail's services") || strings.Contains(out, "Set the hostname") {
+		t.Errorf("--convert without answers = %s, %v", out, err)
+	}
 }
 
 func TestDevRefusesRemoteAddresses(t *testing.T) {

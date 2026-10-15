@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,22 +18,28 @@ import (
 
 func newInstallCommand() *cobra.Command {
 	var answersPath, binary string
-	var dryRun, simulated bool
+	var dryRun, simulated, convert bool
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Turn this Debian 13 server into a Racksail server, from an answers file",
 		Long: "Reads an answers file (see spec/schemas/answers.schema.json) and carries it out. The convert mode " +
-			"sets up the running Debian 13 system: Racksail's users, directories and services. The install and " +
-			"restore modes erase disks, so they run from the Racksail installer image. --dry-run shows the plan " +
-			"without changing anything.",
-		Example: "  racksail install --answers answers.yaml --dry-run\n  sudo racksail install --answers answers.yaml",
-		Args:    cobra.NoArgs,
+			"sets up the running Debian 13 system: Racksail's users, directories and services; --convert does that " +
+			"without an answers file. The install and restore modes erase disks, so they run from the Racksail " +
+			"installer image. --dry-run shows the plan without changing anything.",
+		Example: "  racksail install --convert --dry-run\n  sudo racksail install --convert\n" +
+			"  sudo racksail install --answers answers.yaml",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var data []byte
 			var err error
-			if answersPath == "-" {
+			switch {
+			case answersPath == "" && convert:
+				data = []byte("format: 1\nmode: convert\n")
+			case answersPath == "":
+				return errors.New("give an answers file with --answers, or use --convert to set up this server as it is")
+			case answersPath == "-":
 				data, err = io.ReadAll(cmd.InOrStdin())
-			} else {
+			default:
 				data, err = os.ReadFile(answersPath)
 			}
 			if err != nil {
@@ -41,6 +48,9 @@ func newInstallCommand() *cobra.Command {
 			a, err := installer.ParseAnswers(data)
 			if err != nil {
 				return err
+			}
+			if convert && a.Mode != installer.ModeConvert {
+				return fmt.Errorf("--convert sets up this server as it is, but the answers file is for the %s mode", a.Mode)
 			}
 			if a.Mode != installer.ModeConvert {
 				return fmt.Errorf("the %s mode erases disks, so it runs from the Racksail installer image, not on a running system; to set up this server as it is, use mode: convert", a.Mode)
@@ -90,9 +100,9 @@ func newInstallCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&answersPath, "answers", "", "answers file, or - to read it from standard input")
+	cmd.Flags().BoolVar(&convert, "convert", false, "set up this running Debian 13 system as it is; an answers file is then optional")
 	cmd.Flags().StringVar(&binary, "binary", "", "path the services run racksail from; this executable by default")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the plan without changing anything")
 	cmd.Flags().BoolVar(&simulated, "sim", false, "carry out the plan on a simulated server")
-	_ = cmd.MarkFlagRequired("answers")
 	return cmd
 }
