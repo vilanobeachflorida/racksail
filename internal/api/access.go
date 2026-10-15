@@ -58,11 +58,13 @@ func AuthorizeRead(ctx context.Context, authz auth.Authorizer, m store.Meta) err
 // may read. It is how every list operation reads the store.
 //
 // When a grant covers the whole scope listed (q.Scope, or every scope when
-// it is nil) the store's page is used as it is. Otherwise the list falls
-// back to the resources the actor holds grants on single resources for, so
-// a collaborator granted one site sees that site; with neither, the list is
-// refused with core.forbidden. The query names those resources, so pages
-// stay full. Either way each resource is authorized on its own before it is
+// it is nil) the store's page is used as it is. A list of every scope by an
+// actor whose grants cover only some, such as an account's owner, lists the
+// scopes those grants cover. Otherwise the list falls back to the resources
+// the actor holds grants on single resources for, so a collaborator granted
+// one site sees that site; with none of these, the list is refused with
+// core.forbidden. The query names those scopes or resources, so pages stay
+// full. Either way each resource is authorized on its own before it is
 // returned.
 func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Query) (*store.Page, error) {
 	actor, err := Actor(ctx)
@@ -75,8 +77,14 @@ func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Q
 	}
 	perm := ReadPermission(q.Kind)
 	err = Authorize(ctx, authz, perm, auth.Target{Scope: scope})
+	var scopes []store.Scope
+	if err != nil && i18n.ErrForbidden.Is(err) && q.Scope == nil {
+		scopes = grantScopes(ctx, authz, actor, perm)
+	}
 	switch {
 	case err == nil:
+	case len(scopes) > 0:
+		q.Scopes = scopes
 	case i18n.ErrForbidden.Is(err):
 		objects, ok := authz.(auth.ObjectAuthorizer)
 		if !ok {
@@ -109,6 +117,21 @@ func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Q
 		return nil, err
 	}
 	return &store.Page{Items: items, Next: page.Next}, nil
+}
+
+// grantScopes returns the scopes of the actor's grants on whole scopes that
+// carry perm.
+func grantScopes(ctx context.Context, authz auth.Authorizer, actor *auth.Actor, perm auth.Permission) []store.Scope {
+	var out []store.Scope
+	for _, g := range actor.Grants {
+		if g.Object != "" || g.Scope.Level == store.ScopeServer || slices.Contains(out, g.Scope) {
+			continue
+		}
+		if authz.Authorize(ctx, actor, perm, auth.Target{Scope: g.Scope}) == nil {
+			out = append(out, g.Scope)
+		}
+	}
+	return out
 }
 
 // Readable keeps the resources the signed-in actor may read, in order,

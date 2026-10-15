@@ -273,6 +273,9 @@ type Queue interface {
 	// Retry queues a failed or canceled job again with the same arguments.
 	Retry(ctx context.Context, id store.ID) (*Job, error)
 	Logs(ctx context.Context, id store.ID) ([]LogLine, error)
+	// LogsAfter returns up to limit lines of a job's log after the line
+	// numbered seq; zero means every line.
+	LogsAfter(ctx context.Context, id store.ID, seq int64, limit int) ([]LogLine, error)
 	// Watch streams updates until the job finishes or stop is called.
 	Watch(id store.ID) (updates <-chan Update, stop func())
 	// Wait blocks until the job finishes.

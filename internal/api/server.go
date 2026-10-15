@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,11 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
+	"github.com/vilanobeachflorida/racksail/internal/events"
+	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/updates"
@@ -73,28 +78,55 @@ const healthTimeout = 5 * time.Second
 
 // Options are the dependencies of the server.
 type Options struct {
-	Auth    auth.Authenticator
+	// Auth identifies callers. Without one, operations that need a
+	// signed-in actor are refused, except in development mode.
+	Auth auth.Authenticator
+	// Dev is racksail dev: without Auth, every request is signed in as the
+	// developer, an administrator, which the log says when the server is
+	// built.
+	Dev     bool
 	Modules *modules.Registry
-	// Services are passed to modules that add API operations.
+	// Services are what operations work with, and what modules that add
+	// operations are given. Services.Kinds, when nil, is the process-wide
+	// kind registry, so the document lists every kind.
 	Services *modules.Services
+	// Timeline serves the event timeline and its live stream.
+	Timeline *events.Log
+	// Webhooks serves the delivery logs of webhooks.
+	Webhooks *webhook.Dispatcher
 	Health   []HealthCheck
 	// AllowFrom limits who may reach the panel to these networks when it
 	// isn't empty: panel.allow_from in racksail.toml. Requests from anywhere
 	// else are refused before anything else happens.
 	AllowFrom []netip.Prefix
+	// RateLimit bounds how often callers may call the API.
+	RateLimit RateLimit
 	// UI serves everything outside /api.
 	UI  http.Handler
 	Log *slog.Logger
+	Now func() time.Time
 }
 
-// ErrAddressNotAllowed refuses requests from outside panel.allow_from.
-var ErrAddressNotAllowed = i18n.Define("api.address_not_allowed", http.StatusForbidden, "The panel doesn't accept requests from {address}.")
+// Errors of the API itself.
+var (
+	// ErrAddressNotAllowed refuses requests from outside panel.allow_from.
+	ErrAddressNotAllowed = i18n.Define("api.address_not_allowed", http.StatusForbidden, "The panel doesn't accept requests from {address}.")
+	// ErrNoSignIn refuses operations that need a signed-in actor on a panel
+	// that has no way to sign anyone in.
+	ErrNoSignIn = i18n.Define("api.no_sign_in", http.StatusServiceUnavailable, "This panel has no way to sign anyone in yet, so it refuses requests that need a signed-in user.")
+)
 
 // Server is the panel API.
 type Server struct {
-	opts Options
-	mux  *http.ServeMux
-	api  huma.API
+	opts    Options
+	mux     *http.ServeMux
+	api     huma.API
+	kinds   *store.KindRegistry
+	docs    map[string]kindDoc
+	limiter *limiter
+	// noSignIn is set when no authenticator is configured outside
+	// development mode.
+	noSignIn bool
 }
 
 // New builds the server.
@@ -102,8 +134,25 @@ func New(opts Options) *Server {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
+	if opts.Services == nil {
+		opts.Services = &modules.Services{}
+	}
+	var noSignIn bool
 	if opts.Auth == nil {
-		opts.Auth = auth.NoAuthenticator{}
+		if opts.Dev {
+			opts.Auth = auth.DevAuthenticator{}
+			opts.Log.Warn("development mode: every request is signed in as the developer, an administrator; the panel only listens on loopback addresses")
+		} else {
+			opts.Auth = auth.NoAuthenticator{}
+			noSignIn = true
+		}
+	}
+	kinds := opts.Services.Kinds
+	if kinds == nil {
+		kinds = store.Kinds()
 	}
 	mux := http.NewServeMux()
 	cfg := httpapi.Config("Racksail API", Version)
@@ -115,9 +164,21 @@ func New(opts Options) *Server {
 		SessionScheme: {Type: "apiKey", In: "cookie", Name: SessionCookie, Description: "The session cookie set when signing in to the panel."},
 		TokenScheme:   {Type: "http", Scheme: "bearer", Description: "An API token, scoped to permissions and accounts."},
 	}
-	s := &Server{opts: opts, mux: mux, api: humago.New(mux, cfg)}
+	s := &Server{
+		opts: opts, mux: mux, api: humago.New(mux, cfg), kinds: kinds, docs: map[string]kindDoc{},
+		limiter: newLimiter(opts.RateLimit, opts.Now), noSignIn: noSignIn,
+	}
+	if noSignIn && opts.Services.Store != nil {
+		opts.Log.Error("the panel has no way to sign anyone in, so it refuses every request that needs a signed-in user")
+	}
 	s.api.UseMiddleware(s.requireActor)
 	s.registerSystem()
+	s.registerCatalog()
+	s.registerKindDocs()
+	s.registerResources()
+	s.registerChangeSets()
+	s.registerJobs()
+	s.registerTimeline()
 	if opts.Modules != nil {
 		for _, m := range opts.Modules.All() {
 			if p, ok := m.(modules.APIProvider); ok {
@@ -125,6 +186,9 @@ func New(opts Options) *Server {
 			}
 		}
 	}
+	// The operations of kinds come last, so the schemas they build take
+	// names no Go type has.
+	s.registerKinds()
 	mux.HandleFunc("GET "+Prefix+"/openapi.json", s.serveOpenAPI)
 	// Everything under /api is the API's, so paths no operation matches get
 	// a problem rather than the UI's page.
@@ -197,7 +261,7 @@ type versionOutput struct {
 
 func (s *Server) registerSystem() {
 	report := s.api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[HealthReport](), true, "HealthReport")
-	huma.Register(s.api, huma.Operation{
+	op := huma.Operation{
 		OperationID: "getHealth",
 		Method:      http.MethodGet,
 		Path:        Prefix + "/health",
@@ -208,7 +272,9 @@ func (s *Server) registerSystem() {
 		Responses: map[string]*huma.Response{
 			"503": {Description: "A check failed", Content: map[string]*huma.MediaType{"application/json": {Schema: report}}},
 		},
-	}, func(ctx context.Context, _ *struct{}) (*healthOutput, error) {
+	}
+	Describe(&op, Info{Risk: store.RiskRead})
+	huma.Register(s.api, op, func(ctx context.Context, _ *struct{}) (*healthOutput, error) {
 		out := &healthOutput{Status: http.StatusOK, Body: HealthReport{Status: "ok", Checks: s.runChecks(ctx)}}
 		for _, c := range out.Body.Checks {
 			if c.Status != "ok" {
@@ -217,17 +283,28 @@ func (s *Server) registerSystem() {
 		}
 		return out, nil
 	})
-	huma.Register(s.api, huma.Operation{
+	op = huma.Operation{
 		OperationID: "getVersion",
 		Method:      http.MethodGet,
 		Path:        Prefix + "/version",
 		Summary:     "Show the Racksail version",
 		Description: "Reports the version, release channel and build of the running panel. It needs no sign-in.",
 		Tags:        []string{"System"},
-	}, func(ctx context.Context, _ *struct{}) (*versionOutput, error) {
+	}
+	Describe(&op, Info{Risk: store.RiskRead})
+	huma.Register(s.api, op, func(ctx context.Context, _ *struct{}) (*versionOutput, error) {
 		return &versionOutput{Body: updates.Build()}, nil
 	})
 }
+
+// services returns what operations work with; parts may be missing, as
+// when the document is exported without a running panel.
+func (s *Server) services() *modules.Services { return s.opts.Services }
+
+func (s *Server) store() store.Store           { return s.opts.Services.Store }
+func (s *Server) pipeline() changeset.Pipeline { return s.opts.Services.Pipeline }
+func (s *Server) jobs() jobs.Queue             { return s.opts.Services.Jobs }
+func (s *Server) authorizer() auth.Authorizer  { return s.opts.Services.Authorizer }
 
 // runChecks runs the health checks that apply, side by side, and reports
 // them in their order.
@@ -268,6 +345,11 @@ type authErrorKey struct{}
 func (s *Server) requireActor(ctx huma.Context, next func(huma.Context)) {
 	if len(ctx.Operation().Security) == 0 {
 		next(ctx)
+		return
+	}
+	if s.noSignIn {
+		err := ErrNoSignIn.New()
+		huma.WriteErr(s.api, ctx, http.StatusServiceUnavailable, err.Message, err)
 		return
 	}
 	if err, ok := ctx.Context().Value(authErrorKey{}).(error); ok {
@@ -314,7 +396,8 @@ func (r *statusRecorder) Flush() {
 // Unwrap gives http.ResponseController access to the original writer.
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
-// Handler returns the server wrapped in its middleware.
+// Handler returns the server wrapped in its middleware: request IDs,
+// recovery, access logs, panel.allow_from, authentication and rate limits.
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -324,6 +407,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.Header().Set("X-Request-Id", id)
 		rec := &statusRecorder{ResponseWriter: w}
+		var actor *auth.Actor
 		defer func() {
 			if p := recover(); p != nil {
 				s.opts.Log.Error("request panicked", "request", id, "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
@@ -336,14 +420,15 @@ func (s *Server) Handler() http.Handler {
 				level = slog.LevelDebug
 			}
 			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", r.URL.Path,
-				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond))
+				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond),
+				"actor", actor.String(), "remote", r.RemoteAddr)
 		}()
 		if len(s.opts.AllowFrom) > 0 && !s.allowed(r.RemoteAddr) {
 			writeProblem(rec, ErrAddressNotAllowed.New("address", r.RemoteAddr))
 			return
 		}
-		ctx := r.Context()
-		actor, err := s.opts.Auth.Authenticate(ctx, r)
+		ctx := events.WithRequestID(r.Context(), id)
+		found, err := s.opts.Auth.Authenticate(ctx, r)
 		switch {
 		case err != nil:
 			// Credentials that aren't valid, such as an expired session
@@ -351,12 +436,27 @@ func (s *Server) Handler() http.Handler {
 			// Everything else, the UI and its sign-in screen included,
 			// treats the request as anonymous.
 			ctx = context.WithValue(ctx, authErrorKey{}, err)
-		case actor != nil:
+		case found != nil:
+			actor = found
 			ctx = auth.WithActor(ctx, actor)
 		}
 		if r.URL.Path == apiRoot || strings.HasPrefix(r.URL.Path, apiRoot+"/") {
 			rec.Header().Set("Cache-Control", "no-store")
 			rec.Header().Set("X-Content-Type-Options", "nosniff")
+			// Load balancers ask for the health often; it is never limited.
+			if r.URL.Path != Prefix+"/health" {
+				ok, limit, remaining, wait := s.limiter.allow(actor, r.RemoteAddr)
+				if limit > 0 {
+					rec.Header().Set("RateLimit-Limit", strconv.Itoa(limit))
+					rec.Header().Set("RateLimit-Remaining", strconv.Itoa(remaining))
+				}
+				if !ok {
+					after := retryAfter(wait)
+					rec.Header().Set("Retry-After", after)
+					writeProblem(rec, i18n.ErrRateLimited.New("retryAfter", after))
+					return
+				}
+			}
 		}
 		s.mux.ServeHTTP(rec, r.WithContext(ctx))
 	})
