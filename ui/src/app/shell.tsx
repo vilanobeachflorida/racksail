@@ -1,13 +1,13 @@
 import { Outlet, useMatches, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { useIntl } from "react-intl";
-import { Mark } from "@/design/components/mark";
 import { Sheet, SheetContent, SheetTitle } from "@/design/components/ui/dialog";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { Toaster } from "@/design/components/ui/toaster";
 import { jobDone } from "@/lib/changes";
 import { useMediaQuery } from "@/lib/media";
 import { AssistantDock } from "./assistant-dock";
+import { BrandMark, useBrandName } from "./brand";
 import { CommandBar } from "./command-bar";
 import { RouteAnnouncer, useRouteFocus } from "./focus";
 import { Jobs, useJobs } from "./jobs";
@@ -25,9 +25,9 @@ function useDocumentTitle() {
   const matches = useMatches();
   const title = matches.findLast((match) => match.staticData.title)?.staticData.title;
   const page = title ? intl.formatMessage(title) : "";
-  const name = intl.formatMessage(messages.name);
+  const name = useBrandName();
   useEffect(() => {
-    document.title = page ? intl.formatMessage(messages.documentTitle, { page }) : name;
+    document.title = page ? intl.formatMessage(messages.documentTitle, { page, name }) : name;
   }, [intl, page, name]);
 }
 
@@ -59,12 +59,13 @@ function SkipLinks() {
 function MobileNav() {
   const intl = useIntl();
   const shell = useShell();
+  const name = useBrandName();
   return (
     <Sheet open={shell.navOpen} onOpenChange={shell.setNavOpen}>
       <SheetContent side="start" className="flex flex-col gap-4" aria-describedby={undefined}>
         <SheetTitle className="flex items-center gap-2">
-          <Mark className="h-6" />
-          {intl.formatMessage(messages.name)}
+          <BrandMark className="h-6" />
+          {name}
         </SheetTitle>
         <nav
           aria-label={intl.formatMessage(messages.navLabel)}
@@ -154,7 +155,7 @@ export function ShellSkeleton() {
       className="flex h-dvh flex-col bg-background"
     >
       <div className="flex h-14 items-center gap-3 border-border border-b bg-card px-4">
-        <Mark className="h-7" />
+        <BrandMark className="h-7" />
         <Skeleton className="h-5 w-24" />
       </div>
       <div className="flex min-h-0 flex-1">

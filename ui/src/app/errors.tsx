@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { CircleAlert } from "lucide-react";
 import { useIntl } from "react-intl";
-import { Mark } from "@/design/components/mark";
 import { Button } from "@/design/components/ui/button";
 import { errorMessage } from "@/lib/errors";
+import { BrandMark } from "./brand";
 import { messages } from "./messages";
 
 /** Shown for an address no route matches. */
@@ -42,7 +42,7 @@ export function BootError({ error }: { error: unknown }) {
   const intl = useIntl();
   return (
     <div role="alert" className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6">
-      <Mark className="h-10 self-start" />
+      <BrandMark className="h-10 self-start" />
       <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.bootTitle)}</h1>
       <p>{errorMessage(intl, error)}</p>
       <p className="text-muted-foreground">{intl.formatMessage(messages.bootBody)}</p>

@@ -11,7 +11,6 @@ import {
   Sun,
 } from "lucide-react";
 import { useIntl } from "react-intl";
-import { Mark } from "@/design/components/mark";
 import { Button } from "@/design/components/ui/button";
 import { Badge } from "@/design/components/ui/display";
 import {
@@ -27,6 +26,7 @@ import {
 } from "@/design/components/ui/overlay";
 import type { Preferences } from "@/design/theme/prefs";
 import { useTheme } from "@/design/theme/provider";
+import { BrandLogo, useBrandName } from "./brand";
 import { messages } from "./messages";
 import { useShell } from "./shell-state";
 import { ShortcutKeys } from "./shortcuts";
@@ -130,6 +130,7 @@ function AppearanceMenu() {
 export function TopBar({ runningJobs }: { runningJobs: number }) {
   const intl = useIntl();
   const shell = useShell();
+  const brandName = useBrandName();
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-border border-b bg-card px-3 sm:px-4">
       <Button
@@ -146,10 +147,9 @@ export function TopBar({ runningJobs }: { runningJobs: number }) {
       <Link
         to="/"
         className="flex shrink-0 items-center gap-2 rounded-md font-semibold text-lg focus-visible:focus-ring"
-        aria-label={intl.formatMessage(messages.name)}
+        aria-label={brandName}
       >
-        <Mark className="h-7" />
-        <span className="hidden lg:inline">{intl.formatMessage(messages.name)}</span>
+        <BrandLogo />
       </Link>
       <div className="mx-2 hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
       <div className="min-w-0 flex-1">

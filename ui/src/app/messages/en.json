@@ -1,7 +1,7 @@
 {
   "app.name": "Racksail",
   "app.tagline": "Your server, your rules.",
-  "app.documentTitle": "{page} · Racksail",
+  "app.documentTitle": "{page} · {name}",
   "app.skipToContent": "Skip to content",
   "app.loading": "Loading the panel",
   "app.nav.label": "Main",

@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { fontLayer, layerAssetURLs, type ThemeAssetURLs, type ThemeFileURL } from "./files";
 import type { ThemeLayers } from "./layers";
 import {
   applyPreferences,
@@ -33,6 +34,10 @@ export interface ThemeContextValue {
    * them, like charts drawn on a canvas.
    */
   tokensKey: string;
+  /** Where the server's or reseller's logos, mark, favicon and login background are served. */
+  assets: ThemeAssetURLs;
+  /** The name a server's or reseller's logo stands for, when it has one. */
+  brandName: string | null;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -66,11 +71,46 @@ function useSystemDark(): boolean {
   return dark;
 }
 
+/** Shows the theme's favicon in the browser tab instead of Racksail's, while there is one. */
+function useFavicon(href: string | undefined) {
+  useEffect(() => {
+    if (!href) {
+      return;
+    }
+    const links = [...document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')];
+    const before = links.map((link) => ({
+      link,
+      href: link.getAttribute("href"),
+      type: link.getAttribute("type"),
+      sizes: link.getAttribute("sizes"),
+    }));
+    for (const link of links) {
+      // The theme's file may be any image type, so the browser works it out.
+      link.setAttribute("href", href);
+      link.removeAttribute("type");
+      link.removeAttribute("sizes");
+    }
+    return () => {
+      for (const { link, ...attrs } of before) {
+        for (const [name, value] of Object.entries(attrs)) {
+          if (value === null) {
+            link.removeAttribute(name);
+          } else {
+            link.setAttribute(name, value);
+          }
+        }
+      }
+    };
+  }, [href]);
+}
+
 export interface ThemeProviderProps {
   /** The server and reseller themes, when the panel has them. */
   layers?: ThemeLayers;
-  /** Where the panel serves a theme package's font files. */
-  fontURL?: (path: string) => string;
+  /** Where the panel serves the files of the server's and reseller's theme packages. */
+  fileURL?: ThemeFileURL;
+  /** The name the server's or reseller's logo stands for, such as a hosting company's. */
+  brandName?: string;
   /** Called when the person changes a preference, to keep it with their account too. */
   onPreferencesChange?: (preferences: Preferences) => void;
   children: ReactNode;
@@ -84,7 +124,8 @@ export interface ThemeProviderProps {
  */
 export function ThemeProvider({
   layers,
-  fontURL,
+  fileURL,
+  brandName,
   onPreferencesChange,
   children,
 }: ThemeProviderProps) {
@@ -102,6 +143,14 @@ export function ThemeProvider({
       return;
     }
     let cancelled = false;
+    // A theme being previewed has no package to serve fonts from.
+    const fontURL =
+      fileURL && !preview
+        ? (path: string, font: "sans" | "mono") => {
+            const layer = fontLayer({ server, reseller }, font);
+            return layer ? fileURL(layer, path) : path;
+          }
+        : undefined;
     Promise.all([import("./css"), import("./layers")]).then(
       ([{ renderLayerCSS }, { resolveLayers }]) => {
         if (!cancelled) {
@@ -112,7 +161,13 @@ export function ThemeProvider({
     return () => {
       cancelled = true;
     };
-  }, [preview, server, reseller, fontURL]);
+  }, [preview, server, reseller, fileURL]);
+
+  const assets = useMemo(
+    () => (fileURL ? layerAssetURLs({ server, reseller }, fileURL) : {}),
+    [server, reseller, fileURL],
+  );
+  useFavicon(assets.favicon);
 
   useInsertionEffect(() => {
     if (css === "") {
@@ -165,8 +220,10 @@ export function ThemeProvider({
       setPreferences,
       mode,
       tokensKey,
+      assets,
+      brandName: brandName ?? null,
     }),
-    [stableLayers, preview, preferences, setPreferences, mode, tokensKey],
+    [stableLayers, preview, preferences, setPreferences, mode, tokensKey, assets, brandName],
   );
   return <ThemeContext value={value}>{children}</ThemeContext>;
 }

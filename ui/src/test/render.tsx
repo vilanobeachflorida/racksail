@@ -8,7 +8,7 @@ import { type ModuleState, ModulesProvider } from "@/app/modules";
 import { createAppRouter } from "@/app/router";
 import { ShellStateProvider } from "@/app/shell-state";
 import { TooltipProvider } from "@/design/components/ui/overlay";
-import { ThemeProvider } from "@/design/theme/provider";
+import { ThemeProvider, type ThemeProviderProps } from "@/design/theme/provider";
 import { type ApiClient, createApiClient } from "@/lib/api/client";
 import { ApiProvider } from "@/lib/api/context";
 import { applyLocale, I18nProvider, shellMessages } from "@/lib/i18n";
@@ -189,6 +189,7 @@ export function renderShell({
   api = fakeApi(),
   states = null,
   can,
+  theme = {},
 }: {
   modules: ModuleUI[];
   messages: Messages;
@@ -196,6 +197,8 @@ export function renderShell({
   api?: ApiClient;
   states?: Partial<Record<ModuleId, ModuleState>> | null;
   can?: (permission: string) => boolean;
+  /** Theme layers, file URLs and a brand name, as the app gets them from the panel. */
+  theme?: Omit<ThemeProviderProps, "children">;
 }) {
   const client = testQueryClient();
   const router = createAppRouter(modules, client, createMemoryHistory({ initialEntries: [path] }));
@@ -206,7 +209,7 @@ export function renderShell({
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>
         <LiveProvider client={fakeLive().live}>
-          <ThemeProvider>
+          <ThemeProvider {...theme}>
             <I18nProvider locale="en" messages={messages} onError={failOnIntlError}>
               <TooltipProvider delayDuration={0}>
                 <ModulesProvider modules={modules} states={states} {...(can ? { can } : {})}>

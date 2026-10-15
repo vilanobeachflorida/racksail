@@ -8,6 +8,7 @@ import { type RouterHistory, RouterProvider } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import type { IntlConfig } from "react-intl";
 import { TooltipProvider } from "@/design/components/ui/overlay";
+import type { ThemeFileURL } from "@/design/theme/files";
 import type { ThemeLayers } from "@/design/theme/layers";
 import type { Preferences } from "@/design/theme/prefs";
 import { ThemeProvider } from "@/design/theme/provider";
@@ -46,8 +47,10 @@ export interface AppProps {
   onIntlError?: IntlConfig["onError"];
   /** The server and reseller themes on top of the default one. */
   themeLayers?: ThemeLayers;
-  /** Where a theme package's fonts are served. */
-  fontURL?: (path: string) => string;
+  /** Where the files of the server's and reseller's theme packages are served: fonts, logos and the favicon. */
+  themeFileURL?: ThemeFileURL;
+  /** The name the server's or reseller's logo stands for, such as a hosting company's. */
+  brandName?: string;
   /** Which modules are on; every module counts as on without it. */
   moduleStates?: Partial<Record<ModuleId, ModuleState>> | null;
   /** Whether the signed-in person has a permission. */
@@ -66,7 +69,8 @@ export function App({
   history,
   onIntlError,
   themeLayers,
-  fontURL,
+  themeFileURL,
+  brandName,
   moduleStates,
   can,
   onPreferencesChange,
@@ -99,7 +103,8 @@ export function App({
         <LiveProvider {...(live ? { client: live } : {})}>
           <ThemeProvider
             {...(themeLayers ? { layers: themeLayers } : {})}
-            {...(fontURL ? { fontURL } : {})}
+            {...(themeFileURL ? { fileURL: themeFileURL } : {})}
+            {...(brandName ? { brandName } : {})}
             {...(onPreferencesChange ? { onPreferencesChange } : {})}
           >
             <LocaleChoiceProvider value={localeChoice}>

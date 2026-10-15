@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Globe, Plus, Sparkles } from "lucide-react";
 import { afterEach, describe, expect, it } from "vitest";
+import { builtinTheme } from "@/design/theme/spec";
 import { shellMessages } from "@/lib/i18n";
 import type { AssistantPanelProps, ModuleUI } from "@/modules/types";
 import { axeViolations } from "@/test/axe";
@@ -288,6 +289,54 @@ describe("the assistant dock", () => {
     expect(screen.queryByRole("complementary", { name: "Assistant" })).not.toBeInTheDocument();
     await user.keyboard("{Control>}k{/Control}");
     expect(await screen.findByPlaceholderText("Go to a page or run a command")).toBeInTheDocument();
+  });
+});
+
+describe("white-labeling", () => {
+  it("shows a reseller's logo, name and favicon instead of Racksail's", async () => {
+    const icon = document.createElement("link");
+    icon.rel = "icon";
+    icon.type = "image/svg+xml";
+    icon.href = "/favicon.svg";
+    document.head.append(icon);
+    const reseller = builtinTheme("racksail");
+    reseller.id = "acme";
+    reseller.name = "Acme";
+    reseller.assets = {
+      logoLight: "logo.svg",
+      logoDark: "logo-dark.svg",
+      mark: "mark.svg",
+      favicon: "icon.png",
+    };
+    const { unmount } = await shell({
+      theme: {
+        layers: { reseller },
+        fileURL: (layer, path) => `/api/v1/themes/${layer}/files/${path}`,
+        brandName: "Acme Hosting",
+      },
+    });
+    const home = screen.getByRole("link", { name: "Acme Hosting" });
+    const images = [...home.querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(images).toEqual([
+      "/api/v1/themes/reseller/files/mark.svg",
+      "/api/v1/themes/reseller/files/logo.svg",
+    ]);
+    await screen.findByRole("heading", { level: 1, name: "Home" });
+    await waitFor(() => expect(document.title).toBe("Home · Acme Hosting"));
+    expect(icon.getAttribute("href")).toBe("/api/v1/themes/reseller/files/icon.png");
+    expect(icon).not.toHaveAttribute("type");
+
+    unmount();
+    expect(icon.getAttribute("href")).toBe("/favicon.svg");
+    expect(icon).toHaveAttribute("type", "image/svg+xml");
+    icon.remove();
+  });
+
+  it("keeps Racksail's mark and name without a theme logo", async () => {
+    await shell();
+    const home = screen.getByRole("link", { name: "Racksail" });
+    expect(home.querySelector("img")).toBeNull();
+    expect(home).toHaveTextContent("Racksail");
   });
 });
 
