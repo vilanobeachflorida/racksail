@@ -25,7 +25,7 @@ Contrast ratios follow WCAG 2.2. Body text needs 4.5:1; large text (24 px, or 18
 | White | Navy | 15.8:1 | Any text |
 | `#E6EDF5` | Navy | 13.4:1 | Text on navy that's easier on the eyes than pure white |
 | `#0062CC` | White | 5.8:1 | Links and small blue text on light backgrounds |
-| `#00142F` | Blue | 4.7:1 | Labels on blue buttons and badges |
+| `#00142F` | Blue | 4.6:1 | Labels on blue buttons and badges |
 | Blue | White | 4.0:1 | Large text, icons and focus rings only |
 | White | Blue | 4.0:1 | Large text and icons only |
 | Blue | Navy | 4.0:1 | Graphics and large text only, as in the logo for dark backgrounds |

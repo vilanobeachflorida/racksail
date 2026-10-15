@@ -104,7 +104,7 @@ Exporting a built-in theme gives a complete file to start from: `racksail theme 
 
 ## Colors
 
-`tokens.light` and `tokens.dark` each have every one of these, as `#RRGGBB`. Only `overlay` may have an alpha, as `#RRGGBBAA`.
+`tokens.light` and `tokens.dark` each have every one of these, as `#RRGGBB`. Only `overlay` may have an alpha, as `#RRGGBBAA`; any other color with one is refused, because a color you can see through has no contrast of its own to check.
 
 | Token | What it colors | Checked against |
 |---|---|---|
@@ -141,7 +141,7 @@ The theme editor's contrast checker lists every pair that's checked, with its ra
 | `typography.scale` | How much larger each step of the type scale is, from 1 to 2; the default is 1.125 |
 | `typography.weights` | `regular`, `medium`, `semibold` and `bold`, from 100 to 900 |
 
-The panel bundles Inter (`Inter Variable`) and JetBrains Mono (`JetBrains Mono Variable`). Any other font comes with the theme as up to four variable font files in WOFF2 or WOFF format. A family name has letters, digits, spaces, hyphens and underscores only. Themes never load fonts from the internet.
+The panel bundles Inter (`Inter Variable`) and JetBrains Mono (`JetBrains Mono Variable`). Any other font comes with the theme as up to four variable font files in WOFF2 or WOFF format, listed under `files`; a theme that names another family without its files is refused, and so is a package without the files it lists. A family name has letters, digits, spaces, hyphens and underscores only. Themes never load fonts from the internet.
 
 ## Shape, density and motion
 
@@ -168,7 +168,15 @@ Paths are relative to the package, without `..` or URLs. Every file is checked a
 
 ## Templates
 
-Templates are HTML files with `{{variables}}` and nothing else: no conditions, loops, scripts, forms or event handlers, and nothing loaded from elsewhere. Images come from variables or `data:` URLs. Links can point anywhere, since following one is the reader's choice. Every value is escaped when it's filled in.
+Templates are HTML files with `{{variables}}` and nothing else: no conditions, loops, scripts, forms or event handlers, and nothing loaded from elsewhere. The panel reads them as browsers read HTML, so entities and the order of attributes can't hide anything.
+
+- **Elements:** the ones of plain pages and emails: headings, paragraphs, lists, tables, links, images, `div`, `span`, `style`, `title` and `meta` with a name such as `viewport`. No scripts, frames, forms, inputs, SVG, `base`, `link`, `meta http-equiv` or conditional comments.
+- **Images** come from `{{logo}}` or `data:` URLs.
+- **Links** go to web and mail addresses (`https:`, `http:`, `mailto:` and `tel:`) or to a path. Following one is the reader's choice. A variable can be a whole address, which is checked when it's filled in, or come after the scheme or a path, as in `mailto:{{contact}}` or `https://example.com/?site={{siteName}}`.
+- **Styles** in a `style` element or attribute refer to nothing outside the page: no `@import`, and `url()` and `image-set()` only with `data:` URLs.
+- **Variables** go in text and attribute values. `{{style}}` goes only in a `style` element and `{{logo}}` only between elements; no other variable goes in styles or comments.
+
+Every value is escaped for where it stands: as text, in an attribute, or in a link, where an address that isn't a web or mail address is dropped.
 
 | Template | Used for | Variables |
 |---|---|---|
@@ -200,7 +208,7 @@ Every template also has `lang` and `dir` for the reader's language and direction
 
 ## Console colors
 
-`console` colors the installer, the console status screen, the SSH login message and the CLI: `background`, `foreground`, `accent`, `success`, `warning` and `danger`. Terminals that can't show 24-bit color get the nearest of their 256 or 16 colors, and with `NO_COLOR` set there's no color at all. `racksail theme mark ./my-theme` shows the mark in a theme's console colors.
+`console` colors the installer, the console status screen, the SSH login message and the CLI: `background`, `foreground`, `accent`, `success`, `warning` and `danger`, each `#RRGGBB`. A color the theme leaves out is Racksail's. Every color is text on the background, so each needs 4.5:1 against it, and the status colors keep their meaning as the panel's do. Terminals that can't show 24-bit color get the nearest of their 256 or 16 colors, and with `NO_COLOR` set there's no color at all. `racksail theme mark ./my-theme` shows the mark in a theme's console colors.
 
 ## Protected colors
 

@@ -15,16 +15,17 @@ An imported file is checked the way the panel checks a theme when it's saved: a 
 
 The tabs on the left hold every token:
 
-- **Colors:** each color token for light mode and for dark mode, with a color picker and a hex field, and the chart colors, from 6 to 12. A field that isn't a color says so and keeps the last good value.
-- **Type:** the text and code fonts, the base size, the type scale and the four weights. A font has to be one the panel bundles, Inter Variable or JetBrains Mono Variable, or one the theme's package will bring.
+- **Colors:** each color token for light mode and for dark mode, with a color picker and a hex field, and the chart colors, from 6 to 12. A field that isn't a color says so and keeps the last good value. Only the overlay takes an alpha.
+- **Type:** the text and code fonts, the base size, the type scale and the four weights. A font has to be one the panel bundles, Inter Variable or JetBrains Mono Variable, or one the theme's package will bring: list its files, one path per line, and put them in the package.
 - **Shape and motion:** density, corner radius, shadows, motion speeds and the focus ring.
+- **Console:** the colors of the installer, the console status screen and the CLI, with a terminal drawn in them. A color left empty is Racksail's.
 - **Details:** the name, ID, version, license, author and description.
 
 ## Preview
 
 On the right, the same example screen shows in light and dark mode, built from the panel's own components: a heading, stat tiles, a chart, buttons, badges, form fields, a progress bar, an alert and a sample of the protected colors. Every change shows at once.
 
-**Try on the whole panel** applies the theme to every screen, in your browser only, until you stop trying it or leave the editor. Nobody else sees it.
+**Try on the whole panel** applies the theme to every screen, in your browser only, until you stop trying it or leave the editor. Nobody else sees it. It's only offered while every check passes, and trying stops by itself when a change brings a problem, so a theme can't make the panel unreadable, the button that stops it included.
 
 ## Check
 
@@ -32,7 +33,7 @@ Above the tabs, the editor lists everything the panel would refuse: fields that 
 
 > Light mode: Text on Page surface has a contrast of 1.05:1 and needs 4.5:1. Make one of them lighter or darker.
 
-The **contrast checker** below the preview lists every pair the panel checks, for each mode: the two colors, what the pair is used for, the ratio, the minimum and whether it passes. **Only failing checks** narrows the list to what needs fixing.
+The **contrast checker** below the preview lists every pair the panel checks, for each mode and for the console: the two colors, what the pair is used for, the ratio, the minimum and whether it passes. **Only failing checks** narrows the list to what needs fixing.
 
 Exporting stays off until every check passes.
 

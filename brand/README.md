@@ -1,6 +1,6 @@
 # Racksail brand files
 
-The Racksail logo, icons and terminal mark, and the program that draws them. How to use them is in the brand guidelines on the docs site: [logo](../docs/site/src/content/docs/brand/logo.md), [colors](../docs/site/src/content/docs/brand/colors.md), [typography](../docs/site/src/content/docs/brand/typography.md), [voice](../docs/site/src/content/docs/brand/voice.md), [UI patterns](../docs/site/src/content/docs/brand/ui-patterns.md) and [applications](../docs/site/src/content/docs/brand/applications.md).
+The Racksail logo, icons and terminal mark, and the program that draws them. How to use them is in the brand guidelines on the docs site: [logo](../docs/site/src/content/docs/brand/logo.md), [colors](../docs/site/src/content/docs/brand/colors.md), [typography](../docs/site/src/content/docs/brand/typography.md), [iconography](../docs/site/src/content/docs/brand/iconography.md), [voice](../docs/site/src/content/docs/brand/voice.md), [UI patterns](../docs/site/src/content/docs/brand/ui-patterns.md) and [applications](../docs/site/src/content/docs/brand/applications.md).
 
 ## The basics
 
@@ -8,6 +8,7 @@ The Racksail logo, icons and terminal mark, and the program that draws them. How
 - **Tagline:** Your server, your rules.
 - **Colors:** navy `#01214F` and blue `#007CFD`, with white. Navy is the ink of the mark and the wordmark; blue is the sea.
 - **Fonts:** Inter for text and JetBrains Mono for code. The wordmark is drawn, not typed.
+- **Icons:** [Lucide](https://lucide.dev), at 16 pixels beside text and 20 in the navigation, with its 2-pixel stroke, in the color of the text around them. An icon never works alone: it has words beside it, or a label for screen readers and a tooltip when it's an icon-only button.
 
 ## What's here
 

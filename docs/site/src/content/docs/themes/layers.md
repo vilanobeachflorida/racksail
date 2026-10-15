@@ -48,8 +48,10 @@ The protected palette of safety-critical screens, the destructive confirmations,
 The panel applies the layers as CSS custom properties in [cascade layers](https://developer.mozilla.org/docs/Web/CSS/@layer), in this order from lowest to highest:
 
 1. `rs-theme`: the default theme, then the server and reseller themes as one combined theme
-2. `rs-custom`: an admin's custom CSS
+2. `rs-custom`: an admin's custom CSS, inside `@scope (:root) to ([data-critical])`, so its rules stop at safety-critical areas
 3. `rs-preferences`: density, text size, high contrast and reduced motion, switched on by attributes on the page's root element
 4. `rs-protected`: the protected palette
 
-Because the order is fixed by the layers, custom CSS can't outrank a person's preferences or the protected palette, however specific its selectors are. Components only use the custom properties, which start with `--rs-`, so everything follows the theme.
+Because the order is fixed by the layers, custom CSS can't outrank a person's preferences or the protected palette, however specific its selectors are; that's also why it can't use `!important`, which turns the order of layers around. Components only use the custom properties, which start with `--rs-`, so everything follows the theme.
+
+A layer sets every chart color slot, up to twelve: the ones it has no color for are cleared, so a theme with six chart colors never shows a seventh from the layer below that was never checked against its surfaces.

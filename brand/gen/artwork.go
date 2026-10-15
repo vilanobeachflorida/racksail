@@ -9,9 +9,11 @@ const (
 )
 
 // The mark: a mainsail, a jib, a hull and a wave, 100 units wide. Each shape
-// is a few cubic curves fitted to the original drawing in
-// racksail-mark.png and smoothed where curves meet, so the mark scales from
-// a favicon to a billboard without kinks.
+// is a few cubic curves fitted to the original raster drawing, which
+// racksail-mark.png held before the generator replaced it with its own
+// render (it's in the repository's history, in the commit that added the
+// architecture documents), and smoothed where curves meet, so the mark
+// scales from a favicon to a billboard without kinks.
 const (
 	markWidth  = 100
 	markHeight = 78.43

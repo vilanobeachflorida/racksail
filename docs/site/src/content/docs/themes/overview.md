@@ -31,9 +31,9 @@ Themes come in layers, each on top of the one before:
 The panel checks a theme when it's imported, saved or installed, and refuses one that fails:
 
 - **The format.** Every field matches the [theme schema](../format/).
-- **Contrast.** Text, links, buttons, status colors, borders of controls, the focus ring and chart colors reach WCAG 2.2 AA against the surfaces they're used on, in light and dark mode. Combining layers is checked too, so a reseller's theme can't make the server's text unreadable.
-- **Meaning.** Success stays green, warning amber or orange, danger red and info blue.
-- **Files.** Every file the theme refers to is in the package, is the type it claims to be, and loads nothing else: no scripts in images, no remote fonts, no forms or trackers in templates.
+- **Contrast.** Text, links, buttons, status colors, borders of controls, the focus ring and chart colors reach WCAG 2.2 AA against the surfaces they're used on, in light and dark mode, and so do the console colors on their background. Only the overlay may be see-through, since a translucent color has no contrast to check. Combining layers is checked too, so a reseller's theme can't make the server's text unreadable.
+- **Meaning.** Success stays green, warning amber or orange, danger red and info blue, in the panel and in the console.
+- **Files.** Every file the theme refers to is in the package, is the type it claims to be, and loads nothing else: no scripts in images, no remote fonts, no forms or trackers in templates. A font the panel doesn't bundle comes with its files.
 
 Some screens can't be themed at all. Destructive confirmations, warnings in the change preview, security prompts, license labels and permission screens use a protected palette that follows only light or dark mode and high contrast, so no theme can make deleting something look harmless or hide a warning.
 
@@ -53,7 +53,16 @@ To add logos, fonts or templates, put `theme.yaml` in a folder with the files it
 
 ## Custom CSS
 
-An admin can add CSS of their own to restyle the panel on their own server. It's off by default and shows a warning when turned on, because it isn't checked for contrast the way themes are. Custom CSS can't load anything from the network, can't change the protected palette or restyle safety-critical screens, and can't be shared in a catalog: it stays on the server it was written for. It sits above themes and below personal preferences, so high contrast and larger text still work.
+An admin can add CSS of their own to restyle the panel on their own server. It's off by default and shows a warning when turned on, because it isn't checked for contrast the way themes are, and it can't be shared in a catalog: it stays on the server it was written for.
+
+The panel reads custom CSS the way browsers do, escapes and all, and refuses it when it:
+
+- loads anything from the network: `@import`, or `url()`, `image-set()` and the other image functions with anything but `data:` URLs of images and fonts
+- uses `!important`, which would outrank personal preferences and the protected palette
+- mentions the protected palette (`--rs-critical-*`) or the markers of safety-critical areas, or registers the panel's own custom properties
+- declares cascade layers or scopes, or has anything outside a rule
+
+The panel then puts it in a cascade layer above themes and below personal preferences, so high contrast and larger text still work, and in a scope that stops at safety-critical screens, so none of its rules reach destructive confirmations, warnings in the change preview, security prompts, license labels or permission screens.
 
 ## Themes in catalogs
 

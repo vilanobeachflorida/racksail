@@ -50,13 +50,13 @@ Ask before something that loses data or can't be undone, and only then. The dial
 
 ## Jobs
 
-Work that takes more than a moment runs as a job and shows in the jobs drawer: running jobs first, with progress, the current step and a live log, then finished ones with their result. Running jobs can be canceled and failed ones retried. The count in the top bar shows how many are running.
+Work that takes more than a moment runs as a job and shows in the jobs drawer: running jobs first, with progress, the current step and a live log, then finished ones with their result. Running jobs can be canceled and failed ones retried; while that's under way the button shows it's busy, and if it fails, the job says why and what to do. The count in the top bar shows how many are running.
 
 ## Forms
 
 - Labels sit above fields; help text below them, connected for screen readers.
-- Fields are checked when you leave them and again on submit. Errors appear under the field and say what to do; on submit, a summary says how many fields need attention.
-- Rarely needed settings fold into an Advanced section.
+- Fields are checked when you leave them and again on submit. Errors appear under the field and say what to do; on submit, a summary says how many fields need attention and focus goes to the first of them.
+- Rarely needed settings fold into an Advanced section, which opens by itself when a problem, the server's included, is in it.
 - Secrets are never shown back. When editing, an empty secret field keeps the current value.
 - Fields that can only be set when creating something are locked afterwards, with a note saying why.
 - Forms for a resource are generated from its schema, so every kind has a working form before it has a custom screen.
@@ -69,7 +69,7 @@ Tables sort from their headings, search across every column and filter by column
 
 - An empty list says what will appear there and offers one first step.
 - Loading shows skeletons in the shape of what's coming, not spinners.
-- Data stays live: lists and statuses update as things change on the server, without reloading.
+- Data stays live: lists and statuses update as things change on the server, without reloading. After the connection drops, or when the server says the panel fell behind, they load again, so nothing missed stays out of date.
 - Where it's safe, the screen shows the result of an action at once and corrects itself if the server disagrees.
 
 ## Errors
