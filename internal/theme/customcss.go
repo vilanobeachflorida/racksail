@@ -3,108 +3,71 @@ package theme
 import (
 	"errors"
 	"fmt"
-	"regexp"
+	"slices"
 	"strings"
 )
 
 // MaxCustomCSSBytes bounds an admin's custom CSS.
 const MaxCustomCSSBytes = 64 << 10
 
-var customURL = regexp.MustCompile(`(?i)url\(\s*['"]?\s*([^'")\s]*)`)
+// CustomCSSScope is where custom CSS applies: the whole page except
+// safety-critical areas (elements marked data-critical) and everything
+// inside them.
+const CustomCSSScope = "@scope (:root) to ([data-critical])"
 
-// CheckCustomCSS checks custom CSS an admin wrote for their own server. It
-// may restyle the panel, but it can't load anything from the network,
-// reach the protected palette or the elements that use it, or escape the
-// cascade layer it is placed in, which sits below personal preferences and
-// the protected palette.
+// CheckCustomCSS checks CSS an admin wrote for their own server. It may
+// restyle the panel, but it can't load anything from the network, use
+// !important, mention the protected palette or the markers of
+// safety-critical areas, or escape the cascade layer and scope
+// WrapCustomCSS puts it in, which rank below personal preferences and the
+// protected palette and leave safety-critical areas alone. The CSS is read
+// as browsers read it (CSS Syntax Level 3), so what's checked is what they
+// see.
 func CheckCustomCSS(css string) error {
+	_, err := customCSSRules.split(css)
+	return err
+}
+
+func (r cssRules) split(css string) ([]cssRule, error) {
 	if len(css) > MaxCustomCSSBytes {
-		return fmt.Errorf("custom CSS is limited to %d KiB", MaxCustomCSSBytes>>10)
+		return nil, fmt.Errorf("custom CSS is limited to %d KiB", MaxCustomCSSBytes>>10)
 	}
-	code, err := stripCSS(css)
-	if err != nil {
-		return err
+	if strings.Contains(css, "<") {
+		return nil, errors.New("custom CSS can't contain the < character, which could start HTML")
 	}
-	lower := strings.ToLower(code)
-	for _, bad := range []struct{ text, why string }{
-		{"@import", "custom CSS can't import style sheets"},
-		{"@layer", "custom CSS can't declare cascade layers; the panel places it in its own"},
-		{"@namespace", "custom CSS can't declare namespaces"},
-		{"--rs-critical", "custom CSS can't change the protected colors of safety-critical screens"},
-		{"data-critical", "custom CSS can't restyle safety-critical screens"},
-		{"expression(", "custom CSS can't contain expressions"},
-		{"javascript:", "custom CSS can't contain javascript: URLs"},
-		{"behavior:", "custom CSS can't attach behaviors"},
-		{"-moz-binding", "custom CSS can't attach bindings"},
-		{"<", "custom CSS can't contain HTML"},
-	} {
-		if strings.Contains(lower, bad.text) {
-			return errors.New(bad.why)
-		}
-	}
-	for _, m := range customURL.FindAllStringSubmatch(code, -1) {
-		if !strings.HasPrefix(strings.ToLower(m[1]), "data:image/") {
-			return fmt.Errorf("custom CSS can't load %q; images must be data URLs", m[1])
-		}
-	}
-	return nil
+	return checkCSS(css, r, cssSheet)
 }
 
-// stripCSS blanks out comments and checks that strings are closed and
-// braces balance, so custom CSS can't close the block it is wrapped in.
-// String contents are kept, since a URL can hide in one.
-func stripCSS(css string) (string, error) {
-	var b strings.Builder
-	depth := 0
-	for i := 0; i < len(css); i++ {
-		c := css[i]
-		switch {
-		case c == '/' && i+1 < len(css) && css[i+1] == '*':
-			end := strings.Index(css[i+2:], "*/")
-			if end < 0 {
-				return "", errors.New("custom CSS has a comment that isn't closed")
-			}
-			i += end + 3
-			b.WriteByte(' ')
-		case c == '"' || c == '\'':
-			j := i + 1
-			for ; j < len(css) && css[j] != c; j++ {
-				if css[j] == '\\' {
-					j++
-				} else if css[j] == '\n' {
-					return "", errors.New("custom CSS has a string that isn't closed")
-				}
-			}
-			if j >= len(css) {
-				return "", errors.New("custom CSS has a string that isn't closed")
-			}
-			b.WriteString(css[i : j+1])
-			i = j
-		case c == '\\':
-			return "", errors.New("custom CSS can't use escapes outside strings")
-		default:
-			if c == '{' {
-				depth++
-			} else if c == '}' {
-				depth--
-				if depth < 0 {
-					return "", errors.New("custom CSS closes a block it didn't open")
-				}
-			}
-			b.WriteByte(c)
-		}
-	}
-	if depth != 0 {
-		return "", errors.New("custom CSS leaves a block open")
-	}
-	return b.String(), nil
-}
-
-// WrapCustomCSS checks custom CSS and places it in its cascade layer, ready
-// to serve after the token stylesheet.
+// WrapCustomCSS checks custom CSS and wraps it, ready to serve after the
+// token stylesheet: its rules go in the custom cascade layer, inside a
+// scope that stops at safety-critical areas. Rules that define something
+// for the whole document, such as @font-face and @keyframes, sit in the
+// layer outside the scope, which they can't be nested in.
 func WrapCustomCSS(css string) (string, error) {
-	if err := CheckCustomCSS(css); err != nil {
+	rules, err := customCSSRules.split(css)
+	if err != nil {
 		return "", err
 	}
-	return "@layer " + LayerCustom + " {\n" + css + "\n}\n", nil
+	var global, scoped []string
+	for _, rule := range rules {
+		if slices.Contains(cssGlobalAtRules, rule.atRule) {
+			global = append(global, rule.text)
+		} else {
+			scoped = append(scoped, rule.text)
+		}
+	}
+	var b strings.Builder
+	b.WriteString("@layer " + LayerCustom + " {\n")
+	for _, rule := range global {
+		b.WriteString(rule + "\n")
+	}
+	if len(scoped) > 0 {
+		b.WriteString(CustomCSSScope + " {\n")
+		for _, rule := range scoped {
+			b.WriteString(rule + "\n")
+		}
+		b.WriteString("}\n")
+	}
+	b.WriteString("}\n")
+	return b.String(), nil
 }

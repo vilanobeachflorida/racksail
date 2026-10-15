@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -319,11 +318,11 @@ var forbiddenSVG = map[string]bool{
 	"animatemotion": true, "animatetransform": true, "handler": true, "listener": true,
 }
 
-var cssURL = regexp.MustCompile(`(?i)url\(\s*['"]?\s*([^'")\s]*)`)
-
 // CheckSVG makes sure an SVG image is only a drawing: no scripts, event
 // handlers, embedded documents, entity declarations or references to
-// anything outside itself.
+// anything outside itself. Styles, in style elements and attributes and in
+// the attributes browsers read as CSS, are read as browsers read CSS, so
+// escapes and image functions can't hide a reference.
 func CheckSVG(data []byte) error {
 	if bytes.Contains(bytes.ToUpper(data), []byte("<!ENTITY")) {
 		return errors.New("SVG files can't declare entities")
@@ -331,6 +330,7 @@ func CheckSVG(data []byte) error {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = true
 	root := true
+	var open []string
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
@@ -349,6 +349,7 @@ func CheckSVG(data []byte) error {
 			if forbiddenSVG[local] {
 				return fmt.Errorf("SVG images can't contain <%s> elements", el.Name.Local)
 			}
+			open = append(open, local)
 			for _, a := range el.Attr {
 				attr := strings.ToLower(a.Name.Local)
 				if strings.HasPrefix(attr, "on") {
@@ -357,13 +358,23 @@ func CheckSVG(data []byte) error {
 				if attr == "href" && !strings.HasPrefix(strings.TrimSpace(a.Value), "#") {
 					return fmt.Errorf("SVG images can only link to their own parts, not %q", a.Value)
 				}
-				if err := checkCSSRefs(a.Value); err != nil {
+				check := svgCSSRules.checkValue
+				if attr == "style" {
+					check = svgCSSRules.checkStyle
+				}
+				if err := check(a.Value); err != nil {
 					return err
 				}
 			}
+		case xml.EndElement:
+			if len(open) > 0 {
+				open = open[:len(open)-1]
+			}
 		case xml.CharData:
-			if err := checkCSSRefs(string(el)); err != nil {
-				return err
+			if len(open) > 0 && open[len(open)-1] == "style" {
+				if err := svgCSSRules.checkSheet(string(el)); err != nil {
+					return err
+				}
 			}
 		case xml.ProcInst:
 			if strings.EqualFold(el.Target, "xml-stylesheet") {
@@ -373,20 +384,6 @@ func CheckSVG(data []byte) error {
 	}
 	if root {
 		return errors.New("the file isn't an SVG image")
-	}
-	return nil
-}
-
-// checkCSSRefs refuses style that loads anything: @import, or url() to
-// anything but a part of the same image.
-func checkCSSRefs(s string) error {
-	if strings.Contains(strings.ToLower(s), "@import") {
-		return errors.New("styles in theme files can't import other style sheets")
-	}
-	for _, m := range cssURL.FindAllStringSubmatch(s, -1) {
-		if !strings.HasPrefix(m[1], "#") {
-			return fmt.Errorf("styles in theme files can only refer to parts of the same file, not %q", m[1])
-		}
 	}
 	return nil
 }
