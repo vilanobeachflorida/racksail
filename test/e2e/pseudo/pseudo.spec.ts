@@ -81,9 +81,9 @@ async function untranslated(page: Page, data: Set<string>): Promise<string[]> {
 async function overflow(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const problems: string[] = [];
-    const page = document.documentElement;
-    if (page.scrollWidth > window.innerWidth + 1) {
-      problems.push(`the page is ${page.scrollWidth}px wide in a ${window.innerWidth}px window, so it scrolls sideways`);
+    const root = document.documentElement;
+    if (root.scrollWidth > window.innerWidth + 1) {
+      problems.push(`the page is ${root.scrollWidth}px wide in a ${window.innerWidth}px window, so it scrolls sideways`);
     }
     const describe = (el: Element) => `<${el.tagName.toLowerCase()}> "${(el.textContent ?? "").trim().slice(0, 60)}"`;
     for (const el of document.body.querySelectorAll<HTMLElement>("*")) {
