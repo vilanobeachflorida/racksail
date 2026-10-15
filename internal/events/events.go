@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -129,20 +130,16 @@ type Subscription struct {
 	filter Filter
 	close  func()
 	once   sync.Once
-	// Dropped counts events that didn't fit in the buffer.
-	dropped int64
-	mu      sync.Mutex
+	// dropped counts events that didn't fit in the buffer.
+	dropped atomic.Int64
 }
 
-// Close stops the subscription.
+// Close stops the subscription. C is closed once no event can be sent to it
+// any more.
 func (s *Subscription) Close() { s.once.Do(s.close) }
 
 // Dropped returns how many events the subscriber missed.
-func (s *Subscription) Dropped() int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.dropped
-}
+func (s *Subscription) Dropped() int64 { return s.dropped.Load() }
 
 // Outcome is the result of an audited action.
 type Outcome string
@@ -214,7 +211,11 @@ func NewMemory(retain int) *Memory {
 	return &Memory{subs: map[*Subscription]bool{}, retain: retain, now: time.Now}
 }
 
-// Publish implements Bus and records the event in the timeline.
+// Publish implements Bus and records the event in the timeline. Events are
+// handed to subscribers under the lock that Close also takes, so a
+// subscription is never closed while an event is being sent to it, and every
+// subscriber sees events in the order of the timeline. Sending never blocks,
+// so holding the lock costs little.
 func (m *Memory) Publish(ctx context.Context, e Event) error {
 	if !ValidType(e.Type) {
 		return fmt.Errorf("events: invalid event type %q", e.Type)
@@ -229,25 +230,19 @@ func (m *Memory) Publish(ctx context.Context, e Event) error {
 		e.Severity = SeverityInfo
 	}
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.events = append(m.events, e)
 	if len(m.events) > m.retain {
 		m.events = slices.Clone(m.events[len(m.events)-m.retain:])
 	}
-	subs := make([]*Subscription, 0, len(m.subs))
 	for s := range m.subs {
-		subs = append(subs, s)
-	}
-	m.mu.Unlock()
-	for _, s := range subs {
 		if !s.filter.Match(e) {
 			continue
 		}
 		select {
 		case s.ch <- e:
 		default:
-			s.mu.Lock()
-			s.dropped++
-			s.mu.Unlock()
+			s.dropped.Add(1)
 		}
 	}
 	return nil
@@ -262,8 +257,8 @@ func (m *Memory) Subscribe(f Filter, buffer int) *Subscription {
 	s := &Subscription{C: ch, ch: ch, filter: f}
 	s.close = func() {
 		m.mu.Lock()
+		defer m.mu.Unlock()
 		delete(m.subs, s)
-		m.mu.Unlock()
 		close(ch)
 	}
 	m.mu.Lock()

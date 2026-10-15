@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,6 +65,47 @@ func TestSlowSubscribersDrop(t *testing.T) {
 	sub.Close()
 	if err := m.Publish(ctx, Event{Type: "web.site.updated"}); err != nil {
 		t.Errorf("publishing after a subscriber closed: %v", err)
+	}
+}
+
+// Subscribers come and go while events are published, as SSE clients do.
+// Closing a subscription must never race with a send to it.
+func TestClosingWhilePublishing(t *testing.T) {
+	ctx := context.Background()
+	m := NewMemory(100)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if err := m.Publish(ctx, Event{Type: "web.site.updated"}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	for range 20000 {
+		sub := m.Subscribe(Filter{}, 1)
+		sub.Close()
+		// What was buffered before the close can still be read, and then
+		// the channel is closed.
+		for range sub.C {
+		}
+	}
+	close(stop)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
 	}
 }
 
