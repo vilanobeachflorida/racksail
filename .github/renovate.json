@@ -1,0 +1,93 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Dependency updates for Racksail. New releases wait a few days before they are proposed, longer for what the catalog installs on servers; security fixes don't wait.",
+  "extends": ["config:recommended", ":dependencyDashboard", "helpers:pinGitHubActionDigests"],
+  "timezone": "UTC",
+  "schedule": ["* 0-6 * * 1"],
+  "semanticCommits": "disabled",
+  "commitMessageAction": "Update",
+  "labels": ["dependencies"],
+  "minimumReleaseAge": "3 days",
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 4,
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
+  "ignorePaths": ["**/node_modules/**", "**/testdata/**"],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"],
+    "minimumReleaseAge": null,
+    "schedule": ["at any time"]
+  },
+  "packageRules": [
+    {
+      "description": "Go modules the binary is built from, together, with go.sum tidied.",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "Go modules"
+    },
+    {
+      "description": "The web UI's packages, together, except the major versions of its frameworks.",
+      "matchFileNames": ["ui/package.json"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "UI packages"
+    },
+    {
+      "description": "The documentation site's packages, together.",
+      "matchFileNames": ["docs/site/package.json"],
+      "groupName": "docs site packages"
+    },
+    {
+      "description": "Playwright in the UI and the end-to-end suite moves as one, so both use the same browsers.",
+      "matchPackageNames": ["@playwright/test"],
+      "groupName": "Playwright"
+    },
+    {
+      "description": "TypeScript in the UI and the TypeScript SDK moves as one.",
+      "matchPackageNames": ["typescript", "@types/node"],
+      "matchFileNames": ["ui/package.json", "sdk/ts/package.json"],
+      "groupName": "TypeScript"
+    },
+    {
+      "description": "Actions, pinned to commits, together.",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "The tools CI and the Makefile run.",
+      "matchFileNames": ["Makefile"],
+      "groupName": "build tools"
+    },
+    {
+      "description": "Upstream releases the catalog installs on servers wait longer, and each is its own pull request; the pins workflow fills in the new checksums.",
+      "matchFileNames": ["catalog/**"],
+      "minimumReleaseAge": "5 days",
+      "labels": ["dependencies", "catalog"],
+      "commitMessageTopic": "{{depName}} in the catalog"
+    },
+    {
+      "description": "The cosign install.sh downloads; the pins workflow writes its checksums.",
+      "matchFileNames": ["packaging/install.sh"],
+      "matchPackageNames": ["sigstore/cosign"],
+      "commitMessageTopic": "the cosign install.sh uses"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Versions marked with a renovate comment on the line before: the tools in the Makefile and the cosign in install.sh.",
+      "managerFilePatterns": ["/(^|/)Makefile$/", "/^packaging/install\\.sh$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+)\\s+depName=(?<depName>\\S+)\\s*\\n[A-Z0-9_]+\\s*:?=\\s*(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Catalog recipes mark the version they install, and each download that carries it, with a renovate comment on the line before.",
+      "managerFilePatterns": ["/^catalog/.+/recipe\\.yaml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*version:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+        "#\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*-?\\s*url:\\s*\"?[^\"\\s]*?(?<currentValue>[0-9]+\\.[0-9]+(\\.[0-9]+)?)[^\"\\s]*\"?"
+      ]
+    }
+  ]
+}
