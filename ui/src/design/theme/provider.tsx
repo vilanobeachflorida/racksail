@@ -102,11 +102,13 @@ export function ThemeProvider({
       return;
     }
     let cancelled = false;
-    Promise.all([import("./css"), import("./layers")]).then(([{ renderLayerCSS }, { resolveLayers }]) => {
-      if (!cancelled) {
-        setCSS(renderLayerCSS(preview ?? resolveLayers({ server, reseller }), fontURL));
-      }
-    });
+    Promise.all([import("./css"), import("./layers")]).then(
+      ([{ renderLayerCSS }, { resolveLayers }]) => {
+        if (!cancelled) {
+          setCSS(renderLayerCSS(preview ?? resolveLayers({ server, reseller }), fontURL));
+        }
+      },
+    );
     return () => {
       cancelled = true;
     };

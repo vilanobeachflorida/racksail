@@ -5,7 +5,7 @@ import { useIntl } from "react-intl";
 import { cn } from "@/lib/utils";
 import { designMessages } from "../../messages";
 import { Button } from "./button";
-import { DialogOverlay } from "./dialog";
+import { overlayClasses } from "./dialog";
 import { controlClasses } from "./input";
 
 export interface ConfirmDialogProps {
@@ -76,7 +76,7 @@ export function ConfirmDialog({
         <AlertDialogPrimitive.Trigger asChild>{trigger}</AlertDialogPrimitive.Trigger>
       ) : null}
       <AlertDialogPrimitive.Portal>
-        <DialogOverlay />
+        <AlertDialogPrimitive.Overlay className={overlayClasses} />
         <AlertDialogPrimitive.Content
           data-critical=""
           className="data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 critical-area fixed start-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border-2 p-card shadow-lg duration-(--rs-motion-fast) data-[state=closed]:animate-out data-[state=open]:animate-in ltr:-translate-x-1/2 rtl:translate-x-1/2"

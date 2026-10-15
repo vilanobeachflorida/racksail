@@ -2,6 +2,7 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
+import { useFieldControl } from "./field";
 
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
@@ -12,9 +13,11 @@ export function SelectTrigger({
   children,
   ...props
 }: ComponentProps<typeof SelectPrimitive.Trigger>) {
+  const field = useFieldControl();
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
+      {...field}
       className={cn(
         "flex h-control-md w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-input bg-card px-3 text-start text-sm shadow-xs focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger data-[placeholder]:text-muted-foreground [&>span]:truncate",
         className,
