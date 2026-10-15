@@ -2049,6 +2049,22 @@
         ],
         "type": "object"
       },
+      "ResyncNotice": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Why to read the lists again: lagging, the client didn't keep up",
+            "enum": [
+              "lagging"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "Scope": {
         "additionalProperties": false,
         "properties": {
@@ -4995,7 +5011,7 @@
     },
     "/api/v1/resources/stream": {
       "get": {
-        "description": "Streams a notice, as Server-Sent Events, every time a resource you can see is created, changed, deleted or purged, or its status changes, so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. After a reconnect, read the lists again.",
+        "description": "Streams a notice, as Server-Sent Events, every time a resource you can see is created, changed, deleted or purged, or its status changes, so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. After a reconnect, or a resync event, which says the client fell behind and missed notices, read the lists again.",
         "operationId": "streamResources",
         "parameters": [
           {
@@ -5069,6 +5085,28 @@
                           "data"
                         ],
                         "title": "Event notice",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/ResyncNotice"
+                          },
+                          "event": {
+                            "const": "resync",
+                            "description": "The event's name",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "Send it back as Last-Event-ID to resume after this event",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "event",
+                          "data"
+                        ],
+                        "title": "Event resync",
                         "type": "object"
                       }
                     ]

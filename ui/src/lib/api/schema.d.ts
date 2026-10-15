@@ -549,7 +549,7 @@ export interface paths {
         };
         /**
          * Follow changes to resources
-         * @description Streams a notice, as Server-Sent Events, every time a resource you can see is created, changed, deleted or purged, or its status changes, so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. After a reconnect, read the lists again.
+         * @description Streams a notice, as Server-Sent Events, every time a resource you can see is created, changed, deleted or purged, or its status changes, so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. After a reconnect, or a resync event, which says the client fell behind and missed notices, read the lists again.
          */
         get: operations["streamResources"];
         put?: never;
@@ -1337,6 +1337,13 @@ export interface components {
             server?: string;
             source: components["schemas"]["Source"];
             steps?: components["schemas"]["Step"][] | null;
+        };
+        ResyncNotice: {
+            /**
+             * @description Why to read the lists again: lagging, the client didn't keep up
+             * @enum {string}
+             */
+            reason: "lagging";
         };
         Scope: {
             /** @description The owning reseller or account; empty for server-wide resources */
@@ -2703,7 +2710,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": {
+                    "text/event-stream": ({
                         data: components["schemas"]["Notice"];
                         /**
                          * @description The event's name
@@ -2712,7 +2719,16 @@ export interface operations {
                         event: "notice";
                         /** @description Send it back as Last-Event-ID to resume after this event */
                         id?: string;
-                    }[];
+                    } | {
+                        data: components["schemas"]["ResyncNotice"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "resync";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    })[];
                 };
             };
             /** @description A problem; its code says what went wrong */

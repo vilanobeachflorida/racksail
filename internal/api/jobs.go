@@ -174,7 +174,7 @@ func (s *Server) registerJobs() {
 			}
 			after = n
 		}
-		return func(ctx context.Context, out send) error { return s.followJob(ctx, in.ID, after, out) }, nil
+		return func(ctx context.Context, out send, _ func() error) error { return s.followJob(ctx, in.ID, after, out) }, nil
 	})
 
 	op = huma.Operation{
@@ -232,7 +232,8 @@ type retryOutput struct {
 	Body   *jobs.Job
 }
 
-// followJob streams a job's state and log until it finishes.
+// followJob streams a job's state and log until it finishes. It watches the
+// job before reading it, and its first message opens the stream.
 func (s *Server) followJob(ctx context.Context, id store.ID, after int64, out send) error {
 	q := s.jobs()
 	updates, stop := q.Watch(id)
@@ -257,15 +258,23 @@ func (s *Server) followJob(ctx context.Context, id store.ID, after int64, out se
 		}
 		return job, out("job", "", job)
 	}
-	job, err := sendJob()
+	job, err := q.Get(ctx, id)
 	if err != nil {
+		return err
+	}
+	if job.State.Done() {
+		// Its log is complete, and the finished job comes last, as it
+		// does for a job that finishes while followed.
+		if err := sendLines(); err != nil {
+			return err
+		}
+		return out("job", "", job)
+	}
+	if err := out("job", "", job); err != nil {
 		return err
 	}
 	if err := sendLines(); err != nil {
 		return err
-	}
-	if job.State.Done() {
-		return nil
 	}
 	for {
 		select {

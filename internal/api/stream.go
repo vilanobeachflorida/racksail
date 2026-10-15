@@ -113,9 +113,11 @@ func (s *Server) streamResponse(messages map[string]any) *huma.Response {
 }
 
 // stream runs a streaming operation: open checks the request, and what it
-// returns runs once the stream has started, until the client goes away or
-// it returns.
-type stream func(ctx context.Context, out send) error
+// returns runs once the response has started, until the client goes away or
+// it returns. It calls ready once it follows what it streams; only then does
+// the client see the stream open, so nothing that happens after that is
+// missed. Sending calls ready too.
+type stream func(ctx context.Context, out send, ready func() error) error
 
 // registerStream registers an operation that answers with Server-Sent
 // Events. open runs before anything is sent, so its errors are problems
@@ -137,8 +139,19 @@ func registerStream[I any](s *Server, op huma.Operation, messages map[string]any
 			hc.SetHeader("X-Accel-Buffering", "no")
 			hc.SetStatus(http.StatusOK)
 			out := newStreamer(hc.BodyWriter())
-			if err := out.comment("connected"); err != nil {
-				return
+			// The headers reach the client with the first flush, which the
+			// greeting makes once the stream is ready.
+			var once sync.Once
+			var openErr error
+			ready := func() error {
+				once.Do(func() { openErr = out.comment("connected") })
+				return openErr
+			}
+			emit := func(event, id string, data any) error {
+				if err := ready(); err != nil {
+					return err
+				}
+				return out.send(event, id, data)
 			}
 			ctx, cancel := context.WithCancel(hc.Context())
 			defer cancel()
@@ -157,7 +170,7 @@ func registerStream[I any](s *Server, op huma.Operation, messages map[string]any
 					}
 				}
 			}()
-			if err := run(ctx, out.send); err != nil && ctx.Err() == nil {
+			if err := run(ctx, emit, ready); err != nil && ctx.Err() == nil {
 				s.opts.Log.Debug("a stream ended early", "operation", op.OperationID, "error", err)
 			}
 		}}, nil

@@ -29,6 +29,44 @@ type streamResourcesInput struct {
 	IDs   []string `query:"id" explode:"true" doc:"Only these resources; repeat it for several"`
 }
 
+// followResources sends the notices of w that the client may see until the
+// watcher closes or ctx is done.
+func followResources(ctx context.Context, w *store.Watcher, visible func(store.Notice) bool, out send) error {
+	var dropped int64
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case n, ok := <-w.C:
+			if !ok {
+				return nil
+			}
+			// Notices that didn't fit can't be read back, so the client
+			// learns it has to read its lists again.
+			if d := w.Dropped(); d != dropped {
+				if err := out("resync", "", ResyncNotice{Reason: "lagging"}); err != nil {
+					return err
+				}
+				dropped = d
+			}
+			if !visible(n) {
+				continue
+			}
+			if err := out("notice", "", n); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// ResyncNotice tells a client of the resource stream that it read too slowly
+// to be told about every change, so what it shows may be out of date. It
+// doesn't say how many notices were lost, since some may have been about
+// resources the client can't see.
+type ResyncNotice struct {
+	Reason string `json:"reason" enum:"lagging" doc:"Why to read the lists again: lagging, the client didn't keep up"`
+}
+
 type deliveriesInput struct {
 	ID     string                `path:"id" doc:"The webhook's ID"`
 	State  webhook.DeliveryState `query:"state" enum:"pending,succeeded,failed" doc:"Only deliveries in this state"`
@@ -88,10 +126,11 @@ func (s *Server) registerResources() {
 		OperationID: "streamResources", Method: http.MethodGet, Path: Prefix + "/resources/stream", Tags: []string{"System"}, Security: Protected,
 		Summary: "Follow changes to resources",
 		Description: "Streams a notice, as Server-Sent Events, every time a resource you can see is created, changed, deleted or purged, or its status changes, " +
-			"so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. After a reconnect, read the lists again.",
+			"so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. " +
+			"After a reconnect, or a resync event, which says the client fell behind and missed notices, read the lists again.",
 	}
 	Describe(&op, Info{Risk: store.RiskRead, Stream: true})
-	registerStream(s, op, map[string]any{"notice": store.Notice{}}, func(ctx context.Context, in *streamResourcesInput) (stream, error) {
+	registerStream(s, op, map[string]any{"notice": store.Notice{}, "resync": ResyncNotice{}}, func(ctx context.Context, in *streamResourcesInput) (stream, error) {
 		if _, err := Actor(ctx); err != nil {
 			return nil, err
 		}
@@ -119,25 +158,15 @@ func (s *Server) registerResources() {
 			}
 			filter.IDs = append(filter.IDs, id)
 		}
-		return func(ctx context.Context, out send) error {
+		return func(ctx context.Context, out send, ready func() error) error {
 			w := st.Watch(filter, 256)
 			defer w.Close()
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case n, ok := <-w.C:
-					if !ok {
-						return nil
-					}
-					if AuthorizeRead(ctx, s.authorizer(), store.Meta{ID: n.ID, Kind: n.Kind, Scope: n.Scope}) != nil {
-						continue
-					}
-					if err := out("notice", "", n); err != nil {
-						return err
-					}
-				}
+			if err := ready(); err != nil {
+				return err
 			}
+			return followResources(ctx, w, func(n store.Notice) bool {
+				return AuthorizeRead(ctx, s.authorizer(), store.Meta{ID: n.ID, Kind: n.Kind, Scope: n.Scope}) == nil
+			}, out)
 		}, nil
 	})
 

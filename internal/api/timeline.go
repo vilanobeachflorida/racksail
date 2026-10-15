@@ -243,7 +243,9 @@ func (s *Server) registerTimeline() {
 		if !r.all {
 			filter.Scopes = r.scopes
 		}
-		return func(ctx context.Context, out send) error { return followEvents(ctx, log, filter, after, out) }, nil
+		return func(ctx context.Context, out send, ready func() error) error {
+			return followEvents(ctx, log, filter, after, out, ready)
+		}, nil
 	})
 
 	op = huma.Operation{
@@ -341,13 +343,14 @@ func (s *Server) auditQuery(ctx context.Context, in *AuditFilter) (events.Query,
 	return q, nil
 }
 
-// followEvents streams the events after seq, then live ones.
-func followEvents(ctx context.Context, log *events.Log, filter events.Filter, after int64, out send) error {
+// followEvents streams the events after seq, or from now when seq is zero,
+// then live ones.
+func followEvents(ctx context.Context, log *events.Log, filter events.Filter, after int64, out send, ready func() error) error {
 	// Subscribing first means nothing published while catching up is lost;
 	// what arrives twice is told apart by its sequence number.
 	sub := log.Subscribe(filter, 256)
 	defer sub.Close()
-	if after > 0 {
+	catchUp := func() error {
 		for {
 			batch, err := log.EventsAfter(ctx, after, 200)
 			if err != nil {
@@ -362,10 +365,27 @@ func followEvents(ctx context.Context, log *events.Log, filter events.Filter, af
 				}
 			}
 			if len(batch) < 200 {
-				break
+				return nil
 			}
 		}
 	}
+	if after > 0 {
+		if err := catchUp(); err != nil {
+			return err
+		}
+	} else {
+		// A new stream starts from the latest event; the ones published
+		// since subscribing came before the client saw it open.
+		last, err := log.LastSeq(ctx)
+		if err != nil {
+			return err
+		}
+		after = last
+	}
+	if err := ready(); err != nil {
+		return err
+	}
+	var dropped int64
 	for {
 		select {
 		case <-ctx.Done():
@@ -373,6 +393,15 @@ func followEvents(ctx context.Context, log *events.Log, filter events.Filter, af
 		case e, ok := <-sub.C:
 			if !ok {
 				return nil
+			}
+			// A client too slow for the subscription's buffer misses
+			// events there; they are read back from the timeline instead.
+			if d := sub.Dropped(); d != dropped {
+				dropped = d
+				if err := catchUp(); err != nil {
+					return err
+				}
+				continue
 			}
 			if e.Seq <= after {
 				continue

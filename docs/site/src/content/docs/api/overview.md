@@ -172,7 +172,7 @@ curl -N -H "Authorization: Bearer $RACKSAIL_TOKEN" \
   "https://panel.example.com:8443/api/v1/events/stream?type=*.failed"
 ```
 
-Events and log lines carry an ID. A client that reconnects with a `Last-Event-ID` header gets what it missed while it was away. Quiet streams send a comment every 20 seconds, so proxies keep them open.
+Events and log lines carry an ID. A client that reconnects with a `Last-Event-ID` header gets what it missed while it was away. Resource notices don't: after a reconnect, or a `resync` event saying you read too slowly to be told about every change, read your lists again. Quiet streams send a comment every 20 seconds, so proxies keep them open.
 
 ## Limits
 
