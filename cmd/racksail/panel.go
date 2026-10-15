@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -34,12 +35,17 @@ func newPanelCommand() *cobra.Command {
 			}
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
-			log.Warn("this build keeps the panel's resources, change sets and secrets in memory, so they are lost when the panel stops")
-			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edge.DialAdmin(cfg.Edge.Socket))
+			log.Warn("this build keeps the panel's resources and change sets in memory, so they are lost when the panel stops")
+			edgeClient := edge.DialAdmin(cfg.Edge.Socket)
+			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edgeClient)
 			if err != nil {
 				return err
 			}
 			defer c.stop(context.WithoutCancel(ctx))
+			// The edge asks the panel which names may have on-demand
+			// certificates and for DNS-01 challenge records; modules answer.
+			go edge.AnswerQuestions(ctx, edgeClient, edge.DefaultAnswers, log)
+			servePanelOnEdge(ctx, edgeClient, cfg.Panel.Hostname, cfg.Panel.Listen, !cfg.Panel.Insecure, log)
 			apiServer, err := c.apiServer(auth.NoAuthenticator{})
 			if err != nil {
 				return err
@@ -62,6 +68,21 @@ func newPanelCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &configPath)
 	return cmd
+}
+
+// servePanelOnEdge has the edge serve the panel under its hostname on 443
+// once modules route sites through the edge.
+func servePanelOnEdge(ctx context.Context, router edge.Router, hostname, listen string, secure bool, log *slog.Logger) {
+	if hostname == "" || hostname == "localhost" {
+		return
+	}
+	route, err := edge.PanelRoute(hostname, listen, secure)
+	if err == nil {
+		err = router.SetRoutes(ctx, edge.PanelOwner, []edge.Route{route})
+	}
+	if err != nil {
+		log.Warn("the edge won't serve the panel under its hostname", "hostname", hostname, "error", err)
+	}
 }
 
 // panelCertificate loads the configured certificate, or the panel's own

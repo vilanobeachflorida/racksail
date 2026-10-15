@@ -28,7 +28,7 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 		// process.
 		os.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 		root := newRootCommand()
-		root.SetArgs([]string{"edge", "--config", config})
+		root.SetArgs([]string{"edge", "--config", config, "--state", filepath.Join(filepath.Dir(config), "state")})
 		if err := root.Execute(); err != nil {
 			t.Fatal(err)
 		}
