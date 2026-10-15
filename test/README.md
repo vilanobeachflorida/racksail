@@ -19,7 +19,7 @@ make e2e-local
 
 It builds `bin/racksail` with the UI, starts `racksail dev` on 127.0.0.1:7170 with its own data directory, `.dev-e2e`, so it runs next to a development instance, runs the API suite and the browser suite against it, and stops it. `E2E_ADDR` and `E2E_DATA` choose another address and directory. The browser suite needs Chromium once: `npm --prefix test/e2e run browsers`.
 
-To work on the browser tests, run Playwright in [e2e/](e2e/) directly. It starts `racksail dev` itself, or uses the panel at `RACKSAIL_E2E_URL`:
+To work on the browser tests, run Playwright in [e2e/](e2e/) directly. It starts `racksail dev` itself, or uses the panel at `RACKSAIL_E2E_URL`, which it treats as an installed server unless `RACKSAIL_E2E_DEV=1` says it is a `racksail dev` you started, where everyone is signed in:
 
 ```sh
 cd test/e2e

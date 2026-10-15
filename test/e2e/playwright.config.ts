@@ -8,6 +8,13 @@ const external = process.env.RACKSAIL_E2E_URL;
 const devAddr = process.env.RACKSAIL_E2E_ADDR ?? "127.0.0.1:7170";
 const devData = process.env.RACKSAIL_E2E_DATA ?? ".dev-e2e";
 
+// RACKSAIL_E2E_DEV tells the tests the panel is racksail dev, which signs
+// everyone in. A panel at RACKSAIL_E2E_URL is an installed server unless
+// whoever started it says otherwise; the workers inherit what is set here.
+if (!external) {
+  process.env.RACKSAIL_E2E_DEV = "1";
+}
+
 export default defineConfig({
   testDir: "./specs",
   fullyParallel: true,

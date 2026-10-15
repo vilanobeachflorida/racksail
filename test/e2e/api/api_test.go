@@ -111,8 +111,8 @@ func TestVersion(t *testing.T) {
 	if want := os.Getenv("RACKSAIL_E2E_VERSION"); want != "" && strings.TrimPrefix(want, "v") != v.Version {
 		t.Errorf("the panel runs %s, want %s", v.Version, want)
 	}
-	if v.Channel != "dev" && (v.OS != "linux" || !slices.Contains([]string{"amd64", "arm64"}, v.Arch)) {
-		t.Errorf("a release runs on linux/amd64 or linux/arm64, not %s/%s", v.OS, v.Arch)
+	if os.Getenv("RACKSAIL_E2E_DEV") == "" && (v.OS != "linux" || !slices.Contains([]string{"amd64", "arm64"}, v.Arch)) {
+		t.Errorf("an installed server runs on linux/amd64 or linux/arm64, not %s/%s", v.OS, v.Arch)
 	}
 }
 

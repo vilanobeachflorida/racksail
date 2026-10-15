@@ -38,7 +38,7 @@ for _ in $(seq 1 60); do
 done
 curl --fail --silent --show-error "http://$addr/api/v1/health" >/dev/null
 
-export RACKSAIL_E2E_URL="http://$addr"
+export RACKSAIL_E2E_URL="http://$addr" RACKSAIL_E2E_DEV=1
 status=0
 go test -count=1 ./test/e2e/api || status=1
 (

@@ -68,10 +68,9 @@ test.describe("the panel", () => {
 });
 
 test.describe("the shell", () => {
-  test.beforeEach(async ({ request }) => {
-    const version = await panelVersion(request);
-    test.skip(version.channel !== "dev", "the shell needs a signed-in session, and racksail dev signs everyone in");
-  });
+  // A build without a release version reports the dev channel wherever it
+  // runs, so only RACKSAIL_E2E_DEV says the panel is racksail dev.
+  test.skip(!process.env.RACKSAIL_E2E_DEV, "the shell needs a signed-in session, and only racksail dev signs everyone in");
 
   test("has its landmarks", async ({ page }) => {
     await page.goto("/");
