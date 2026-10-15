@@ -65,7 +65,7 @@ make e2e-local
 
 `make e2e-local` builds the binary with the UI, starts `racksail dev` on 127.0.0.1:7170, runs both suites against it and stops it. To work on browser tests, run `npx playwright test --ui` in `test/e2e`.
 
-On Linux with KVM, the QEMU harness installs Racksail from the ISO onto a virtual machine and runs the same suites against the real thing:
+On Linux with KVM, the QEMU harness installs Racksail from the ISO onto a virtual machine, checks that Racksail's own services idle within the memory budget, 100 MiB with every module off, and runs the same suites against the real thing:
 
 ```sh
 make cross iso

@@ -3,7 +3,8 @@
 //
 // With -iso it boots the installer image with an answers file on a USB
 // stick, lets the unattended install run until the installer reboots, boots
-// the installed system, waits for the panel and runs the API and browser
+// the installed system, waits for the panel, checks that Racksail's own
+// services idle within the memory budget, and runs the API and browser
 // suites against it. With -cloud-image it boots one of Debian's cloud images
 // and sets it up the way people set up a server they already have: with
 // -binary, a cloud-init seed converts it with racksail install --convert;
@@ -63,6 +64,11 @@ type Config struct {
 	Suites     []string
 	Version    string
 
+	// MemoryBudget is how much memory, in MiB, Racksail's services may hold
+	// once the server has settled for Settle; 0 skips the check.
+	MemoryBudget int
+	Settle       time.Duration
+
 	// Deb is the Debian package the cloud image is set up with, and
 	// UpgradeFrom an earlier release's package installed before it.
 	Deb, UpgradeFrom string
@@ -116,6 +122,8 @@ func parseFlags(args []string) (Config, error) {
 	flags.StringVar(&c.Repo, "repo", ".", "the repository, for the suites")
 	flags.StringVar(&suites, "suites", "api,ui", "suites to run against the panel: api, ui, or none")
 	flags.StringVar(&c.Version, "version", "", "version the panel must report; with -upgrade-from, the version -deb holds")
+	flags.IntVar(&c.MemoryBudget, "memory-budget", 100, "MiB Racksail's services may hold once the server has settled, every module off; 0 skips the check")
+	flags.DurationVar(&c.Settle, "settle", time.Minute, "how long the server settles before its idle memory is measured")
 	flags.DurationVar(&c.InstallTimeout, "install-timeout", time.Hour, "how long the install may take")
 	flags.DurationVar(&c.BootTimeout, "boot-timeout", 20*time.Minute, "how long the installed system may take to serve the panel")
 	flags.BoolVar(&c.Keep, "keep", false, "keep the machine running after the suites, until interrupted")
@@ -339,6 +347,12 @@ func run(ctx context.Context, c Config) error {
 		if err := upgrade(ctx, ssh, panel, files+"/"+packageName, c.Version, c.BootTimeout, logs); err != nil {
 			// The suites would only test the earlier release.
 			return errors.Join(append(errs, err)...)
+		}
+	}
+	// Before the suites, which leave the panel busier than an idle server.
+	if sshReady && c.MemoryBudget > 0 {
+		if err := checkIdleMemory(ctx, ssh, "/sys/fs/cgroup", c.Settle, memorySamples, memoryEvery, c.MemoryBudget, logs); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	if len(c.Suites) > 0 {

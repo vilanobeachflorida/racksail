@@ -19,15 +19,30 @@ import (
 	"time"
 )
 
-// upgradeStubs stand in for ssh and for the server's tools. The ssh stub
-// runs the remote command here, and the tools keep their state in $STATE:
-// apt-get marks the package upgraded, and systemctl reports the services
-// down after the upgrade when the test marks them broken.
-var upgradeStubs = map[string]string{
-	"ssh": `#!/bin/sh
+// sshStub stands in for ssh: it runs the remote command here.
+const sshStub = `#!/bin/sh
 for last; do :; done
 exec sh -c "$last"
-`,
+`
+
+// installStubs puts stand-ins for programs first on the PATH.
+func installStubs(t *testing.T, stubs map[string]string) {
+	t.Helper()
+	bin := t.TempDir()
+	for name, script := range stubs {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// upgradeStubs stand in for ssh and for the server's tools, which keep
+// their state in $STATE: apt-get marks the package upgraded, and systemctl
+// reports the services down after the upgrade when the test marks them
+// broken.
+var upgradeStubs = map[string]string{
+	"ssh":        sshStub,
 	"cloud-init": "#!/bin/sh\nexit 0\n",
 	"curl": `#!/bin/sh
 while [ $# -gt 0 ]; do
@@ -85,13 +100,7 @@ func upgradeRig(t *testing.T, markers ...string) (panel, state, logs string) {
 			t.Fatal(err)
 		}
 	}
-	bin := t.TempDir()
-	for name, script := range upgradeStubs {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	installStubs(t, upgradeStubs)
 	t.Setenv("STATE", state)
 	has := func(name string) bool {
 		_, err := os.Stat(filepath.Join(state, name))

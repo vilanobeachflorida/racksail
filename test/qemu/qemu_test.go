@@ -388,6 +388,10 @@ func TestFlags(t *testing.T) {
 	if err != nil || c.Arch != "arm64" || c.Accel != "tcg" || len(c.Suites) != 1 {
 		t.Errorf("config = %+v, %v", c, err)
 	}
+	// Decision R5: the core idles under 100 MB with every module off.
+	if c.MemoryBudget != 100 || c.Settle != time.Minute {
+		t.Errorf("the idle memory budget is %d MiB after %s", c.MemoryBudget, c.Settle)
+	}
 	c, err = parseFlags([]string{"-cloud-image", "debian-13-genericcloud-amd64.qcow2", "-deb", "new.deb", "-upgrade-from", "old.deb", "-version", "1.3.0"})
 	if err != nil || c.Arch != "amd64" || c.Deb != "new.deb" || c.UpgradeFrom != "old.deb" {
 		t.Errorf("upgrade config = %+v, %v", c, err)
