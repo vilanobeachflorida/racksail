@@ -95,6 +95,6 @@ jobs:
           git commit --all --message "Pin Sigstore's current trusted root"
           git push --force origin "$branch"
           if [ -z "$(gh pr list --head "$branch" --json number --jq '.[].number')" ]; then
-            gh pr create --head "$branch" --title "Pin Sigstore's current trusted root" --label dependencies \
+            gh pr create --head "$branch" --title "Pin Sigstore's current trusted root" \
               --body "Sigstore published a new trusted root. install.sh checks signatures against the one it pins when it installs through a mirror, and the release workflow checks every release against it before publishing. Mirrors serve it as sigstore/<checksum>.trusted_root.json."
           fi

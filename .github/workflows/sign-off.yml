@@ -22,10 +22,10 @@ jobs:
           fetch-depth: 0
       - name: Check every commit's sign-off
         env:
-          BASE: origin/${{ github.event.pull_request.base.ref }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE_BRANCH: origin/${{ github.event.pull_request.base.ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          from=$(git merge-base "$BASE" "$HEAD")
+          from=$(git merge-base "$BASE_BRANCH" "$PR_HEAD")
           missing=()
           # The pull request's own commits, not those of the base branch
           # that merging it in brought along.
@@ -37,7 +37,7 @@ jobs:
             if ! git show --no-patch --format='%(trailers:key=Signed-off-by,valueonly)' "$commit" | grep --quiet --ignore-case --fixed-strings "<$email>"; then
               missing+=("$(git show --no-patch --format='%h %s (%an <%ae>)' "$commit")")
             fi
-          done < <(git rev-list --no-merges "$HEAD" --not "$BASE")
+          done < <(git rev-list --no-merges "$PR_HEAD" --not "$BASE_BRANCH")
           if [ ${#missing[@]} -eq 0 ]; then
             echo "Every commit is signed off by its author."
             exit 0
