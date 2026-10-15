@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.png binary
+*.webp binary
+*.woff2 binary
+
+# Generated from the code by `make gen`; tests fail when they drift.
+spec/openapi.json linguist-generated=true
+spec/agent-protocol.json linguist-generated=true
+ui/src/lib/api/schema.d.ts linguist-generated=true
+ui/src/design/theme.css linguist-generated=true
+
+# Lockfiles change with package.json and go.mod, which are what to review.
+go.sum linguist-generated=true
+ui/package-lock.json -diff linguist-generated=true
+docs/site/package-lock.json -diff linguist-generated=true

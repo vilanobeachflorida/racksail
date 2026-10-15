@@ -1,0 +1,29 @@
+# Build output
+/bin/
+/internal/webui/dist/app/
+/docs/site/dist/
+/docs/site/.astro/
+
+# Development data and tools
+/.dev/
+/.tools/
+*.tmp
+
+# Go
+*.test
+*.out
+*.prof
+
+# Node
+node_modules/
+/ui/coverage/
+/ui/test-results/
+/ui/playwright-report/
+/ui/blob-report/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
