@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -74,15 +76,10 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	facts := func(ctx context.Context) (system.MachineFacts, error) {
 		return agent.GetFacts.Call(ctx, agentClient, agent.Empty{}, agent.CallOptions{})
 	}
-	key, err := secrets.NewKey()
+	vault, err := openSecrets(ctx, cfg, log, agentClient)
 	if err != nil {
 		return nil, err
 	}
-	box, err := secrets.NewBox(key)
-	if err != nil {
-		return nil, err
-	}
-	vault := secrets.NewMemory(box)
 	runner := &reconcile.Runner{
 		Store: st, Agent: agentClient, Registry: recs, Secrets: vault, Log: log,
 		Facts: func(ctx context.Context, server store.ID) (system.MachineFacts, error) { return facts(ctx) },
@@ -144,6 +141,25 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	// changes whose apply job never ran.
 	go runner.Resync(ctx, reconcile.ResyncInterval)
 	return c, nil
+}
+
+// openSecrets opens the secrets kept in the panel's state. Their key is
+// sealed with systemd-creds through the agent, which on a server systemd
+// hands the panel at start; see internal/secrets.
+func openSecrets(ctx context.Context, cfg config.Config, log *slog.Logger, agentClient agent.Client) (*secrets.FileStore, error) {
+	vault, err := secrets.Open(ctx, secrets.Options{
+		Dir:            filepath.Join(cfg.Paths.State, "secrets"),
+		CredentialsDir: os.Getenv("CREDENTIALS_DIRECTORY"),
+		Sealer:         agent.KeySealer{Client: agentClient, Name: secrets.CredentialName},
+		KeyFile:        filepath.Join(cfg.Paths.State, "secrets.key"),
+		Log:            log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	info := vault.Info()
+	log.Info("secrets ready", "key", info.Source, "protection", info.Protection, "new", info.Created)
+	return vault, nil
 }
 
 // moduleHealthChecks returns the health checks modules declare, named
