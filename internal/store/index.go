@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -69,8 +70,29 @@ func uniqueConflict(info *KindInfo, k uniqueKey) error {
 	return ErrExists.New("what", fmt.Sprintf("%s with %s %s", info.Title, k.index, k.value))
 }
 
-// indexValues extracts the values of an indexed field from a spec.
+// indexValue is one value of an indexed field: the text filters compare,
+// and the key lists sort by.
+type indexValue struct {
+	text, sortKey string
+}
+
+// indexValues extracts the values of an indexed field from a spec, as the
+// text filters compare.
 func indexValues(spec json.RawMessage, ix *Index) ([]string, error) {
+	values, err := indexEntries(spec, ix)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = v.text
+	}
+	return out, nil
+}
+
+// indexEntries extracts the values of an indexed field from a spec, with
+// their sort keys.
+func indexEntries(spec json.RawMessage, ix *Index) ([]indexValue, error) {
 	var doc any
 	if len(spec) > 0 {
 		if err := json.Unmarshal(spec, &doc); err != nil {
@@ -89,28 +111,58 @@ func indexValues(spec json.RawMessage, ix *Index) ([]string, error) {
 		}
 		nodes = next
 	}
-	var out []string
+	var out []indexValue
 	for _, n := range flatten(nodes) {
-		var s string
-		switch v := n.(type) {
+		var v indexValue
+		switch x := n.(type) {
 		case string:
-			s = v
+			if ix.Fold {
+				x = strings.ToLower(x)
+			}
+			v = indexValue{text: x, sortKey: textSortKey(x)}
 		case float64:
-			s = strconv.FormatFloat(v, 'f', -1, 64)
+			v = indexValue{text: strconv.FormatFloat(x, 'f', -1, 64), sortKey: numberSortKey(x)}
 		case bool:
-			s = strconv.FormatBool(v)
+			v = indexValue{text: strconv.FormatBool(x), sortKey: boolSortKey(x)}
 		default:
 			continue
 		}
-		if s == "" {
+		if v.text == "" {
 			continue
 		}
-		if ix.Fold {
-			s = strings.ToLower(s)
-		}
-		out = append(out, s)
+		out = append(out, v)
 	}
 	return out, nil
+}
+
+// Sort keys order index values the way people expect, whichever store sorts
+// them: numbers by their value, before text, which sorts as it is written,
+// and booleans last. A key starts with its type's place in that order, so
+// comparing keys as text compares the values; the SQLite store keeps them
+// next to the values and sorts on them in SQL.
+func numberSortKey(f float64) string {
+	if f == 0 {
+		// Zero and negative zero are the same number.
+		f = 0
+	}
+	// The bits of a float compare like the numbers once the sign bit is
+	// flipped for positive numbers and every bit for negative ones.
+	b := math.Float64bits(f)
+	if b&(1<<63) != 0 {
+		b = ^b
+	} else {
+		b |= 1 << 63
+	}
+	return fmt.Sprintf("0%016x", b)
+}
+
+func textSortKey(s string) string { return "1" + s }
+
+func boolSortKey(b bool) string {
+	if b {
+		return "21"
+	}
+	return "20"
 }
 
 func flatten(nodes []any) []any {

@@ -17,7 +17,13 @@
 //
 // A handler whose context ends learns why from Stopped: someone canceled the
 // job, it ran out of time, or the panel is stopping. A type's Ended hears how
-// each of its jobs ended, even one whose handler never ran, and Retryable can
-// refuse a retry, so work that keeps records of its own keeps them in line
-// with its jobs. Stop stops the queue and waits for the jobs running here.
+// each of its jobs ended, once, even one whose handler never ran, before Wait
+// returns the job, and Retryable can refuse a retry, so work that keeps
+// records of its own keeps them in line with its jobs. A job is retried once;
+// a retry request can carry an idempotency key. Stop stops the queue and
+// waits for the jobs running here.
+//
+// Watchers get a job's updates in order. One that falls behind is told so
+// with an update that has Missed set, and reads the log lines it missed back
+// from the log, where every line is stored before it is sent.
 package jobs

@@ -123,21 +123,46 @@ func (s *sqlStorage) insert(ctx context.Context, j *Job) error {
 	return err
 }
 
-func (s *sqlStorage) update(ctx context.Context, j *Job) error {
+func (s *sqlStorage) transition(ctx context.Context, j *Job, from State) (bool, error) {
 	vals, err := values(j)
 	if err != nil {
-		return err
+		return false, err
 	}
 	res, err := s.db.Exec(ctx, `UPDATE jobs SET type = ?, title = ?, state = ?, progress = ?, actor = ?, scope_level = ?, scope_id = ?,
 		change_set = ?, resource = ?, attempt = ?, retry_of = ?, error = ?, result = ?, args = ?, run_after = ?, created_at = ?,
-		started_at = ?, finished_at = ? WHERE id = ?`, append(vals, j.ID)...)
+		started_at = ?, finished_at = ? WHERE id = ? AND state = ?`, append(vals, j.ID, from)...)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		// Gone, or no longer in the state the caller expected.
+		if _, err := s.get(ctx, j.ID); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
+func (s *sqlStorage) saveProgress(ctx context.Context, id store.ID, p Progress) error {
+	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return notFound(j.ID)
+	_, err = s.db.Exec(ctx, `UPDATE jobs SET progress = ? WHERE id = ? AND state = 'running'`, string(raw), id)
+	return err
+}
+
+func (s *sqlStorage) retryOf(ctx context.Context, id store.ID) (*Job, error) {
+	list, err := s.query(ctx, `SELECT `+jobColumns+` FROM jobs WHERE retry_of = ? ORDER BY id LIMIT 1`, id)
+	if err != nil || len(list) == 0 {
+		return nil, err
 	}
-	return nil
+	return list[0], nil
 }
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
@@ -375,8 +400,30 @@ func (s *sqlStorage) prune(ctx context.Context, r Retention, now time.Time) erro
 		if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE finished_at IS NOT NULL AND finished_at < ?`, store.FormatTime(now.Add(-r.Finished))); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE finished_at IS NOT NULL AND id <= (
-			SELECT id FROM jobs WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1 OFFSET ?)`, r.MaxFinished)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE finished_at IS NOT NULL AND id <= (
+			SELECT id FROM jobs WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1 OFFSET ?)`, r.MaxFinished); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM job_idempotency_keys WHERE time < ? OR job NOT IN (SELECT id FROM jobs)`,
+			store.FormatTime(now.Add(-IdempotencyWindow)))
 		return err
 	})
 }
+
+func (s *sqlStorage) keyJob(ctx context.Context, key string, now time.Time) (store.ID, error) {
+	var job store.ID
+	err := s.db.Reader().QueryRowContext(ctx, `SELECT job FROM job_idempotency_keys WHERE key = ? AND time >= ?`,
+		key, store.FormatTime(now.Add(-IdempotencyWindow))).Scan(&job)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return job, err
+}
+
+func (s *sqlStorage) saveKey(ctx context.Context, key string, job store.ID, now time.Time) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO job_idempotency_keys (key, job, time) VALUES (?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET job = excluded.job, time = excluded.time`, key, job, store.FormatTime(now))
+	return err
+}
+
+func (s *sqlStorage) afterCommit(ctx context.Context, fn func()) { s.db.AfterCommit(ctx, fn) }

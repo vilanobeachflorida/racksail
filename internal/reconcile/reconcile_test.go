@@ -723,3 +723,103 @@ func TestQueueHealthAndStats(t *testing.T) {
 		t.Errorf("stats = %+v", st)
 	}
 }
+
+// holdReconciler holds a reconcile until the test lets it go.
+type holdReconciler struct {
+	entered chan<- struct{}
+	release <-chan struct{}
+	calls   *atomic.Int32
+	fail    *atomic.Bool
+}
+
+func (h holdReconciler) Plan(ctx context.Context, obj *store.Object[noteSpec, noteStatus], req Request) (Plan, error) {
+	return Plan{}, nil
+}
+
+func (h holdReconciler) Apply(ctx context.Context, obj *store.Object[noteSpec, noteStatus], plan Plan, ex Executor) (noteStatus, error) {
+	h.calls.Add(1)
+	select {
+	case h.entered <- struct{}{}:
+	default:
+	}
+	<-h.release
+	st := obj.Status
+	if h.fail.Load() {
+		return st, errors.New("the reconcile failed")
+	}
+	return st, ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
+}
+
+func holdSetup(t *testing.T) (*Runner, *store.Memory, holdReconciler, chan struct{}, chan struct{}) {
+	t.Helper()
+	reg := store.NewKindRegistry()
+	if err := reg.Register(noteKind); err != nil {
+		t.Fatal(err)
+	}
+	s := store.NewMemory(reg)
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	h := holdReconciler{entered: entered, release: release, calls: &atomic.Int32{}, fail: &atomic.Bool{}}
+	recs := NewRegistry()
+	if err := recs.Register(Typed(noteKind, h)); err != nil {
+		t.Fatal(err)
+	}
+	return &Runner{Store: s, Registry: recs, Backoff: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler)}, s, h, entered, release
+}
+
+// A reconcile waiting for another one of the same resource stops waiting
+// when its context ends, as when its job is canceled, without touching the
+// resource.
+func TestWaitingForAResourceEndsWithItsContext(t *testing.T) {
+	ctx := context.Background()
+	r, s, _, entered, release := holdSetup(t)
+	id := createNote(t, s, "held")
+	first := make(chan error, 1)
+	go func() { first <- r.Reconcile(ctx, id, nil) }()
+	<-entered
+	waiting, cancel := context.WithCancelCause(ctx)
+	time.AfterFunc(20*time.Millisecond, func() { cancel(i18n.ErrCanceled.New()) })
+	start := time.Now()
+	if err := r.Reconcile(waiting, id, nil); !errors.Is(err, i18n.ErrCanceled) {
+		t.Errorf("a canceled wait = %v", err)
+	}
+	if waited := time.Since(start); waited > time.Second {
+		t.Errorf("the wait went on for %s after it was canceled", waited)
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := noteKind.Get(ctx, s, id); got.Status.Phase != store.PhaseReady {
+		t.Errorf("status = %+v", got.Status)
+	}
+	if len(r.locks.locks) != 0 {
+		t.Errorf("locks are released: %v", r.locks.locks)
+	}
+}
+
+// When a change set's job fails to reconcile a resource, the queue doesn't
+// retry it: the change set reports the failure, and the resource waits for
+// its next change, a drift report or the resync.
+func TestJobReconcilesAreNotRetried(t *testing.T) {
+	ctx := context.Background()
+	r, s, h, _, release := holdSetup(t)
+	close(release)
+	run(t, r, time.Hour)
+	id := createNote(t, s, "fails")
+	// The queue's first pass reconciles it once.
+	waitFor(t, "reconciled the note", func() bool { st := r.Stats(); return st.Reconciles >= 1 && st.Running == 0 && st.Queued == 0 })
+	h.fail.Store(true)
+	before := h.calls.Load()
+	if err := r.Reconcile(ctx, id, nil); err == nil {
+		t.Fatal("the reconcile should fail")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if calls := h.calls.Load() - before; calls != 1 || r.Failures(id) != 0 {
+		t.Errorf("after a job's reconcile failed: %d more reconciles, %d failures counted", calls, r.Failures(id))
+	}
+	// One the queue started is retried.
+	r.Enqueue(id, "test")
+	waitFor(t, "retried the failing note", func() bool { return h.calls.Load()-before >= 3 })
+	h.fail.Store(false)
+	waitFor(t, "put it right", func() bool { return r.Failures(id) == 0 })
+}

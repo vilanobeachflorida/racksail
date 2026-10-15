@@ -8,9 +8,14 @@
 // webhooks, automations and the docs. Subscribers include the UI's live
 // updates over SSE, outgoing webhooks, automations and observe hooks.
 //
-// The audit log records every change and every denied attempt with the
-// actor, the person they acted for, the surface they used and the API
-// request it came through.
+// The audit log records who did what, with the actor, the person they acted
+// for, the surface they used and the API request it came through. Every
+// change is there as a success. Every attempt that was refused is there as
+// denied: one the authorizer refused, a read or a job's cancel or retry as
+// much as a change, and a change a validate hook stopped. A change that was
+// allowed but couldn't be made, such as one whose settings aren't valid, is
+// there as failed; previews that fail are left out, since they change
+// nothing.
 //
 // Log is the bus, the timeline and the audit log in one. It stores every
 // event before subscribers see it, numbering them with a sequence that is

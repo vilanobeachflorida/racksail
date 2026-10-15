@@ -19,7 +19,9 @@
 // indexes, and page with cursors.
 //
 // The panel keeps its state in one SQLite database in WAL mode (DB), whose
-// parts each bring their own migrations (DB.Migrate). SQLite is the Store kept
-// there; Memory is an in-memory Store for tests that behaves the same way, and
-// the same conformance tests run against both.
+// parts each bring their own migrations (DB.Migrate). Their writes can share
+// one transaction (DB.Atomic), with what must wait for the commit waiting
+// for it (DB.AfterCommit). SQLite is the Store kept there; Memory is an
+// in-memory Store for tests that behaves the same way, and the same
+// conformance tests run against both.
 package store

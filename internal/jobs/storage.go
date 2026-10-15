@@ -15,9 +15,16 @@ import (
 // writing to it.
 type storage interface {
 	insert(ctx context.Context, job *Job) error
-	// update replaces everything about a job but its logs.
-	update(ctx context.Context, job *Job) error
+	// transition replaces everything about a job but its logs, as long as
+	// the job is still in the state from, and reports whether it was. A job
+	// moves from one state to the next only this way, so a start and a
+	// cancel that race can't both win.
+	transition(ctx context.Context, job *Job, from State) (bool, error)
+	// saveProgress records how far a running job has come.
+	saveProgress(ctx context.Context, id store.ID, p Progress) error
 	get(ctx context.Context, id store.ID) (*Job, error)
+	// retryOf returns the job that retries the one with the ID, or nil.
+	retryOf(ctx context.Context, id store.ID) (*Job, error)
 	list(ctx context.Context, f Filter) ([]*Job, string, error)
 	// runnable returns up to limit queued jobs whose time has come, oldest
 	// first.
@@ -36,8 +43,18 @@ type storage interface {
 	lastLogSeq(ctx context.Context, id store.ID) (int64, error)
 	logs(ctx context.Context, id store.ID, after int64, limit int) ([]LogLine, error)
 	// prune drops finished jobs, with their logs, that have outlived the
-	// retention.
+	// retention, and idempotency keys past IdempotencyWindow or whose job
+	// is gone.
 	prune(ctx context.Context, r Retention, now time.Time) error
+	// keyJob returns the job a request with an idempotency key queued, when
+	// the key was saved within IdempotencyWindow before now; "" otherwise.
+	keyJob(ctx context.Context, key string, now time.Time) (store.ID, error)
+	// saveKey records the job a request with an idempotency key queued.
+	saveKey(ctx context.Context, key string, job store.ID, now time.Time) error
+	// afterCommit runs fn once what was written with ctx is committed: at
+	// once, unless ctx carries a transaction of the database the storage
+	// keeps its jobs in.
+	afterCommit(ctx context.Context, fn func())
 }
 
 func notFound(id store.ID) error { return i18n.ErrNotFound.New("what", "Job "+string(id)) }
@@ -68,10 +85,17 @@ type memoryStorage struct {
 	mu    sync.RWMutex
 	jobs  map[store.ID]*Job
 	lines map[store.ID][]LogLine
+	keys  map[string]keyEntry
+}
+
+// keyEntry is the job a request with an idempotency key queued.
+type keyEntry struct {
+	job  store.ID
+	time time.Time
 }
 
 func newMemoryStorage() *memoryStorage {
-	return &memoryStorage{jobs: map[store.ID]*Job{}, lines: map[store.ID][]LogLine{}}
+	return &memoryStorage{jobs: map[store.ID]*Job{}, lines: map[store.ID][]LogLine{}, keys: map[string]keyEntry{}}
 }
 
 func (m *memoryStorage) insert(ctx context.Context, job *Job) error {
@@ -81,14 +105,44 @@ func (m *memoryStorage) insert(ctx context.Context, job *Job) error {
 	return nil
 }
 
-func (m *memoryStorage) update(ctx context.Context, job *Job) error {
+func (m *memoryStorage) transition(ctx context.Context, job *Job, from State) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.jobs[job.ID]; !ok {
-		return notFound(job.ID)
+	cur, ok := m.jobs[job.ID]
+	if !ok {
+		return false, notFound(job.ID)
+	}
+	if cur.State != from {
+		return false, nil
 	}
 	m.jobs[job.ID] = job.clone()
+	return true, nil
+}
+
+func (m *memoryStorage) saveProgress(ctx context.Context, id store.ID, p Progress) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if j, ok := m.jobs[id]; ok && j.State == StateRunning {
+		c := j.clone()
+		c.Progress = p
+		m.jobs[id] = c
+	}
 	return nil
+}
+
+func (m *memoryStorage) retryOf(ctx context.Context, id store.ID) (*Job, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var found *Job
+	for _, j := range m.jobs {
+		if j.RetryOf == id && (found == nil || j.ID < found.ID) {
+			found = j
+		}
+	}
+	if found == nil {
+		return nil, nil
+	}
+	return found.clone(), nil
 }
 
 func (m *memoryStorage) get(ctx context.Context, id store.ID) (*Job, error) {
@@ -254,5 +308,30 @@ func (m *memoryStorage) prune(ctx context.Context, r Retention, now time.Time) e
 		delete(m.jobs, kept[i].ID)
 		delete(m.lines, kept[i].ID)
 	}
+	for key, e := range m.keys {
+		if _, kept := m.jobs[e.job]; !kept || now.Sub(e.time) > IdempotencyWindow {
+			delete(m.keys, key)
+		}
+	}
 	return nil
 }
+
+func (m *memoryStorage) keyJob(ctx context.Context, key string, now time.Time) (store.ID, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.keys[key]
+	if !ok || now.Sub(e.time) > IdempotencyWindow {
+		return "", nil
+	}
+	return e.job, nil
+}
+
+func (m *memoryStorage) saveKey(ctx context.Context, key string, job store.ID, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.keys[key] = keyEntry{job: job, time: now}
+	return nil
+}
+
+// afterCommit runs fn at once: memory takes part in no transaction.
+func (m *memoryStorage) afterCommit(ctx context.Context, fn func()) { fn() }

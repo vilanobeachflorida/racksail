@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Read the audit log
-         * @description Lists who did what, newest first: every change and every attempt that was refused, with the person, what acted for them (the panel, the racksail command, an API token, an automation, an add-on or the assistant) and the request it came through.
+         * @description Lists who did what, newest first, with the person, what acted for them (the panel, the racksail command, an API token, an automation, an add-on or the assistant) and the request it came through. Every change is there, as success. So is every attempt that was refused, as denied: a change, a read or a job's cancel or retry the person wasn't allowed, or a change a policy hook stopped. A change that was allowed but couldn't be made, such as one with settings that aren't valid, is failed.
          */
         get: operations["listAudit"];
         put?: never;
@@ -411,7 +411,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a job
-         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
+         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
          */
         post: operations["cancelJob"];
         delete?: never;
@@ -451,7 +451,7 @@ export interface paths {
         put?: never;
         /**
          * Retry a job
-         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
+         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
          */
         post: operations["retryJob"];
         delete?: never;
@@ -2492,7 +2492,10 @@ export interface operations {
     cancelJob: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Any unique string. Canceling a job again changes nothing, so a repeat is safe with or without it */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 /** @description The job's ID, which starts with job_ */
                 id: string;
@@ -2561,7 +2564,10 @@ export interface operations {
     retryJob: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Any unique string; a repeat of the request with the same key, within a day, answers with the job the first one queued instead of refusing */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 /** @description The job's ID, which starts with job_ */
                 id: string;

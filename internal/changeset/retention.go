@@ -84,7 +84,8 @@ func (e *Engine) settle(ctx context.Context, key string, id store.ID) {
 
 // save keeps a change set, then drops what has outlived the retention, with
 // the secret versions only dropped change sets used and the snapshots taken
-// for them.
+// for them. Those live outside the database, so they go once the change
+// sets' removal is committed.
 func (e *Engine) save(ctx context.Context, cs *ChangeSet, request *StoredRequest) error {
 	ctx = context.WithoutCancel(ctx)
 	if err := e.storage.Save(ctx, cs, request); err != nil {
@@ -95,12 +96,17 @@ func (e *Engine) save(ctx context.Context, cs *ChangeSet, request *StoredRequest
 		e.opts.Log.Warn("dropping old change sets", "error", err)
 		return nil
 	}
-	if e.opts.Secrets != nil && len(evicted) > 0 {
-		e.collectSecrets(ctx, e.secretsOf(evicted))
+	if len(evicted) == 0 {
+		return nil
 	}
-	for _, old := range evicted {
-		e.dropSnapshots(ctx, old.Snapshots)
-	}
+	e.afterCommit(ctx, func() {
+		if e.opts.Secrets != nil {
+			e.collectSecrets(ctx, e.secretsOf(evicted))
+		}
+		for _, old := range evicted {
+			e.dropSnapshots(ctx, old.Snapshots)
+		}
+	})
 	return nil
 }
 

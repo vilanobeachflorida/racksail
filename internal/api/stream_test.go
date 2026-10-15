@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -278,5 +279,140 @@ func TestResourceStream(t *testing.T) {
 	}
 	if resp := s.call("owner", "GET", "/api/v1/resources/stream?kind=nope.thing", nil, nil); resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("an unknown kind = %d", resp.StatusCode)
+	}
+}
+
+// chatty is a job that reports progress around every line it writes: it
+// waits for start, writes its first lines, says so on paused when that
+// isn't nil and waits for more, then writes the rest.
+type chatty struct {
+	start, more <-chan struct{}
+	paused      chan<- struct{}
+}
+
+// register registers the job type on the stack's queue.
+func (c chatty) register(t *testing.T, s *stack, name string) {
+	t.Helper()
+	write := func(r jobs.Reporter, from, to, total int) {
+		for i := from; i <= to; i++ {
+			r.Progress(int64(i), int64(total), "working")
+			r.Log(slog.LevelInfo, "line "+strconv.Itoa(i))
+			r.Progress(int64(i), int64(total), "still working")
+		}
+	}
+	err := s.jobs.Handle(jobs.Type{Name: name, Run: func(ctx context.Context, job *jobs.Job, args json.RawMessage, r jobs.Reporter) (any, error) {
+		var n [2]int
+		if err := json.Unmarshal(args, &n); err != nil {
+			return nil, err
+		}
+		<-c.start
+		write(r, 1, n[0], n[0]+n[1])
+		if c.paused != nil {
+			close(c.paused)
+			<-c.more
+		}
+		write(r, n[0]+1, n[0]+n[1], n[0]+n[1])
+		return n[0] + n[1], nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkLines fails unless the log events of a stream numbered the lines one
+// to n, each once, in order.
+func checkLines(t *testing.T, ids []string, n int) {
+	t.Helper()
+	if len(ids) != n {
+		t.Fatalf("got %d lines of %d", len(ids), n)
+	}
+	for i, id := range ids {
+		if id != strconv.Itoa(i+1) {
+			t.Fatalf("line %d came as %s", i+1, id)
+		}
+	}
+}
+
+// A client that gets stuck while the job it follows writes more than the
+// stream's buffer holds still gets every line of the log, once, in order,
+// and the finished job last, also when the job goes on writing after the
+// client caught up with what it had.
+func TestJobStreamCatchesUp(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	ctx := context.Background()
+	start, more, paused := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	chatty{start: start, more: more, paused: paused}.register(t, s, "apitest.chatty")
+	const first, second = 300, 200
+	job, err := s.jobs.Enqueue(ctx, "apitest.chatty", [2]int{first, second}, jobs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := make(chan struct{})
+	var ids []string
+	var last *jobs.Job
+	out := func(event, id string, data any) error {
+		switch event {
+		case "log":
+			if id == "5" {
+				// The client gets stuck here while the job writes on.
+				<-gate
+			}
+			ids = append(ids, id)
+		case "job":
+			last = data.(*jobs.Job)
+		}
+		return nil
+	}
+	followed := make(chan error, 1)
+	go func() { followed <- s.server.followJob(ctx, job.ID, 0, out) }()
+	close(start)
+	<-paused
+	// The client takes what it can, and the job writes the rest once it
+	// has.
+	close(gate)
+	time.Sleep(50 * time.Millisecond)
+	close(more)
+	select {
+	case err := <-followed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stream didn't end")
+	}
+	checkLines(t, ids, first+second)
+	if last == nil || last.State != jobs.StateSucceeded || last.Progress.Done != first+second {
+		t.Errorf("the last job event = %+v", last)
+	}
+}
+
+// Over HTTP too, with a client that reads as the job writes.
+func TestJobStreamOverHTTPMissesNothing(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	ctx := context.Background()
+	start := make(chan struct{})
+	chatty{start: start}.register(t, s, "apitest.chatty")
+	const n = 400
+	job, err := s.jobs.Enqueue(ctx, "apitest.chatty", [2]int{n, 0}, jobs.Options{Actor: s.actors["owner"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := s.open("owner", "/api/v1/jobs/"+string(job.ID)+"/stream")
+	close(start)
+	var ids []string
+	var last jobs.Job
+	readEvents(t, stream, func(event, id, data string) bool {
+		switch event {
+		case "log":
+			ids = append(ids, id)
+		case "job":
+			last = jobs.Job{}
+			json.Unmarshal([]byte(data), &last)
+		}
+		return last.State.Done()
+	})
+	checkLines(t, ids, n)
+	if last.State != jobs.StateSucceeded {
+		t.Errorf("the stream ends with the finished job: %+v", last)
 	}
 }

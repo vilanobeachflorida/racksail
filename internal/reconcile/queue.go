@@ -97,7 +97,10 @@ type DriftReport struct {
 // Drifted condition turns true and <kind>.drifted is published. The resource
 // is then reconciled as soon as there is room, which puts it back.
 func (r *Runner) ReportDrift(ctx context.Context, report DriftReport) error {
-	unlock := r.locks.lock(report.Resource)
+	unlock, err := r.locks.lock(ctx, report.Resource)
+	if err != nil {
+		return err
+	}
 	res, err := r.Store.Get(ctx, report.Resource)
 	if err != nil {
 		unlock()
@@ -131,15 +134,17 @@ func (r *Runner) ReportDrift(ctx context.Context, report DriftReport) error {
 	return nil
 }
 
-// settle records how a reconcile ended. Failures are retried with a growing
-// wait while Run is going, and the first in a row of a reconcile the queue
-// started is published, since no change set reports it.
+// settle records how a reconcile ended. A reconcile the queue started that
+// failed is retried with a growing wait while Run is going, and the first
+// failure in a row is published, since no change set reports it. A change
+// set's job reports its own failures, and what it didn't carry out, as when
+// it was canceled, waits for the next change, drift report or resync.
 func (r *Runner) settle(ctx context.Context, res *store.Resource, err error, background bool) {
 	if err == nil {
 		r.queue.succeeded(res.ID)
 		return
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, ErrNoReconciler) || store.ErrNotFound.Is(err) {
+	if !background || errors.Is(err, context.Canceled) || errors.Is(err, ErrNoReconciler) || store.ErrNotFound.Is(err) {
 		return
 	}
 	failures := r.queue.failed(res.ID)

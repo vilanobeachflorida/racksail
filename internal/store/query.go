@@ -170,11 +170,16 @@ func sortValue(info *KindInfo, r *Resource, s sortSpec) string {
 	case SortID:
 		return string(r.ID)
 	}
-	values, err := indexValues(r.Spec, s.index)
+	// A resource sorts by its lowest value; one without a value comes first.
+	values, err := indexEntries(r.Spec, s.index)
 	if err != nil || len(values) == 0 {
 		return ""
 	}
-	return slices.Min(values)
+	lowest := values[0].sortKey
+	for _, v := range values[1:] {
+		lowest = min(lowest, v.sortKey)
+	}
+	return lowest
 }
 
 // asciiLower lowercases ASCII letters only, as SQLite's lower() does, so
@@ -195,32 +200,33 @@ func searchValues(info *KindInfo, spec json.RawMessage) []entry {
 	var out []entry
 	for i := range info.Indexes {
 		ix := &info.Indexes[i]
-		values, err := indexValues(spec, ix)
+		values, err := indexEntries(spec, ix)
 		if err != nil {
 			continue
 		}
 		for _, v := range values {
-			out = append(out, entry{name: ix.Name, value: v})
+			out = append(out, entry{name: ix.Name, value: v.text, sortKey: v.sortKey})
 		}
 	}
 	for name, path := range map[string]string{titleEntry: info.UI.TitleField, subtitleEntry: info.UI.SubtitleField} {
 		if path == "" {
 			continue
 		}
-		values, err := indexValues(spec, &Index{Path: path})
+		values, err := indexEntries(spec, &Index{Path: path})
 		if err != nil {
 			continue
 		}
 		for _, v := range values {
-			out = append(out, entry{name: name, value: v})
+			out = append(out, entry{name: name, value: v.text, sortKey: v.sortKey})
 		}
 	}
 	return out
 }
 
-// entry is one indexed or searchable value of a resource.
+// entry is one indexed or searchable value of a resource, with the key
+// lists sort it by.
 type entry struct {
-	name, value string
+	name, value, sortKey string
 }
 
 // queryMatches reports whether r is one of the resources q selects, apart

@@ -37,10 +37,15 @@ func (s State) Valid() bool { return s == StateQueued || s == StateRunning || s.
 
 // Error codes.
 var (
-	ErrUnknownType  = i18n.Define("jobs.unknown_type", http.StatusUnprocessableEntity, "There is no job type called {type}.")
-	ErrNotRetryable = i18n.Define("jobs.not_retryable", http.StatusConflict, "Only failed or canceled jobs can be retried.")
-	ErrInterrupted  = i18n.Define("jobs.interrupted", http.StatusServiceUnavailable, "The panel stopped while this job was running. Retry it to run it again.")
+	ErrUnknownType    = i18n.Define("jobs.unknown_type", http.StatusUnprocessableEntity, "There is no job type called {type}.")
+	ErrNotRetryable   = i18n.Define("jobs.not_retryable", http.StatusConflict, "Only failed or canceled jobs can be retried.")
+	ErrAlreadyRetried = i18n.Define("jobs.already_retried", http.StatusConflict, "This job was retried already, as {job}. If that one failed too, retry it instead.")
+	ErrInterrupted    = i18n.Define("jobs.interrupted", http.StatusServiceUnavailable, "The panel stopped while this job was running. Retry it to run it again.")
 )
+
+// IdempotencyWindow is how long a retry's Idempotency-Key keeps answering
+// with the job the first request queued, as long as that job is kept.
+const IdempotencyWindow = 24 * time.Hour
 
 // Progress is how far a job has come.
 type Progress struct {
@@ -150,8 +155,9 @@ type Type struct {
 	// Ended, when set, is told about every job of the type once its end is
 	// recorded, however it ended: also when its handler never ran, as for a
 	// job canceled while it waited or one the panel stopped under that
-	// doesn't resume. Work that keeps records of its own uses it to keep
-	// them in line with the job.
+	// doesn't resume. It is told once per job, before Wait returns the job.
+	// Work that keeps records of its own uses it to keep them in line with
+	// the job.
 	Ended func(ctx context.Context, job *Job)
 	// Retryable, when set, is asked before a failed or canceled job of the
 	// type is retried, by Retry or on its own; an error refuses the retry
@@ -311,6 +317,19 @@ func (f Filter) limit() int {
 type Update struct {
 	Job *Job     `json:"job,omitempty"`
 	Log *LogLine `json:"log,omitempty"`
+	// Missed says the watcher fell behind and updates before this one were
+	// dropped. Job, when set, is the job as it was then; the log lines the
+	// watcher missed are in the job's log, where LogsAfter reads them back.
+	Missed bool `json:"missed,omitempty"`
+}
+
+// RetryOptions describe a retry someone asks for.
+type RetryOptions struct {
+	// Actor is who asks; an idempotency key is theirs alone.
+	Actor *auth.Actor
+	// IdempotencyKey, when set, makes asking again with the same key within
+	// IdempotencyWindow answer with the job the first request queued.
+	IdempotencyKey string
 }
 
 // Queue runs jobs.
@@ -319,22 +338,33 @@ type Queue interface {
 	// need their own dependencies, such as the change pipeline. It must be
 	// called before jobs of the type are queued.
 	Handle(t Type) error
+	// Enqueue queues a job. Within a transaction of the panel database
+	// (store.DB.Atomic), the job is queued with the transaction's other
+	// writes and starts once it commits.
 	Enqueue(ctx context.Context, typ string, args any, opts Options) (*Job, error)
 	Get(ctx context.Context, id store.ID) (*Job, error)
 	// List returns jobs matching f, newest first, and the cursor of the
 	// next page.
 	List(ctx context.Context, f Filter) ([]*Job, string, error)
+	// Cancel asks a running job to stop, and cancels a queued one before it
+	// starts. Canceling a job that finished changes nothing.
 	Cancel(ctx context.Context, id store.ID) error
 	// Retry queues a failed or canceled job again with the same arguments.
-	Retry(ctx context.Context, id store.ID) (*Job, error)
+	// A job is retried once: asking again gets jobs.already_retried, naming
+	// the retry, unless the request carries the first one's idempotency key.
+	Retry(ctx context.Context, id store.ID, opts RetryOptions) (*Job, error)
 	Logs(ctx context.Context, id store.ID) ([]LogLine, error)
 	// LogsAfter returns up to limit lines of a job's log after the line
 	// numbered seq; zero means every line.
 	LogsAfter(ctx context.Context, id store.ID, seq int64, limit int) ([]LogLine, error)
 	// Watch streams updates until the job finishes or stop is called. ctx
-	// bounds reading the job to start with.
+	// bounds reading the job to start with. Log lines arrive in order; a
+	// watcher that falls behind gets an update with Missed set instead of
+	// the ones it had no room for, and reads the lines it missed from the
+	// log.
 	Watch(ctx context.Context, id store.ID) (updates <-chan Update, stop func())
-	// Wait blocks until the job finishes.
+	// Wait blocks until the job finishes and its type has been told how it
+	// ended.
 	Wait(ctx context.Context, id store.ID) (*Job, error)
 }
 
@@ -346,8 +376,8 @@ type Stats struct {
 	// OldestQueued is how long the job that has waited longest for a worker
 	// has waited.
 	OldestQueued time.Duration
-	// The counts of jobs this process started and saw end, since it
-	// started.
+	// The counts, since the process started, of the jobs it started and of
+	// the ends it recorded.
 	Started, Succeeded, Failed, Canceled int64
 }
 

@@ -455,7 +455,7 @@ func (s *Server) Handler() http.Handler {
 			writeProblem(rec, ErrAddressNotAllowed.New("address", r.RemoteAddr))
 			return
 		}
-		ctx := events.WithRequestID(r.Context(), id)
+		ctx := withAudit(events.WithRequestID(r.Context(), id), s.services().Audit, s.opts.Log)
 		found, err := s.opts.Auth.Authenticate(ctx, r)
 		switch {
 		case err != nil:

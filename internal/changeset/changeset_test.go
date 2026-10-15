@@ -541,19 +541,51 @@ func TestActionsAndValidation(t *testing.T) {
 		t.Errorf("an action that changed no settings can't be undone: %v", err)
 	}
 
-	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpCreate, Kind: "test.page", Scope: store.AccountScope(e.acct), Spec: json.RawMessage(`{"content":"x"}`)}}}); !errors.Is(err, i18n.ErrInvalid) {
+	// Changes that don't go through are in the audit log too: refused ones
+	// as denied, allowed ones that couldn't be made as failed.
+	outcome := func(actor *auth.Actor, action string) events.Outcome {
+		t.Helper()
+		records, _, _ := e.bus.QueryAudit(ctx, events.Query{Actor: actor.ID, Types: []string{action}, Limit: 1})
+		if len(records) == 0 {
+			return ""
+		}
+		return records[0].Outcome
+	}
+	invalid := Change{Op: OpCreate, Kind: "test.page", Scope: store.AccountScope(e.acct), Spec: json.RawMessage(`{"content":"x"}`)}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{invalid}, DryRun: true}); !errors.Is(err, i18n.ErrInvalid) {
+		t.Errorf("kind validation of a preview: %v", err)
+	}
+	if got := outcome(e.owner, "test.page.create"); got == events.OutcomeFailed {
+		t.Error("a preview that fails isn't recorded")
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{invalid}}); !errors.Is(err, i18n.ErrInvalid) {
 		t.Errorf("kind validation: %v", err)
+	}
+	if got := outcome(e.owner, "test.page.create"); got != events.OutcomeFailed {
+		t.Errorf("a change with settings that aren't valid is recorded as failed, not %q", got)
 	}
 	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner}); !errors.Is(err, ErrEmpty) {
 		t.Errorf("a request without changes: %v", err)
 	}
-	stranger := &auth.Actor{Type: auth.ActorUser, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(store.NewID("acct"))}}}
-	if _, err := e.engine.Submit(ctx, Request{Actor: stranger, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, i18n.ErrForbidden) {
+	// Someone who can't see the page is told it doesn't exist, as reads are;
+	// someone who can see it but not delete it is told they may not.
+	stranger := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(store.NewID("acct"))}}}
+	if _, err := e.engine.Submit(ctx, Request{Actor: stranger, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("another account's owner: %v", err)
 	}
+	if got := outcome(stranger, "test.page.delete"); got != events.OutcomeDenied {
+		t.Errorf("the stranger's attempt is recorded as denied, not %q", got)
+	}
+	reader := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(e.acct)}}}
+	if _, err := e.engine.Submit(ctx, Request{Actor: reader, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("a reader of the account: %v", err)
+	}
 	e.hooks.deny = true
-	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, i18n.ErrForbidden) {
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}, DryRun: true}); !errors.Is(err, i18n.ErrForbidden) {
 		t.Errorf("a validate hook should deny: %v", err)
+	}
+	if got := outcome(e.owner, "test.page.delete"); got != events.OutcomeDenied {
+		t.Errorf("a change a validate hook refused is recorded as denied, even in a preview, not %q", got)
 	}
 	if e.hooks.validate[len(e.hooks.validate)-1] != "test.page.delete.validate" {
 		t.Errorf("hook points = %v", e.hooks.validate)

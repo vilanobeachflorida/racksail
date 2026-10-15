@@ -32,7 +32,8 @@ func sameParty(a, b *auth.Actor) bool {
 
 // canSeeChangeSet reports whether the signed-in actor may see a change set:
 // one they made, any when they may read every change set, or one whose
-// every resource they may read.
+// every resource they may read. Lists use it to leave out the others, so it
+// records nothing.
 func (s *Server) canSeeChangeSet(ctx context.Context, cs *changeset.ChangeSet) bool {
 	actor, err := Actor(ctx)
 	if err != nil {
@@ -42,14 +43,14 @@ func (s *Server) canSeeChangeSet(ctx context.Context, cs *changeset.ChangeSet) b
 		return true
 	}
 	authz := s.authorizer()
-	if Authorize(ctx, authz, PermChangeSetRead, auth.Target{Scope: store.ServerScope()}) == nil {
+	if allowed(ctx, authz, PermChangeSetRead, auth.Target{Scope: store.ServerScope()}) == nil {
 		return true
 	}
 	if len(cs.Changes) == 0 {
 		return false
 	}
 	for _, c := range cs.Changes {
-		if AuthorizeRead(ctx, authz, store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}) != nil {
+		if !canRead(ctx, authz, store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}) {
 			return false
 		}
 	}
@@ -57,16 +58,17 @@ func (s *Server) canSeeChangeSet(ctx context.Context, cs *changeset.ChangeSet) b
 }
 
 // changeSetVisibility narrows a list to the change sets the signed-in actor
-// may see, roughly: nil when they may read every change set, and otherwise
-// their own and those whose resources are all in scopes or resources their
-// grants reach. canSeeChangeSet decides about each one.
+// may see, roughly: nil when they may read every change set or the query
+// can't be narrowed, and otherwise their own and those whose resources are
+// all in scopes or resources their grants reach. canSeeChangeSet decides
+// about each one.
 func (s *Server) changeSetVisibility(ctx context.Context) (*changeset.Visibility, error) {
 	actor, err := Actor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	authz := s.authorizer()
-	if Authorize(ctx, authz, PermChangeSetRead, auth.Target{Scope: store.ServerScope()}) == nil {
+	if allowed(ctx, authz, PermChangeSetRead, auth.Target{Scope: store.ServerScope()}) == nil {
 		return nil, nil
 	}
 	v := &changeset.Visibility{Person: jobs.Of(actor)}
@@ -79,9 +81,16 @@ func (s *Server) changeSetVisibility(ctx context.Context) (*changeset.Visibility
 	}
 	// Grants of any permission count here, since reading a resource is a
 	// permission of its kind; canSeeChangeSet checks each kind.
-	if v.Scopes, err = grantScopes(ctx, authz, actor, ""); err != nil {
+	r, err := grantScopes(ctx, authz, actor, "")
+	if err != nil {
 		return nil, err
 	}
+	if r.all {
+		// A grant on the whole server may cover the resources of any change
+		// set, so every one is read and canSeeChangeSet decides.
+		return nil, nil
+	}
+	v.Scopes = r.scopes
 	for _, g := range actor.Grants {
 		if g.Object != "" && g.Role.Valid() {
 			v.Objects = append(v.Objects, g.Object)
@@ -90,7 +99,8 @@ func (s *Server) changeSetVisibility(ctx context.Context) (*changeset.Visibility
 	return v, nil
 }
 
-// changeSet reads a change set the signed-in actor may see.
+// changeSet reads a change set the signed-in actor may see. Others are
+// reported as not found, and the refusal is recorded in the audit log.
 func (s *Server) changeSet(ctx context.Context, id store.ID) (*changeset.ChangeSet, error) {
 	p := s.pipeline()
 	if p == nil {
@@ -101,6 +111,7 @@ func (s *Server) changeSet(ctx context.Context, id store.ID) (*changeset.ChangeS
 		return nil, err
 	}
 	if !s.canSeeChangeSet(ctx, cs) {
+		refused(ctx, PermChangeSetRead, "", cs.ID, cs.Owner(), i18n.ErrForbidden.New("action", string(PermChangeSetRead)))
 		return nil, i18n.ErrNotFound.New("what", "Change "+string(id))
 	}
 	return cs, nil

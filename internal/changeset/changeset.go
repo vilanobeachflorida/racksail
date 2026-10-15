@@ -251,6 +251,25 @@ func (cs *ChangeSet) Clone() *ChangeSet {
 	return &c
 }
 
+// Owner returns the owner of everything the change set touches, or the
+// server's scope when they belong to different owners. Its job, its events
+// and its audit records belong to that owner.
+func (cs *ChangeSet) Owner() store.Scope {
+	if len(cs.Changes) == 0 {
+		return store.ServerScope()
+	}
+	scope := cs.Changes[0].Scope
+	for _, c := range cs.Changes[1:] {
+		if c.Scope != scope {
+			return store.ServerScope()
+		}
+	}
+	if scope.Level == "" {
+		return store.ServerScope()
+	}
+	return scope
+}
+
 // Summarize recomputes the estimate from the effects.
 func (cs *ChangeSet) Summarize() {
 	var e Estimate

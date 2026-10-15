@@ -21,11 +21,17 @@
 // change anything else.
 //
 // Applying a change set that removes data first takes read-only snapshots of
-// what it removes. It then writes every resource change in one store
-// transaction and runs the reconcilers as a job with live progress, which
-// verifies the result with the plans' health checks. Undo is a new change
-// set built from the recorded previous specs, labels and placement, planned
-// and applied like any other.
+// what it removes. It then writes every resource change, and in the panel
+// database the change set, its job, the request's idempotency key and the
+// audit records too, in one transaction, and runs the reconcilers as a job
+// with live progress, which verifies the result with the plans' health
+// checks. Undo is a new change set built from the recorded previous specs,
+// labels and placement, planned and applied like any other.
+//
+// The audit log gets every change as a success, every change the actor
+// wasn't allowed or a validate hook stopped as denied, and every change
+// that was allowed but couldn't be made as failed. A change to a resource
+// the actor may not even read answers as if it didn't exist.
 //
 // The job records each change as started before it runs and as done once it
 // is in place. However the job ends, canceled, out of time, or cut short by

@@ -167,7 +167,12 @@ func (r *Runner) Reconcile(ctx context.Context, id store.ID, progress Progress) 
 // reconcile does the work of Reconcile. background says the queue started
 // it, rather than a change set's apply job, which reports failures itself.
 func (r *Runner) reconcile(ctx context.Context, id store.ID, progress Progress, background bool) error {
-	unlock := r.locks.lock(id)
+	unlock, err := r.locks.lock(ctx, id)
+	if err != nil {
+		// Its context ended while another reconcile of the resource ran;
+		// nothing was done, so the status stays as it was.
+		return stopped(ctx)
+	}
 	defer unlock()
 	res, err := r.Store.Get(ctx, id)
 	if err != nil {
@@ -518,30 +523,50 @@ type keyLocks struct {
 }
 
 type keyLock struct {
-	mu   sync.Mutex
+	// held has room for one: whoever put a token in holds the lock.
+	held chan struct{}
+	// refs counts those holding the lock or waiting for it; the last one
+	// removes it.
 	refs int
 }
 
-func (k *keyLocks) lock(id store.ID) (unlock func()) {
+// lock waits until nobody else works on the resource, or until ctx is done,
+// as when the job waiting for it is canceled.
+func (k *keyLocks) lock(ctx context.Context, id store.ID) (unlock func(), err error) {
 	k.mu.Lock()
 	if k.locks == nil {
 		k.locks = map[store.ID]*keyLock{}
 	}
 	l := k.locks[id]
 	if l == nil {
-		l = &keyLock{}
+		l = &keyLock{held: make(chan struct{}, 1)}
 		k.locks[id] = l
 	}
 	l.refs++
 	k.mu.Unlock()
-	l.mu.Lock()
-	return func() {
-		l.mu.Unlock()
+	leave := func() {
 		k.mu.Lock()
 		defer k.mu.Unlock()
 		if l.refs--; l.refs == 0 {
 			delete(k.locks, id)
 		}
+	}
+	unlock = func() {
+		<-l.held
+		leave()
+	}
+	// A free lock is taken whatever ctx says; only waiting ends with it.
+	select {
+	case l.held <- struct{}{}:
+		return unlock, nil
+	default:
+	}
+	select {
+	case l.held <- struct{}{}:
+		return unlock, nil
+	case <-ctx.Done():
+		leave()
+		return nil, ctx.Err()
 	}
 }
 

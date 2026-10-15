@@ -50,7 +50,64 @@ func NewSQLite(ctx context.Context, db *DB, reg *KindRegistry, opts ...MemoryOpt
 	for _, o := range opts {
 		o(m)
 	}
-	return &SQLite{db: db, kinds: reg, now: m.now}, nil
+	s := &SQLite{db: db, kinds: reg, now: m.now}
+	if err := s.fillSortKeys(ctx); err != nil {
+		return nil, fmt.Errorf("store: filling in the sort keys of indexed values: %w", err)
+	}
+	return s, nil
+}
+
+// fillSortKeys gives the index values written before they had sort keys
+// theirs, worked out from their resources' specs. Values of kinds this
+// binary doesn't know sort as text.
+func (s *SQLite) fillSortKeys(ctx context.Context) error {
+	var one int
+	err := s.db.Reader().QueryRowContext(ctx, `SELECT 1 FROM resource_index_values WHERE sort_key = '' LIMIT 1`).Scan(&one)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	}
+	return s.db.Write(ctx, func(tx *sql.Tx) error {
+		type pending struct {
+			id   ID
+			kind string
+			spec string
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT r.id, r.kind, r.spec FROM resources r
+			WHERE EXISTS (SELECT 1 FROM resource_index_values v WHERE v.resource_id = r.id AND v.sort_key = '')`)
+		if err != nil {
+			return err
+		}
+		var todo []pending
+		for rows.Next() {
+			var p pending
+			if err := rows.Scan(&p.id, &p.kind, &p.spec); err != nil {
+				rows.Close()
+				return err
+			}
+			todo = append(todo, p)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, p := range todo {
+			k, ok := s.kinds.Get(p.kind)
+			if !ok {
+				continue
+			}
+			for _, e := range searchValues(k.Info(), json.RawMessage(p.spec)) {
+				if _, err := tx.ExecContext(ctx, `UPDATE resource_index_values SET sort_key = ? WHERE resource_id = ? AND name = ? AND value = ? AND sort_key = ''`,
+					e.sortKey, p.id, e.name, e.value); err != nil {
+					return err
+				}
+			}
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE resource_index_values SET sort_key = ? || value WHERE sort_key = ''`, textSortKey(""))
+		return err
+	})
 }
 
 // DB returns the database the store lives in.
@@ -199,7 +256,8 @@ func history(ctx context.Context, q querier, id ID) ([]Version, error) {
 	return out, rows.Err()
 }
 
-// Write implements Store.
+// Write implements Store. Within the database's Atomic, the writes join its
+// transaction, and watchers hear about them once it commits.
 func (s *SQLite) Write(ctx context.Context, meta WriteMeta, fn func(tx Tx) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -214,7 +272,8 @@ func (s *SQLite) Write(ctx context.Context, meta WriteMeta, fn func(tx Tx) error
 	if err != nil {
 		return err
 	}
-	s.hub.publish(tx.changes)
+	changes := tx.changes
+	s.db.AfterCommit(ctx, func() { s.hub.publish(changes) })
 	return nil
 }
 
@@ -501,8 +560,8 @@ func (tx *sqliteTx) checkUnique(ctx context.Context, info *KindInfo, keys []uniq
 // writeIndexes stores the index, search and unique values of r.
 func (tx *sqliteTx) writeIndexes(ctx context.Context, info *KindInfo, r *Resource, keys []uniqueKey) error {
 	for _, e := range searchValues(info, r.Spec) {
-		if err := tx.exec(ctx, `INSERT OR IGNORE INTO resource_index_values (resource_id, kind, name, value) VALUES (?, ?, ?, ?)`,
-			r.ID, info.Name, e.name, e.value); err != nil {
+		if err := tx.exec(ctx, `INSERT OR IGNORE INTO resource_index_values (resource_id, kind, name, value, sort_key) VALUES (?, ?, ?, ?, ?)`,
+			r.ID, info.Name, e.name, e.value, e.sortKey); err != nil {
 			return fmt.Errorf("store: indexing %s: %w", r.ID, err)
 		}
 	}
@@ -646,7 +705,7 @@ func sqlSortExpr(s sortSpec) (string, []any) {
 	case SortID:
 		return "r.id", nil
 	}
-	return "coalesce((SELECT min(v.value) FROM resource_index_values v WHERE v.resource_id = r.id AND v.name = ?), '')", []any{s.field}
+	return "coalesce((SELECT min(v.sort_key) FROM resource_index_values v WHERE v.resource_id = r.id AND v.name = ?), '')", []any{s.field}
 }
 
 func placeholders(n int) string {

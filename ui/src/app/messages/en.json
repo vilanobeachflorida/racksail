@@ -76,6 +76,7 @@
   "error.hooks.overstep": "The hook changed {what}, which hooks can't change.",
   "error.hooks.unknown_point": "There is no hook point called {point}.",
   "error.hooks.unknown_provider": "There is no {capability} provider called {provider}.",
+  "error.jobs.already_retried": "This job was retried already, as {job}. If that one failed too, retry it instead.",
   "error.jobs.interrupted": "The panel stopped while this job was running. Retry it to run it again.",
   "error.jobs.not_retryable": "Only failed or canceled jobs can be retried.",
   "error.jobs.unknown_type": "There is no job type called {type}.",

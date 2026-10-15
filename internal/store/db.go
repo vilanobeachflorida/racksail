@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	// The pure Go SQLite driver, registered as "sqlite".
@@ -98,8 +100,13 @@ func (db *DB) Path() string { return db.path }
 func (db *DB) Reader() *sql.DB { return db.reader }
 
 // Write runs fn in a write transaction, committing it when fn returns nil.
-// Writes are serialized, so fn must not call Write itself.
+// Writes are serialized, so fn must not call Write itself. Inside Atomic,
+// with its context, fn runs in Atomic's transaction instead, as a savepoint
+// that is undone on its own when fn fails.
 func (db *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	if st := db.joined(ctx); st != nil {
+		return st.savepoint(ctx, fn)
+	}
 	tx, err := db.writer.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("store: starting a transaction: %w", err)
@@ -116,7 +123,8 @@ func (db *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return nil
 }
 
-// Exec runs one statement in a write transaction of its own.
+// Exec runs one statement in a write transaction of its own, or in Atomic's
+// when ctx carries it.
 func (db *DB) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	var res sql.Result
 	err := db.Write(ctx, func(tx *sql.Tx) error {
@@ -125,6 +133,144 @@ func (db *DB) Exec(ctx context.Context, query string, args ...any) (sql.Result, 
 		return err
 	})
 	return res, err
+}
+
+// ErrOtherTransaction refuses Atomic while ctx carries a transaction of
+// another database, whose writes couldn't commit together with this one's.
+var ErrOtherTransaction = errors.New("store: a transaction of another database is in progress")
+
+// txState is a transaction Atomic started. Writes made with a context that
+// carries it join it.
+type txState struct {
+	db *DB
+	tx *sql.Tx
+
+	mu    sync.Mutex
+	depth int
+	after []func()
+	// done is set once the transaction committed or rolled back, after
+	// which contexts that still carry it write on their own again.
+	done bool
+}
+
+type txKey struct{}
+
+// current returns the transaction ctx carries, while it is going on.
+func current(ctx context.Context) *txState {
+	st, ok := ctx.Value(txKey{}).(*txState)
+	if !ok {
+		return nil
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.done {
+		return nil
+	}
+	return st
+}
+
+// joined returns the transaction of db that ctx carries, while it is going
+// on.
+func (db *DB) joined(ctx context.Context) *txState {
+	if st := current(ctx); st != nil && st.db == db {
+		return st
+	}
+	return nil
+}
+
+// Atomic runs fn in one write transaction of the database. Every write made
+// with fn's context, or a context derived from it, through Write and Exec
+// joins that transaction, so what the store, the job queue, the change
+// pipeline and the audit log write there commits together or not at all.
+// Each write joins as a savepoint: one that fails is undone on its own, and
+// its caller decides whether to go on. Reads through Reader don't see the
+// transaction's writes until it commits, and what waits for them
+// (AfterCommit) runs once it has.
+//
+// The transaction holds the only writing connection, so every write fn makes
+// must use its context: one made with another context would wait for the
+// transaction to end, which never happens. For the same reason fn must not
+// publish events, since publishing takes a lock that a writer waiting for
+// the connection may hold.
+func (db *DB) Atomic(ctx context.Context, fn func(ctx context.Context) error) error {
+	if st := current(ctx); st != nil {
+		if st.db != db {
+			return ErrOtherTransaction
+		}
+		return fn(ctx)
+	}
+	tx, err := db.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: starting a transaction: %w", err)
+	}
+	st := &txState{db: db, tx: tx}
+	err = fn(context.WithValue(ctx, txKey{}, st))
+	if err == nil {
+		if err = tx.Commit(); err != nil {
+			err = fmt.Errorf("store: committing: %w", err)
+		}
+	} else if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+		err = errors.Join(err, rbErr)
+	}
+	st.mu.Lock()
+	after := st.after
+	st.after, st.done = nil, true
+	st.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	for _, f := range after {
+		f()
+	}
+	return nil
+}
+
+// AfterCommit runs fn once the writes made to the database with ctx are
+// committed: when Atomic's transaction commits, if ctx carries it, and at
+// once otherwise. fn never runs when the transaction rolls back. Work that
+// others must only see once it is in the database, such as telling watchers
+// about it or starting a job, waits for the commit this way.
+func (db *DB) AfterCommit(ctx context.Context, fn func()) {
+	st := db.joined(ctx)
+	if st == nil {
+		fn()
+		return
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.after = append(st.after, fn)
+}
+
+// savepoint runs fn inside the transaction, undoing what fn wrote when it
+// fails. Savepoints nest, so a write within another one works too.
+func (st *txState) savepoint(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	st.mu.Lock()
+	st.depth++
+	name := "write_" + strconv.Itoa(st.depth)
+	st.mu.Unlock()
+	defer func() {
+		st.mu.Lock()
+		st.depth--
+		st.mu.Unlock()
+	}()
+	if _, err := st.tx.ExecContext(ctx, "SAVEPOINT "+name); err != nil {
+		return fmt.Errorf("store: starting a savepoint: %w", err)
+	}
+	// Undoing goes ahead even when ctx has ended.
+	cleanup := context.WithoutCancel(ctx)
+	if err := fn(st.tx); err != nil {
+		if _, rbErr := st.tx.ExecContext(cleanup, "ROLLBACK TO "+name); rbErr != nil {
+			return errors.Join(err, rbErr)
+		}
+		if _, relErr := st.tx.ExecContext(cleanup, "RELEASE "+name); relErr != nil {
+			return errors.Join(err, relErr)
+		}
+		return err
+	}
+	if _, err := st.tx.ExecContext(cleanup, "RELEASE "+name); err != nil {
+		return fmt.Errorf("store: ending a savepoint: %w", err)
+	}
+	return nil
 }
 
 // Checkpoint copies the write-ahead log into the database file and empties

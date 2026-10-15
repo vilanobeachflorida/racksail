@@ -257,7 +257,7 @@ func (e *Engine) addContribution(ctx context.Context, p *draft, actor *auth.Acto
 // recheckAccess runs the checks of the validate stage for a change a hook
 // contributed or rewrote: the authorizer, the kind's validation and the
 // validate hooks. It then brings the change's diff up to date.
-func (e *Engine) recheckAccess(ctx context.Context, p *draft, actor *auth.Actor, c *ResourceChange, kind store.Kind, next, old *store.Resource) error {
+func (e *Engine) recheckAccess(ctx context.Context, p *draft, actor *auth.Actor, c *ResourceChange, kind store.Kind, next, old *store.Resource) (err error) {
 	info := kind.Info()
 	operation := string(c.Op)
 	if c.Op == OpAction {
@@ -270,13 +270,20 @@ func (e *Engine) recheckAccess(ctx context.Context, p *draft, actor *auth.Actor,
 	}
 	if e.opts.Authorizer != nil {
 		if err := e.opts.Authorizer.Authorize(ctx, actor, perm, target); err != nil {
-			e.audit(ctx, actor, string(perm), next, "", events.OutcomeDenied, err.Error(), "")
+			p.recorded = true
+			e.audit(ctx, actor, string(perm), next, "", events.OutcomeDenied, err, "")
 			if c.Source == RequestSource {
 				return err
 			}
 			return ErrContributionDenied.Wrap(err, "source", contributor(c.Source), "reason", i18n.From(err).Message)
 		}
 	}
+	// From here on the change is allowed, so whatever stops it is recorded.
+	defer func() {
+		if err != nil {
+			e.refusal(ctx, p, actor, perm, next, err, "")
+		}
+	}()
 	if c.Op != OpDelete {
 		if err := validate(ctx, kind, next, old); err != nil {
 			return err

@@ -162,7 +162,7 @@ func TestCanceledBeforeItStarts(t *testing.T) {
 	if final.State != StateFailed || final.Error != i18n.ErrCanceled.New().Message || final.Changes[0].State != "" {
 		t.Errorf("canceled before it started = %+v", final)
 	}
-	retry, err := e.jobs.Retry(ctx, cs.Job)
+	retry, err := e.jobs.Retry(ctx, cs.Job, jobs.RetryOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestRetryingAnApplyCarriesOn(t *testing.T) {
 		t.Fatalf("the action after the failure ran: %q", got)
 	}
 	e.sim.ResetCalls()
-	retry, err := e.jobs.Retry(ctx, cs.Job)
+	retry, err := e.jobs.Retry(ctx, cs.Job, jobs.RetryOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestRetryingAnApplyCarriesOn(t *testing.T) {
 			t.Errorf("the retry ran a change that was done: %v", c)
 		}
 	}
-	if _, err := e.jobs.Retry(ctx, cs.Job); !errors.Is(err, ErrNotRetryable) {
+	if _, err := e.jobs.Retry(ctx, cs.Job, jobs.RetryOptions{}); !errors.Is(err, ErrNotRetryable) {
 		t.Errorf("retrying a change set that was applied: %v", err)
 	}
 
@@ -235,7 +235,7 @@ func TestRetryingAnApplyCarriesOn(t *testing.T) {
 	if got := e.wait(t, pub); got.State != StateFailed {
 		t.Fatalf("publish = %+v", got)
 	}
-	if _, err := e.jobs.Retry(ctx, pub.Job); !errors.Is(err, ErrActionNotRepeated) {
+	if _, err := e.jobs.Retry(ctx, pub.Job, jobs.RetryOptions{}); !errors.Is(err, ErrActionNotRepeated) {
 		t.Errorf("retrying an action that may have run: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestRetryingAnApplyCarriesOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.wait(t, undo)
-	if _, err := e.jobs.Retry(ctx, doomed.Job); !errors.Is(err, ErrNotRetryable) {
+	if _, err := e.jobs.Retry(ctx, doomed.Job, jobs.RetryOptions{}); !errors.Is(err, ErrNotRetryable) {
 		t.Errorf("retrying a change set that was undone: %v", err)
 	}
 	if got, _ := e.engine.Get(ctx, doomed.ID); got.State != StateUndone {
@@ -304,7 +304,7 @@ func TestApplyCutShortByARestart(t *testing.T) {
 		t.Errorf("failed events = %d", len(failedEvents))
 	}
 	open()
-	retry, err := second.jobs.Retry(ctx2, cs.Job)
+	retry, err := second.jobs.Retry(ctx2, cs.Job, jobs.RetryOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,5 +455,78 @@ func TestPurgedIDsAreNotReused(t *testing.T) {
 	history, _ := e.store.History(ctx, id)
 	if len(history) != 3 || history[2].ChangeSet != back.ID {
 		t.Errorf("history = %+v", history)
+	}
+}
+
+// failingAudit refuses the records of changes that went through while fail
+// is set, as a full disk would.
+type failingAudit struct {
+	events.AuditLog
+	fail atomic.Bool
+}
+
+var errAuditDown = errors.New("the audit log can't be written")
+
+func (f *failingAudit) Record(ctx context.Context, r events.AuditRecord) error {
+	if f.fail.Load() && r.Outcome == events.OutcomeSuccess {
+		return errAuditDown
+	}
+	return f.AuditLog.Record(ctx, r)
+}
+
+// In the panel database, applying a change set writes the settings, the
+// change set, its job and its audit records together: when one can't be
+// written, none of them is, and a retry with the same key applies it.
+func TestApplyIsOneTransaction(t *testing.T) {
+	ctx := context.Background()
+	audit := &failingAudit{}
+	e := buildEnv(t, envConfig{db: openDB(t), audit: func(a events.AuditLog) events.AuditLog {
+		audit.AuditLog = a
+		return audit
+	}})
+	watcher := e.store.Watch(store.WatchFilter{Kinds: []string{"test.page"}}, 8)
+	defer watcher.Close()
+	audit.fail.Store(true)
+	req := Request{Actor: e.owner, Changes: []Change{e.createPage(pageSpec{Path: "all.html", Content: "all"})}, IdempotencyKey: "all-or-nothing"}
+	if _, err := e.engine.Submit(ctx, req); !errors.Is(err, errAuditDown) {
+		t.Fatalf("submitting while the audit log is down: %v", err)
+	}
+	if page, _ := e.store.List(ctx, store.Query{Kind: "test.page"}); len(page.Items) != 0 {
+		t.Errorf("settings were written: %d pages", len(page.Items))
+	}
+	if sets, _, _ := e.engine.List(ctx, ListQuery{}); len(sets) != 0 {
+		t.Errorf("change sets kept: %+v", sets)
+	}
+	if queued, _, _ := e.jobs.List(ctx, jobs.Filter{Type: ApplyJob}); len(queued) != 0 {
+		t.Errorf("jobs queued: %+v", queued)
+	}
+	select {
+	case n := <-watcher.C:
+		t.Errorf("watchers heard of %s, which was never written", n.ID)
+	default:
+	}
+	records, _, _ := e.bus.QueryAudit(ctx, events.Query{Actor: e.owner.ID})
+	for _, r := range records {
+		if r.Outcome == events.OutcomeSuccess {
+			t.Errorf("a success was recorded: %+v", r)
+		}
+	}
+	if len(records) != 1 || records[0].Outcome != events.OutcomeFailed || records[0].Action != "test.page.create" {
+		t.Errorf("the failed attempt is recorded once: %+v", records)
+	}
+
+	audit.fail.Store(false)
+	cs, err := e.engine.Submit(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done := e.wait(t, cs); done.State != StateApplied {
+		t.Errorf("the retry = %+v", done)
+	}
+	if again, err := e.engine.Submit(ctx, req); err != nil || again.ID != cs.ID {
+		t.Errorf("the key now names the change set: %+v, %v", again, err)
+	}
+	if got := e.file(pagesDir + "/all.html"); got != "all" {
+		t.Errorf("page = %q", got)
 	}
 }

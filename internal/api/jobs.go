@@ -16,7 +16,8 @@ import (
 )
 
 // mayUseJob reports whether the signed-in actor may use perm on a job: on a
-// job they started, or with the permission on the job's owner.
+// job they started, or with the permission on the job's owner. Lists use it
+// to leave out the others, so it records nothing.
 func (s *Server) mayUseJob(ctx context.Context, perm auth.Permission, job *jobs.Job) error {
 	actor, err := Actor(ctx)
 	if err != nil {
@@ -25,11 +26,21 @@ func (s *Server) mayUseJob(ctx context.Context, perm auth.Permission, job *jobs.
 	if sameParty(actor, job.Actor) {
 		return nil
 	}
-	return Authorize(ctx, s.authorizer(), perm, auth.Target{Scope: job.Scope})
+	return allowed(ctx, s.authorizer(), perm, auth.Target{Scope: job.Scope})
+}
+
+// authorizeJob is mayUseJob for an operation's own decision: a refusal is
+// recorded in the audit log.
+func (s *Server) authorizeJob(ctx context.Context, perm auth.Permission, job *jobs.Job) error {
+	err := s.mayUseJob(ctx, perm, job)
+	if i18n.ErrForbidden.Is(err) {
+		refused(ctx, perm, "", job.ID, job.Scope, err)
+	}
+	return err
 }
 
 // job reads a job the signed-in actor may see. Others are reported as not
-// found.
+// found, and the refusal is recorded.
 func (s *Server) job(ctx context.Context, id store.ID) (*jobs.Job, error) {
 	q := s.jobs()
 	if q == nil {
@@ -39,7 +50,7 @@ func (s *Server) job(ctx context.Context, id store.ID) (*jobs.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayUseJob(ctx, PermJobRead, job); err != nil {
+	if err := s.authorizeJob(ctx, PermJobRead, job); err != nil {
 		if i18n.ErrForbidden.Is(err) {
 			return nil, i18n.ErrNotFound.New("what", "Job "+string(id))
 		}
@@ -66,6 +77,18 @@ type jobList struct {
 
 type jobInput struct {
 	ID store.ID `path:"id" doc:"The job's ID, which starts with job_"`
+}
+
+type cancelJobInput struct {
+	ID store.ID `path:"id" doc:"The job's ID, which starts with job_"`
+	// Canceling twice changes nothing, so the key needs no keeping; it is
+	// taken for clients that send one with every change.
+	IdempotencyKey string `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string. Canceling a job again changes nothing, so a repeat is safe with or without it"`
+}
+
+type retryJobInput struct {
+	ID             store.ID `path:"id" doc:"The job's ID, which starts with job_"`
+	IdempotencyKey string   `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string; a repeat of the request with the same key, within a day, answers with the job the first one queued instead of refusing"`
 }
 
 type jobOutput struct {
@@ -198,23 +221,25 @@ func (s *Server) registerJobs() {
 	op = huma.Operation{
 		OperationID: "cancelJob", Method: http.MethodPost, Path: Prefix + "/jobs/{id}/cancel", Tags: tags, Security: Protected,
 		Summary: "Cancel a job",
-		Description: "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing. What the job did before it stopped stays done; " +
+		Description: "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, " +
+			"so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; " +
 			"a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. " +
 			"You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
 	}
 	Describe(&op, Info{Operation: "cancel", Risk: store.RiskMedium})
-	huma.Register(s.api, op, func(ctx context.Context, in *jobInput) (*jobOutput, error) {
+	huma.Register(s.api, op, func(ctx context.Context, in *cancelJobInput) (*jobOutput, error) {
 		job, err := s.job(ctx, in.ID)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.mayUseJob(ctx, PermJobCancel, job); err != nil {
+		if err := s.authorizeJob(ctx, PermJobCancel, job); err != nil {
 			return nil, err
 		}
 		if err := s.jobs().Cancel(ctx, in.ID); err != nil {
+			s.auditJob(ctx, PermJobCancel, job, events.OutcomeFailed, "Cancel "+job.Title, err)
 			return nil, err
 		}
-		s.auditJob(ctx, PermJobCancel, job, "Canceled "+job.Title)
+		s.auditJob(ctx, PermJobCancel, job, events.OutcomeSuccess, "Canceled "+job.Title, nil)
 		if job, err = s.jobs().Get(ctx, in.ID); err != nil {
 			return nil, err
 		}
@@ -225,6 +250,8 @@ func (s *Server) registerJobs() {
 		OperationID: "retryJob", Method: http.MethodPost, Path: Prefix + "/jobs/{id}/retry", Tags: tags, Security: Protected,
 		Summary: "Retry a job",
 		Description: "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. " +
+			"A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; " +
+			"a repeat with the first request's Idempotency-Key answers with the same new job. " +
 			"Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, " +
 			"and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
 		DefaultStatus: http.StatusAccepted,
@@ -232,19 +259,24 @@ func (s *Server) registerJobs() {
 	}
 	s.withProblems(&op)
 	Describe(&op, Info{Operation: "retry", Risk: store.RiskMedium})
-	huma.Register(s.api, op, func(ctx context.Context, in *jobInput) (*retryOutput, error) {
+	huma.Register(s.api, op, func(ctx context.Context, in *retryJobInput) (*retryOutput, error) {
+		actor, err := Actor(ctx)
+		if err != nil {
+			return nil, err
+		}
 		job, err := s.job(ctx, in.ID)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.mayUseJob(ctx, PermJobRetry, job); err != nil {
+		if err := s.authorizeJob(ctx, PermJobRetry, job); err != nil {
 			return nil, err
 		}
-		next, err := s.jobs().Retry(ctx, in.ID)
+		next, err := s.jobs().Retry(ctx, in.ID, jobs.RetryOptions{Actor: actor, IdempotencyKey: in.IdempotencyKey})
 		if err != nil {
+			s.auditJob(ctx, PermJobRetry, job, events.OutcomeFailed, "Retry "+job.Title, err)
 			return nil, err
 		}
-		s.auditJob(ctx, PermJobRetry, job, "Retried "+job.Title)
+		s.auditJob(ctx, PermJobRetry, job, events.OutcomeSuccess, "Retried "+job.Title, nil)
 		return &retryOutput{Status: http.StatusAccepted, Body: next}, nil
 	})
 }
@@ -257,7 +289,9 @@ type retryOutput struct {
 }
 
 // followJob streams a job's state and log until it finishes. It watches the
-// job before reading it, and its first message opens the stream.
+// job before reading it, and its first message opens the stream. Log lines
+// go out in order, each once: when the watcher fell behind, or a line came
+// before the one expected, the lines in between are read back from the log.
 func (s *Server) followJob(ctx context.Context, id store.ID, after int64, out send) error {
 	q := s.jobs()
 	updates, stop := q.Watch(ctx, id)
@@ -314,6 +348,11 @@ func (s *Server) followJob(ctx context.Context, id store.ID, after int64, out se
 				_, err := sendJob()
 				return err
 			}
+			if u.Missed || (u.Log != nil && u.Log.Seq > after+1) {
+				if err := sendLines(); err != nil {
+					return err
+				}
+			}
 			if u.Log != nil && u.Log.Seq > after {
 				if err := out("log", strconv.FormatInt(u.Log.Seq, 10), u.Log); err != nil {
 					return err
@@ -329,14 +368,18 @@ func (s *Server) followJob(ctx context.Context, id store.ID, after int64, out se
 	}
 }
 
-// auditJob records what someone did to a job.
-func (s *Server) auditJob(ctx context.Context, perm auth.Permission, job *jobs.Job, summary string) {
+// auditJob records what someone did to a job, or tried to: failed with
+// the reason when cause isn't nil.
+func (s *Server) auditJob(ctx context.Context, perm auth.Permission, job *jobs.Job, outcome events.Outcome, summary string, cause error) {
 	audit := s.services().Audit
 	actor, err := Actor(ctx)
 	if audit == nil || err != nil {
 		return
 	}
-	rec := events.AuditRecord{Actor: *actor, Action: string(perm), Subject: job.ID, Scope: job.Scope, ChangeSet: job.ChangeSet, Outcome: events.OutcomeSuccess, Summary: summary}
+	rec := events.AuditRecord{Actor: *actor, Action: string(perm), Subject: job.ID, Scope: job.Scope, ChangeSet: job.ChangeSet, Outcome: outcome, Summary: summary}
+	if cause != nil {
+		rec.Reason = i18n.From(cause).Message
+	}
 	if err := audit.Record(ctx, rec); err != nil {
 		s.opts.Log.Error("writing an audit record", "action", perm, "error", err)
 	}

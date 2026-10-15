@@ -165,7 +165,7 @@ func (s *Server) registerResources() {
 				return err
 			}
 			return followResources(ctx, w, func(n store.Notice) bool {
-				return AuthorizeRead(ctx, s.authorizer(), store.Meta{ID: n.ID, Kind: n.Kind, Scope: n.Scope}) == nil
+				return canRead(ctx, s.authorizer(), store.Meta{ID: n.ID, Kind: n.Kind, Scope: n.Scope})
 			}, out)
 		}, nil
 	})

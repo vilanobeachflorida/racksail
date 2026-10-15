@@ -19,9 +19,10 @@
 // limits allow, in all and for each kind (Limiter).
 //
 // Runner.Run works a queue: resources whose latest generation was never
-// carried out go first, failed reconciles are retried with a growing wait,
-// resources reported as drifted (ReportDrift) are put back, and everything
-// is reconciled again at every resync. Stats and Check are the queue's
+// carried out go first, reconciles of the queue's own that failed are
+// retried with a growing wait, resources reported as drifted (ReportDrift)
+// are put back, and everything is reconciled again at every resync. A
+// change set's job reports the failures of the reconciles it runs itself. Stats and Check are the queue's
 // metrics and health check. A reconcile of a resource
 // that was ready which still changes something has found drift: the Drifted
 // condition and a <kind>.drifted event say what was put back.

@@ -61,7 +61,14 @@ type Options struct {
 	// Secrets keeps the values of sensitive fields.
 	Secrets secrets.Store
 	// Storage keeps change sets; nil keeps them in memory.
-	Storage   Storage
+	Storage Storage
+	// DB is the panel database, when the store, the change set storage, the
+	// job queue and the audit log all keep their records in it. Applying a
+	// change set then writes the settings, the change set, its job and its
+	// audit records in one transaction, so they are all there or none is.
+	// NewEngine takes it from the store when the store and the change set
+	// storage live in the same database.
+	DB        *store.DB
 	Retention Retention
 	Log       *slog.Logger
 	Now       func() time.Time
@@ -101,6 +108,13 @@ func NewEngine(opts Options) (*Engine, error) {
 	}
 	if opts.Storage == nil {
 		opts.Storage = NewMemoryStorage()
+	}
+	if opts.DB == nil {
+		if st, ok := opts.Store.(*store.SQLite); ok {
+			if kept, ok := opts.Storage.(*SQLStorage); ok && kept.db == st.DB() {
+				opts.DB = st.DB()
+			}
+		}
 	}
 	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), claims: map[store.ID]bool{}}
 	if err := opts.Jobs.Handle(jobs.Type{Name: ApplyJob, Run: e.runApply, Ended: e.applyEnded, Retryable: e.retryable}); err != nil {
@@ -146,6 +160,10 @@ type draft struct {
 	// undoOf is the change set the draft undoes, whose deleted resources it
 	// may bring back under their IDs.
 	undoOf store.ID
+	dryRun bool
+	// recorded says the audit log already has why the request didn't go
+	// through.
+	recorded bool
 }
 
 func (p *draft) reader(base secrets.Store) secrets.Reader {
@@ -174,6 +192,7 @@ func (e *Engine) plan(ctx context.Context, req Request, id, undoOf store.ID) (*d
 		view:    store.NewOverlay(e.opts.Store, e.opts.Kinds),
 		secrets: map[secrets.Ref][]byte{},
 		undoOf:  undoOf,
+		dryRun:  req.DryRun,
 	}
 	p.cs.UndoOf = undoOf
 	for i, ch := range req.Changes {
@@ -190,10 +209,12 @@ func (e *Engine) plan(ctx context.Context, req Request, id, undoOf store.ID) (*d
 		effects := slices.Clone(cs.Effects)
 		for _, pc := range pointsOf(requested, StagePlan) {
 			if err := e.opts.Hooks.Modify(ctx, pc.point, cs, pc.changes); err != nil {
+				e.failed(ctx, p, requested, err)
 				return nil, err
 			}
 		}
 		if err := e.recheck(ctx, p, req.Actor, requested, effects); err != nil {
+			e.failed(ctx, p, requested, err)
 			return nil, err
 		}
 	}
@@ -236,8 +257,10 @@ func atChange(err error, i, n int) error {
 }
 
 // planChange validates one change, adds it to the plan with its effects and
-// records the resource's planned state, so later changes see it.
-func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch Change, now time.Time) error {
+// records the resource's planned state, so later changes see it. A change
+// the actor isn't allowed, or that stops after being allowed, is recorded in
+// the audit log.
+func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch Change, now time.Time) (err error) {
 	kind, ok := e.opts.Kinds.Get(ch.Kind)
 	if !ok {
 		return i18n.ErrUnknownName.New("what", "kind", "name", ch.Kind)
@@ -303,6 +326,7 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	if !risk.Valid() {
 		risk = store.RiskMedium
 	}
+	title := changeTitle(info, ch.Op, action)
 
 	operation := string(ch.Op)
 	if ch.Op == OpAction {
@@ -315,10 +339,22 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	perm := auth.KindPermission(info.Name, operation)
 	if e.opts.Authorizer != nil {
 		if err := e.opts.Authorizer.Authorize(ctx, actor, perm, target); err != nil {
-			e.audit(ctx, actor, string(perm), next, "", events.OutcomeDenied, err.Error(), "")
+			p.recorded = true
+			e.audit(ctx, actor, string(perm), next, "", events.OutcomeDenied, err, title)
+			if old != nil && i18n.ErrForbidden.Is(err) && e.opts.Authorizer.Authorize(ctx, actor, auth.KindPermission(info.Name, "read"), target) != nil {
+				// As with reads, a resource the actor may not see answers
+				// as if it didn't exist.
+				return store.ErrNotFound.New("what", string(ch.ID))
+			}
 			return err
 		}
 	}
+	// From here on the change is allowed, so whatever stops it is recorded.
+	defer func() {
+		if err != nil {
+			e.refusal(ctx, p, actor, perm, next, err, title)
+		}
+	}()
 	if len(ch.Secrets) > 0 {
 		if ch.Op != OpCreate && ch.Op != OpUpdate {
 			return i18n.Invalid(i18n.Field("secrets", i18n.ErrBadValue, "reason", "only creating or updating a resource sets secrets"))
@@ -388,16 +424,21 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	effects = append(effects, e.stepEffects(ctx, change.Steps, next.ID)...)
 	cs.Effects = append(cs.Effects, effects...)
 	cs.Risk = store.MaxRisk(cs.Risk, risk)
+	p.titles = append(p.titles, title)
+	return nil
+}
 
-	verb := map[Op]string{OpCreate: "Create", OpUpdate: "Update", OpDelete: "Delete"}[ch.Op]
-	if ch.Op == OpAction {
+// changeTitle describes a change for people, such as "Update site" or
+// "Deploy site".
+func changeTitle(info *store.KindInfo, op Op, action store.Action) string {
+	verb := map[Op]string{OpCreate: "Create", OpUpdate: "Update", OpDelete: "Delete"}[op]
+	if op == OpAction {
 		verb = action.Title
 		if verb == "" {
 			verb = strings.ToUpper(action.Name[:1]) + strings.ReplaceAll(action.Name[1:], "_", " ")
 		}
 	}
-	p.titles = append(p.titles, verb+" "+strings.ToLower(info.Title))
-	return nil
+	return verb + " " + strings.ToLower(info.Title)
 }
 
 // checkReuse refuses a chosen ID that a purged resource had, unless the
@@ -539,23 +580,20 @@ func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string) 
 		return cs.Clone(), nil
 	}
 	if len(cs.Conflicts) > 0 {
+		err := ErrConflicts.New("count", len(cs.Conflicts))
+		e.failed(ctx, p, cs.Changes, err)
 		e.settle(ctx, key, "")
-		return cs.Clone(), ErrConflicts.New("count", len(cs.Conflicts))
+		return cs.Clone(), err
 	}
-	written, err := e.apply(ctx, cs, p.secrets)
+	written, err := e.apply(ctx, cs, p.secrets, key)
 	if !written {
+		e.failed(ctx, p, cs.Changes, err)
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	e.settle(ctx, key, cs.ID)
-	// What follows the writes happens even when the client that asked went
-	// away meanwhile: the original of an undo is marked as undone, and the
-	// answer is the change set as kept.
-	ctx = context.WithoutCancel(ctx)
-	if cs.UndoOf != "" {
-		e.markUndone(ctx, cs.UndoOf, cs.ID)
-	}
-	if kept, getErr := e.Get(ctx, cs.ID); getErr == nil {
+	// The answer is the change set as kept, even when the client that asked
+	// went away meanwhile.
+	if kept, getErr := e.Get(context.WithoutCancel(ctx), cs.ID); getErr == nil {
 		cs = kept
 	}
 	return cs, err
@@ -580,12 +618,19 @@ func (e *Engine) checkWrites(ctx context.Context, cs *ChangeSet) error {
 	return err
 }
 
-// apply takes the snapshots a risky change set needs, stores the secret
-// values, writes every change in one transaction and queues the job that
-// carries out the system changes. It reports whether the store was written:
-// when queueing the job fails after that, the change set is kept as failed
-// and the reconcile queue (reconcile.Runner.Run) carries the changes out.
-func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Ref][]byte) (bool, error) {
+// apply takes the snapshots a risky change set needs and stores the secret
+// values, then writes every change, keeps the change set, queues the job
+// that carries out the system changes, settles the idempotency key and
+// records each change in the audit log. In the panel database (Options.DB)
+// that is one transaction: either all of it is there or none of it is, and
+// the job starts once it commits. Otherwise each write commits on its own,
+// and when one fails after the settings were written, the change set is
+// kept as failed and the reconcile queue (reconcile.Runner.Run) carries the
+// changes out. It reports whether the settings were written.
+func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Ref][]byte, key string) (bool, error) {
+	// What a change that didn't happen left behind goes, whether or not the
+	// client is still there.
+	cleanup := context.WithoutCancel(ctx)
 	// Snapshots come first, so nothing changes when they can't be taken.
 	if cs.Snapshot {
 		if err := e.takeSnapshots(ctx, cs); err != nil {
@@ -596,70 +641,115 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 	if len(values) > 0 {
 		var err error
 		if stored, err = e.putSecrets(ctx, values); err != nil {
-			e.dropSnapshots(ctx, cs.Snapshots)
+			e.dropSnapshots(cleanup, cs.Snapshots)
 			return false, err
 		}
 	}
-	err := e.opts.Store.Write(ctx, writeMeta(cs), func(tx store.Tx) error {
-		return writeChanges(ctx, tx, cs.Changes)
-	})
-	if err != nil {
-		e.dropSecrets(ctx, stored)
-		e.dropSnapshots(ctx, cs.Snapshots)
+	// Once the writes start they finish, even when the client that asked
+	// goes away meanwhile; before that, nothing is written for a client that
+	// is gone.
+	if err := ctx.Err(); err != nil {
+		e.dropSecrets(cleanup, stored)
+		e.dropSnapshots(cleanup, cs.Snapshots)
 		return false, err
 	}
-	// The change set is kept before its job is queued, because the job
-	// reads it and may start right away.
+	var wrote bool
+	err := e.atomically(context.WithoutCancel(ctx), func(ctx context.Context) error {
+		err := e.opts.Store.Write(ctx, writeMeta(cs), func(tx store.Tx) error {
+			return writeChanges(ctx, tx, cs.Changes)
+		})
+		if err != nil {
+			return err
+		}
+		wrote = true
+		return e.record(ctx, cs, key)
+	})
+	switch {
+	case err == nil:
+		return true, nil
+	case wrote && e.opts.DB == nil:
+		// The settings are written and stay; what couldn't be recorded is
+		// logged, and the change set is kept as failed.
+		e.opts.Log.Error("recording an applied change set", "changeSet", cs.ID, "error", err)
+		cs.State, cs.Error = StateFailed, i18n.From(err).Message
+		if saveErr := e.save(cleanup, cs, nil); saveErr != nil {
+			e.opts.Log.Error("keeping an applied change set", "changeSet", cs.ID, "error", saveErr)
+		}
+		e.settle(cleanup, key, cs.ID)
+		if cs.UndoOf != "" {
+			e.markUndone(cleanup, cs.UndoOf, cs.ID)
+		}
+		return true, err
+	}
+	cs.State, cs.Job = StatePlanned, ""
+	e.dropSecrets(cleanup, stored)
+	e.dropSnapshots(cleanup, cs.Snapshots)
+	return false, err
+}
+
+// record keeps a change set whose settings were just written, queues its
+// job, settles the request's idempotency key, marks the change set it
+// undoes and records each change in the audit log.
+func (e *Engine) record(ctx context.Context, cs *ChangeSet, key string) error {
+	// The change set is kept before its job is queued: a queue outside the
+	// panel database may start the job right away, and the job reads it.
 	cs.State = StateApplying
 	if err := e.save(ctx, cs, nil); err != nil {
-		e.opts.Log.Error("keeping an applied change set", "changeSet", cs.ID, "error", err)
+		return err
 	}
-	job, err := e.opts.Jobs.Enqueue(ctx, ApplyJob, cs.ID, jobs.Options{Title: cs.Title, Actor: cs.Actor, ChangeSet: cs.ID, Scope: scopeOf(cs)})
+	job, err := e.opts.Jobs.Enqueue(ctx, ApplyJob, cs.ID, jobs.Options{Title: cs.Title, Actor: cs.Actor, ChangeSet: cs.ID, Scope: cs.Owner()})
 	if err != nil {
-		// The store has the changes; the reconcile queue carries them out.
-		e.opts.Log.Error("queueing a change set's apply job", "changeSet", cs.ID, "error", err)
-		message := i18n.From(err).Message
-		e.update(ctx, cs.ID, func(s *ChangeSet) { s.State, s.Error = StateFailed, message })
-	} else {
-		cs.Job = job.ID
-		// The job may already have started and claimed the change set.
-		e.update(ctx, cs.ID, func(s *ChangeSet) {
-			if s.Job == "" {
-				s.Job = job.ID
-			}
-		})
+		return err
+	}
+	cs.Job = job.ID
+	// The job may already have started and claimed the change set.
+	if _, err := e.storage.Update(ctx, cs.ID, func(s *ChangeSet) error {
+		if s.Job == "" {
+			s.Job = job.ID
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if key != "" {
+		if err := e.storage.SettleKey(ctx, key, cs.ID, e.opts.Now()); err != nil {
+			return err
+		}
+	}
+	if cs.UndoOf != "" {
+		e.markUndone(ctx, cs.UndoOf, cs.ID)
 	}
 	for _, c := range cs.Changes {
-		op := string(c.Op)
-		if c.Op == OpAction {
-			op = c.Action
+		r := &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}}
+		if err := e.auditRecord(ctx, cs.Actor, string(changePermission(c)), r, cs.ID, events.OutcomeSuccess, nil, cs.Title); err != nil {
+			return err
 		}
-		e.audit(ctx, cs.Actor, string(auth.KindPermission(c.Kind, op)), &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}}, cs.ID, events.OutcomeSuccess, "", cs.Title)
 	}
-	return true, err
+	return nil
+}
+
+// atomically runs fn so that the writes it makes commit together, when the
+// engine has the panel database; otherwise each write commits on its own.
+func (e *Engine) atomically(ctx context.Context, fn func(ctx context.Context) error) error {
+	if e.opts.DB == nil {
+		return fn(ctx)
+	}
+	return e.opts.DB.Atomic(ctx, fn)
+}
+
+// afterCommit runs fn once what was written with ctx is committed, which is
+// at once outside a transaction.
+func (e *Engine) afterCommit(ctx context.Context, fn func()) {
+	if e.opts.DB == nil {
+		fn()
+		return
+	}
+	e.opts.DB.AfterCommit(ctx, fn)
 }
 
 // writeMeta is what the store records with the writes of a change set.
 func writeMeta(cs *ChangeSet) store.WriteMeta {
 	return store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String(), UndoOf: cs.UndoOf}
-}
-
-// scopeOf returns the owner of everything a change set touches, or the
-// server's scope when they belong to different owners.
-func scopeOf(cs *ChangeSet) store.Scope {
-	if len(cs.Changes) == 0 {
-		return store.ServerScope()
-	}
-	scope := cs.Changes[0].Scope
-	for _, c := range cs.Changes[1:] {
-		if c.Scope != scope {
-			return store.ServerScope()
-		}
-	}
-	if scope.Level == "" {
-		return store.ServerScope()
-	}
-	return scope
 }
 
 func writeChanges(ctx context.Context, tx store.Tx, changes []ResourceChange) error {
@@ -1051,20 +1141,75 @@ func (e *Engine) publishSet(ctx context.Context, t events.Type, cs *ChangeSet, u
 	if t.Name == events.ChangeSetFailed.Name && cs.Error != "" {
 		message = cs.Error
 	}
-	e.publish(ctx, events.Event{Type: t.Name, Severity: t.Severity, Scope: scopeOf(cs), Actor: cs.Actor, ChangeSet: cs.ID, Job: cs.Job, Message: message, Data: raw})
+	e.publish(ctx, events.Event{Type: t.Name, Severity: t.Severity, Scope: cs.Owner(), Actor: cs.Actor, ChangeSet: cs.ID, Job: cs.Job, Message: message, Data: raw})
 }
 
-func (e *Engine) audit(ctx context.Context, actor *auth.Actor, action string, r *store.Resource, cs store.ID, outcome events.Outcome, reason, summary string) {
+// auditRecord records in the audit log what an actor did, or tried to: a
+// change to the resource r, with why it didn't go through when cause isn't
+// nil.
+func (e *Engine) auditRecord(ctx context.Context, actor *auth.Actor, action string, r *store.Resource, cs store.ID, outcome events.Outcome, cause error, summary string) error {
 	if e.opts.Audit == nil {
-		return
+		return nil
 	}
-	rec := events.AuditRecord{Action: action, Kind: r.Kind, Subject: r.ID, Scope: r.Scope, ChangeSet: cs, Outcome: outcome, Reason: reason, Summary: summary}
+	rec := events.AuditRecord{Action: action, Kind: r.Kind, Subject: r.ID, Scope: r.Scope, ChangeSet: cs, Outcome: outcome, Summary: summary}
+	if cause != nil {
+		rec.Reason = i18n.From(cause).Message
+	}
 	if actor != nil {
 		rec.Actor = *actor
 	}
-	if err := e.opts.Audit.Record(ctx, rec); err != nil {
+	return e.opts.Audit.Record(ctx, rec)
+}
+
+// audit is auditRecord for records whose loss shouldn't stop anything else,
+// such as those of attempts that didn't go through.
+func (e *Engine) audit(ctx context.Context, actor *auth.Actor, action string, r *store.Resource, cs store.ID, outcome events.Outcome, cause error, summary string) {
+	if err := e.auditRecord(ctx, actor, action, r, cs, outcome, cause, summary); err != nil {
 		e.opts.Log.Error("writing an audit record", "action", action, "error", err)
 	}
+}
+
+// refusal records a change that was allowed but didn't go through: denied
+// when a policy refused it, as a validate hook does, and failed otherwise,
+// as for settings that aren't valid. A preview that fails changes nothing
+// and answers at once, so of previews only refusals are recorded.
+func (e *Engine) refusal(ctx context.Context, p *draft, actor *auth.Actor, perm auth.Permission, r *store.Resource, cause error, summary string) {
+	outcome := events.OutcomeFailed
+	if i18n.From(cause).Status == http.StatusForbidden {
+		outcome = events.OutcomeDenied
+	} else if p.dryRun {
+		return
+	}
+	p.recorded = true
+	e.audit(ctx, actor, string(perm), r, "", outcome, cause, summary)
+}
+
+// failed records the changes of a request that would have been applied as
+// failed, with the reason, unless the audit log already has why the
+// request stopped.
+func (e *Engine) failed(ctx context.Context, p *draft, changes []ResourceChange, cause error) {
+	if p.dryRun || p.recorded {
+		return
+	}
+	p.recorded = true
+	for i, c := range changes {
+		summary := p.cs.Title
+		if summary == "" && i < len(p.titles) {
+			summary = p.titles[i]
+		}
+		e.audit(ctx, p.cs.Actor, string(changePermission(c)), &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}}, "",
+			events.OutcomeFailed, cause, summary)
+	}
+}
+
+// changePermission is the permission a change needs, such as web.site.update
+// or web.site.deploy.
+func changePermission(c ResourceChange) auth.Permission {
+	op := string(c.Op)
+	if c.Op == OpAction {
+		op = c.Action
+	}
+	return auth.KindPermission(c.Kind, op)
 }
 
 // Undo implements Pipeline.
@@ -1115,20 +1260,29 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 }
 
 // markUndone records that a change set was undone by another. Only one that
-// was applied or failed becomes undone; a change set is undone once.
+// was applied or failed becomes undone; a change set is undone once. The
+// event goes out once the record is committed.
 func (e *Engine) markUndone(ctx context.Context, id, by store.ID) {
+	ctx = context.WithoutCancel(ctx)
+	var marked bool
 	undone, err := e.storage.Update(ctx, id, func(s *ChangeSet) error {
-		if s.State != StateApplied && s.State != StateFailed {
+		switch s.State {
+		case StateApplied, StateFailed:
+			s.State, marked = StateUndone, true
+		case StateUndone:
+			// Marked already, by this undo.
+		default:
 			return ErrNotApplied.New()
 		}
-		s.State = StateUndone
 		return nil
 	})
 	if err != nil {
 		e.opts.Log.Warn("marking a change set as undone", "changeSet", id, "undoneBy", by, "error", err)
 		return
 	}
-	e.publishSet(ctx, events.ChangeSetUndone, undone, by)
+	if marked {
+		e.afterCommit(ctx, func() { e.publishSet(ctx, events.ChangeSetUndone, undone, by) })
+	}
 }
 
 // claimSet claims a change set for an undo or for applying a preview, and

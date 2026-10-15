@@ -21,16 +21,9 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// reach says what records the signed-in actor may read with a permission:
-// all of them, or those of some owners.
-type reach struct {
-	all    bool
-	scopes []store.Scope
-}
-
 // reachOf works out the reach of a permission. scope, when given, is the
 // one owner the caller asks about; without one, the actor needs the
-// permission somewhere.
+// permission somewhere. A refusal is recorded in the audit log.
 func (s *Server) reachOf(ctx context.Context, perm auth.Permission, scope *store.Scope) (reach, error) {
 	if scope != nil {
 		if err := Authorize(ctx, s.authorizer(), perm, auth.Target{Scope: *scope}); err != nil {
@@ -41,6 +34,7 @@ func (s *Server) reachOf(ctx context.Context, perm auth.Permission, scope *store
 	r, err := s.grantReach(ctx, perm)
 	if err == nil && !r.all && len(r.scopes) == 0 {
 		err = i18n.ErrForbidden.New("action", string(perm))
+		refused(ctx, perm, "", "", store.ServerScope(), err)
 	}
 	return r, err
 }
@@ -53,14 +47,13 @@ func (s *Server) grantReach(ctx context.Context, perm auth.Permission) (reach, e
 		return reach{}, err
 	}
 	authz := s.authorizer()
-	if Authorize(ctx, authz, perm, auth.Target{Scope: store.ServerScope()}) == nil {
+	if allowed(ctx, authz, perm, auth.Target{Scope: store.ServerScope()}) == nil {
 		return reach{all: true}, nil
 	}
 	if authz == nil {
 		return reach{}, nil
 	}
-	scopes, err := grantScopes(ctx, authz, actor, perm)
-	return reach{scopes: scopes}, err
+	return grantScopes(ctx, authz, actor, perm)
 }
 
 // TimelineFilter holds the filters lists of events and audit records share.
@@ -297,8 +290,11 @@ func (s *Server) registerTimeline() {
 	op = huma.Operation{
 		OperationID: "listAudit", Method: http.MethodGet, Path: Prefix + "/audit", Tags: tags, Security: Protected,
 		Summary: "Read the audit log",
-		Description: "Lists who did what, newest first: every change and every attempt that was refused, with the person, what acted for them " +
-			"(the panel, the racksail command, an API token, an automation, an add-on or the assistant) and the request it came through.",
+		Description: "Lists who did what, newest first, with the person, what acted for them " +
+			"(the panel, the racksail command, an API token, an automation, an add-on or the assistant) and the request it came through. " +
+			"Every change is there, as success. So is every attempt that was refused, as denied: a change, a read or a job's cancel or retry " +
+			"the person wasn't allowed, or a change a policy hook stopped. A change that was allowed but couldn't be made, " +
+			"such as one with settings that aren't valid, is failed.",
 	}
 	Describe(&op, Info{Permission: string(PermAuditRead), Risk: store.RiskRead})
 	huma.Register(s.api, op, func(ctx context.Context, in *listAuditInput) (*auditList, error) {

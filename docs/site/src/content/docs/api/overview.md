@@ -25,7 +25,7 @@ curl -H "Authorization: Bearer $RACKSAIL_TOKEN" https://panel.example.com:8443/a
 
 A token can do what its permissions and accounts allow, and nothing else. Operations that need no sign-in, such as `GET /api/v1/health` and `GET /api/v1/version`, say so in the reference.
 
-What you're allowed to see shapes every answer. A list only holds what you may read, and a resource of another account answers `404`, as if it didn't exist.
+What you're allowed to see shapes every answer. A list only holds what you may read, and a resource of another account answers `404`, as if it didn't exist, whether you read it or try to change it. The audit log keeps every request that was refused, so an account's owner can see who tried.
 
 ## Errors
 
@@ -111,7 +111,7 @@ To go ahead, send the request again without `dryRun`, or apply the preview itsel
 
 Without `dryRun`, the settings change at once and the answer is `202 Accepted` with the change set. Its `job` carries out the change on the server; follow it to see the progress (see [Live updates](#live-updates)). Each change in the change set has a `state`: `started` while it runs, `done` once it is in place. Actions that finish quickly answer `200` once they're done, with what they returned in the change set's `output`.
 
-If the job fails, or you cancel it with `POST /api/v1/jobs/{id}/cancel`, the change set ends `failed` with the reason in `error`, and you can undo it. The settings it stored stay, and the panel carries them out at its next resync unless you undo it. `POST /api/v1/jobs/{id}/retry` carries on from the change that didn't finish. It never runs an action that may already have run a second time: run that action again instead.
+If the job fails, or you cancel it with `POST /api/v1/jobs/{id}/cancel`, the change set ends `failed` with the reason in `error`, and you can undo it. The settings it stored stay, and the panel carries them out at its next resync unless you undo it. `POST /api/v1/jobs/{id}/retry` carries on from the change that didn't finish. It never runs an action that may already have run a second time: run that action again instead. A job is retried once: asking again answers `jobs.already_retried`, naming the job that retries it, so follow or retry that one.
 
 `POST /api/v1/changesets` makes several changes at once, as one change set: a database and the site that uses it, say. The changes are planned in order, and each sees what the ones before it create, so give new resources an `id` up front to refer to them. An ID that belonged to a resource that was deleted can't be used again (`store.id_used`), so its history and secrets stay its own; undoing the delete is the only way to bring it back:
 
@@ -129,7 +129,7 @@ If the job fails, or you cancel it with `POST /api/v1/jobs/{id}/cancel`, the cha
 
 ### Idempotency keys
 
-Networks fail halfway. To retry a change safely, send an `Idempotency-Key` header with any unique string, such as a UUID. A retry with the same key, from the same token or user, returns the first change set instead of making the change twice, for 24 hours. While the first request is still running, a retry gets `changeset.duplicate_request`; wait a moment and try again.
+Networks fail halfway. To retry a change safely, send an `Idempotency-Key` header with any unique string, such as a UUID. A retry with the same key, from the same token or user, returns the first change set instead of making the change twice, for 24 hours. While the first request is still running, a retry gets `changeset.duplicate_request`; wait a moment and try again. Retrying a job takes a key the same way, and a repeat answers with the job the first request queued. Canceling a job accepts one too, though canceling twice changes nothing anyway.
 
 ```sh
 curl -X POST https://panel.example.com:8443/api/v1/core/webhooks \
@@ -159,7 +159,7 @@ Lists of resources also take:
 | `fields` | `spec.domains,status.phase` | Only these fields of each, plus `id` and `kind` |
 | `includeDeleted` | `true` | Also those still being removed |
 
-Kinds with indexed fields take those as parameters too: `GET /api/v1/web/sites?domain=example.com`. The reference lists the parameters of every list.
+Kinds with indexed fields take those as parameters too: `GET /api/v1/web/sites?domain=example.com`, and `sort` takes their names. Numbers sort by their value and come before text, which sorts alphabetically; a resource with several values sorts by its lowest. The reference lists the parameters of every list.
 
 ## Live updates
 

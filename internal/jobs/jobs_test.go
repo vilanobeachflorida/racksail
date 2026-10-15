@@ -220,7 +220,7 @@ func TestFailureAndRetry(t *testing.T) {
 		if failed.State != StateFailed || failed.Error == nil || failed.Error.Code != i18n.ErrUnavailable.Code {
 			t.Fatalf("failed job = %+v", failed)
 		}
-		retry, err := q.Retry(ctx, job.ID)
+		retry, err := q.Retry(ctx, job.ID, RetryOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -228,7 +228,7 @@ func TestFailureAndRetry(t *testing.T) {
 		if ok.State != StateSucceeded || ok.Attempt != 2 || ok.RetryOf != job.ID {
 			t.Errorf("retried job = %+v", ok)
 		}
-		if _, err := q.Retry(ctx, retry.ID); !errors.Is(err, ErrNotRetryable) {
+		if _, err := q.Retry(ctx, retry.ID, RetryOptions{}); !errors.Is(err, ErrNotRetryable) {
 			t.Errorf("retrying a succeeded job: %v", err)
 		}
 	})
@@ -367,10 +367,10 @@ func TestHowJobsEnd(t *testing.T) {
 		started(t, q, final.ID)
 		q.Cancel(ctx, final.ID)
 		wait(t, q, final.ID)
-		if _, err := q.Retry(ctx, final.ID); !errors.Is(err, i18n.ErrConflict) {
+		if _, err := q.Retry(ctx, final.ID, RetryOptions{}); !errors.Is(err, i18n.ErrConflict) {
 			t.Errorf("a retry the type refuses: %v", err)
 		}
-		if again, err := q.Retry(ctx, running.ID); err != nil || again.RetryOf != running.ID {
+		if again, err := q.Retry(ctx, running.ID, RetryOptions{}); err != nil || again.RetryOf != running.ID {
 			t.Errorf("a retry the type allows: %+v, %v", again, err)
 		} else {
 			started(t, q, again.ID)
