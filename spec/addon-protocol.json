@@ -1,0 +1,760 @@
+{
+  "components": {
+    "schemas": {
+      "Actor": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "impersonator": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "source"
+        ],
+        "type": "object"
+      },
+      "AddonHealth": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "description": "The hook API version the add-on speaks, such as v1",
+            "type": "string"
+          },
+          "status": {
+            "description": "ok when the add-on can take hook calls",
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "The add-on's version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "apiVersion"
+        ],
+        "type": "object"
+      },
+      "ChangeSet": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/Actor"
+          },
+          "appliedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceChange"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "contributions": {
+            "items": {
+              "$ref": "#/components/schemas/Contribution"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "effects": {
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/Estimate"
+          },
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": "string"
+          },
+          "risk": {
+            "enum": [
+              "read",
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "snapshot": {
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "planned",
+              "applying",
+              "applied",
+              "failed",
+              "undone"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "undoOf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "changes",
+          "effects",
+          "risk",
+          "estimate",
+          "state",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "ConfigPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "service": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "config"
+        ],
+        "type": "object"
+      },
+      "Conflict": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "resource",
+          "path",
+          "sources",
+          "message"
+        ],
+        "type": "object"
+      },
+      "Contribution": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "effects": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "Effect": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "What happens, for example install, open, start or write",
+            "type": "string"
+          },
+          "contributor": {
+            "description": "Who added this effect when it wasn't the requested change itself",
+            "type": "string"
+          },
+          "destructive": {
+            "type": "boolean"
+          },
+          "detail": {
+            "description": "Extra detail such as a version",
+            "type": "string"
+          },
+          "diskBytes": {
+            "description": "Estimated disk use in bytes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloadBytes": {
+            "description": "Bytes downloaded",
+            "format": "int64",
+            "type": "integer"
+          },
+          "memoryBytes": {
+            "description": "Estimated memory use in bytes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "source": {
+            "description": "Where a download comes from",
+            "type": "string"
+          },
+          "target": {
+            "description": "What changes: a package, a port such as tcp/443, a unit or a path",
+            "type": "string"
+          },
+          "type": {
+            "description": "What kind of change this is",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "action",
+          "target"
+        ],
+        "type": "object"
+      },
+      "Estimate": {
+        "additionalProperties": false,
+        "properties": {
+          "diskBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "memoryBytes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "downloadBytes",
+          "diskBytes",
+          "memoryBytes"
+        ],
+        "type": "object"
+      },
+      "FieldDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {},
+          "before": {},
+          "op": {
+            "enum": [
+              "add",
+              "remove",
+              "replace"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sensitive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "op"
+        ],
+        "type": "object"
+      },
+      "FieldProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Stable error code",
+            "type": "string"
+          },
+          "location": {
+            "description": "Where the problem is",
+            "examples": [
+              "body.spec.domains[0]"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "description": "English explanation",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "value": {
+            "description": "The offending value, when it's safe to show"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "HookCall": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/Actor",
+            "description": "Who is making the change, and through what"
+          },
+          "change": {
+            "description": "Validate hooks: the index of the change to decide on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "changeSet": {
+            "$ref": "#/components/schemas/ChangeSet",
+            "description": "The change set, at points of the change pipeline"
+          },
+          "changes": {
+            "description": "Modify and observe hooks: the indexes of the changes the point is about",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "config": {
+            "$ref": "#/components/schemas/ConfigPatch",
+            "description": "System hooks: the configuration to patch"
+          },
+          "data": {
+            "description": "What happened, at lifecycle and identity points"
+          },
+          "kind": {
+            "description": "What the hook may do",
+            "enum": [
+              "observe",
+              "validate",
+              "modify",
+              "system"
+            ],
+            "type": "string"
+          },
+          "point": {
+            "description": "The hook point, such as web.site.create.validate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "point",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "HookReply": {
+        "additionalProperties": false,
+        "properties": {
+          "changeSet": {
+            "$ref": "#/components/schemas/ChangeSet",
+            "description": "Modify hooks: the change set with the hook's changes"
+          },
+          "config": {
+            "additionalProperties": {},
+            "description": "System hooks: the patched configuration",
+            "type": "object"
+          },
+          "deny": {
+            "description": "Validate hooks: refuse the change",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Why the change is refused, shown to the person making it",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Problem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Stable error code in the form \u003cmodule\u003e.\u003csnake_case\u003e",
+            "examples": [
+              "web.domain_taken"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "description": "English explanation of this occurrence",
+            "examples": [
+              "The domain example.com is already used by another site."
+            ],
+            "type": "string"
+          },
+          "errors": {
+            "description": "Problems with individual fields",
+            "items": {
+              "$ref": "#/components/schemas/FieldProblem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instance": {
+            "description": "A URI reference for this occurrence",
+            "format": "uri",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {},
+            "description": "Values for the placeholders in the code's message",
+            "type": "object"
+          },
+          "status": {
+            "description": "HTTP status code",
+            "examples": [
+              409
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Short summary of the problem type",
+            "examples": [
+              "Conflict"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "description": "A URI reference for the problem type",
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "ResourceChange": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "after": {},
+          "before": {},
+          "diff": {
+            "items": {
+              "$ref": "#/components/schemas/FieldDiff"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "input": {},
+          "kind": {
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "labelsBefore": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "op": {
+            "enum": [
+              "create",
+              "update",
+              "delete",
+              "action"
+            ],
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "op",
+          "kind",
+          "id",
+          "scope",
+          "source"
+        ],
+        "type": "object"
+      },
+      "Scope": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The owning reseller or account; empty for server-wide resources",
+            "type": "string"
+          },
+          "level": {
+            "description": "Who owns the resource",
+            "enum": [
+              "server",
+              "reseller",
+              "account"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "level"
+        ],
+        "type": "object"
+      },
+      "Source": {
+        "additionalProperties": false,
+        "properties": {
+          "hook": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "request",
+              "hook",
+              "rule",
+              "addon",
+              "module"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "Step": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "The operation's input"
+          },
+          "op": {
+            "description": "Operation name",
+            "type": "string"
+          },
+          "title": {
+            "description": "What the step does, for progress logs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "input"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "What an add-on serves on its Unix socket for the panel: its health, and its hooks. Hooks answer within their deadline; an error or a timeout counts as a failure, which blocks the change only for hooks whose failure mode is block. The panel never sends data the add-on's permissions don't grant.",
+    "title": "Racksail add-on protocol",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "The panel calls it after starting the add-on and from its health checks.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddonHealth"
+                }
+              }
+            },
+            "description": "The add-on is running"
+          }
+        },
+        "summary": "Check that the add-on is running",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    },
+    "/hooks/{point}": {
+      "post": {
+        "description": "Validate hooks allow or deny one change, modify hooks return the change set with their changes, observe hooks only take note, and system hooks return the patched configuration.",
+        "operationId": "runHook",
+        "parameters": [
+          {
+            "description": "The hook point, as in the call",
+            "in": "path",
+            "name": "point",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9_-]*)+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HookCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HookReply"
+                }
+              }
+            },
+            "description": "The hook's answer"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The hook failed"
+          }
+        },
+        "summary": "Run one of the add-on's hooks",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    }
+  }
+}

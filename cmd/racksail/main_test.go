@@ -57,6 +57,7 @@ func TestOpenAPIMatchesTheCommittedDocuments(t *testing.T) {
 	}{
 		{[]string{"openapi"}, "openapi.json"},
 		{[]string{"openapi", "--agent"}, "agent-protocol.json"},
+		{[]string{"openapi", "--addon"}, "addon-protocol.json"},
 	} {
 		out, err := run(t, tc.args...)
 		if err != nil {

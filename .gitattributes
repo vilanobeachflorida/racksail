@@ -7,6 +7,7 @@
 # Generated from the code by `make gen`; tests fail when they drift.
 spec/openapi.json linguist-generated=true
 spec/agent-protocol.json linguist-generated=true
+spec/addon-protocol.json linguist-generated=true
 ui/src/lib/api/schema.d.ts linguist-generated=true
 ui/src/design/theme.css linguist-generated=true
 

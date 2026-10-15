@@ -51,7 +51,7 @@ help:
 	@echo "make lint        format check, go vet, staticcheck and the UI linters"
 	@echo "make test        Go and UI tests"
 	@echo "make test-race   Go tests with the race detector (needs a C compiler)"
-	@echo "make gen         regenerate spec/openapi.json, spec/agent-protocol.json and the UI's generated files"
+	@echo "make gen         regenerate the OpenAPI documents in spec/ and the UI's generated files"
 	@echo "make fmt         format Go and UI code"
 	@echo "make dev         run racksail dev on $(DEV_ADDR) and the UI dev server with hot reload;"
 	@echo "                 DEV_ADDR, DEV_EDGE_HTTP, DEV_EDGE_HTTPS and DEV_DATA choose where"
@@ -127,6 +127,7 @@ ui-check: ui-test
 gen: $(UI_DEPS)
 	$(GO) run ./cmd/racksail openapi > spec/openapi.json.tmp && mv spec/openapi.json.tmp spec/openapi.json
 	$(GO) run ./cmd/racksail openapi --agent > spec/agent-protocol.json.tmp && mv spec/agent-protocol.json.tmp spec/agent-protocol.json
+	$(GO) run ./cmd/racksail openapi --addon > spec/addon-protocol.json.tmp && mv spec/addon-protocol.json.tmp spec/addon-protocol.json
 	$(GO) run ./cmd/racksail theme css > ui/src/design/theme.css.tmp && mv ui/src/design/theme.css.tmp ui/src/design/theme.css
 	cd ui && $(NPM) run gen:api
 
