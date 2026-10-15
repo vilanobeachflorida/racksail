@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -157,7 +158,7 @@ func TestModifyContributionsAndConflicts(t *testing.T) {
 		}
 	}
 	cs := testChangeSet()
-	if err := (&Runner{Registry: r}).Modify(ctx, "web.site.create.plan", cs); err != nil {
+	if err := (&Runner{Registry: r}).Modify(ctx, "web.site.create.plan", cs, []int{0}); err != nil {
 		t.Fatal(err)
 	}
 	if len(cs.Contributions) != 2 || cs.Contributions[0].Source.Name != "cdn-a" || len(cs.Effects) != 2 || cs.Effects[1].Contributor != "addon:cdn-b" {
@@ -180,7 +181,7 @@ func TestCircuitBreaker(t *testing.T) {
 	}
 	runner := &Runner{Registry: r, Events: bus}
 	for i := 0; i < BreakerThreshold; i++ {
-		if err := runner.Modify(ctx, "web.site.create.plan", testChangeSet()); err != nil {
+		if err := runner.Modify(ctx, "web.site.create.plan", testChangeSet(), []int{0}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -206,8 +207,9 @@ func TestAppliedAndConfigPatches(t *testing.T) {
 	r := newRegistry()
 	var wg sync.WaitGroup
 	wg.Add(1)
+	var seen []int
 	if err := r.Register(Registration{Point: "web.site.create.applied", Kind: Observe, Owner: "addon:chat",
-		OnObserve: func(ctx context.Context, cs *changeset.ChangeSet) { wg.Done() }}); err != nil {
+		OnObserve: func(ctx context.Context, c *Context) { seen = c.Changes; wg.Done() }}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Register(Registration{Point: "system.caddy.config", Kind: System, Owner: "addon:cdn",
@@ -215,11 +217,133 @@ func TestAppliedAndConfigPatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &Runner{Registry: r}
-	runner.Applied(ctx, "web.site.create.applied", testChangeSet())
+	runner.Applied(ctx, "web.site.create.applied", testChangeSet(), []int{0})
 	wg.Wait()
+	if len(seen) != 1 || seen[0] != 0 {
+		t.Errorf("observers learn which changes the point is about: %v", seen)
+	}
 	cfg, err := runner.PatchConfig(ctx, "caddy", "config", map[string]any{"listen": 443})
 	if err != nil || cfg["cdn"] != true || cfg["listen"] != 443 {
 		t.Errorf("patched config = %v, %v", cfg, err)
+	}
+}
+
+func TestCheckAndNotify(t *testing.T) {
+	ctx := context.Background()
+	r := newRegistry()
+	type login struct{ User string }
+	if err := r.Register(Registration{Point: AuthLoginValidate, Kind: Validate, Owner: "rule:office-hours",
+		OnValidate: func(ctx context.Context, c *Context) error {
+			if c.Data.(login).User == "night-owl" {
+				return i18n.ErrForbidden.New("action", "sign in at night")
+			}
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{Registry: r}
+	if err := runner.Check(ctx, AuthLoginValidate, nil, login{User: "early-bird"}); err != nil {
+		t.Errorf("allowed sign-in: %v", err)
+	}
+	if err := runner.Check(ctx, AuthLoginValidate, nil, login{User: "night-owl"}); !errors.Is(err, ErrDenied) {
+		t.Errorf("refused sign-in: %v", err)
+	}
+
+	got := make(chan any, 1)
+	if err := r.Register(Registration{Point: CoreBoot, Kind: Observe, Owner: "module:monitoring",
+		OnObserve: func(ctx context.Context, c *Context) { got <- c.Data }}); err != nil {
+		t.Fatal(err)
+	}
+	runner.Notify(ctx, CoreBoot, nil, "started")
+	select {
+	case d := <-got:
+		if d != "started" {
+			t.Errorf("data = %v", d)
+		}
+	case <-time.After(time.Second):
+		t.Error("the observer wasn't notified")
+	}
+}
+
+type greeter interface{ Greet() string }
+
+type english struct{ name string }
+
+func (e english) Greet() string { return "Hello, " + e.name }
+
+func TestProviders(t *testing.T) {
+	ctx := context.Background()
+	r := newRegistry()
+	r.Declare("provide.greeting", "Greetings.")
+	hello := &Provider{Name: "english", Title: "English", Settings: struct{ Name string }{},
+		Open: func(ctx context.Context, settings json.RawMessage) (any, error) {
+			var s struct{ Name string }
+			if err := json.Unmarshal(settings, &s); err != nil {
+				return nil, err
+			}
+			return english{s.Name}, nil
+		}}
+	if err := r.Register(Registration{Point: "provide.greeting", Kind: Provide, Owner: "addon:greetings", Provider: hello}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := Open[greeter](ctx, r, "provide.greeting", "english", json.RawMessage(`{"Name":"Ada"}`))
+	if err != nil || g.Greet() != "Hello, Ada" {
+		t.Errorf("open = %v, %v", g, err)
+	}
+	if _, err := Open[greeter](ctx, r, "provide.greeting", "klingon", nil); !errors.Is(err, ErrUnknownProvider) {
+		t.Errorf("unknown provider: %v", err)
+	}
+	if _, err := Open[interface{ Shout() }](ctx, r, "provide.greeting", "english", json.RawMessage(`{}`)); err == nil {
+		t.Error("a provider that doesn't implement the capability is an error")
+	}
+	for _, bad := range []Registration{
+		{Point: "provide.greeting", Kind: Provide, Owner: "module:other", Provider: hello},
+		{Point: "web.site.create.validate", Kind: Provide, Owner: "module:x", Provider: &Provider{Name: "x", Title: "X", Open: hello.Open}},
+		{Point: "provide.greeting", Kind: Provide, Owner: "module:x", Provider: &Provider{Name: "Bad Name", Title: "X", Open: hello.Open}},
+		{Point: "provide.greeting", Kind: Provide, Owner: "module:x"},
+	} {
+		if err := r.Register(bad); err == nil {
+			t.Errorf("registration should fail: %+v", bad)
+		}
+	}
+	if len(r.Providers(ProvideDNS)) != 0 || !IsCapability(AuthMFA) || IsCapability(CoreBoot) || Capabilities["auth-provider"] != AuthProvider {
+		t.Error("capability points")
+	}
+	r.Unregister("addon:greetings")
+	if _, ok := r.Provider("provide.greeting", "english"); ok {
+		t.Error("removing an add-on removes its providers")
+	}
+}
+
+func TestExtensions(t *testing.T) {
+	r := newRegistry()
+	tab := Registration{Point: ExtendTab, Kind: Extend, Owner: "addon:security", Extension: &Extension{UI: &UIExtension{Type: "tab", Label: "Security", Kind: "web.site", Path: "/tab"}}}
+	if err := r.Register(tab); err != nil {
+		t.Fatal(err)
+	}
+	routes := Registration{Point: ExtendRoutes, Kind: Extend, Owner: "addon:security", Extension: &Extension{
+		Routes:  []AddonRoute{{Method: "GET", Path: "/scans", Summary: "List scans"}},
+		Handler: http.NotFoundHandler(),
+	}}
+	if err := r.Register(routes); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Extensions(ExtendTab)) != 1 || len(r.Extensions(ExtendRoutes)) != 1 {
+		t.Error("extensions are listed by point")
+	}
+	for _, bad := range []Registration{
+		{Point: ExtendTab, Kind: Extend, Owner: "module:web", Extension: tab.Extension},
+		{Point: ExtendNav, Kind: Extend, Owner: "addon:x", Extension: tab.Extension},
+		{Point: ExtendRoutes, Kind: Extend, Owner: "addon:x", Extension: &Extension{Routes: routes.Extension.Routes}},
+		{Point: ExtendCard, Kind: Extend, Owner: "addon:x", Extension: &Extension{UI: &UIExtension{Type: "card"}}},
+		{Point: ExtendCard, Kind: Extend, Owner: "addon:x"},
+	} {
+		if err := r.Register(bad); err == nil {
+			t.Errorf("registration should fail: %+v", bad)
+		}
+	}
+	if p, ok := ExtendPoint("column"); !ok || p != ExtendColumn {
+		t.Errorf("column point = %s", p)
 	}
 }
 
@@ -274,5 +398,30 @@ func TestPolicySpec(t *testing.T) {
 	}
 	if err := (PolicySpec{Name: "Broken", Type: PolicyValidate}).Validate(); err == nil {
 		t.Error("validate rules need an expression and a message")
+	}
+}
+
+func TestProtocolDocument(t *testing.T) {
+	raw, err := ProtocolDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		OpenAPI string                    `json:"openapi"`
+		Paths   map[string]map[string]any `json:"paths"`
+		Comps   struct {
+			Schemas map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.OpenAPI != "3.1.0" || doc.Paths["/health"]["get"] == nil || doc.Paths["/hooks/{point}"]["post"] == nil {
+		t.Errorf("paths = %v", doc.Paths)
+	}
+	for _, name := range []string{"HookCall", "HookReply", "ChangeSet", "ConfigPatch", "Problem"} {
+		if doc.Comps.Schemas[name] == nil {
+			t.Errorf("schema %s is missing", name)
+		}
 	}
 }

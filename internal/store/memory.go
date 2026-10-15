@@ -406,19 +406,7 @@ func list(reg *KindRegistry, s memState, q Query) (*Page, error) {
 	}
 	var matched []*Resource
 	for _, r := range s.resources {
-		if r.Kind != q.Kind || (after != "" && r.ID <= after) {
-			continue
-		}
-		if r.Deleted() && !q.IncludeDeleted {
-			continue
-		}
-		if q.Scope != nil && r.Scope != *q.Scope {
-			continue
-		}
-		if q.Server != nil && r.Server != *q.Server {
-			continue
-		}
-		if !labelsMatch(r.Labels, q.Labels) || !indexMatch(info, r, q.Index) {
+		if (after != "" && r.ID <= after) || !queryMatches(info, r, q) {
 			continue
 		}
 		matched = append(matched, r)
@@ -435,6 +423,22 @@ func list(reg *KindRegistry, s memState, q Query) (*Page, error) {
 		page.Items[i] = r.Clone()
 	}
 	return page, nil
+}
+
+// queryMatches reports whether r is one of the resources q selects, apart
+// from the cursor.
+func queryMatches(info *KindInfo, r *Resource, q Query) bool {
+	switch {
+	case r.Kind != q.Kind:
+		return false
+	case r.Deleted() && !q.IncludeDeleted:
+		return false
+	case q.Scope != nil && r.Scope != *q.Scope:
+		return false
+	case q.Server != nil && r.Server != *q.Server:
+		return false
+	}
+	return labelsMatch(r.Labels, q.Labels) && indexMatch(info, r, q.Index)
 }
 
 func labelsMatch(have, want map[string]string) bool {

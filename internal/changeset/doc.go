@@ -2,6 +2,12 @@
 //
 //	request → authenticate → authorize → validate → plan → preview → apply → verify → record
 //
+// A Request holds one or more changes. They are planned in order against an
+// overlay of the store, so each change sees the resources the earlier ones
+// create, update or delete, and together they become one change set: one
+// preview, one store transaction, one apply job and one undo. Recipes,
+// migrations, account creation and assistant proposals all rely on that.
+//
 // A change set lists resource changes with field-level diffs, the system
 // effects their reconcilers will cause (downloads, packages, ports,
 // services, files, memory and disk), what hooks and add-ons contributed,
@@ -11,10 +17,16 @@
 //
 // Applying writes every resource change in one store transaction and then
 // runs the reconcilers as a job with live progress. Undo is a new change set
-// built from the recorded previous specs.
+// built from the recorded previous specs, labels and placement, planned and
+// applied like any other.
+//
+// Secret values never enter specs. A kind's sensitive fields hold references
+// to the resource's own secrets; values arrive in Change.Secrets and are
+// stored, under a new name for each change set, only when it is applied.
 //
 // Pipeline is the interface the API, recipes, automations, add-ons and the
-// assistant call. Engine implements it. Hooks are reached through the Hooks
+// assistant call. Engine implements it and keeps change sets in memory,
+// within the bounds of its Retention. Hooks are reached through the Hooks
 // interface, which the hooks package implements, so this package doesn't
 // depend on it.
 package changeset

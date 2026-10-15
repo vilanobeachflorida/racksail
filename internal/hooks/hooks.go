@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -87,41 +88,77 @@ func KindPoints(k store.Kind) []Point {
 	return out
 }
 
+// Lifecycle and identity points. The code that reaches each one runs it
+// with Runner.Check (validate hooks) or Runner.Notify (observe hooks).
+const (
+	CoreBoot               Point = "core.boot"
+	CoreUpdateBefore       Point = "core.update.before"
+	CoreUpdateAfter        Point = "core.update.after"
+	BackupsRunBefore       Point = "backups.run.before"
+	BackupsRunAfter        Point = "backups.run.after"
+	MigrationCutoverBefore Point = "migration.cutover.before"
+	MigrationCutoverAfter  Point = "migration.cutover.after"
+	AuthLoginValidate      Point = "auth.login.validate"
+)
+
 // StaticPoints are the hook points that don't come from kinds.
 var StaticPoints = map[Point]string{
-	"core.boot":                "Racksail has started.",
-	"core.update.before":       "Racksail is about to update itself.",
-	"core.update.after":        "Racksail has updated itself.",
-	"backups.run.before":       "A backup is about to run.",
-	"backups.run.after":        "A backup has finished.",
-	"migration.cutover.before": "A migration is about to switch over.",
-	"migration.cutover.after":  "A migration has switched over.",
-	"auth.login.validate":      "Someone is signing in; login policies can refuse it.",
-	"auth.provider":            "External identity providers, such as LDAP or OIDC.",
-	"auth.mfa":                 "Second-factor methods.",
-	"provide.dns":              "External DNS providers.",
-	"provide.registrar":        "Domain registrars.",
-	"provide.backup-target":    "Backup destinations.",
-	"provide.notifier":         "Notification channels.",
-	"provide.ai":               "Assistant model providers.",
-	"provide.billing":          "Billing systems.",
-	"provide.importer":         "Migration importers.",
+	CoreBoot:               "Racksail has started.",
+	CoreUpdateBefore:       "Racksail is about to update itself.",
+	CoreUpdateAfter:        "Racksail has updated itself.",
+	BackupsRunBefore:       "A backup is about to run.",
+	BackupsRunAfter:        "A backup has finished.",
+	MigrationCutoverBefore: "A migration is about to switch over.",
+	MigrationCutoverAfter:  "A migration has switched over.",
+	AuthLoginValidate:      "Someone is signing in; login policies can refuse it.",
+	AuthProvider:           "External identity providers, such as LDAP or OIDC.",
+	AuthMFA:                "Second-factor methods.",
+	ProvideDNS:             "External DNS providers.",
+	ProvideRegistrar:       "Domain registrars.",
+	ProvideBackupTarget:    "Backup destinations.",
+	ProvideNotifier:        "Notification channels.",
+	ProvideAI:              "Assistant model providers.",
+	ProvideBilling:         "Billing systems.",
+	ProvideImporter:        "Migration importers.",
+	ExtendNav:              "Navigation entries added by add-ons.",
+	ExtendTab:              "Tabs added by add-ons to a kind's detail screen.",
+	ExtendCard:             "Home cards added by add-ons.",
+	ExtendCommand:          "Command-bar actions added by add-ons.",
+	ExtendSettings:         "Settings pages added by add-ons.",
+	ExtendColumn:           "Table columns added by add-ons to a kind's list.",
+	ExtendRoutes:           "API routes add-ons serve under /api/v1/addons/<id>/.",
 }
+
+// ModuleOn is the point the module manager notifies after a module has
+// been turned on.
+func ModuleOn(id string) Point { return Point("modules." + id + ".on") }
+
+// ModuleOff is the point the module manager notifies after a module has
+// been turned off.
+func ModuleOff(id string) Point { return Point("modules." + id + ".off") }
 
 // ModulePoints returns the lifecycle points of a module.
 func ModulePoints(id string) []Point {
-	return []Point{Point("modules." + id + ".on"), Point("modules." + id + ".off")}
+	return []Point{ModuleOn(id), ModuleOff(id)}
 }
 
 var configPointPattern = regexp.MustCompile(`^system\.[a-z0-9-]+\.[a-z0-9-]+$`)
 
-// Context is what validate and modify hooks see.
+// Context is what validate, modify and observe hooks see.
 type Context struct {
-	Point     Point
+	Point Point
+	Actor *auth.Actor
+	// ChangeSet is the change set at the points of the change pipeline.
 	ChangeSet *changeset.ChangeSet
-	// Change is the change being validated; nil for modify hooks.
+	// Change is the change a validate hook decides on.
 	Change *changeset.ResourceChange
-	Actor  *auth.Actor
+	// Changes are the indexes in ChangeSet.Changes of the changes a modify
+	// or observe hook's point is about. Other changes of the same change set
+	// can be read but belong to other points.
+	Changes []int
+	// Data describes what happened at lifecycle and identity points, such
+	// as the module turned on at modules.<id>.on.
+	Data any
 }
 
 // ConfigPatch is a structured change to generated service configuration,
@@ -132,11 +169,14 @@ type ConfigPatch struct {
 	Config map[string]any `json:"config"`
 }
 
-// Registration attaches one handler to one hook point.
+// Registration attaches one handler to one hook point. Exactly one of the
+// handler fields is set, the one matching Kind: OnValidate, OnModify,
+// OnObserve, OnConfig (system), Provider (provide) or Extension (extend).
 type Registration struct {
 	Point Point
 	Kind  Kind
-	// Owner identifies who registered it: "module:<id>" or "addon:<id>".
+	// Owner identifies who registered it: "module:<id>", "addon:<id>" or
+	// "rule:<id>".
 	Owner    string
 	Priority int
 	Deadline time.Duration
@@ -147,13 +187,21 @@ type Registration struct {
 
 	OnValidate func(ctx context.Context, c *Context) error
 	OnModify   func(ctx context.Context, c *Context) error
-	OnObserve  func(ctx context.Context, cs *changeset.ChangeSet)
+	OnObserve  func(ctx context.Context, c *Context)
 	OnConfig   func(ctx context.Context, p *ConfigPatch) error
+	Provider   *Provider
+	Extension  *Extension
 }
 
 func (r *Registration) check() error {
 	if r.Owner == "" || (!strings.HasPrefix(r.Owner, "module:") && !strings.HasPrefix(r.Owner, "addon:") && !strings.HasPrefix(r.Owner, "rule:")) {
 		return fmt.Errorf("hook owner %q must be module:<id>, addon:<id> or rule:<id>", r.Owner)
+	}
+	switch r.Kind {
+	case Provide:
+		return r.Provider.check(r.Point, r.Owner)
+	case Extend:
+		return r.Extension.check(r.Point, r.Owner)
 	}
 	if r.Deadline == 0 {
 		r.Deadline = DefaultDeadline
@@ -177,8 +225,6 @@ func (r *Registration) check() error {
 		handler = r.OnObserve != nil
 	case System:
 		handler = r.OnConfig != nil && configPointPattern.MatchString(string(r.Point))
-	case Provide, Extend:
-		return fmt.Errorf("hook %s: %s hooks are registered with their capability, not on a point", r.Owner, r.Kind)
 	default:
 		return fmt.Errorf("hook %s: unknown hook kind %q", r.Owner, r.Kind)
 	}
@@ -253,7 +299,14 @@ func (r *Registry) Register(reg Registration) error {
 	if _, ok := r.points[reg.Point]; !ok {
 		return ErrUnknownHook.New("point", string(reg.Point))
 	}
-	list := append(r.regs[reg.Point], reg)
+	if reg.Kind == Provide {
+		for _, other := range r.regs[reg.Point] {
+			if other.Kind == Provide && other.Provider.Name == reg.Provider.Name {
+				return fmt.Errorf("hook %s: %s already has a provider called %s, from %s", reg.Owner, reg.Point, reg.Provider.Name, other.Owner)
+			}
+		}
+	}
+	list := append(slices.Clone(r.regs[reg.Point]), reg)
 	sort.SliceStable(list, func(i, j int) bool {
 		if list[i].Priority != list[j].Priority {
 			return list[i].Priority < list[j].Priority
@@ -262,6 +315,27 @@ func (r *Registry) Register(reg Registration) error {
 	})
 	r.regs[reg.Point] = list
 	return nil
+}
+
+// Unregister removes every hook an owner registered, as when an add-on is
+// removed or safe mode switches add-ons off.
+func (r *Registry) Unregister(owner string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for p, list := range r.regs {
+		kept := slices.DeleteFunc(slices.Clone(list), func(reg Registration) bool { return reg.Owner == owner })
+		if len(kept) == 0 {
+			delete(r.regs, p)
+		} else {
+			r.regs[p] = kept
+		}
+	}
+	for key := range r.failures {
+		if strings.HasPrefix(key, owner+"\x00") {
+			delete(r.failures, key)
+			delete(r.disabled, key)
+		}
+	}
 }
 
 // For returns the hooks of a kind attached to a point, in running order.
@@ -375,8 +449,18 @@ func (r *Runner) settle(ctx context.Context, reg Registration, err error, denial
 
 // Validate implements changeset.Hooks.
 func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.ChangeSet, change *changeset.ResourceChange) error {
-	for _, reg := range r.Registry.For(Point(point), Validate) {
-		hc := &Context{Point: Point(point), ChangeSet: cs, Change: change, Actor: cs.Actor}
+	return r.validate(ctx, &Context{Point: Point(point), ChangeSet: cs, Change: change, Actor: cs.Actor})
+}
+
+// Check runs the validate hooks of a point outside the change pipeline, such
+// as login policies at auth.login.validate. data is what the hooks decide
+// on. An error means a hook refused, or failed and blocks when it fails.
+func (r *Runner) Check(ctx context.Context, point Point, actor *auth.Actor, data any) error {
+	return r.validate(ctx, &Context{Point: point, Actor: actor, Data: data})
+}
+
+func (r *Runner) validate(ctx context.Context, hc *Context) error {
+	for _, reg := range r.Registry.For(hc.Point, Validate) {
 		err := call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnValidate(ctx, hc) })
 		var denial *i18n.Error
 		isDenial := err != nil && errors.As(err, &denial) && ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded)
@@ -393,14 +477,14 @@ func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.Chang
 // Modify implements changeset.Hooks. Each hook works on a copy; what it
 // changed is labelled with its source, and two hooks changing the same field
 // of the same resource are recorded as a conflict.
-func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeSet) error {
+func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeSet, changes []int) error {
 	touched := map[string][]changeset.Source{}
 	for _, reg := range r.Registry.For(Point(point), Modify) {
 		work, err := clone(cs)
 		if err != nil {
 			return err
 		}
-		hc := &Context{Point: Point(point), ChangeSet: work, Actor: cs.Actor}
+		hc := &Context{Point: Point(point), ChangeSet: work, Changes: slices.Clone(changes), Actor: cs.Actor}
 		err = call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnModify(ctx, hc) })
 		if err := r.settle(ctx, reg, err, false); err != nil {
 			return err
@@ -461,14 +545,28 @@ func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeS
 
 // Applied implements changeset.Hooks. Observe hooks run in the background
 // and can't affect the change.
-func (r *Runner) Applied(ctx context.Context, point string, cs *changeset.ChangeSet) {
-	for _, reg := range r.Registry.For(Point(point), Observe) {
+func (r *Runner) Applied(ctx context.Context, point string, cs *changeset.ChangeSet, changes []int) {
+	r.observe(ctx, &Context{Point: Point(point), ChangeSet: cs, Changes: changes, Actor: cs.Actor})
+}
+
+// Notify runs the observe hooks of a lifecycle point, such as core.boot or
+// modules.<id>.on, in the background. data describes what happened.
+func (r *Runner) Notify(ctx context.Context, point Point, actor *auth.Actor, data any) {
+	r.observe(ctx, &Context{Point: point, Actor: actor, Data: data})
+}
+
+func (r *Runner) observe(ctx context.Context, hc *Context) {
+	ctx = context.WithoutCancel(ctx)
+	for _, reg := range r.Registry.For(hc.Point, Observe) {
+		// Observers run side by side, so each gets its own copy.
+		c := *hc
+		c.ChangeSet, c.Changes = hc.ChangeSet.Clone(), slices.Clone(hc.Changes)
 		go func(reg Registration) {
-			err := call(context.WithoutCancel(ctx), reg.Deadline, func(ctx context.Context) error {
-				reg.OnObserve(ctx, cs)
+			err := call(ctx, reg.Deadline, func(ctx context.Context) error {
+				reg.OnObserve(ctx, &c)
 				return nil
 			})
-			if err := r.settle(context.WithoutCancel(ctx), reg, err, false); err != nil {
+			if err := r.settle(ctx, reg, err, false); err != nil {
 				r.log().Warn("observe hook failed", "owner", reg.Owner, "error", err)
 			}
 		}(reg)

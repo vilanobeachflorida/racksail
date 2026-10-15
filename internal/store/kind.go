@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -143,7 +145,11 @@ type FieldHint struct {
 	Widget      string `json:"widget,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
 	Advanced    bool   `json:"advanced,omitempty"`
-	Sensitive   bool   `json:"sensitive,omitempty"`
+	// Sensitive fields hold secrets. Their value is a reference to one of
+	// the resource's own secrets (a secrets.Ref), never the secret itself:
+	// values arrive in a change's Secrets, and change sets show the field
+	// redacted.
+	Sensitive bool `json:"sensitive,omitempty"`
 	// CreateOnly fields can be set on create and are read-only afterwards.
 	CreateOnly bool `json:"createOnly,omitempty"`
 	Order      int  `json:"order,omitempty"`
@@ -321,11 +327,16 @@ func (k *KindOf[S, T]) Encode(obj *Object[S, T]) (*Resource, error) {
 	return r, nil
 }
 
-// Get reads one resource of this kind.
+// Get reads one resource of this kind. A resource of another kind is
+// reported as not found, as when an ID for one kind is passed where another
+// is expected.
 func (k *KindOf[S, T]) Get(ctx context.Context, rd Reader, id ID) (*Object[S, T], error) {
 	r, err := rd.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if r.Kind != k.info.Name {
+		return nil, ErrNotFound.New("what", string(id))
 	}
 	return k.Decode(r)
 }
@@ -400,12 +411,29 @@ func (k *KindOf[S, T]) Validate(ctx context.Context, r, old *Resource) error {
 	return k.validator(ctx, obj, prev)
 }
 
+// SensitiveFields lists the spec paths of a kind's sensitive fields, sorted.
+func SensitiveFields(info *KindInfo) []string {
+	var out []string
+	for path, hint := range info.UI.Fields {
+		if hint.Sensitive {
+			out = append(out, path)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Sensitive field paths become part of secret names, which are limited to
+// 128 characters, so they are kept short and simple.
+const maxSensitivePath = 48
+
 var (
-	kindNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
-	pluralPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	actionNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	reservedActions   = map[string]bool{"create": true, "update": true, "delete": true, "get": true, "list": true, "read": true}
-	statusType        = reflect.TypeFor[Status]()
+	sensitivePathPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`)
+	kindNamePattern      = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
+	pluralPattern        = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	actionNamePattern    = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	reservedActions      = map[string]bool{"create": true, "update": true, "delete": true, "get": true, "list": true, "read": true}
+	statusType           = reflect.TypeFor[Status]()
 )
 
 func checkKind(info *KindInfo, spec, status reflect.Type) error {
@@ -452,6 +480,8 @@ func checkKind(info *KindInfo, spec, status reflect.Type) error {
 			bad("action %q needs a risk level", a.Name)
 		case strings.TrimSpace(a.Summary) == "":
 			bad("action %q needs a summary", a.Name)
+		case a.Past != "" && !actionNamePattern.MatchString(a.Past):
+			bad("action %q: past tense %q must be lowercase words joined by underscores", a.Name, a.Past)
 		}
 		seen[a.Name] = true
 	}
@@ -467,6 +497,11 @@ func checkKind(info *KindInfo, spec, status reflect.Type) error {
 	}
 	if info.Backup.Exclude && strings.TrimSpace(info.Backup.Reason) == "" {
 		bad("opting out of backups needs a reason")
+	}
+	for _, path := range SensitiveFields(info) {
+		if len(path) > maxSensitivePath || !sensitivePathPattern.MatchString(path) {
+			bad("sensitive field %q must be a path of camelCase field names joined by dots, at most %d characters", path, maxSensitivePath)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -484,38 +519,78 @@ func embedsStatus(t reflect.Type) bool {
 	return false
 }
 
-// irregular past tenses of common action verbs.
+// irregularPast holds action verbs whose past tense the spelling rules in
+// pastOf don't produce. Prefixed forms (rerun, unset, rebuild) are derived
+// from these.
 var irregularPast = map[string]string{
-	"run": "ran", "rerun": "reran", "send": "sent", "rebuild": "rebuilt", "build": "built",
-	"set": "set", "reset": "reset", "put": "put", "begin": "began", "undo": "undone",
-	"wake": "woken", "sleep": "slept", "shut": "shut", "cut": "cut", "freeze": "frozen",
+	"run": "ran", "send": "sent", "build": "built", "set": "set", "put": "put", "begin": "began",
+	"do": "done", "wake": "woken", "sleep": "slept", "shut": "shut", "cut": "cut", "freeze": "frozen",
+	"spin": "spun", "split": "split", "bind": "bound", "write": "written", "read": "read",
+	"make": "made", "take": "taken", "hide": "hidden", "keep": "kept", "hold": "held",
+	"feed": "fed", "find": "found", "lead": "led", "quit": "quit", "let": "let", "shed": "shed",
+	// Words that look like a prefix and a short verb but aren't.
+	"render": "rendered", "reckon": "reckoned",
 }
 
-// pastTense derives an event verb from an action name such as "deploy" or
-// "reset_password". The last word is put in the past tense and moved first,
-// so "reset_password" gives "password_reset".
+// doublingPast are verbs stressed on their last syllable, which double
+// their final consonant although the rules only double one-syllable verbs.
+var doublingPast = map[string]bool{
+	"submit": true, "commit": true, "permit": true, "omit": true, "emit": true, "admit": true,
+	"transmit": true, "transfer": true, "prefer": true, "defer": true, "confer": true, "infer": true,
+	"occur": true, "incur": true, "control": true, "patrol": true, "compel": true, "expel": true,
+	"propel": true, "equip": true, "forget": true,
+}
+
+// verbParticles complete phrasal verbs and stay after the verb: spin_down
+// gives spun_down, not down_spun.
+var verbParticles = map[string]bool{
+	"up": true, "down": true, "on": true, "off": true, "in": true, "out": true,
+	"over": true, "back": true, "away": true,
+}
+
+// pastTense derives an event verb from an action name, the verb first:
+// "deploy" gives "deployed", "reset_password" gives "password_reset" (the
+// object moves in front) and "spin_down" gives "spun_down" (particles stay
+// behind). Kinds set Action.Past for anything these rules get wrong.
 func pastTense(name string) string {
 	words := strings.Split(name, "_")
-	verb := words[0]
 	rest := words[1:]
-	past, ok := irregularPast[verb]
-	if !ok {
-		switch {
-		case strings.HasSuffix(verb, "e"):
-			past = verb + "d"
-		case strings.HasSuffix(verb, "y") && len(verb) > 1 && !strings.ContainsRune("aeiou", rune(verb[len(verb)-2])):
-			past = verb[:len(verb)-1] + "ied"
-		case doublesFinalConsonant(verb):
-			past = verb + verb[len(verb)-1:] + "ed"
-		default:
-			past = verb + "ed"
-		}
+	var particles []string
+	for len(rest) > 0 && verbParticles[rest[0]] {
+		particles = append(particles, rest[0])
+		rest = rest[1:]
 	}
-	if len(rest) == 0 {
+	out := append(append(slices.Clone(rest), pastOf(words[0])), particles...)
+	return strings.Join(out, "_")
+}
+
+// pastOf puts one verb in the past tense.
+func pastOf(verb string) string {
+	if past, ok := irregularPast[verb]; ok {
 		return past
 	}
-	return strings.Join(rest, "_") + "_" + past
+	for _, prefix := range []string{"re", "un"} {
+		if base, ok := strings.CutPrefix(verb, prefix); ok {
+			if past, ok := irregularPast[base]; ok {
+				return prefix + past
+			}
+			if doublingPast[base] || doublesFinalConsonant(base) {
+				return verb + verb[len(verb)-1:] + "ed"
+			}
+		}
+	}
+	switch {
+	case strings.HasSuffix(verb, "e"):
+		return verb + "d"
+	case strings.HasSuffix(verb, "y") && len(verb) > 1 && !isVowel(verb[len(verb)-2]):
+		return verb[:len(verb)-1] + "ied"
+	case doublingPast[verb] || doublesFinalConsonant(verb):
+		return verb + verb[len(verb)-1:] + "ed"
+	}
+	return verb + "ed"
 }
+
+func isVowel(b byte) bool { return strings.IndexByte("aeiou", b) >= 0 }
 
 // doublesFinalConsonant covers short one-vowel verbs like stop, scrub and
 // plan, which double their last letter.
@@ -523,7 +598,6 @@ func doublesFinalConsonant(v string) bool {
 	if len(v) < 3 || len(v) > 5 {
 		return false
 	}
-	isVowel := func(b byte) bool { return strings.IndexByte("aeiou", b) >= 0 }
 	vowels := 0
 	for i := 0; i < len(v); i++ {
 		if isVowel(v[i]) {

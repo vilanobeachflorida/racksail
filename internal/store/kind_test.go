@@ -184,14 +184,91 @@ func TestEventNames(t *testing.T) {
 		"run":            "web.site.ran",
 		"reset_password": "web.site.password_reset",
 		"rotate_keys":    "web.site.keys_rotated",
+		"submit":         "web.site.submitted",
+		"commit":         "web.site.committed",
+		"resubmit":       "web.site.resubmitted",
+		"transfer":       "web.site.transferred",
+		"spin_down":      "web.site.spun_down",
+		"spin_up":        "web.site.spun_up",
+		"spin_down_all":  "web.site.all_spun_down",
+		"power_off":      "web.site.powered_off",
+		"log_out":        "web.site.logged_out",
+		"back_up":        "web.site.backed_up",
+		"roll_back":      "web.site.rolled_back",
+		"rerun":          "web.site.reran",
+		"rebuild":        "web.site.rebuilt",
+		"undo":           "web.site.undone",
+		"unset":          "web.site.unset",
+		"unfreeze":       "web.site.unfrozen",
+		"rescan":         "web.site.rescanned",
+		"unpin":          "web.site.unpinned",
+		"unlock":         "web.site.unlocked",
+		"render":         "web.site.rendered",
+		"restart_all":    "web.site.all_restarted",
+		"retry":          "web.site.retried",
+		"resync":         "web.site.resynced",
+		"rename":         "web.site.renamed",
+		"redeploy":       "web.site.redeployed",
+		"rekey":          "web.site.rekeyed",
+		"ping":           "web.site.pinged",
+		"edit":           "web.site.edited",
+		"visit":          "web.site.visited",
+		"cancel":         "web.site.canceled",
+		"label":          "web.site.labeled",
+		"wake":           "web.site.woken",
+		"send":           "web.site.sent",
+		"resend":         "web.site.resent",
 	}
 	for action, want := range tests {
 		if got := (Action{Name: action}).EventName("web.site"); got != want {
 			t.Errorf("EventName(%q) = %q, want %q", action, got, want)
 		}
 	}
-	if got := (Action{Name: "roll_back", Past: "rolled_back"}).EventName("web.site"); got != "web.site.rolled_back" {
+	if got := (Action{Name: "repay", Past: "repaid"}).EventName("web.site"); got != "web.site.repaid" {
 		t.Errorf("explicit past tense ignored: %q", got)
+	}
+	bad := Define[testSiteSpec, testSiteStatus](KindInfo{
+		Name: "test.thing", Prefix: "thing", Scope: ScopeAccount, Title: "Thing", Plural: "things", Description: "A thing.",
+		Actions: []Action{{Name: "repay", Summary: "Repay.", Risk: RiskLow, Past: "Re-paid"}},
+	})
+	if bad.Err() == nil || !strings.Contains(bad.Err().Error(), "past tense") {
+		t.Errorf("a malformed past tense is refused: %v", bad.Err())
+	}
+}
+
+func TestGetChecksTheKind(t *testing.T) {
+	ctx := context.Background()
+	s, k := newTestStore(t)
+	r := createSite(t, s, k, NewID("acct"), "kind.test")
+	other := Define[testSiteSpec, testSiteStatus](KindInfo{Name: "test.other", Prefix: "other", Scope: ScopeAccount, Title: "Other", Plural: "others", Description: "Another kind."})
+	if _, err := other.Get(ctx, s, r.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a resource of another kind isn't found: %v", err)
+	}
+	if got, err := k.Get(ctx, s, r.ID); err != nil || got.ID != r.ID {
+		t.Errorf("get = %v, %v", got, err)
+	}
+}
+
+func TestSensitiveFieldPaths(t *testing.T) {
+	define := func(path string) error {
+		return Define[testSiteSpec, testSiteStatus](KindInfo{
+			Name: "test.thing", Prefix: "thing", Scope: ScopeAccount, Title: "Thing", Plural: "things", Description: "A thing.",
+			UI: UIHints{Fields: map[string]FieldHint{path: {Sensitive: true}, "notes": {Widget: "textarea"}}},
+		}).Err()
+	}
+	for _, ok := range []string{"password", "smtp.authPassword", "db.user.password"} {
+		if err := define(ok); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"users[].password", "Password", "db..password", "a." + strings.Repeat("x", 48)} {
+		if err := define(bad); err == nil {
+			t.Errorf("%s should be refused", bad)
+		}
+	}
+	info := &KindInfo{UI: UIHints{Fields: map[string]FieldHint{"b": {Sensitive: true}, "a": {Sensitive: true}, "c": {}}}}
+	if got := SensitiveFields(info); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("sensitive fields = %v", got)
 	}
 }
 

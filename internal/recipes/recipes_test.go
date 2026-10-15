@@ -25,6 +25,7 @@ inputs:
   - {name: domain, type: domain, label: Domain, required: true}
   - {name: workers, type: integer, label: PHP workers, default: 4, min: 1, max: 32}
   - {name: php, type: select, label: PHP version, default: "8.4", options: [{value: "8.3", label: PHP 8.3}, {value: "8.4", label: PHP 8.4}]}
+  - {name: dbPassword, type: password, label: Database password, required: true}
 resources:
   - name: site
     kind: web.site
@@ -32,12 +33,38 @@ resources:
     dependsOn: [db]
   - name: db
     kind: databases.database
-    spec: {name: wordpress}
+    spec: {name: wordpress, owner: {password: "${inputs.dbPassword}"}}
 `
 
-func prefixes(kind string) (string, bool) {
-	p, ok := map[string]string{"web.site": "site", "databases.database": "db"}[kind]
-	return p, ok
+type siteSpec struct {
+	Domains  []string `json:"domains"`
+	PHP      string   `json:"php"`
+	Workers  int      `json:"workers"`
+	Database string   `json:"database"`
+}
+
+type databaseSpec struct {
+	Name  string `json:"name"`
+	Owner struct {
+		Password string `json:"password,omitempty"`
+	} `json:"owner"`
+}
+
+func testKinds(t *testing.T) *store.KindRegistry {
+	t.Helper()
+	kinds := store.NewKindRegistry()
+	for _, k := range []store.Kind{
+		store.Define[siteSpec, store.Status](store.KindInfo{Name: "web.site", Prefix: "site", Scope: store.ScopeAccount, Title: "Site", Plural: "sites", Description: "A site."}),
+		store.Define[databaseSpec, store.Status](store.KindInfo{
+			Name: "databases.database", Prefix: "db", Scope: store.ScopeAccount, Title: "Database", Plural: "databases", Description: "A database.",
+			UI: store.UIHints{Fields: map[string]store.FieldHint{"owner.password": {Sensitive: true}}},
+		}),
+	} {
+		if err := kinds.Register(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return kinds
 }
 
 func TestParseAndRequests(t *testing.T) {
@@ -49,7 +76,7 @@ func TestParseAndRequests(t *testing.T) {
 	if ordered[0].Name != "db" || ordered[1].Name != "site" {
 		t.Errorf("order = %v", ordered)
 	}
-	values, err := r.Values(map[string]any{"domain": "blog.example.com"})
+	values, err := r.Values(map[string]any{"domain": "blog.example.com", "dbPassword": "correct horse"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,20 +84,35 @@ func TestParseAndRequests(t *testing.T) {
 		t.Errorf("defaults = %v", values)
 	}
 	acct := store.AccountScope(store.NewID("acct"))
-	reqs, err := r.Requests(values, acct, prefixes)
+	req, err := r.Request(values, acct, testKinds(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reqs) != 2 || reqs[0].Kind != "databases.database" || reqs[1].Labels["racksail.dev/recipe"] != "wordpress" {
-		t.Fatalf("requests = %+v", reqs)
+	changes := req.Changes
+	if req.Title != "Install WordPress" || len(changes) != 2 || changes[0].Kind != "databases.database" || changes[1].Labels["racksail.dev/recipe"] != "wordpress" {
+		t.Fatalf("request = %+v", req)
 	}
 	var site map[string]any
-	if err := json.Unmarshal(reqs[1].Spec, &site); err != nil {
+	if err := json.Unmarshal(changes[1].Spec, &site); err != nil {
 		t.Fatal(err)
 	}
 	domains := site["domains"].([]any)
-	if domains[1] != "www.blog.example.com" || site["database"] != string(reqs[0].ID) || site["workers"] != float64(4) {
+	if domains[1] != "www.blog.example.com" || site["database"] != string(changes[0].ID) || site["workers"] != float64(4) {
 		t.Errorf("site spec = %v", site)
+	}
+	if changes[0].Secrets["owner.password"] != "correct horse" || strings.Contains(string(changes[0].Spec), "correct horse") {
+		t.Errorf("the password belongs in the change's secrets: %s, %v", changes[0].Spec, changes[0].Secrets)
+	}
+}
+
+func TestSecretInputsStayInSecretFields(t *testing.T) {
+	leaky, err := Parse([]byte(strings.Replace(wordpress, "spec: {name: wordpress, owner", "spec: {name: \"${inputs.dbPassword}\", owner", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, _ := leaky.Values(map[string]any{"domain": "a.example", "dbPassword": "hunter22"})
+	if _, err := leaky.Request(values, store.AccountScope(store.NewID("acct")), testKinds(t)); err == nil || !strings.Contains(err.Error(), "secret field") {
+		t.Errorf("a password in a plain field must be refused: %v", err)
 	}
 }
 
@@ -95,7 +137,7 @@ func TestBrokenRecipes(t *testing.T) {
 		"unknown input":    strings.Replace(wordpress, "${inputs.php}", "${inputs.ruby}", 1),
 		"unknown resource": strings.Replace(wordpress, "${resources.db.id}", "${resources.cache.id}", 1),
 		"bad dependency":   strings.Replace(wordpress, "dependsOn: [db]", "dependsOn: [cache]", 1),
-		"cycle":            strings.Replace(wordpress, "spec: {name: wordpress}", "spec: {name: wordpress}\n    dependsOn: [site]", 1),
+		"cycle":            strings.Replace(wordpress, "kind: databases.database\n", "kind: databases.database\n    dependsOn: [site]\n", 1),
 		"schema":           strings.Replace(wordpress, "licenseClass: open-source", "licenseClass: maybe", 1),
 	}
 	for name, doc := range broken {
@@ -104,7 +146,7 @@ func TestBrokenRecipes(t *testing.T) {
 		}
 	}
 	unknown, _ := Parse([]byte(wordpress))
-	if _, err := unknown.Requests(map[string]any{"domain": "a.example"}, store.ServerScope(), func(string) (string, bool) { return "", false }); err == nil {
+	if _, err := unknown.Request(map[string]any{"domain": "a.example"}, store.ServerScope(), store.NewKindRegistry()); err == nil {
 		t.Error("unknown kinds should fail")
 	}
 }

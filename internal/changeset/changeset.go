@@ -1,8 +1,11 @@
 package changeset
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
@@ -80,18 +83,45 @@ type ResourceChange struct {
 	Kind   string      `json:"kind"`
 	ID     store.ID    `json:"id"`
 	Scope  store.Scope `json:"scope"`
+	// Server is the cluster server the resource is placed on; empty for the
+	// server running the panel.
+	Server store.ID `json:"server,omitempty"`
 	// Revision is the revision the change was planned against.
 	Revision int64             `json:"revision,omitempty"`
 	Labels   map[string]string `json:"labels,omitempty"`
+	// LabelsBefore are the labels before an update or action, so undo can
+	// put them back.
+	LabelsBefore map[string]string `json:"labelsBefore,omitempty"`
 	// Before and After are the specs, kept so the change can be undone.
+	// Sensitive fields in them only ever hold references to secrets.
 	Before json.RawMessage `json:"before,omitempty"`
 	After  json.RawMessage `json:"after,omitempty"`
+	// Input is an action's input. It is recorded with the change set, so
+	// actions never take secrets as input.
 	Input  json.RawMessage `json:"input,omitempty"`
 	Diff   []FieldDiff     `json:"diff,omitempty"`
 	Source Source          `json:"source"`
 	// Steps are agent operations an action runs once, on top of the
 	// resource's reconcile.
 	Steps []agent.Step `json:"steps,omitempty"`
+}
+
+func (rc ResourceChange) clone() ResourceChange {
+	c := rc
+	c.Labels = maps.Clone(rc.Labels)
+	c.LabelsBefore = maps.Clone(rc.LabelsBefore)
+	c.Before = bytes.Clone(rc.Before)
+	c.After = bytes.Clone(rc.After)
+	c.Input = bytes.Clone(rc.Input)
+	if rc.Diff != nil {
+		c.Diff = make([]FieldDiff, len(rc.Diff))
+		for i, d := range rc.Diff {
+			d.Before, d.After = bytes.Clone(d.Before), bytes.Clone(d.After)
+			c.Diff[i] = d
+		}
+	}
+	c.Steps = slices.Clone(rc.Steps)
+	return c
 }
 
 // Contribution labels what a hook or add-on added.
@@ -154,6 +184,41 @@ type ChangeSet struct {
 	AppliedAt *time.Time `json:"appliedAt,omitempty"`
 }
 
+// Clone returns a copy of cs whose lists, maps and documents can be
+// changed without affecting cs. Action steps keep sharing their inputs.
+func (cs *ChangeSet) Clone() *ChangeSet {
+	if cs == nil {
+		return nil
+	}
+	c := *cs
+	if cs.Changes != nil {
+		c.Changes = make([]ResourceChange, len(cs.Changes))
+		for i, rc := range cs.Changes {
+			c.Changes[i] = rc.clone()
+		}
+	}
+	c.Effects = slices.Clone(cs.Effects)
+	if cs.Contributions != nil {
+		c.Contributions = make([]Contribution, len(cs.Contributions))
+		for i, con := range cs.Contributions {
+			con.Changes, con.Effects = slices.Clone(con.Changes), slices.Clone(con.Effects)
+			c.Contributions[i] = con
+		}
+	}
+	if cs.Conflicts != nil {
+		c.Conflicts = make([]Conflict, len(cs.Conflicts))
+		for i, con := range cs.Conflicts {
+			con.Sources = slices.Clone(con.Sources)
+			c.Conflicts[i] = con
+		}
+	}
+	if cs.AppliedAt != nil {
+		t := *cs.AppliedAt
+		c.AppliedAt = &t
+	}
+	return &c
+}
+
 // Summarize recomputes the estimate from the effects.
 func (cs *ChangeSet) Summarize() {
 	var e Estimate
@@ -165,48 +230,82 @@ func (cs *ChangeSet) Summarize() {
 	cs.Estimate = e
 }
 
-// Request asks for one change.
-type Request struct {
-	Actor *auth.Actor
-	Op    Op
-	Kind  string
-	// ID names the resource for update, delete and action; on create it may
-	// be set to choose the ID.
-	ID     store.ID
-	Scope  store.Scope
+// Change asks for one change to one resource.
+type Change struct {
+	Op   Op
+	Kind string
+	// ID names the resource for update, delete and action. On create it may
+	// be set to choose the ID, so later changes in the same request can
+	// refer to the new resource.
+	ID    store.ID
+	Scope store.Scope
+	// Server places a new resource on a cluster server; empty means the
+	// server running the panel. Updates keep the placement.
 	Server store.ID
 	Spec   json.RawMessage
+	// Labels replace the resource's labels; nil keeps them on update.
 	Labels map[string]string
 	// Revision guards against lost updates; zero skips the check.
 	Revision int64
 	Action   string
 	Input    json.RawMessage
+	// Secrets are values for the kind's sensitive fields, by field path.
+	// They never enter the spec: when the change set is applied each value
+	// goes to the secrets store, and the field gets a reference to it. A
+	// dry run stores nothing. An empty value clears the field.
+	Secrets map[string]string
+}
+
+// Request asks for a change set: one or more changes that are validated,
+// previewed, applied and undone together. Changes are planned in order and
+// each sees the resources the earlier ones create, update or delete, so a
+// recipe can create a database and then a site that uses it.
+type Request struct {
+	Actor   *auth.Actor
+	Changes []Change
+	// Title describes the change set; when empty it is derived from the
+	// changes.
+	Title string
 	// DryRun returns the change set without applying it.
 	DryRun bool
 	// IdempotencyKey makes retries of the same request return the first
 	// change set instead of applying twice.
 	IdempotencyKey string
-	Title          string
+}
+
+// UndoRequest asks for a change set that reverts an applied one.
+type UndoRequest struct {
+	Actor *auth.Actor
+	// ChangeSet is the change set to revert.
+	ChangeSet      store.ID
+	DryRun         bool
+	IdempotencyKey string
 }
 
 // Pipeline is how anything changes Racksail.
 type Pipeline interface {
 	// Submit validates and plans a request. Unless it is a dry run, it then
-	// applies it: the store is updated and a job runs the system changes.
+	// applies it: the store is updated in one transaction and a job runs the
+	// system changes.
 	Submit(ctx context.Context, req Request) (*ChangeSet, error)
 	// Get returns a change set.
 	Get(ctx context.Context, id store.ID) (*ChangeSet, error)
-	// Undo applies a change set that reverts an applied one.
-	Undo(ctx context.Context, actor *auth.Actor, id store.ID) (*ChangeSet, error)
+	// Undo plans a change set that reverts an applied or failed one, built
+	// from the recorded previous specs, and applies it unless it is a dry
+	// run. It goes through the same stages as any other change.
+	Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error)
 }
 
 // Hooks runs hook points for the pipeline. The hooks package implements it.
 type Hooks interface {
 	// Validate runs validate hooks for one change. An error denies it.
 	Validate(ctx context.Context, point string, cs *ChangeSet, change *ResourceChange) error
-	// Modify runs modify hooks, which may add changes and effects; each
-	// contribution is recorded and conflicts are reported in cs.
-	Modify(ctx context.Context, point string, cs *ChangeSet) error
-	// Applied runs observe hooks after a change set has been applied.
-	Applied(ctx context.Context, point string, cs *ChangeSet)
+	// Modify runs the modify hooks of a plan point. changes are the indexes
+	// in cs.Changes of the changes the point is about. Hooks may change
+	// those, add changes and add effects; each contribution is recorded and
+	// conflicts are reported in cs.
+	Modify(ctx context.Context, point string, cs *ChangeSet, changes []int) error
+	// Applied runs observe hooks after a change set has been applied, for
+	// the changes at the given indexes.
+	Applied(ctx context.Context, point string, cs *ChangeSet, changes []int)
 }

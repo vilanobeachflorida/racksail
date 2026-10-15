@@ -47,10 +47,16 @@ func (r Ref) Parse() (store.ID, string, error) {
 	return store.ID(owner), name, nil
 }
 
+// Reader reads secret values. Reconcilers get one to resolve the
+// references in specs at the moment they need a value.
+type Reader interface {
+	Get(ctx context.Context, ref Ref) ([]byte, error)
+}
+
 // Store keeps secrets.
 type Store interface {
+	Reader
 	Put(ctx context.Context, ref Ref, value []byte) error
-	Get(ctx context.Context, ref Ref) ([]byte, error)
 	Delete(ctx context.Context, ref Ref) error
 	// List returns the refs owned by a resource.
 	List(ctx context.Context, owner store.ID) ([]Ref, error)

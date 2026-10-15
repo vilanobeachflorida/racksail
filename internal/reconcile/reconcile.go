@@ -12,6 +12,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -26,6 +27,9 @@ type Request struct {
 	Read store.Reader
 	// Facts describes the machine the resource is placed on.
 	Facts system.MachineFacts
+	// Secrets resolves the secret references in specs. It may be nil when
+	// nothing needs secrets, such as in tests of kinds without any.
+	Secrets secrets.Reader
 }
 
 // HealthCheck verifies a result after it is applied.
@@ -199,8 +203,10 @@ type Runner struct {
 	Registry *Registry
 	// Facts returns the facts of the machine a resource is placed on.
 	Facts func(ctx context.Context, server store.ID) (system.MachineFacts, error)
-	Log   *slog.Logger
-	Now   func() time.Time
+	// Secrets resolves secret references for reconcilers.
+	Secrets secrets.Reader
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 // Progress receives the steps of a reconcile as they run.
@@ -240,7 +246,7 @@ func (r *Runner) Reconcile(ctx context.Context, id store.ID, progress Progress) 
 	if err != nil {
 		return err
 	}
-	req := Request{Resource: res, Read: r.Store, Facts: facts}
+	req := Request{Resource: res, Read: r.Store, Facts: facts, Secrets: r.Secrets}
 	plan, err := rec.Plan(ctx, req)
 	if err != nil {
 		return r.fail(ctx, res, fmt.Errorf("planning %s: %w", id, err))

@@ -372,40 +372,129 @@ func toFloat(v any) (float64, bool) {
 	return 0, false
 }
 
-// Requests turns a recipe and checked input values into change set
-// requests, in dependency order. Resource IDs are chosen up front so later
-// resources can refer to earlier ones.
-func (r *Recipe) Requests(values map[string]any, scope store.Scope, prefix func(kind string) (string, bool)) ([]changeset.Request, error) {
+// Request turns a recipe and checked input values into one change set
+// request that creates the recipe's resources in dependency order, so the
+// whole install is previewed, applied and undone together. Resource IDs are
+// chosen up front so later resources can refer to earlier ones. Values for
+// the secret fields of a kind go into the change's Secrets, never into a
+// spec, and password and secret inputs may only be used in such fields. The
+// caller fills in the actor, DryRun and the idempotency key.
+func (r *Recipe) Request(values map[string]any, scope store.Scope, kinds *store.KindRegistry) (changeset.Request, error) {
 	ordered, err := r.Order()
 	if err != nil {
-		return nil, err
+		return changeset.Request{}, err
 	}
 	ids := map[string]store.ID{}
+	infos := map[string]*store.KindInfo{}
 	for _, res := range ordered {
-		p, ok := prefix(res.Kind)
+		k, ok := kinds.Get(res.Kind)
 		if !ok {
-			return nil, i18n.ErrUnknownName.New("what", "kind", "name", res.Kind)
+			return changeset.Request{}, i18n.ErrUnknownName.New("what", "kind", "name", res.Kind)
 		}
-		ids[res.Name] = store.NewID(p)
+		infos[res.Name] = k.Info()
+		ids[res.Name] = store.NewID(k.Info().Prefix)
 	}
-	var out []changeset.Request
+	secretInputs := map[string]bool{}
+	for _, in := range r.Inputs {
+		if in.Type == "password" || in.Type == "secret" {
+			secretInputs[in.Name] = true
+		}
+	}
+	req := changeset.Request{Title: "Install " + r.Name}
 	for _, res := range ordered {
+		sensitive := store.SensitiveFields(infos[res.Name])
+		if err := checkSecretInputs(res.Spec, "", sensitive, secretInputs); err != nil {
+			return changeset.Request{}, fmt.Errorf("recipe %s, resource %s: %w", r.ID, res.Name, err)
+		}
 		spec, err := substitute(res.Spec, values, ids)
 		if err != nil {
-			return nil, err
+			return changeset.Request{}, err
 		}
-		raw, err := json.Marshal(spec)
+		doc, _ := spec.(map[string]any)
+		if doc == nil {
+			doc = map[string]any{}
+		}
+		secretValues, err := takeSecrets(doc, sensitive)
 		if err != nil {
-			return nil, err
+			return changeset.Request{}, fmt.Errorf("recipe %s, resource %s: %w", r.ID, res.Name, err)
+		}
+		raw, err := json.Marshal(doc)
+		if err != nil {
+			return changeset.Request{}, err
 		}
 		labels := map[string]string{"racksail.dev/recipe": r.ID}
 		for k, v := range res.Labels {
 			labels[k] = v
 		}
-		out = append(out, changeset.Request{
-			Op: changeset.OpCreate, Kind: res.Kind, ID: ids[res.Name], Scope: scope, Spec: raw, Labels: labels,
-			Title: fmt.Sprintf("Install %s: %s", r.Name, res.Name),
+		req.Changes = append(req.Changes, changeset.Change{
+			Op: changeset.OpCreate, Kind: res.Kind, ID: ids[res.Name], Scope: scope, Spec: raw, Labels: labels, Secrets: secretValues,
 		})
+	}
+	return req, nil
+}
+
+// checkSecretInputs refuses specs that put a password or secret input
+// anywhere but in one of the kind's secret fields, where the value would be
+// stored in plain text.
+func checkSecretInputs(v any, path string, sensitive []string, secretInputs map[string]bool) error {
+	switch x := v.(type) {
+	case string:
+		for _, m := range refPattern.FindAllStringSubmatch(x, -1) {
+			if m[1] == "inputs" && secretInputs[m[2]] && !slices.Contains(sensitive, path) {
+				return fmt.Errorf("the secret input %s can only be used in a secret field, not in %s", m[2], path)
+			}
+		}
+	case map[string]any:
+		for k, child := range x {
+			p := k
+			if path != "" {
+				p = path + "." + k
+			}
+			if err := checkSecretInputs(child, p, sensitive, secretInputs); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if err := checkSecretInputs(child, path+"[]", sensitive, secretInputs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// takeSecrets moves the values of secret fields out of a spec.
+func takeSecrets(doc map[string]any, sensitive []string) (map[string]string, error) {
+	var out map[string]string
+	for _, path := range sensitive {
+		parts := strings.Split(path, ".")
+		parent := doc
+		for _, part := range parts[:len(parts)-1] {
+			child, ok := parent[part].(map[string]any)
+			if !ok {
+				parent = nil
+				break
+			}
+			parent = child
+		}
+		if parent == nil {
+			continue
+		}
+		last := parts[len(parts)-1]
+		v, ok := parent[last]
+		if !ok || v == nil {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("the secret field %s takes text", path)
+		}
+		delete(parent, last)
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[path] = s
 	}
 	return out, nil
 }

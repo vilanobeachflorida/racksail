@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"reflect"
 	"strings"
@@ -19,23 +20,29 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
+	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 // Error codes.
 var (
-	ErrConflicts     = i18n.Define("changeset.conflicts", http.StatusConflict, "The change has {count} conflicting contributions from hooks. Resolve them before applying it.")
-	ErrNotApplied    = i18n.Define("changeset.not_applied", http.StatusConflict, "Only applied changes can be undone.")
-	ErrUnknownAction = i18n.Define("changeset.unknown_action", http.StatusNotFound, "{kind} has no action called {action}.")
-	ErrStillRemoving = i18n.Define("changeset.still_removing", http.StatusConflict, "{what} is still being removed. Try again when the removal has finished.")
+	ErrConflicts        = i18n.Define("changeset.conflicts", http.StatusConflict, "The change has {count} conflicting contributions from hooks. Resolve them before applying it.")
+	ErrNotApplied       = i18n.Define("changeset.not_applied", http.StatusConflict, "Only applied changes can be undone.")
+	ErrUnknownAction    = i18n.Define("changeset.unknown_action", http.StatusNotFound, "{kind} has no action called {action}.")
+	ErrStillRemoving    = i18n.Define("changeset.still_removing", http.StatusConflict, "{what} is still being removed. Try again when the removal has finished.")
+	ErrEmpty            = i18n.Define("changeset.empty", http.StatusUnprocessableEntity, "The request doesn't ask for any changes.")
+	ErrNothingToUndo    = i18n.Define("changeset.nothing_to_undo", http.StatusConflict, "{title} can't be undone because it didn't change any settings.")
+	ErrUndoing          = i18n.Define("changeset.undoing", http.StatusConflict, "{title} is already being undone.")
+	ErrDuplicateRequest = i18n.Define("changeset.duplicate_request", http.StatusConflict, "A request with the same Idempotency-Key is still being processed. Try again in a moment.")
 )
 
 // ApplyJob is the job type that carries out applied change sets.
 const ApplyJob = "changeset.apply"
 
 // Options are the dependencies of an Engine. Hooks, Authorizer, Runner,
-// Events and Audit may be nil; the corresponding stages are then skipped.
+// Events, Audit and Secrets may be nil; the corresponding stages are then
+// skipped, and changes carrying secret values are refused.
 type Options struct {
 	Store      store.Store
 	Kinds      *store.KindRegistry
@@ -45,17 +52,22 @@ type Options struct {
 	Audit      events.AuditLog
 	Hooks      Hooks
 	Authorizer auth.Authorizer
-	Log        *slog.Logger
-	Now        func() time.Time
+	// Secrets keeps the values of sensitive fields.
+	Secrets   secrets.Store
+	Retention Retention
+	Log       *slog.Logger
+	Now       func() time.Time
 }
 
 // Engine is the default Pipeline.
 type Engine struct {
-	opts Options
+	opts      Options
+	retention Retention
 
-	mu   sync.Mutex
-	sets map[store.ID]*ChangeSet
-	idem map[string]store.ID
+	mu      sync.Mutex
+	sets    map[store.ID]*ChangeSet
+	idem    map[string]idemEntry
+	undoing map[store.ID]bool
 }
 
 // NewEngine returns an engine and registers its apply job on the queue.
@@ -69,7 +81,10 @@ func NewEngine(opts Options) (*Engine, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	e := &Engine{opts: opts, sets: map[store.ID]*ChangeSet{}, idem: map[string]store.ID{}}
+	e := &Engine{
+		opts: opts, retention: opts.Retention.withDefaults(),
+		sets: map[store.ID]*ChangeSet{}, idem: map[string]idemEntry{}, undoing: map[store.ID]bool{},
+	}
 	if err := opts.Jobs.Handle(jobs.Type{Name: ApplyJob, Run: e.runApply}); err != nil {
 		return nil, err
 	}
@@ -78,35 +93,19 @@ func NewEngine(opts Options) (*Engine, error) {
 
 // Submit implements Pipeline.
 func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
-	if req.IdempotencyKey != "" {
-		e.mu.Lock()
-		id, seen := e.idem[req.Actor.String()+"\x00"+req.IdempotencyKey]
-		e.mu.Unlock()
-		if seen {
-			return e.Get(ctx, id)
+	var key string
+	if !req.DryRun {
+		key = idempotencyKey("submit", req.Actor, req.IdempotencyKey)
+		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
+			return earlier, err
 		}
 	}
-	cs, err := e.plan(ctx, req)
+	p, err := e.plan(ctx, req)
 	if err != nil {
+		e.settle(key, "")
 		return nil, err
 	}
-	cs.DryRun = req.DryRun
-	if req.DryRun {
-		e.save(cs)
-		return cs, nil
-	}
-	if len(cs.Conflicts) > 0 {
-		return cs, ErrConflicts.New("count", len(cs.Conflicts))
-	}
-	if err := e.apply(ctx, cs); err != nil {
-		return nil, err
-	}
-	if req.IdempotencyKey != "" {
-		e.mu.Lock()
-		e.idem[req.Actor.String()+"\x00"+req.IdempotencyKey] = cs.ID
-		e.mu.Unlock()
-	}
-	return cs, nil
+	return e.finish(ctx, p, req.DryRun, key)
 }
 
 // Get implements Pipeline.
@@ -117,174 +116,57 @@ func (e *Engine) Get(ctx context.Context, id store.ID) (*ChangeSet, error) {
 	if !ok {
 		return nil, i18n.ErrNotFound.New("what", "Change "+string(id))
 	}
-	c := *cs
-	return &c, nil
+	return cs.Clone(), nil
 }
 
-func (e *Engine) save(cs *ChangeSet) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	c := *cs
-	e.sets[cs.ID] = &c
+// draft is a change set being planned: what it will change, the planned
+// state of every resource it touches, and the secret values it carries.
+type draft struct {
+	cs      *ChangeSet
+	view    *store.Overlay
+	secrets map[secrets.Ref][]byte
+	titles  []string
 }
 
-func (e *Engine) operation(req Request) string {
-	if req.Op == OpAction {
-		return req.Action
+func (p *draft) reader(base secrets.Store) secrets.Reader {
+	if base == nil {
+		return pending{values: p.secrets}
 	}
-	return string(req.Op)
+	return pending{values: p.secrets, base: base}
 }
 
-// plan runs the validate and plan stages for one request.
-func (e *Engine) plan(ctx context.Context, req Request) (*ChangeSet, error) {
-	kind, ok := e.opts.Kinds.Get(req.Kind)
-	if !ok {
-		return nil, i18n.ErrUnknownName.New("what", "kind", "name", req.Kind)
+// plan runs the validate and plan stages for every change of a request.
+func (e *Engine) plan(ctx context.Context, req Request) (*draft, error) {
+	if len(req.Changes) == 0 {
+		return nil, ErrEmpty.New()
 	}
-	info := kind.Info()
 	now := e.opts.Now().UTC()
-	var old, next *store.Resource
-	var action store.Action
-	risk := info.Risks.Update
-	switch req.Op {
-	case OpCreate:
-		risk = info.Risks.Create
-		next = &store.Resource{Meta: store.Meta{ID: req.ID, Kind: info.Name, Scope: req.Scope, Server: req.Server, Labels: req.Labels}, Spec: req.Spec}
-		if next.ID == "" {
-			next.ID = store.NewID(info.Prefix)
+	p := &draft{
+		cs: &ChangeSet{
+			ID: store.NewID(store.PrefixChangeSet), Actor: req.Actor, Risk: store.RiskRead,
+			State: StatePlanned, CreatedAt: now, Effects: []system.Effect{},
+		},
+		view:    store.NewOverlay(e.opts.Store, e.opts.Kinds),
+		secrets: map[secrets.Ref][]byte{},
+	}
+	for i, ch := range req.Changes {
+		if err := e.planChange(ctx, p, req.Actor, ch, now); err != nil {
+			return nil, atChange(err, i, len(req.Changes))
 		}
-		if len(next.Spec) == 0 {
-			next.Spec = json.RawMessage("{}")
+	}
+	cs := p.cs
+	if e.opts.Hooks != nil {
+		planned := len(cs.Changes)
+		before := make([]json.RawMessage, planned)
+		for i, c := range cs.Changes {
+			before[i] = c.After
 		}
-		if err := kind.Default(ctx, next); err != nil {
-			return nil, err
-		}
-	case OpUpdate, OpDelete, OpAction:
-		r, err := e.opts.Store.Get(ctx, req.ID)
-		if err != nil {
-			return nil, err
-		}
-		if r.Kind != info.Name || r.Deleted() {
-			return nil, store.ErrNotFound.New("what", string(req.ID))
-		}
-		old, next = r, r.Clone()
-		switch req.Op {
-		case OpUpdate:
-			if req.Spec != nil {
-				next.Spec = req.Spec
-			}
-			if req.Labels != nil {
-				next.Labels = req.Labels
-			}
-		case OpDelete:
-			risk = info.Risks.Delete
-			next.DeletedAt = &now
-		case OpAction:
-			a, ok := info.Action(req.Action)
-			if !ok {
-				return nil, ErrUnknownAction.New("kind", info.Title, "action", req.Action)
-			}
-			if err := checkInput(a, req.Input); err != nil {
+		for _, pc := range pointsOf(cs.Changes[:planned], StagePlan) {
+			if err := e.opts.Hooks.Modify(ctx, pc.point, cs, pc.changes); err != nil {
 				return nil, err
 			}
-			action, risk = a, a.Risk
 		}
-	default:
-		return nil, i18n.ErrBadRequest.New("reason", fmt.Sprintf("unknown operation %q", req.Op))
-	}
-	if !risk.Valid() {
-		risk = store.RiskMedium
-	}
-
-	operation := e.operation(req)
-	target := auth.Target{Scope: next.Scope, Object: next.ID}
-	if req.Op == OpCreate {
-		target.Object = ""
-	}
-	perm := auth.KindPermission(info.Name, operation)
-	if e.opts.Authorizer != nil {
-		if err := e.opts.Authorizer.Authorize(ctx, req.Actor, perm, target); err != nil {
-			e.audit(ctx, req.Actor, string(perm), next, "", events.OutcomeDenied, err.Error(), "")
-			return nil, err
-		}
-	}
-	if req.Op == OpCreate || req.Op == OpUpdate {
-		if err := kind.Validate(ctx, next, old); err != nil {
-			return nil, err
-		}
-	}
-
-	change := ResourceChange{
-		Op: req.Op, Action: req.Action, Kind: info.Name, ID: next.ID, Scope: next.Scope, Revision: req.Revision,
-		Labels: next.Labels, After: next.Spec, Input: req.Input, Source: RequestSource,
-	}
-	if old != nil {
-		change.Before = old.Spec
-	}
-	var effects []system.Effect
-	rec, hasReconciler := e.reconciler(info.Name)
-	if req.Op == OpAction {
-		if planner, ok := rec.(reconcile.ActionPlanner); hasReconciler && ok {
-			facts := e.facts(ctx, old.Server)
-			actionPlan, err := planner.PlanAction(ctx, reconcile.ActionRequest{Request: reconcile.Request{Resource: old, Read: e.opts.Store, Facts: facts}, Action: req.Action, Input: req.Input})
-			if err != nil {
-				return nil, err
-			}
-			if actionPlan.Spec != nil {
-				next.Spec = actionPlan.Spec
-				change.After = actionPlan.Spec
-				if err := kind.Validate(ctx, next, old); err != nil {
-					return nil, err
-				}
-			}
-			change.Steps = actionPlan.Plan.Steps
-			effects = append(effects, actionPlan.Plan.Effects...)
-		}
-	}
-	if req.Op != OpDelete {
-		diff, err := Diff(change.Before, change.After)
-		if err != nil {
-			return nil, err
-		}
-		change.Diff = Redact(diff, sensitiveFields(info))
-	}
-
-	title := req.Title
-	if title == "" {
-		verb := map[Op]string{OpCreate: "Create", OpUpdate: "Update", OpDelete: "Delete"}[req.Op]
-		if req.Op == OpAction {
-			verb = action.Title
-			if verb == "" {
-				verb = strings.ToUpper(action.Name[:1]) + strings.ReplaceAll(action.Name[1:], "_", " ")
-			}
-		}
-		title = verb + " " + strings.ToLower(info.Title)
-	}
-	cs := &ChangeSet{
-		ID: store.NewID(store.PrefixChangeSet), Title: title, Actor: req.Actor, Changes: []ResourceChange{change},
-		Risk: risk, State: StatePlanned, CreatedAt: now,
-	}
-	if e.opts.Hooks != nil {
-		if err := e.opts.Hooks.Validate(ctx, HookPoint(info.Name, operation, StageValidate), cs, &cs.Changes[0]); err != nil {
-			return nil, err
-		}
-	}
-	if hasReconciler && (req.Op != OpAction || !bytes.Equal(change.Before, change.After)) {
-		facts := e.facts(ctx, next.Server)
-		plan, err := rec.Plan(ctx, reconcile.Request{Resource: next, Read: e.opts.Store, Facts: facts})
-		if err != nil {
-			return nil, err
-		}
-		effects = append(effects, plan.Effects...)
-		effects = append(effects, e.stepEffects(ctx, plan.Steps, next.ID)...)
-	}
-	effects = append(effects, e.stepEffects(ctx, change.Steps, next.ID)...)
-	cs.Effects = effects
-	if cs.Effects == nil {
-		cs.Effects = []system.Effect{}
-	}
-	if e.opts.Hooks != nil {
-		if err := e.opts.Hooks.Modify(ctx, HookPoint(info.Name, operation, StagePlan), cs); err != nil {
+		if err := e.recheck(ctx, p, before); err != nil {
 			return nil, err
 		}
 	}
@@ -294,7 +176,277 @@ func (e *Engine) plan(ctx context.Context, req Request) (*ChangeSet, error) {
 		}
 	}
 	cs.Summarize()
-	return cs, nil
+	cs.Title = req.Title
+	if cs.Title == "" {
+		cs.Title = p.titles[0]
+		switch n := len(p.titles); {
+		case n == 2:
+			cs.Title += " and " + strings.ToLower(p.titles[1][:1]) + p.titles[1][1:]
+		case n > 2:
+			cs.Title += fmt.Sprintf(" and %d more changes", n-1)
+		}
+	}
+	return p, nil
+}
+
+// atChange points the field errors of a change in a request with several
+// changes at that change.
+func atChange(err error, i, n int) error {
+	var e *i18n.Error
+	if n == 1 || !errors.As(err, &e) || len(e.Fields) == 0 {
+		return err
+	}
+	c := *e
+	c.Fields = make([]i18n.FieldError, len(e.Fields))
+	for j, f := range e.Fields {
+		f.Path = fmt.Sprintf("changes[%d].%s", i, f.Path)
+		c.Fields[j] = f
+	}
+	return &c
+}
+
+// planChange validates one change, adds it to the plan with its effects and
+// records the resource's planned state, so later changes see it.
+func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch Change, now time.Time) error {
+	kind, ok := e.opts.Kinds.Get(ch.Kind)
+	if !ok {
+		return i18n.ErrUnknownName.New("what", "kind", "name", ch.Kind)
+	}
+	info := kind.Info()
+	var old, next *store.Resource
+	var action store.Action
+	risk := info.Risks.Update
+	switch ch.Op {
+	case OpCreate:
+		risk = info.Risks.Create
+		next = &store.Resource{
+			Meta: store.Meta{ID: ch.ID, Kind: info.Name, Scope: ch.Scope, Server: ch.Server, Labels: maps.Clone(ch.Labels)},
+			Spec: bytes.Clone(ch.Spec),
+		}
+		if next.ID == "" {
+			next.ID = store.NewID(info.Prefix)
+		}
+		if p.view.Planned(next.ID) {
+			return store.ErrExists.New("what", string(next.ID))
+		}
+		if len(next.Spec) == 0 {
+			next.Spec = json.RawMessage("{}")
+		}
+		if err := kind.Default(ctx, next); err != nil {
+			return err
+		}
+	case OpUpdate, OpDelete, OpAction:
+		r, err := p.view.Get(ctx, ch.ID)
+		if err != nil {
+			return err
+		}
+		if r.Kind != info.Name || r.Deleted() {
+			return store.ErrNotFound.New("what", string(ch.ID))
+		}
+		old, next = r, r.Clone()
+		switch ch.Op {
+		case OpUpdate:
+			if ch.Spec != nil {
+				next.Spec = bytes.Clone(ch.Spec)
+			}
+			if ch.Labels != nil {
+				next.Labels = maps.Clone(ch.Labels)
+			}
+		case OpDelete:
+			risk = info.Risks.Delete
+			next.DeletedAt = &now
+		case OpAction:
+			a, ok := info.Action(ch.Action)
+			if !ok {
+				return ErrUnknownAction.New("kind", info.Title, "action", ch.Action)
+			}
+			if err := checkInput(a, ch.Input); err != nil {
+				return err
+			}
+			action, risk = a, a.Risk
+		}
+	default:
+		return i18n.ErrBadRequest.New("reason", fmt.Sprintf("unknown operation %q", ch.Op))
+	}
+	if !risk.Valid() {
+		risk = store.RiskMedium
+	}
+
+	operation := string(ch.Op)
+	if ch.Op == OpAction {
+		operation = ch.Action
+	}
+	target := auth.Target{Scope: next.Scope, Object: next.ID}
+	if ch.Op == OpCreate {
+		target.Object = ""
+	}
+	perm := auth.KindPermission(info.Name, operation)
+	if e.opts.Authorizer != nil {
+		if err := e.opts.Authorizer.Authorize(ctx, actor, perm, target); err != nil {
+			e.audit(ctx, actor, string(perm), next, "", events.OutcomeDenied, err.Error(), "")
+			return err
+		}
+	}
+	if len(ch.Secrets) > 0 {
+		if ch.Op != OpCreate && ch.Op != OpUpdate {
+			return i18n.Invalid(i18n.Field("secrets", i18n.ErrBadValue, "reason", "only creating or updating a resource sets secrets"))
+		}
+		if err := e.takeSecrets(p, info, next, ch.Secrets); err != nil {
+			return err
+		}
+	}
+	if ch.Op == OpCreate || ch.Op == OpUpdate {
+		if err := validate(ctx, kind, next, old); err != nil {
+			return err
+		}
+	}
+
+	change := ResourceChange{
+		Op: ch.Op, Action: ch.Action, Kind: info.Name, ID: next.ID, Scope: next.Scope, Server: next.Server,
+		Revision: ch.Revision, Labels: next.Labels, After: next.Spec, Input: ch.Input, Source: RequestSource,
+	}
+	if old != nil {
+		change.Before = old.Spec
+		if ch.Op != OpDelete {
+			change.LabelsBefore = old.Labels
+		}
+	}
+	var effects []system.Effect
+	rec, hasReconciler := e.reconciler(info.Name)
+	if planner, ok := rec.(reconcile.ActionPlanner); ok && hasReconciler && ch.Op == OpAction {
+		actionPlan, err := planner.PlanAction(ctx, reconcile.ActionRequest{Request: e.request(ctx, p, old), Action: ch.Action, Input: ch.Input})
+		if err != nil {
+			return err
+		}
+		if actionPlan.Spec != nil {
+			next.Spec = actionPlan.Spec
+			change.After = actionPlan.Spec
+			if err := validate(ctx, kind, next, old); err != nil {
+				return err
+			}
+		}
+		change.Steps = actionPlan.Plan.Steps
+		effects = append(effects, actionPlan.Plan.Effects...)
+	}
+	if ch.Op != OpDelete {
+		diff, err := Diff(change.Before, change.After)
+		if err != nil {
+			return err
+		}
+		change.Diff = Redact(diff, store.SensitiveFields(info))
+	}
+
+	cs := p.cs
+	cs.Changes = append(cs.Changes, change)
+	if e.opts.Hooks != nil {
+		if err := e.opts.Hooks.Validate(ctx, HookPoint(info.Name, operation, StageValidate), cs, &cs.Changes[len(cs.Changes)-1]); err != nil {
+			return err
+		}
+	}
+	p.view.Put(next)
+	if hasReconciler && (ch.Op != OpAction || !bytes.Equal(change.Before, change.After)) {
+		plan, err := rec.Plan(ctx, e.request(ctx, p, next))
+		if err != nil {
+			return err
+		}
+		effects = append(effects, plan.Effects...)
+		effects = append(effects, e.stepEffects(ctx, plan.Steps, next.ID)...)
+	}
+	effects = append(effects, e.stepEffects(ctx, change.Steps, next.ID)...)
+	cs.Effects = append(cs.Effects, effects...)
+	cs.Risk = store.MaxRisk(cs.Risk, risk)
+
+	verb := map[Op]string{OpCreate: "Create", OpUpdate: "Update", OpDelete: "Delete"}[ch.Op]
+	if ch.Op == OpAction {
+		verb = action.Title
+		if verb == "" {
+			verb = strings.ToUpper(action.Name[:1]) + strings.ReplaceAll(action.Name[1:], "_", " ")
+		}
+	}
+	p.titles = append(p.titles, verb+" "+strings.ToLower(info.Title))
+	return nil
+}
+
+// validate runs a kind's validation and checks its secret fields.
+func validate(ctx context.Context, kind store.Kind, next, old *store.Resource) error {
+	if err := kind.Validate(ctx, next, old); err != nil {
+		return err
+	}
+	return checkSecretRefs(kind.Info(), next)
+}
+
+// recheck validates the changes modify hooks added or changed, so a hook
+// can't write a spec its kind would refuse, and brings their diffs up to
+// date.
+func (e *Engine) recheck(ctx context.Context, p *draft, before []json.RawMessage) error {
+	cs := p.cs
+	for i := range cs.Changes {
+		c := &cs.Changes[i]
+		if i < len(before) && bytes.Equal(before[i], c.After) {
+			continue
+		}
+		kind, ok := e.opts.Kinds.Get(c.Kind)
+		if !ok {
+			return i18n.ErrUnknownName.New("what", "kind", "name", c.Kind)
+		}
+		info := kind.Info()
+		if c.Op == OpCreate && c.ID == "" {
+			c.ID = store.NewID(info.Prefix)
+		}
+		if c.Op == OpDelete {
+			continue
+		}
+		old, err := e.opts.Store.Get(ctx, c.ID)
+		switch {
+		case err == nil:
+		case store.ErrNotFound.Is(err):
+			old = nil
+		default:
+			return err
+		}
+		next := &store.Resource{Meta: store.Meta{ID: c.ID, Kind: info.Name, Scope: c.Scope, Server: c.Server, Labels: c.Labels}}
+		if old != nil {
+			next = old.Clone()
+		}
+		next.Spec = c.After
+		if err := validate(ctx, kind, next, old); err != nil {
+			return err
+		}
+		diff, err := Diff(c.Before, c.After)
+		if err != nil {
+			return err
+		}
+		c.Diff = Redact(diff, store.SensitiveFields(info))
+	}
+	return nil
+}
+
+// pointChanges is a hook point and the changes it is about.
+type pointChanges struct {
+	point   string
+	changes []int
+}
+
+// pointsOf groups changes by the hook point of a stage, in the order the
+// points first appear.
+func pointsOf(changes []ResourceChange, stage Stage) []pointChanges {
+	var out []pointChanges
+	index := map[string]int{}
+	for i, c := range changes {
+		op := string(c.Op)
+		if c.Op == OpAction {
+			op = c.Action
+		}
+		point := HookPoint(c.Kind, op, stage)
+		j, ok := index[point]
+		if !ok {
+			j = len(out)
+			index[point] = j
+			out = append(out, pointChanges{point: point})
+		}
+		out[j].changes = append(out[j].changes, i)
+	}
+	return out
 }
 
 func (e *Engine) reconciler(kind string) (reconcile.Reconciler, bool) {
@@ -302,6 +454,12 @@ func (e *Engine) reconciler(kind string) (reconcile.Reconciler, bool) {
 		return nil, false
 	}
 	return e.opts.Runner.Registry.For(kind)
+}
+
+// request is what a reconciler plans a preview against: the planned state of
+// the change set, the facts of the machine and the secrets it carries.
+func (e *Engine) request(ctx context.Context, p *draft, r *store.Resource) reconcile.Request {
+	return reconcile.Request{Resource: r, Read: p.view, Facts: e.facts(ctx, r.Server), Secrets: p.reader(e.opts.Secrets)}
 }
 
 func (e *Engine) facts(ctx context.Context, server store.ID) system.MachineFacts {
@@ -340,16 +498,6 @@ func (e *Engine) stepEffects(ctx context.Context, steps []agent.Step, owner stor
 	return out
 }
 
-func sensitiveFields(info *store.KindInfo) []string {
-	var out []string
-	for path, hint := range info.UI.Fields {
-		if hint.Sensitive {
-			out = append(out, path)
-		}
-	}
-	return out
-}
-
 func checkInput(a store.Action, input json.RawMessage) error {
 	trimmed := bytes.TrimSpace(input)
 	if a.Input == nil {
@@ -379,34 +527,99 @@ func checkInput(a store.Action, input json.RawMessage) error {
 	return nil
 }
 
-// apply writes the store changes in one transaction and queues the job that
-// carries out the system changes.
-func (e *Engine) apply(ctx context.Context, cs *ChangeSet) error {
-	meta := store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String()}
-	err := e.opts.Store.Write(ctx, meta, func(tx store.Tx) error {
-		for _, c := range cs.Changes {
-			if err := writeChange(ctx, tx, c); err != nil {
-				return err
-			}
+// finish returns a planned change set as a preview, or applies it.
+func (e *Engine) finish(ctx context.Context, p *draft, dryRun bool, key string) (*ChangeSet, error) {
+	cs := p.cs
+	cs.DryRun = dryRun
+	if dryRun {
+		if err := e.checkWrites(ctx, cs); err != nil {
+			return nil, err
 		}
+		e.save(ctx, cs)
+		return cs.Clone(), nil
+	}
+	if len(cs.Conflicts) > 0 {
+		e.settle(key, "")
+		return cs.Clone(), ErrConflicts.New("count", len(cs.Conflicts))
+	}
+	written, err := e.apply(ctx, cs, p.secrets)
+	if !written {
+		e.settle(key, "")
+		return nil, err
+	}
+	e.settle(key, cs.ID)
+	if kept, getErr := e.Get(ctx, cs.ID); getErr == nil {
+		cs = kept
+	}
+	return cs, err
+}
+
+// errRollback ends the transaction of a dry run without writing anything.
+var errRollback = errors.New("changeset: dry run")
+
+// checkWrites makes the store writes of a change set in a transaction that
+// is thrown away, so a preview reports what applying it would run into,
+// such as a name another resource already uses.
+func (e *Engine) checkWrites(ctx context.Context, cs *ChangeSet) error {
+	err := e.opts.Store.Write(ctx, store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String()}, func(tx store.Tx) error {
+		if err := writeChanges(ctx, tx, cs.Changes); err != nil {
+			return err
+		}
+		return errRollback
+	})
+	if errors.Is(err, errRollback) {
 		return nil
+	}
+	return err
+}
+
+// apply stores the secret values, writes every change in one transaction
+// and queues the job that carries out the system changes. It reports
+// whether the store was written: when queueing the job fails after that,
+// the change set is kept as failed and the periodic resync carries the
+// changes out.
+func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Ref][]byte) (bool, error) {
+	var stored []secrets.Ref
+	if len(values) > 0 {
+		var err error
+		if stored, err = e.putSecrets(ctx, values); err != nil {
+			return false, err
+		}
+	}
+	err := e.opts.Store.Write(ctx, store.WriteMeta{ChangeSet: cs.ID, Actor: cs.Actor.String()}, func(tx store.Tx) error {
+		return writeChanges(ctx, tx, cs.Changes)
 	})
 	if err != nil {
-		return err
+		e.dropSecrets(ctx, stored)
+		return false, err
 	}
+	// The change set is kept before its job is queued, because the job
+	// reads it and may start right away.
 	cs.State = StateApplying
+	e.save(ctx, cs)
 	job, err := e.opts.Jobs.Enqueue(ctx, ApplyJob, cs.ID, jobs.Options{Title: cs.Title, Actor: cs.Actor, ChangeSet: cs.ID})
 	if err != nil {
-		return err
+		// The store has the changes; the periodic resync carries them out.
+		message := i18n.From(err).Message
+		e.update(cs.ID, func(s *ChangeSet) { s.State, s.Error = StateFailed, message })
+	} else {
+		e.update(cs.ID, func(s *ChangeSet) { s.Job = job.ID })
 	}
-	cs.Job = job.ID
-	e.save(cs)
 	for _, c := range cs.Changes {
-		perm := string(auth.KindPermission(c.Kind, string(c.Op)))
+		op := string(c.Op)
 		if c.Op == OpAction {
-			perm = string(auth.KindPermission(c.Kind, c.Action))
+			op = c.Action
 		}
-		e.audit(ctx, cs.Actor, perm, &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}}, cs.ID, events.OutcomeSuccess, "", cs.Title)
+		e.audit(ctx, cs.Actor, string(auth.KindPermission(c.Kind, op)), &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope}}, cs.ID, events.OutcomeSuccess, "", cs.Title)
+	}
+	return true, err
+}
+
+func writeChanges(ctx context.Context, tx store.Tx, changes []ResourceChange) error {
+	for _, c := range changes {
+		if err := writeChange(ctx, tx, c); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -414,7 +627,7 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet) error {
 func writeChange(ctx context.Context, tx store.Tx, c ResourceChange) error {
 	switch c.Op {
 	case OpCreate:
-		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope, Labels: c.Labels}, Spec: c.After})
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope, Server: c.Server, Labels: c.Labels}, Spec: c.After})
 	case OpDelete:
 		return tx.Delete(ctx, c.ID, c.Revision)
 	case OpUpdate, OpAction:
@@ -469,22 +682,21 @@ func (e *Engine) runApply(ctx context.Context, job *jobs.Job, args json.RawMessa
 		}
 	}
 	now := e.opts.Now().UTC()
-	e.mu.Lock()
-	stored := e.sets[cs.ID]
-	if failure != nil {
-		stored.State, stored.Error = StateFailed, i18n.From(failure).Message
-	} else {
-		stored.State, stored.AppliedAt = StateApplied, &now
+	var final *ChangeSet
+	e.update(cs.ID, func(s *ChangeSet) {
+		if failure != nil {
+			s.State, s.Error = StateFailed, i18n.From(failure).Message
+		} else {
+			s.State, s.AppliedAt = StateApplied, &now
+		}
+		final = s.Clone()
+	})
+	if final == nil {
+		final = cs
 	}
-	final := *stored
-	e.mu.Unlock()
 	if failure == nil && e.opts.Hooks != nil {
-		for _, c := range cs.Changes {
-			op := string(c.Op)
-			if c.Op == OpAction {
-				op = c.Action
-			}
-			e.opts.Hooks.Applied(ctx, HookPoint(c.Kind, op, StageApplied), &final)
+		for _, pc := range pointsOf(final.Changes, StageApplied) {
+			e.opts.Hooks.Applied(ctx, pc.point, final.Clone(), pc.changes)
 		}
 	}
 	r.Progress(total, total, "Done")
@@ -510,7 +722,7 @@ func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Repor
 	}
 	if _, ok := e.reconciler(c.Kind); !ok {
 		if c.Op == OpDelete {
-			return e.opts.Store.Write(ctx, store.WriteMeta{ChangeSet: "", Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) })
+			return e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) })
 		}
 		return nil
 	}
@@ -548,57 +760,117 @@ func (e *Engine) audit(ctx context.Context, actor *auth.Actor, action string, r 
 	}
 }
 
-// Undo implements Pipeline. It reverts the store changes of an applied
-// change set with a new change set, which the reconcilers then carry out.
-func (e *Engine) Undo(ctx context.Context, actor *auth.Actor, id store.ID) (*ChangeSet, error) {
-	orig, err := e.Get(ctx, id)
+// Undo implements Pipeline.
+func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) {
+	orig, err := e.Get(ctx, req.ChangeSet)
 	if err != nil {
 		return nil, err
 	}
-	if orig.State != StateApplied {
+	if orig.DryRun || (orig.State != StateApplied && orig.State != StateFailed) {
 		return nil, ErrNotApplied.New()
 	}
-	undo := &ChangeSet{
-		ID: store.NewID(store.PrefixChangeSet), Title: "Undo: " + orig.Title, Actor: actor, UndoOf: orig.ID,
-		Risk: orig.Risk, State: StatePlanned, CreatedAt: e.opts.Now().UTC(), Effects: []system.Effect{},
-	}
-	for i := len(orig.Changes) - 1; i >= 0; i-- {
-		c := orig.Changes[i]
-		cur, getErr := e.opts.Store.Get(ctx, c.ID)
-		switch c.Op {
-		case OpCreate:
-			if getErr != nil || cur.Deleted() {
-				continue
-			}
-			undo.Changes = append(undo.Changes, ResourceChange{Op: OpDelete, Kind: c.Kind, ID: c.ID, Scope: c.Scope, Before: cur.Spec, Source: RequestSource})
-		case OpUpdate, OpAction:
-			if bytes.Equal(c.Before, c.After) {
-				continue
-			}
-			if getErr != nil {
-				return nil, getErr
-			}
-			diff, _ := Diff(cur.Spec, c.Before)
-			undo.Changes = append(undo.Changes, ResourceChange{Op: OpUpdate, Kind: c.Kind, ID: c.ID, Scope: c.Scope, Labels: cur.Labels, Before: cur.Spec, After: c.Before, Diff: diff, Source: RequestSource})
-		case OpDelete:
-			if getErr == nil {
-				return nil, ErrStillRemoving.New("what", string(c.ID))
-			}
-			undo.Changes = append(undo.Changes, ResourceChange{Op: OpCreate, Kind: c.Kind, ID: c.ID, Scope: c.Scope, Labels: c.Labels, After: c.Before, Source: RequestSource})
+	var key string
+	if !req.DryRun {
+		key = idempotencyKey("undo", req.Actor, req.IdempotencyKey)
+		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
+			return earlier, err
 		}
-	}
-	if e.opts.Authorizer != nil {
-		for _, c := range undo.Changes {
-			if err := e.opts.Authorizer.Authorize(ctx, actor, auth.KindPermission(c.Kind, string(c.Op)), auth.Target{Scope: c.Scope, Object: c.ID}); err != nil {
-				return nil, err
-			}
+		if !e.startUndo(orig.ID) {
+			e.settle(key, "")
+			return nil, ErrUndoing.New("title", orig.Title)
 		}
+		defer e.endUndo(orig.ID)
 	}
-	if err := e.apply(ctx, undo); err != nil {
+	changes, err := e.undoChanges(ctx, orig)
+	if err == nil && len(changes) == 0 {
+		err = ErrNothingToUndo.New("title", orig.Title)
+	}
+	if err != nil {
+		e.settle(key, "")
 		return nil, err
 	}
+	p, err := e.plan(ctx, Request{Actor: req.Actor, Title: "Undo: " + orig.Title, Changes: changes})
+	if err != nil {
+		e.settle(key, "")
+		return nil, err
+	}
+	p.cs.UndoOf = orig.ID
+	cs, err := e.finish(ctx, p, req.DryRun, key)
+	if err != nil || req.DryRun {
+		return cs, err
+	}
+	e.update(orig.ID, func(s *ChangeSet) { s.State = StateUndone })
+	return cs, nil
+}
+
+func (e *Engine) startUndo(id store.ID) bool {
 	e.mu.Lock()
-	e.sets[orig.ID].State = StateUndone
-	e.mu.Unlock()
-	return undo, nil
+	defer e.mu.Unlock()
+	cs, ok := e.sets[id]
+	if !ok || e.undoing[id] || (cs.State != StateApplied && cs.State != StateFailed) {
+		return false
+	}
+	e.undoing[id] = true
+	return true
+}
+
+func (e *Engine) endUndo(id store.ID) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.undoing, id)
+}
+
+// undoChanges builds the changes that revert a change set, last change
+// first: creates become deletes, updates and actions put the previous spec
+// and labels back, and deletes become creates with the same ID, placement,
+// labels and spec.
+func (e *Engine) undoChanges(ctx context.Context, orig *ChangeSet) ([]Change, error) {
+	created := map[store.ID]bool{}
+	for _, c := range orig.Changes {
+		if c.Op == OpCreate {
+			created[c.ID] = true
+		}
+	}
+	guarded := map[store.ID]bool{}
+	var out []Change
+	for i := len(orig.Changes) - 1; i >= 0; i-- {
+		c := orig.Changes[i]
+		cur, err := e.opts.Store.Get(ctx, c.ID)
+		if err != nil && !store.ErrNotFound.Is(err) {
+			return nil, err
+		}
+		exists := err == nil
+		switch c.Op {
+		case OpCreate:
+			if exists && !cur.Deleted() {
+				out = append(out, Change{Op: OpDelete, Kind: c.Kind, ID: c.ID})
+			}
+		case OpUpdate, OpAction:
+			// Reverting an update of a resource whose creation is undone too
+			// would only be thrown away.
+			if created[c.ID] || (bytes.Equal(c.Before, c.After) && maps.Equal(c.Labels, c.LabelsBefore)) {
+				continue
+			}
+			if !exists || cur.Deleted() {
+				return nil, store.ErrNotFound.New("what", string(c.ID))
+			}
+			labels := maps.Clone(c.LabelsBefore)
+			if labels == nil {
+				labels = map[string]string{}
+			}
+			ch := Change{Op: OpUpdate, Kind: c.Kind, ID: c.ID, Spec: c.Before, Labels: labels}
+			// Only the first revert of a resource can check its revision;
+			// later ones see the revision the first one writes.
+			if !guarded[c.ID] {
+				ch.Revision, guarded[c.ID] = cur.Revision, true
+			}
+			out = append(out, ch)
+		case OpDelete:
+			if exists {
+				return nil, ErrStillRemoving.New("what", string(c.ID))
+			}
+			out = append(out, Change{Op: OpCreate, Kind: c.Kind, ID: c.ID, Scope: c.Scope, Server: c.Server, Spec: c.Before, Labels: c.Labels})
+		}
+	}
+	return out, nil
 }
