@@ -3,18 +3,33 @@
 
 [Unit]
 Description=Racksail platform services
+Documentation=https://github.com/vilanobeachflorida/racksail
 Before=slices.target
 
 [Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+TasksAccounting=yes
+CPUWeight=500
+IOWeight=500
+MemoryLow=128M
 
 ### racksail-accounts.slice
 # Managed by Racksail. Changes made here are overwritten.
 
 [Unit]
 Description=Racksail accounts
+Documentation=https://github.com/vilanobeachflorida/racksail
 Before=slices.target
 
 [Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+TasksAccounting=yes
+CPUWeight=100
+IOWeight=100
 
 ### racksail-agent.service
 # Managed by Racksail. Changes made here are overwritten.
@@ -26,6 +41,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Type=notify
 ExecStart=/usr/local/bin/racksail agent
 Slice=racksail.slice
 Restart=on-failure
@@ -33,6 +49,16 @@ RestartSec=2s
 RuntimeDirectory=racksail
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
+StateDirectory=racksail-agent
+StateDirectoryMode=0700
+LimitNOFILE=65536
+PrivateTmp=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+KeyringMode=private
+UMask=0022
 
 [Install]
 WantedBy=multi-user.target
@@ -47,6 +73,7 @@ After=network-online.target racksail-agent.service
 Wants=network-online.target racksail-agent.service
 
 [Service]
+Type=exec
 ExecStart=/usr/local/bin/racksail panel
 User=racksail
 Group=racksail
@@ -55,7 +82,12 @@ Restart=on-failure
 RestartSec=2s
 StateDirectory=racksail
 StateDirectoryMode=0750
+CacheDirectory=racksail
+CacheDirectoryMode=0750
 ReadWritePaths=/var/lib/racksail
+ImportCredential=racksail-secrets-key
+CapabilityBoundingSet=
+LimitNOFILE=65536
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -67,12 +99,21 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
 RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+KeyringMode=private
+UMask=0027
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target
@@ -104,6 +145,7 @@ After=network-online.target racksail-edge.socket
 Wants=network-online.target
 
 [Service]
+Type=notify
 ExecStart=/usr/local/bin/racksail edge
 User=racksail-edge
 Group=racksail-edge
@@ -114,6 +156,7 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 StateDirectory=racksail-edge
 StateDirectoryMode=0750
+LimitNOFILE=1048576
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -125,12 +168,21 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
 RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+KeyringMode=private
+UMask=0027
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 
 [Install]
 Also=racksail-edge.socket

@@ -4,7 +4,14 @@ This directory is for what turns a `racksail` binary into something people insta
 
 ## systemd units
 
-Racksail runs as three services in `racksail.slice`, `racksail-panel.service`, `racksail-agent.service` and `racksail-edge.service`, with account workloads in `racksail-accounts.slice`. The edge sits behind `racksail-edge.socket`: systemd holds its admin socket for the panel and starts the edge the first time the panel sends it routes. Their unit files aren't kept here by hand: `internal/installer` renders them (`installer.Units`, checked against `internal/installer/testdata/units.golden`), and `racksail install` writes them, so a fresh install, a converted server and an upgrade always get the same units.
+Racksail runs as three services in `racksail.slice`: `racksail-agent.service`, `racksail-panel.service` and `racksail-edge.service`, with account workloads in `racksail-accounts.slice` and one `racksail-accounts-<account>.slice` per account inside it. The edge sits behind `racksail-edge.socket`: systemd holds its admin socket for the panel and starts the edge the first time the panel sends it routes.
+
+[`systemd/`](systemd/) has the unit files as they are installed with the binary at `/usr/bin/racksail`, for distribution packages. They aren't edited by hand: the system layer renders them (`system.PlatformUnits`), `racksail install` writes the same ones for wherever the binary is, and a test fails when the copies here drift (`go test ./internal/system -update` rewrites them). So a fresh install, a converted server, an upgrade and a package all get the same units.
+
+- The panel runs as `racksail` with the full sandbox: a read-only system, no capabilities, its state in `/var/lib/racksail`, and the key its secrets are encrypted with imported from the systemd credential `racksail-secrets-key`.
+- The agent runs as root, since it is what changes the machine, with its own state in `/var/lib/racksail-agent`. It is of type `notify`, so the panel starts once the agent answers.
+- The edge runs as `racksail-edge` with `CAP_NET_BIND_SERVICE` only, for ports 80 and 443, and keeps its certificates in `/var/lib/racksail-edge`.
+- The platform slice outweighs the accounts slice for CPU and I/O, so the panel and the edge stay responsive when a site is busy.
 
 ## Install script
 

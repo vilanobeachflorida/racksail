@@ -1,0 +1,15 @@
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail platform services
+Documentation=https://github.com/vilanobeachflorida/racksail
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+TasksAccounting=yes
+CPUWeight=500
+IOWeight=500
+MemoryLow=128M

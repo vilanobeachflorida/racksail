@@ -1,0 +1,30 @@
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail agent
+Documentation=https://github.com/vilanobeachflorida/racksail
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/racksail agent
+Slice=racksail.slice
+Restart=on-failure
+RestartSec=2s
+RuntimeDirectory=racksail
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+StateDirectory=racksail-agent
+StateDirectoryMode=0700
+LimitNOFILE=65536
+PrivateTmp=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+KeyringMode=private
+UMask=0022
+
+[Install]
+WantedBy=multi-user.target

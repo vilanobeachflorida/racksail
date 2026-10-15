@@ -1,0 +1,14 @@
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail edge admin socket
+Documentation=https://github.com/vilanobeachflorida/racksail
+
+[Socket]
+ListenStream=/run/racksail/edge.sock
+SocketUser=root
+SocketGroup=racksail
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target
