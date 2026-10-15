@@ -46,6 +46,8 @@ When a release is available on the server's channel, the panel says so on the ho
 
 On several servers, the panel updates them one at a time, and stops if one doesn't come back.
 
+No release is published until it has passed an upgrade test: CI installs the previous release on the same channel, and the newest stable release, on test servers, upgrades them to the new one and checks that they come back with their state.
+
 ## Rolling back
 
 If an update fails its checks, Racksail rolls back to the snapshot on its own. To go back after an update that worked but that you don't want, restore the snapshot from **Backups**: it's listed with the update that took it.

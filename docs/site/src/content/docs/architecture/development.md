@@ -71,6 +71,16 @@ make cross iso
 make e2e E2E_FLAGS="-firmware secureboot"
 ```
 
+It also sets up Debian's cloud image the ways people set up a server they already have, by converting it or by installing the Debian package, and tests upgrades: it installs an earlier release's package, upgrades it to a new one and checks that the server comes back on the new version with its state.
+
+```sh
+make cross deb cloud-image
+go run ./test/qemu -cloud-image build/cloud/debian-13-genericcloud-amd64.qcow2 \
+  -deb dist/racksail_0.0.0-dev_amd64.deb -version 0.0.0-dev
+```
+
+CI runs every installation every night, and no release is published until servers on the previous release of its channel, and on the newest stable release, upgrade to it in this test.
+
 ## The ISO and packages
 
 | Target | Builds |
