@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -70,6 +71,16 @@ func (s Scope) String() string {
 		return string(s.Level)
 	}
 	return string(s.Level) + ":" + string(s.ID)
+}
+
+// ParseScope reads a scope written by Scope.String.
+func ParseScope(text string) (Scope, error) {
+	level, id, _ := strings.Cut(text, ":")
+	s := Scope{Level: ScopeLevel(level), ID: ID(id)}
+	if err := s.Validate(); err != nil {
+		return Scope{}, err
+	}
+	return s, nil
 }
 
 // Meta is the part of a resource that is the same for every kind.
