@@ -16,6 +16,13 @@ export interface Series {
   label: string;
   /** One value per time, null where there's no data. */
   values: readonly (number | null)[];
+  /**
+   * Which chart color to draw in, from 0; by default the series' place in
+   * the list. Give it when series can be filtered, so each keeps its color.
+   * Charts have as many series as the theme has chart colors at most: fold
+   * the rest into one "Other" series.
+   */
+  color?: number;
 }
 
 /** Something that happened, drawn over the chart where it happened: a deploy, a restart. */
@@ -95,7 +102,10 @@ export function TimeSeries({
     [events],
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tokensKey changes when the colors read here do
+  // The chart is built again when its series' colors or names change, not
+  // for every new array of the same series.
+  const seriesKey = series.map((s, i) => `${s.color ?? i}:${s.label}`).join("\n");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tokensKey changes when the colors read here do, and seriesKey when the series do
   const options = useMemo<uPlot.Options>(() => {
     const colors = readChartColors(container.current ?? undefined);
     const font = `12px ${getComputedStyle(document.documentElement).getPropertyValue("--rs-font-sans") || "sans-serif"}`;
@@ -126,7 +136,7 @@ export function TimeSeries({
       series: [
         {},
         ...series.map((s, i) => {
-          const stroke = colors.series[i % colors.series.length] ?? colors.text;
+          const stroke = colors.series[(s.color ?? i) % colors.series.length] ?? colors.text;
           return {
             label: s.label,
             stroke,
@@ -171,7 +181,7 @@ export function TimeSeries({
         ],
       },
     };
-  }, [width, height, series.length, area, eventTimes, events, f, tokensKey]);
+  }, [width, height, seriesKey, area, eventTimes, events, f, tokensKey]);
   const plot = useUPlot(container, options, data);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tokensKey changes when the colors read here do
   const colors = useMemo(() => readChartColors(container.current ?? undefined), [tokensKey, plot]);
@@ -197,7 +207,7 @@ export function TimeSeries({
                 <span
                   aria-hidden="true"
                   className="h-0.5 w-3 rounded-full"
-                  style={{ backgroundColor: colors.series[i % colors.series.length] }}
+                  style={{ backgroundColor: colors.series[(s.color ?? i) % colors.series.length] }}
                 />
                 {s.label}
               </li>
@@ -262,7 +272,9 @@ export function TimeSeries({
                     <span
                       aria-hidden="true"
                       className="size-2 rounded-full"
-                      style={{ backgroundColor: colors.series[i % colors.series.length] }}
+                      style={{
+                        backgroundColor: colors.series[(s.color ?? i) % colors.series.length],
+                      }}
                     />
                     {s.label}
                   </span>

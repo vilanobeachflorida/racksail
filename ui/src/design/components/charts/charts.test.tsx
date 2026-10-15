@@ -85,6 +85,39 @@ describe("the time series chart", () => {
     );
     expect(screen.queryByRole("list", { name: "Series" })).not.toBeInTheDocument();
   });
+
+  it("keeps each series' color when others are filtered out", async () => {
+    const root = document.documentElement;
+    const palette = ["#007CFD", "#E2622C", "#139A6B"];
+    palette.forEach((c, i) => {
+      root.style.setProperty(`--rs-chart${i + 1}`, c);
+    });
+    const swatch = (label: string) =>
+      (
+        within(screen.getByRole("list", { name: "Series" })).getByText(label)
+          .firstElementChild as HTMLElement
+      ).style.backgroundColor;
+    const all = [
+      { label: "web1", values: [1, 2, 3, 4], color: 0 },
+      { label: "web2", values: [2, 3, 4, 5], color: 1 },
+      { label: "web3", values: [3, 4, 5, 6], color: 2 },
+    ];
+    const { rerender } = renderWithProviders(
+      <TimeSeries title="Load" times={times} series={all} />,
+    );
+    await waitFor(() => expect(swatch("web3")).toBe("rgb(19, 154, 107)"));
+    rerender(
+      <TimeSeries
+        title="Load"
+        times={times}
+        series={[all[0], all[2]].filter((s) => s !== undefined)}
+      />,
+    );
+    expect(swatch("web3")).toBe("rgb(19, 154, 107)");
+    palette.forEach((_, i) => {
+      root.style.removeProperty(`--rs-chart${i + 1}`);
+    });
+  });
 });
 
 describe("the sparkline", () => {

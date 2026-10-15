@@ -75,6 +75,7 @@ export function useUPlot(
   data: uPlot.AlignedData,
 ): uPlot | null {
   const [chart, setChart] = useState<uPlot | null>(null);
+  const current = useRef<uPlot | null>(null);
   const latestData = useRef(data);
   useLayoutEffect(() => {
     latestData.current = data;
@@ -86,15 +87,21 @@ export function useUPlot(
       return;
     }
     const created = new uPlot(options, latestData.current, el);
+    current.current = created;
     setChart(created);
     return () => {
       created.destroy();
+      current.current = null;
       setChart(null);
     };
   }, [container, options]);
 
   useEffect(() => {
-    chart?.setData(data);
+    // When the options change with the data, as when a series is added, the
+    // new chart already has the data, and the old one can't take it.
+    if (chart && chart === current.current) {
+      chart.setData(data);
+    }
   }, [chart, data]);
 
   return chart;
