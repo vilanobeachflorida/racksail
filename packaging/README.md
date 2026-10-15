@@ -1,6 +1,16 @@
 # Packaging
 
-This directory is for what turns a `racksail` binary into something people install: the install script for existing servers, the cloud images and the release tooling around them.
+This directory is for what turns a `racksail` binary into something people install: the install script for existing servers, the Debian package, the cloud images and the release tooling around them.
+
+| Path | For |
+|---|---|
+| [install.sh](install.sh) | Converts a fresh Debian 13 server into a Racksail server |
+| [nfpm.yaml](nfpm.yaml) and [deb/](deb/) | The Debian package |
+| [apt/](apt/) | apt sources and pinning templates |
+| [cloud-init/](cloud-init/) | User data that converts a cloud server on its first boot |
+| [release/](release/) | Release channels, nightly versions, checksums and the release manifest |
+| [licenses/](licenses/) | The license allowlist check and the notices releases ship with |
+| [spdx/](spdx/) | SPDX license expressions, shared with the catalog tool |
 
 ## systemd units
 
@@ -8,12 +18,41 @@ Racksail runs as three services in `racksail.slice`, `racksail-panel.service`, `
 
 ## Install script
 
-The install script for existing servers, `install.sh`, goes here. It checks that the machine runs Debian 13 on amd64 or arm64, downloads the matching release from GitHub Releases, verifies its signature and checksum, and hands over to `racksail install` with a convert-mode answers file ([spec/schemas/answers.schema.json](../spec/schemas/answers.schema.json)). It never pipes a download into a shell and installs nothing Racksail itself wouldn't.
+`install.sh` checks that the machine runs Debian 13 on amd64 or arm64, downloads the matching release from GitHub Releases or a mirror, verifies its Sigstore signatures and its SHA-256 checksum, and hands over to `racksail install --convert`. It never pipes a download into a shell, runs nothing it downloaded before verifying it, and installs nothing Racksail itself wouldn't.
+
+- Signatures are checked with cosign against the identity of the release workflow: `.github/workflows/release.yml` at the release's tag, or at `main` for nightly builds. A cosign already on the server is used; otherwise the script downloads the cosign release it pins and checks it against the checksums written in the script. CI checks those against cosign's published checksums (`go run ./packaging/release check-pins`), so a dependency update that bumps the version can't go in without them.
+- The newest release on the chosen channel comes from GitHub's release list; `--version` picks one, and `--mirror` downloads from a mirror that serves each release's files under its tag.
+- The binary must also report the version being installed, so a mirror can't serve an older signed release under a newer name.
+- `RACKSAIL_ROOT` puts everything under another directory. The tests in [install_test.go](install_test.go) run the script that way, against stand-ins for curl, cosign and the binary, with every shell CI has.
+
+## Debian package
+
+`make deb` builds `racksail_<version>_<arch>.deb` for amd64 and arm64 with nfpm. [deb/](deb/) renders what goes in it besides the binary from the plan `racksail install --convert` carries out: the units, a sysusers.d file for the `racksail` and `racksail-edge` users, a tmpfiles.d file for Racksail's directories, and maintainer scripts that enable and start the same units a conversion does. A server installed from the package is set up the same way as a converted one; a test fails if the convert plan gains a step the package can't express.
+
+The package installs the binary as `/usr/bin/racksail`, with shell completions, the copyright file, the licenses of everything built into the binary, and the templates in [apt/](apt/) under `/usr/share/racksail/apt/`. Removing it stops the services; purging it keeps `/var/lib/racksail` and `/srv/racksail`.
+
+## apt templates
+
+[apt/](apt/) holds templates with `@...@` values to fill in:
+
+- `racksail.sources.in` and `racksail.pref.in` add Racksail's package from your own apt repository or mirror, pinned so that repository can provide nothing else, the way Racksail pins every vendor repository it adds.
+- `racksail-hold.pref.in` keeps the package on one release line.
+- `debian-release.pref.in` keeps a server on its Debian release: its own suites, updates and security fixes, backports only by name, and no packages from another release until the server is upgraded.
 
 ## Cloud images
 
-Cloud images start from Debian's official images and run the same conversion through cloud-init on first boot, so their configuration goes here and they need no code of their own.
+Cloud images start from Debian's official images and run the same conversion through cloud-init on first boot, so they need no code of their own. [cloud-init/](cloud-init/) has user data for the newest release, for a pinned release and for a mirror, and the meta-data of a NoCloud seed for Proxmox, libvirt and QEMU. The end-to-end harness in [test/qemu](../test/qemu/) boots Debian's cloud image with a seed like these.
 
 ## Releases
 
-Release binaries come from `make cross` with `VERSION` and `CHANNEL` set. Every artifact is signed with Sigstore and published on GitHub Releases with checksums and software bills of materials (decision R1 in [docs/architecture/decisions.md](../docs/architecture/decisions.md)).
+Release binaries come from `make cross` with `VERSION` and `CHANNEL` set. `make release VERSION=1.2.3` collects everything a release publishes in `dist/`: the binaries, the Debian packages, an SPDX software bill of materials for each binary and for the web UI, the third-party license notices, `install.sh`, `SHA256SUMS` and, once CI has signed every file with cosign, `release.json`, the manifest servers read to update themselves. The [release workflow](../.github/workflows/release.yml) signs each file keyless with Sigstore, attaches the installer ISOs and publishes a GitHub Release (decision R1 in [docs/architecture/decisions.md](../docs/architecture/decisions.md)).
+
+[release/](release/) decides what the workflow publishes:
+
+- `channel` names a version's channel: `1.2.3` is stable, `1.3.0-beta.1` and `1.3.0-rc.1` are beta, anything with a `nightly` part is nightly.
+- `nightly-version` names a nightly build so it sorts after everything released before it: `1.3.0-nightly.20261015.42` after 1.2.x, or `1.3.0-rc.1.nightly.20261015.42` after a release candidate.
+- `checksums` and `manifest` write `SHA256SUMS` and `release.json`, the second in the format `internal/updates` reads.
+
+## Licenses
+
+`make licenses` checks every Go module the code uses on every platform it builds for, tests included, and every package in every npm lockfile: each license must be approved by the Open Source Initiative and compatible with AGPL-3.0-or-later. A dependency whose license files can't be read, or the rare justified exception, goes in [licenses/exceptions.yaml](licenses/exceptions.yaml) with its reason. `go run ./packaging/licenses notices` writes the license texts of everything the release binary contains.
