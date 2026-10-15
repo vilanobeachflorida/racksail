@@ -17,12 +17,20 @@ set -eu
 REPOSITORY=vilanobeachflorida/racksail
 
 # cosign verifies the signatures. A cosign already on the PATH is used as it
-# is; otherwise this release is downloaded and checked against these
-# checksums before it runs.
+# is; otherwise this release is downloaded, from GitHub or the mirror, and
+# checked against these checksums before it runs.
 # renovate: datasource=github-releases depName=sigstore/cosign
 COSIGN_VERSION=v3.1.3
 COSIGN_SHA256_AMD64=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
 COSIGN_SHA256_ARM64=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
+
+# Sigstore's trusted root holds the keys the signatures are checked against.
+# cosign fetches the current one from Sigstore; through a mirror, the script
+# uses this one instead, which the mirror serves under its checksum, as
+# https://tuf-repo-cdn.sigstore.dev/targets/<checksum>.trusted_root.json
+# does, so installing needs nothing from GitHub or Sigstore. CI keeps it
+# current with go run ./packaging/release check-pins.
+SIGSTORE_ROOT_SHA256=6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66
 
 # Releases are signed by the release workflow, from a version tag or, for
 # nightly builds, from main.
@@ -48,8 +56,8 @@ Options:
   --version VERSION   install this version instead of the newest on the channel
   --channel CHANNEL   stable (the default), beta or nightly
   --hostname NAME     set the server's hostname, such as panel.example.com
-  --mirror URL        download releases from a mirror instead of GitHub;
-                      it needs --version
+  --mirror URL        download releases, cosign and Sigstore's trusted root
+                      from a mirror instead of GitHub; it needs --version
   --dry-run           show what converting the server would do, and stop
   --reinstall         replace a racksail binary that is already installed,
                       and restart Racksail's services
@@ -250,10 +258,15 @@ case $VERSION in
 *) IDENTITY="$WORKFLOW@refs/tags/$TAG" ;;
 esac
 
+# A mirror serves each release's files under its tag, cosign's releases
+# under cosign/ and Sigstore's trusted roots under sigstore/, named as
+# Sigstore names them.
 if [ -n "$MIRROR" ]; then
 	BASE=$MIRROR/$TAG
+	COSIGN_BASE=$MIRROR/cosign/$COSIGN_VERSION
 else
 	BASE=https://github.com/$REPOSITORY/releases/download/$TAG
+	COSIGN_BASE=https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION
 fi
 
 ASSET=racksail-linux-$ARCH
@@ -263,6 +276,12 @@ fetch "$BASE/$ASSET.sigstore.json" "$TMP/$ASSET.sigstore.json"
 fetch "$BASE/SHA256SUMS" "$TMP/SHA256SUMS"
 fetch "$BASE/SHA256SUMS.sigstore.json" "$TMP/SHA256SUMS.sigstore.json"
 
+# A noexec file system under the temporary directory stops anything
+# downloaded from running, which would otherwise look like a bad download.
+noexec() {
+	die "can't run the $1 downloaded into $TMP; if its file system is mounted noexec, set TMPDIR to a directory programs can run from"
+}
+
 if command -v cosign >/dev/null 2>&1; then
 	COSIGN=cosign
 else
@@ -270,19 +289,30 @@ else
 	amd64) COSIGN_SHA256=$COSIGN_SHA256_AMD64 ;;
 	arm64) COSIGN_SHA256=$COSIGN_SHA256_ARM64 ;;
 	esac
-	fetch "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-$ARCH" "$TMP/cosign"
+	fetch "$COSIGN_BASE/cosign-linux-$ARCH" "$TMP/cosign"
 	[ "$(sha256 "$TMP/cosign")" = "$COSIGN_SHA256" ] ||
 		die "the cosign download doesn't match the checksum in this script, so nothing was installed"
 	chmod 0755 "$TMP/cosign"
+	"$TMP/cosign" version >/dev/null 2>&1 || noexec cosign
 	COSIGN=$TMP/cosign
+fi
+
+# The positional parameters were all read above; they now hold what cosign
+# checks the signatures against.
+set -- --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$OIDC_ISSUER"
+if [ -n "$MIRROR" ]; then
+	fetch "$MIRROR/sigstore/$SIGSTORE_ROOT_SHA256.trusted_root.json" "$TMP/trusted_root.json"
+	[ "$(sha256 "$TMP/trusted_root.json")" = "$SIGSTORE_ROOT_SHA256" ] ||
+		die "the mirror's Sigstore trusted root doesn't match the checksum in this script, so nothing was installed"
+	set -- "$@" --trusted-root "$TMP/trusted_root.json"
 fi
 
 say "Verifying the signatures"
 for file in "$ASSET" SHA256SUMS; do
-	"$COSIGN" verify-blob --bundle "$TMP/$file.sigstore.json" \
-		--certificate-identity "$IDENTITY" --certificate-oidc-issuer "$OIDC_ISSUER" \
-		"$TMP/$file" >/dev/null 2>&1 ||
-		die "$file isn't signed by Racksail's release workflow for $TAG, so nothing was installed"
+	if ! "$COSIGN" verify-blob --bundle "$TMP/$file.sigstore.json" "$@" "$TMP/$file" >"$TMP/cosign.log" 2>&1; then
+		sed 's/^/  /' "$TMP/cosign.log" >&2
+		die "cosign couldn't verify that $file is signed by Racksail's release workflow for $TAG (its output is above), so nothing was installed"
+	fi
 done
 
 say "Verifying the checksum"
@@ -294,7 +324,11 @@ chmod 0755 "$TMP/$ASSET"
 
 # The version is built into the signed binary, so this also catches a
 # mirror serving another release under this one's name.
-REPORTED=$("$TMP/$ASSET" version --json | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1)
+if ! "$TMP/$ASSET" version --json >"$TMP/version.json" 2>&1; then
+	sed 's/^/  /' "$TMP/version.json" >&2
+	noexec "racksail binary"
+fi
+REPORTED=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$TMP/version.json" | head -n 1)
 [ "$REPORTED" = "$VERSION" ] || die "the binary reports version $REPORTED, not $VERSION, so nothing was installed"
 
 {

@@ -34,12 +34,49 @@ Nothing it downloads runs before it has been verified, and if any check fails, n
 | `--version 1.2.3` | Installs that release instead of the newest |
 | `--channel beta` | Follows the beta channel, or `nightly`; `stable` is the default |
 | `--hostname panel.example.com` | Sets the server's hostname |
-| `--mirror https://mirror.example.com/racksail` | Downloads from a mirror that serves each release's files under its tag; it needs `--version` |
+| `--mirror https://mirror.example.com/racksail` | Downloads everything from a mirror, [below](#through-a-mirror); it needs `--version` |
 | `--dry-run` | Shows what converting the server would do, and stops |
 | `--yes` | Doesn't ask before converting, for automation |
 | `--reinstall` | Replaces a `racksail` binary that is already installed, and restarts Racksail's services so they run it |
 
 Run it with `--help` for the full list.
+
+If a check fails, the script says which and why. When cosign can't verify a signature, its own output comes first, so you can tell a network problem or a server clock that is off from a release that isn't Racksail's. If `/tmp` is mounted `noexec`, the script can't run what it downloaded; point `TMPDIR` at a directory that allows it.
+
+### Through a mirror
+
+On a network that reaches Racksail's releases only through a mirror of your own, `--mirror` downloads everything from it, so installing needs nothing from GitHub or Sigstore. The mirror serves:
+
+| Path | Holds |
+|---|---|
+| `v1.2.3/` | Each release's files under its tag, as they are on GitHub: `v1.2.3/racksail-linux-amd64`, `v1.2.3/SHA256SUMS` and the rest |
+| `cosign/v3.1.3/` | The cosign release the install script names in `COSIGN_VERSION`: `cosign-linux-amd64` and `cosign-linux-arm64`, from [cosign's releases](https://github.com/sigstore/cosign/releases) |
+| `sigstore/` | Sigstore's trusted root, the keys the signatures are checked against, that the script names in `SIGSTORE_ROOT_SHA256`, as `<checksum>.trusted_root.json` |
+
+To fill it from a machine that can reach GitHub and Sigstore:
+
+```sh
+version=1.2.3
+gh release download "v$version" --repo vilanobeachflorida/racksail --dir "mirror/v$version" \
+  --pattern 'install.sh*' --pattern 'racksail-linux-*' --pattern 'SHA256SUMS*'
+cosign=$(sed -n 's/^COSIGN_VERSION=//p' "mirror/v$version/install.sh")
+root=$(sed -n 's/^SIGSTORE_ROOT_SHA256=//p' "mirror/v$version/install.sh")
+for arch in amd64 arm64; do
+  curl -fsSL --create-dirs -o "mirror/cosign/$cosign/cosign-linux-$arch" \
+    "https://github.com/sigstore/cosign/releases/download/$cosign/cosign-linux-$arch"
+done
+curl -fsSL --create-dirs -o "mirror/sigstore/$root.trusted_root.json" \
+  "https://tuf-repo-cdn.sigstore.dev/targets/$root.trusted_root.json"
+```
+
+Then, on the server, use the install script from the mirror:
+
+```sh
+curl -fsSLO https://mirror.example.com/racksail/v1.2.3/install.sh
+sudo sh install.sh --mirror https://mirror.example.com/racksail --version 1.2.3
+```
+
+The script checks cosign and the trusted root against the checksums written in it, and the release against its signatures and checksum, so the mirror can't change any of them unnoticed. The script itself is what you trust: copy it to your mirror from a machine where you checked its signature, `install.sh.sigstore.json`, with cosign. Keep older cosign releases and trusted roots on the mirror for as long as you install the releases that name them.
 
 ## What the conversion does
 

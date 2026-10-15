@@ -3,12 +3,17 @@ name: Pins
 # Dependency updates change versions but can't compute checksums. On the
 # update pull requests that bump a catalog download or the cosign release
 # install.sh trusts, this fetches the new files' checksums from upstream,
-# writes them in and pushes the result to the pull request.
+# writes them in and pushes the result to the pull request. Every week it
+# also checks that install.sh pins Sigstore's current trusted root, which
+# nothing versions, and proposes the new one when Sigstore publishes it.
 on:
   pull_request:
     paths:
       - catalog/**
       - packaging/install.sh
+  schedule:
+    - cron: "20 4 * * 2"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -59,3 +64,37 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit --all --message "Pin the checksums of updated downloads"
           git push
+
+  sigstore-root:
+    name: Sigstore's trusted root
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.RACKSAIL_BOT_TOKEN || github.token }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Propose the current trusted root
+        env:
+          GH_TOKEN: ${{ secrets.RACKSAIL_BOT_TOKEN || github.token }}
+        run: |
+          go run ./packaging/release check-pins -write
+          if git diff --quiet; then
+            echo "install.sh already pins Sigstore's current trusted root."
+            exit 0
+          fi
+          branch=pins/sigstore-trusted-root
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$branch"
+          git commit --all --message "Pin Sigstore's current trusted root"
+          git push --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --json number --jq '.[].number')" ]; then
+            gh pr create --head "$branch" --title "Pin Sigstore's current trusted root" --label dependencies \
+              --body "Sigstore published a new trusted root. install.sh checks signatures against the one it pins when it installs through a mirror, and the release workflow checks every release against it before publishing. Mirrors serve it as sigstore/<checksum>.trusted_root.json."
+          fi

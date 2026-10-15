@@ -247,6 +247,17 @@ jobs:
               --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$ref" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com "dist/$file"
           done
+          # Through a mirror, install.sh checks against the Sigstore trusted
+          # root it pins rather than the current one, so that has to work too.
+          root=$(sed -n 's/^SIGSTORE_ROOT_SHA256=//p' dist/install.sh)
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/trusted_root.json" \
+            "https://tuf-repo-cdn.sigstore.dev/targets/$root.trusted_root.json"
+          echo "$root  $RUNNER_TEMP/trusted_root.json" | sha256sum --check
+          for file in racksail-linux-amd64 racksail-linux-arm64 SHA256SUMS; do
+            cosign verify-blob --bundle "dist/$file.sigstore.json" --trusted-root "$RUNNER_TEMP/trusted_root.json" \
+              --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$ref" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "dist/$file"
+          done
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,11 +1,20 @@
 #cloud-config
-# For networks that reach Racksail's releases through a mirror, such as an
-# internal web server that copies them from GitHub. The mirror serves each
-# release's files under its tag, as
-# https://mirror.example.com/racksail/v1.0.0/racksail-linux-amd64. Use a
-# mirror you trust to serve the install script unchanged; everything the
-# script downloads is still checked against Racksail's signatures, so a
-# changed binary or checksum file is refused.
+# For networks that reach Racksail's releases only through a mirror, such
+# as an internal web server that copies them from GitHub. Installing then
+# needs nothing from GitHub or Sigstore. The mirror serves
+#
+#   v1.0.0/            each release's files under its tag, as
+#                      v1.0.0/racksail-linux-amd64
+#   cosign/v3.1.3/     the cosign release install.sh names in
+#                      COSIGN_VERSION, as cosign/v3.1.3/cosign-linux-amd64
+#   sigstore/          Sigstore's trusted root that install.sh names in
+#                      SIGSTORE_ROOT_SHA256, as sigstore/<checksum>.trusted_root.json
+#
+# Copy the last two from https://github.com/sigstore/cosign/releases and
+# https://tuf-repo-cdn.sigstore.dev/targets/<checksum>.trusted_root.json.
+# Use a mirror you trust to serve the install script unchanged; the script
+# checks everything else against the checksums and Racksail's signatures,
+# so a changed cosign, trusted root, binary or checksum file is refused.
 hostname: panel
 fqdn: panel.example.com
 prefer_fqdn_over_hostname: true

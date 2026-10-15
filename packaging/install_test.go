@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -33,28 +34,47 @@ done
 echo "$url" >>"$STUB_LOG.urls"
 case $url in
 https://api.github.com/*) src=$STUB_FILES/releases.json ;;
-https://github.com/sigstore/cosign/*) src=$STUB_FILES/cosign/${url##*/} ;;
+https://github.com/sigstore/cosign/* | */cosign/v*/cosign-linux-*) src=$STUB_FILES/cosign/${url##*/} ;;
+*/sigstore/*.trusted_root.json) src=$STUB_FILES/sigstore/${url##*/} ;;
 *) dir=${url%/*}; src=$STUB_FILES/${dir##*/}/${url##*/} ;;
 esac
 [ -f "$src" ] || exit 22
 cp "$src" "$out"`,
 	"systemctl": `echo "systemctl $*" >>"$STUB_LOG"`,
-	"cosign": `[ "$1" = verify-blob ] || exit 1
+	"cosign":    cosignStub,
+}
+
+// cosignStub accepts bundles that name the identity it is asked for, and
+// fails as cosign does when it can't reach what it needs with
+// STUB_COSIGN_FAILS. It also stands in for a cosign download.
+const cosignStub = `[ "$1" != version ] || exit 0
+[ "$1" = verify-blob ] || exit 1
 shift
+root=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--bundle) bundle=$2; shift 2 ;;
 	--certificate-identity) identity=$2; shift 2 ;;
 	--certificate-oidc-issuer) issuer=$2; shift 2 ;;
+	--trusted-root) root=$2; shift 2 ;;
 	*) file=$1; shift ;;
 	esac
 done
 echo "cosign $identity ${file##*/}" >>"$STUB_LOG"
-[ "$issuer" = https://token.actions.githubusercontent.com ] && [ "$(cat "$bundle")" = "$identity" ]`,
-}
+[ -z "$root" ] || echo "cosign trusted root $(cat "$root")" >>"$STUB_LOG"
+if [ -n "${STUB_COSIGN_FAILS:-}" ]; then
+	echo "$STUB_COSIGN_FAILS" >&2
+	exit 1
+fi
+[ "$issuer" = https://token.actions.githubusercontent.com ] && [ "$(cat "$bundle")" = "$identity" ]`
 
-// fakeRacksail stands in for a release binary.
+// fakeRacksail stands in for a release binary. STUB_NOEXEC makes it fail
+// as a program on a noexec file system does.
 const fakeRacksail = `#!/bin/sh
+if [ -n "${STUB_NOEXEC:-}" ]; then
+	echo "$0: Permission denied" >&2
+	exit 126
+fi
 case $1 in
 version) printf '{\n  "version": "%s",\n  "goVersion": "go1.27.2"\n}\n' "$STUB_BINARY_VERSION" ;;
 install)
@@ -75,12 +95,15 @@ type harness struct {
 	stubDir               string
 	env                   []string
 	tags                  []string
+	// script is the install script the harness runs: install.sh, or a copy
+	// with other pins.
+	script string
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	dir := t.TempDir()
-	h := &harness{t: t, dir: dir, root: filepath.Join(dir, "root"), files: filepath.Join(dir, "files"), log: filepath.Join(dir, "log"), stubDir: filepath.Join(dir, "bin")}
+	h := &harness{t: t, dir: dir, root: filepath.Join(dir, "root"), files: filepath.Join(dir, "files"), log: filepath.Join(dir, "log"), stubDir: filepath.Join(dir, "bin"), script: "install.sh"}
 	for _, d := range []string{h.root + "/etc", h.files, h.stubDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -110,6 +133,36 @@ func (h *harness) write(file, content string, mode os.FileMode) {
 	if err := os.WriteFile(file, []byte(content), mode); err != nil {
 		h.t.Fatal(err)
 	}
+}
+
+// pin runs a copy of the script that trusts other checksums, such as those
+// of the stand-ins for cosign and Sigstore's trusted root.
+func (h *harness) pin(values map[string]string) {
+	h.t.Helper()
+	data, err := os.ReadFile(h.script)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	text := string(data)
+	for name, value := range values {
+		line := regexp.MustCompile(`(?m)^` + name + `=.*$`)
+		if !line.MatchString(text) {
+			h.t.Fatalf("the install script doesn't set %s", name)
+		}
+		text = line.ReplaceAllLiteralString(text, name+"="+value)
+	}
+	h.script = filepath.Join(h.dir, "install.sh")
+	h.write(h.script, text, 0o755)
+}
+
+// mirrorTrust serves Sigstore's trusted root from the fake mirror and pins
+// it in the script.
+func (h *harness) mirrorTrust(content string) {
+	h.t.Helper()
+	sum := sha256.Sum256([]byte(content))
+	pin := hex.EncodeToString(sum[:])
+	h.write(filepath.Join(h.files, "sigstore", pin+".trusted_root.json"), content, 0o644)
+	h.pin(map[string]string{"SIGSTORE_ROOT_SHA256": pin})
 }
 
 func (h *harness) osRelease(id, version, name string) {
@@ -158,7 +211,7 @@ func (h *harness) run(shell string, binaryVersion string, args ...string) result
 	os.Remove(h.log)
 	os.Remove(h.log + ".urls")
 	os.Remove(h.log + ".answers")
-	cmd := exec.Command(shell, append([]string{"install.sh"}, args...)...)
+	cmd := exec.Command(shell, append([]string{h.script}, args...)...)
 	cmd.Env = append([]string{
 		"PATH=" + h.stubDir + ":/usr/bin:/bin:/usr/sbin:/sbin",
 		"HOME=" + h.dir,
@@ -231,6 +284,9 @@ func TestInstallScriptPicksTheRelease(t *testing.T) {
 				if tc.args != nil && tc.args[0] == "--version" && strings.Contains(r.urls, "api.github.com") {
 					t.Error("an exact version needs no release listing")
 				}
+				if strings.Contains(r.log, "trusted root") {
+					t.Error("without a mirror, cosign fetches Sigstore's current trusted root itself")
+				}
 			})
 		}
 	}
@@ -265,12 +321,42 @@ func TestInstallScriptOptions(t *testing.T) {
 			t.Error("a dry run must not install the binary")
 		}
 	})
+	// Through a mirror, everything comes from the mirror: the release, and
+	// Sigstore's trusted root, which cosign then checks against instead of
+	// fetching it from Sigstore.
 	t.Run("mirror", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t)
+		h.mirrorTrust("trusted root for tests")
 		r := h.run("sh", "1.9.10", "--yes", "--mirror", "https://mirror.example.com/racksail/", "--version", "1.9.10")
 		if r.err != nil || !strings.Contains(r.urls, "https://mirror.example.com/racksail/v1.9.10/racksail-linux-amd64\n") {
 			t.Fatalf("%v\n%s\n%s", r.err, r.out, r.urls)
+		}
+		if !strings.Contains(r.urls, "https://mirror.example.com/racksail/sigstore/") || strings.Contains(r.urls, "github.com") {
+			t.Errorf("downloads:\n%s", r.urls)
+		}
+		if strings.Count(r.log, "cosign trusted root trusted root for tests\n") != 2 {
+			t.Errorf("cosign wasn't given the mirror's trusted root:\n%s", r.log)
+		}
+	})
+	t.Run("mirror without cosign", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		os.Remove(filepath.Join(h.stubDir, "cosign"))
+		download := "#!/bin/sh\n" + cosignStub + "\n"
+		h.write(filepath.Join(h.files, "cosign", "cosign-linux-amd64"), download, 0o644)
+		sum := sha256.Sum256([]byte(download))
+		h.pin(map[string]string{"COSIGN_SHA256_AMD64": hex.EncodeToString(sum[:])})
+		h.mirrorTrust("trusted root for tests")
+		r := h.run("sh", "1.9.10", "--yes", "--mirror", "https://mirror.example.com/racksail", "--version", "1.9.10")
+		if r.err != nil {
+			t.Fatalf("%v\n%s\n%s", r.err, r.out, r.urls)
+		}
+		if !regexp.MustCompile(`(?m)^https://mirror\.example\.com/racksail/cosign/v[0-9.]+/cosign-linux-amd64$`).MatchString(r.urls) || strings.Contains(r.urls, "github.com") {
+			t.Errorf("cosign wasn't downloaded from the mirror:\n%s", r.urls)
+		}
+		if !strings.Contains(r.log, "racksail install --convert") {
+			t.Errorf("the server wasn't converted:\n%s", r.log)
 		}
 	})
 	t.Run("reinstall", func(t *testing.T) {
@@ -324,7 +410,25 @@ func TestInstallScriptRefuses(t *testing.T) {
 		}, []string{"--reinstall"}, "1.9.10", "installed from its Debian package"},
 		{"bad signature", func(h *harness) {
 			h.write(filepath.Join(h.files, "v1.9.10/racksail-linux-amd64.sigstore.json"), workflow+"@refs/tags/v1.2.0", 0o644)
-		}, nil, "1.9.10", "racksail-linux-amd64 isn't signed by Racksail's release workflow for v1.9.10"},
+		}, nil, "1.9.10", "cosign couldn't verify that racksail-linux-amd64 is signed by Racksail's release workflow for v1.9.10"},
+		{"cosign can't reach Sigstore", func(h *harness) {
+			h.env = append(h.env, "STUB_COSIGN_FAILS=Error: fetching the trusted root: lookup tuf-repo-cdn.sigstore.dev: no such host")
+		}, nil, "1.9.10", "  Error: fetching the trusted root: lookup tuf-repo-cdn.sigstore.dev: no such host\ninstall.sh: cosign couldn't verify"},
+		{"mirror's trusted root changed", func(h *harness) {
+			h.mirrorTrust("Sigstore's keys")
+			for _, f := range mustGlob(h.t, filepath.Join(h.files, "sigstore", "*.trusted_root.json")) {
+				h.write(f, "someone else's keys", 0o644)
+			}
+		}, []string{"--mirror", "https://mirror.example.com/racksail", "--version", "1.9.10"}, "1.9.10", "the mirror's Sigstore trusted root doesn't match the checksum in this script"},
+		{"binary can't run", func(h *harness) { h.env = append(h.env, "STUB_NOEXEC=1") }, nil, "1.9.10",
+			"can't run the racksail binary downloaded into"},
+		{"cosign download can't run", func(h *harness) {
+			os.Remove(filepath.Join(h.stubDir, "cosign"))
+			download := "#!/bin/sh\nexit 126\n"
+			h.write(filepath.Join(h.files, "cosign/cosign-linux-amd64"), download, 0o644)
+			sum := sha256.Sum256([]byte(download))
+			h.pin(map[string]string{"COSIGN_SHA256_AMD64": hex.EncodeToString(sum[:])})
+		}, nil, "1.9.10", "can't run the cosign downloaded into"},
 		{"bad checksum", func(h *harness) {
 			h.write(filepath.Join(h.files, "v1.9.10/SHA256SUMS"), strings.Repeat("0", 64)+"  racksail-linux-amd64\n", 0o644)
 		}, nil, "1.9.10", "doesn't match its checksum"},
@@ -383,4 +487,13 @@ func TestInstallScriptLeavesNothingBehind(t *testing.T) {
 			t.Errorf("the script left %s behind", e.Name())
 		}
 	}
+}
+
+func mustGlob(t *testing.T, pattern string) []string {
+	t.Helper()
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) == 0 {
+		t.Fatalf("nothing matches %s: %v", pattern, err)
+	}
+	return files
 }

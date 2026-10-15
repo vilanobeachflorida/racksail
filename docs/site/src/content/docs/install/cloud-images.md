@@ -26,7 +26,7 @@ runcmd:
 
 Change `panel` and `panel.example.com` to the name the panel will have. The install script verifies the release's signatures and checksums before anything runs, as it does when you run it by hand. `--yes` is needed because cloud-init has no terminal to ask on.
 
-The repository's [packaging/cloud-init](https://github.com/vilanobeachflorida/racksail/tree/main/packaging/cloud-init) directory has this file and two others: one that pins a release, so every server of a fleet gets the same version, and one that downloads from a mirror of the releases.
+The repository's [packaging/cloud-init](https://github.com/vilanobeachflorida/racksail/tree/main/packaging/cloud-init) directory has this file and two others: one that pins a release, so every server of a fleet gets the same version, and one that installs [through a mirror](../existing-server/#through-a-mirror), for networks that can't reach GitHub or Sigstore.
 
 ## At your provider
 

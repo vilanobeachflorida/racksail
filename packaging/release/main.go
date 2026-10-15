@@ -142,44 +142,67 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 
 	case "check-pins":
 		script := flags.String("script", "packaging/install.sh", "the install script")
-		write := flags.Bool("write", false, "write cosign's published checksums into the script")
+		write := flags.Bool("write", false, "write cosign's published checksums and Sigstore's current trusted root into the script")
+		cosignBase := flags.String("cosign-releases", "https://github.com/sigstore/cosign/releases/download", "where cosign's releases are")
+		tuf := flags.String("sigstore-tuf", SigstoreTUF, "Sigstore's TUF repository")
 		if err := flags.Parse(args); err != nil {
 			return err
 		}
-		data, err := os.ReadFile(*script)
-		if err != nil {
-			return err
-		}
-		version, sums, err := CosignPins(data)
-		if err != nil {
-			return err
-		}
-		published, err := fetch(ctx, "https://github.com/sigstore/cosign/releases/download/"+version+"/cosign_checksums.txt")
-		if err != nil {
-			return err
-		}
-		if *write {
-			updated, err := UpdateCosignPins(data, published)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(*script, updated, 0o755)
-		}
-		if err := CheckCosignPins(sums, published); err != nil {
-			return fmt.Errorf("%w; run go run ./packaging/release check-pins -write", err)
-		}
-		fmt.Fprintf(stdout, "the install script's cosign %s checksums match the release\n", version)
-		return nil
+		return checkPins(ctx, http.DefaultClient, *script, *cosignBase, *tuf, *write, stdout)
 	}
 	return fmt.Errorf("unknown command %q", cmd)
 }
 
-func fetch(ctx context.Context, url string) ([]byte, error) {
+// checkPins compares what the install script trusts with what cosign and
+// Sigstore publish, or with write, brings the script up to date.
+func checkPins(ctx context.Context, client *http.Client, script, cosignBase, tuf string, write bool, stdout io.Writer) error {
+	data, err := os.ReadFile(script)
+	if err != nil {
+		return err
+	}
+	version, sums, err := CosignPins(data)
+	if err != nil {
+		return err
+	}
+	pinned, err := SigstoreRootPin(data)
+	if err != nil {
+		return err
+	}
+	published, err := fetch(ctx, client, cosignBase+"/"+version+"/cosign_checksums.txt")
+	if err != nil {
+		return err
+	}
+	root, err := CurrentTrustedRoot(ctx, client, tuf)
+	if err != nil {
+		return err
+	}
+	if write {
+		updated, err := UpdateCosignPins(data, published)
+		if err != nil {
+			return err
+		}
+		if updated, err = UpdateSigstoreRootPin(updated, root.SHA256); err != nil {
+			return err
+		}
+		return os.WriteFile(script, updated, 0o755)
+	}
+	errs := []error{CheckCosignPins(sums, published)}
+	if pinned != root.SHA256 {
+		errs = append(errs, fmt.Errorf("the install script pins Sigstore's trusted root %s, but Sigstore's current one is %s", pinned, root.SHA256))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("%w; run go run ./packaging/release check-pins -write", err)
+	}
+	fmt.Fprintf(stdout, "the install script's cosign %s checksums match the release, and it pins Sigstore's current trusted root\n", version)
+	return nil
+}
+
+func fetch(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
