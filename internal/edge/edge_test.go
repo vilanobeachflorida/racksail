@@ -150,6 +150,9 @@ type testEdge struct {
 func startEdge(t *testing.T, opts Options) *testEdge {
 	t.Helper()
 	dir := shortTemp(t)
+	// Caddy keeps an instance ID in the data directory; not the home of
+	// whoever runs the tests.
+	t.Setenv("XDG_DATA_HOME", dir)
 	if opts.StateDir == "" {
 		opts.StateDir = filepath.Join(dir, "state")
 	}

@@ -54,7 +54,7 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := exec.Command(os.Args[0], "-test.run=^TestEdgeTakesTheSocketSystemdPasses$")
-	child.Env = append(os.Environ(), "RACKSAIL_TEST_EDGE_CONFIG="+config, "LISTEN_FDS=1")
+	child.Env = append(os.Environ(), "RACKSAIL_TEST_EDGE_CONFIG="+config, "LISTEN_FDS=1", "XDG_DATA_HOME="+dir)
 	child.ExtraFiles = []*os.File{file}
 	var output bytes.Buffer
 	child.Stdout, child.Stderr = &output, &output

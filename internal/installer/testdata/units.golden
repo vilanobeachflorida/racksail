@@ -156,6 +156,7 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 StateDirectory=racksail-edge
 StateDirectoryMode=0750
+Environment=XDG_DATA_HOME=/var/lib/racksail-edge
 LimitNOFILE=1048576
 NoNewPrivileges=yes
 ProtectSystem=strict

@@ -160,6 +160,9 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 		Add("AmbientCapabilities", "CAP_NET_BIND_SERVICE").
 		Add("CapabilityBoundingSet", "CAP_NET_BIND_SERVICE").
 		Add("StateDirectory", "racksail-edge").Add("StateDirectoryMode", "0750").
+		// Caddy keeps an instance ID in the user's data directory; the
+		// edge's user has no home, so it goes with the edge's state.
+		Add("Environment", "XDG_DATA_HOME="+EdgeStateDir).
 		Add("LimitNOFILE", "1048576").
 		AddEntries(serviceHardening...)
 	// The edge isn't started at boot: its socket is, and the panel's first

@@ -111,11 +111,13 @@ func newDevServer(ctx context.Context, cfg config.Config, dataDir string, fresh 
 	// so they see the same audit trail and pending changes.
 	d.runtime = agent.NewRuntime(backend, agent.RuntimeOptions{Log: log})
 	table := edge.NewTable()
+	edgeState := filepath.Join(cfg.Paths.State, "edge")
+	keepCaddyData(edgeState)
 	// The edge reads what the agent wrote on the simulated server from its
 	// copy on disk, and answers the panel's questions in this process.
 	d.edge, err = edge.New(edge.Options{
 		Table: table, HTTP: cfg.Edge.HTTP, HTTPS: cfg.Edge.HTTPS,
-		StateDir: filepath.Join(cfg.Paths.State, "edge"), Dev: true,
+		StateDir: edgeState, Dev: true,
 		Certs: edge.FileCerts{Dir: machine.HostPath(system.CertsDir)}, MapPath: machine.HostPath,
 		Responder: edge.DefaultAnswers, Log: log,
 	})

@@ -227,4 +227,40 @@ func TestACMECertificates(t *testing.T) {
 	if leaf := handshake("a.demand.racksail.test"); len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "a.demand.racksail.test" || !strings.Contains(leaf.Issuer.CommonName, "Pebble") {
 		t.Errorf("on demand = %v by %s", leaf.DNSNames, leaf.Issuer.CommonName)
 	}
+
+	// Each challenge works alone, for networks that block port 80 or 443.
+	waitValid := func(subject string) {
+		t.Helper()
+		deadline := time.Now().Add(90 * time.Second)
+		for {
+			for _, c := range te.Certificates(ctx) {
+				if c.Subject == subject && c.Status == CertValid {
+					return
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s never got a certificate: %+v", subject, te.Certificates(ctx))
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	loads := te.Loads()
+	for i, only := range []string{"tls-alpn", "http"} {
+		s := te.Settings()
+		s.DisableHTTPChallenge, s.DisableTLSALPNChallenge = only == "tls-alpn", only == "http"
+		if err := te.admin.SetSettings(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+		for te.Loads() == loads+i {
+			time.Sleep(20 * time.Millisecond)
+		}
+		name := only + ".x.racksail.test"
+		if err := te.admin.SetRoutes(ctx, store.NewID("site"), []Route{{ID: "only", Hosts: []string{name}, Handler: Handler{Type: HandleRespond}}}); err != nil {
+			t.Fatal(err)
+		}
+		waitValid(name)
+	}
+	if err := te.SetSettings(Settings{DisableHTTPChallenge: true, DisableTLSALPNChallenge: true}); err == nil {
+		t.Error("turning off both challenges must be refused")
+	}
 }

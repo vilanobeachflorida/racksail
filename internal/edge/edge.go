@@ -45,6 +45,10 @@ type Settings struct {
 	IPProfile string `json:"ipProfile,omitempty" doc:"ACME profile for IP address certificates; shortlived when empty"`
 	// DisableHTTP3 serves HTTP/1.1 and HTTP/2 only.
 	DisableHTTP3 bool `json:"disableHTTP3,omitempty"`
+	// DisableHTTPChallenge and DisableTLSALPNChallenge stop validating
+	// names over port 80 or port 443, for networks that block one.
+	DisableHTTPChallenge    bool `json:"disableHTTPChallenge,omitempty" doc:"Don't validate names over port 80"`
+	DisableTLSALPNChallenge bool `json:"disableTLSALPNChallenge,omitempty" doc:"Don't validate names over port 443"`
 	// DNSResolvers check that DNS-01 challenge records are published.
 	DNSResolvers []string `json:"dnsResolvers,omitempty" doc:"Resolvers (host:port) that check DNS-01 records are published"`
 	// DNSPropagationTimeout bounds that check; negative skips it.
@@ -75,6 +79,9 @@ func (s Settings) Validate() error {
 	}
 	if s.ZeroSSL && s.Email == "" {
 		return errors.New("ZeroSSL needs an email address")
+	}
+	if s.DisableHTTPChallenge && s.DisableTLSALPNChallenge {
+		return errors.New("names need port 80 or port 443 to be validated; keep one of the challenges")
 	}
 	if s.IPProfile != "" && !routeIDPattern.MatchString(s.IPProfile) {
 		return fmt.Errorf("ACME profile %q", s.IPProfile)

@@ -172,8 +172,8 @@ func (e *Edge) issuers(s Settings, httpPort, httpsPort int) ([]obj, error) {
 	// The challenge ports are the edge's own, which serve the challenges;
 	// naming them keeps certmagic from listening on 80 or 443 itself.
 	direct := obj{
-		"http":     obj{"alternate_port": httpPort},
-		"tls-alpn": obj{"alternate_port": httpsPort},
+		"http":     obj{"alternate_port": httpPort, "disabled": s.DisableHTTPChallenge},
+		"tls-alpn": obj{"alternate_port": httpsPort, "disabled": s.DisableTLSALPNChallenge},
 	}
 	dns := obj{"provider": obj{"name": "racksail", "instance": e.id}}
 	if len(s.DNSResolvers) > 0 {

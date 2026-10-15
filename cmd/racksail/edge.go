@@ -38,6 +38,7 @@ func newEdgeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			keepCaddyData(stateDir)
 			e, err := edge.New(edge.Options{
 				HTTP: cfg.Edge.HTTP, HTTPS: cfg.Edge.HTTPS, StateDir: stateDir,
 				Certs: edge.FileCerts{Dir: system.CertsDir}, Log: log,
@@ -52,6 +53,14 @@ func newEdgeCommand() *cobra.Command {
 	addConfigFlag(cmd, &configPath)
 	cmd.Flags().StringVar(&stateDir, "state", system.EdgeStateDir, "directory for certificates, settings and the last routing table")
 	return cmd
+}
+
+// keepCaddyData has Caddy keep its instance ID with the edge's state
+// rather than in the user's home, unless the environment says where.
+func keepCaddyData(stateDir string) {
+	if os.Getenv("XDG_DATA_HOME") == "" {
+		os.Setenv("XDG_DATA_HOME", stateDir)
+	}
 }
 
 // adminListener returns the socket the panel sends routes to. Under systemd

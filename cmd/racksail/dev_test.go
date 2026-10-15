@@ -23,6 +23,7 @@ func TestPanelAgentAndEdgeInOneProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	dir := shortTemp(t)
+	t.Setenv("XDG_DATA_HOME", dir)
 	cfg, err := config.Dev(dir, config.DevAddresses{Panel: "127.0.0.1:0", EdgeHTTP: "127.0.0.1:0", EdgeHTTPS: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
