@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vilanobeachflorida/racksail/internal/installer"
 )
 
 // The install script runs against stand-ins for the commands it uses: curl
@@ -36,6 +38,7 @@ https://github.com/sigstore/cosign/*) src=$STUB_FILES/cosign/${url##*/} ;;
 esac
 [ -f "$src" ] || exit 22
 cp "$src" "$out"`,
+	"systemctl": `echo "systemctl $*" >>"$STUB_LOG"`,
 	"cosign": `[ "$1" = verify-blob ] || exit 1
 shift
 while [ $# -gt 0 ]; do
@@ -277,11 +280,29 @@ func TestInstallScriptOptions(t *testing.T) {
 		if r := h.run("sh", "1.9.10", "--yes"); r.err == nil || !strings.Contains(r.out, "already installed") {
 			t.Fatalf("an existing install must be kept: %v\n%s", r.err, r.out)
 		}
-		if r := h.run("sh", "1.9.10", "--yes", "--reinstall"); r.err != nil {
+		// systemd runs the server, so the services that run the old binary
+		// are restarted, after the conversion has updated their units.
+		h.write(filepath.Join(h.root, "run/systemd/system/.keep"), "", 0o644)
+		r := h.run("sh", "1.9.10", "--yes", "--reinstall")
+		if r.err != nil {
 			t.Fatalf("%v\n%s", r.err, r.out)
 		}
 		if data, _ := os.ReadFile(filepath.Join(h.root, "usr/local/bin/racksail")); string(data) != fakeRacksail {
 			t.Error("--reinstall didn't replace the binary")
+		}
+		restart := "systemctl try-restart " + strings.Join([]string{installer.AgentUnit, installer.PanelUnit, installer.EdgeUnit}, " ")
+		convert := strings.Index(r.log, "racksail install --convert")
+		if i := strings.Index(r.log, restart+"\n"); i < 0 || i < convert {
+			t.Errorf("the services weren't restarted after the conversion:\n%s", r.log)
+		}
+	})
+	t.Run("first install", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		h.write(filepath.Join(h.root, "run/systemd/system/.keep"), "", 0o644)
+		r := h.run("sh", "1.9.10", "--yes")
+		if r.err != nil || strings.Contains(r.log, "systemctl") {
+			t.Errorf("the conversion starts the services itself, so nothing restarts them: %v\n%s", r.err, r.log)
 		}
 	})
 }

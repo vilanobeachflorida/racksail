@@ -37,7 +37,7 @@ Nothing it downloads runs before it has been verified, and if any check fails, n
 | `--mirror https://mirror.example.com/racksail` | Downloads from a mirror that serves each release's files under its tag; it needs `--version` |
 | `--dry-run` | Shows what converting the server would do, and stops |
 | `--yes` | Doesn't ask before converting, for automation |
-| `--reinstall` | Replaces a `racksail` binary that is already installed |
+| `--reinstall` | Replaces a `racksail` binary that is already installed, and restarts Racksail's services so they run it |
 
 Run it with `--help` for the full list.
 

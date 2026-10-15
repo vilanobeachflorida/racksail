@@ -51,7 +51,8 @@ Options:
   --mirror URL        download releases from a mirror instead of GitHub;
                       it needs --version
   --dry-run           show what converting the server would do, and stop
-  --reinstall         replace a racksail binary that is already installed
+  --reinstall         replace a racksail binary that is already installed,
+                      and restart Racksail's services
   --yes               don't ask before converting the server
   --help              show this help
 EOF
@@ -328,6 +329,13 @@ install -m 0755 "$TMP/$ASSET" "$ROOT$BINARY.new"
 mv -f "$ROOT$BINARY.new" "$ROOT$BINARY"
 
 "$ROOT$BINARY" install --convert --binary "$BINARY" --answers "$TMP/answers.yaml"
+
+# Services that were already running still run the binary they started
+# with; restarting them puts the new one to work.
+if [ -n "$REINSTALL" ] && [ -d "$ROOT/run/systemd/system" ]; then
+	say "Restarting Racksail's services"
+	systemctl try-restart racksail-agent.service racksail-panel.service racksail-edge.service
+fi
 
 ADDRESS=$(hostname -I 2>/dev/null | awk '{ print $1 }') || true
 say ""
