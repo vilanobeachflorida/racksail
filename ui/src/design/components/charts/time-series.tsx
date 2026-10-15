@@ -1,5 +1,5 @@
 import { Flag } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 import type uPlot from "uplot";
 import { useOptionalTheme } from "@/design/theme/provider";
@@ -46,6 +46,17 @@ interface Hover {
   top: number;
 }
 
+// One empty list for every chart without events: a new one per render would
+// rebuild the chart on every render.
+const noEvents: readonly ChartEvent[] = [];
+
+function sameHover(a: Hover | null, b: Hover | null): boolean {
+  return (
+    a === b ||
+    (a !== null && b !== null && a.index === b.index && a.left === b.left && a.top === b.top)
+  );
+}
+
 /**
  * A chart of values over time with one y-axis, a crosshair tooltip, a
  * legend that names every series, the event timeline drawn over it, and a
@@ -56,12 +67,13 @@ export function TimeSeries({
   times,
   series,
   format,
-  events = [],
+  events = noEvents,
   height = 220,
   area = series.length === 1,
   className,
 }: TimeSeriesProps) {
   const intl = useIntl();
+  const titleId = useId();
   const f = useFormat();
   const container = useRef<HTMLDivElement>(null);
   const width = useWidth(container);
@@ -149,11 +161,12 @@ export function TimeSeries({
         setCursor: [
           (u: uPlot) => {
             const { idx, left, top } = u.cursor;
-            setHover(
+            const next =
               idx === null || idx === undefined || left === undefined || left < 0
                 ? null
-                : { index: idx, left, top: top ?? 0 },
-            );
+                : { index: idx, left, top: top ?? 0 };
+            // Redraws report the cursor too; only a move should render again.
+            setHover((prev) => (sameHover(prev, next) ? prev : next));
           },
         ],
       },
@@ -165,9 +178,15 @@ export function TimeSeries({
 
   const hoverTime = hover ? times[hover.index] : undefined;
   return (
-    <figure data-slot="time-series" className={cn("flex min-w-0 flex-col gap-2", className)}>
+    <figure
+      data-slot="time-series"
+      aria-labelledby={titleId}
+      className={cn("flex min-w-0 flex-col gap-2", className)}
+    >
       <figcaption className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-medium text-sm">{title}</span>
+        <span id={titleId} className="font-medium text-sm">
+          {title}
+        </span>
         {series.length > 1 ? (
           <ul
             className="flex flex-wrap gap-3 text-muted-foreground text-xs"
