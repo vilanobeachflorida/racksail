@@ -16,6 +16,7 @@ class FakeXTerm {
   textarea: HTMLTextAreaElement | undefined;
   written: (string | Uint8Array)[] = [];
   disposed = false;
+  keyHandler: ((event: KeyboardEvent) => boolean) | undefined;
   private listeners = new Set<(data: string) => void>();
 
   constructor(options: Record<string, unknown>) {
@@ -23,6 +24,13 @@ class FakeXTerm {
     terminals.push(this);
   }
   loadAddon() {}
+  attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+    this.keyHandler = handler;
+  }
+  /** Whether xterm.js would take a key press, rather than leave it to the browser. */
+  takes(key: string, init: KeyboardEventInit = {}) {
+    return this.keyHandler?.(new KeyboardEvent("keydown", { key, ...init })) ?? true;
+  }
   open(parent: HTMLElement) {
     this.textarea = document.createElement("textarea");
     parent.append(this.textarea);
@@ -116,6 +124,23 @@ describe("the terminal", () => {
     unmount();
     expect(session.transport.close).toHaveBeenCalled();
     expect(xterm.disposed).toBe(true);
+  });
+
+  it("keeps Tab for the shell, except after Esc, which lets keyboard users leave", async () => {
+    const session = fakeTransport();
+    renderWithProviders(<Terminal label="Shell" connect={() => session.transport} />);
+    await screen.findByText("Connecting");
+    const xterm = terminals[0] as FakeXTerm;
+    expect(xterm.textarea).toHaveAccessibleDescription(
+      "Press Esc, then Tab, to move out of the terminal.",
+    );
+    expect(xterm.takes("Tab")).toBe(true);
+    expect(xterm.takes("Escape")).toBe(true);
+    expect(xterm.takes("Tab", { shiftKey: true })).toBe(false);
+    expect(xterm.takes("Tab")).toBe(true);
+    xterm.takes("Escape");
+    xterm.takes("a");
+    expect(xterm.takes("Tab")).toBe(true);
   });
 
   it("says why the session ended and reconnects", async () => {

@@ -3,7 +3,7 @@ import "./terminal.css";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 import { useOptionalTheme } from "@/design/theme/provider";
 import { readToken } from "@/design/tokens";
@@ -71,6 +71,7 @@ export default function Terminal({
   const [state, setState] = useState<State>("connecting");
   const [reason, setReason] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const hintId = useId();
   const tokensKey = useOptionalTheme()?.tokensKey;
   const connectRef = useRef(connect);
   useEffect(() => {
@@ -94,8 +95,23 @@ export default function Terminal({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.loadAddon(new WebLinksAddon());
+    // Tab belongs to the shell, so keyboard users leave the terminal with
+    // Esc and then Tab, as in the code editor.
+    let escaped = false;
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") {
+        return true;
+      }
+      if (event.key === "Tab" && escaped && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        escaped = false;
+        return false;
+      }
+      escaped = event.key === "Escape";
+      return true;
+    });
     terminal.open(parent);
     terminal.textarea?.setAttribute("aria-label", label);
+    terminal.textarea?.setAttribute("aria-describedby", hintId);
     term.current = terminal;
     setState("connecting");
     const transport = connectRef.current();
@@ -130,7 +146,7 @@ export default function Terminal({
       terminal.dispose();
       term.current = null;
     };
-  }, [attempt, label, screenReaderMode]);
+  }, [attempt, label, screenReaderMode, hintId]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: tokensKey changes when the theme's colors do
   useEffect(() => {
@@ -166,6 +182,9 @@ export default function Terminal({
           </Button>
         ) : null}
       </div>
+      <p id={hintId} className="sr-only">
+        {intl.formatMessage(m.terminalLeave)}
+      </p>
       <div ref={host} className="min-h-0 flex-1 bg-surface-sunken" />
     </div>
   );

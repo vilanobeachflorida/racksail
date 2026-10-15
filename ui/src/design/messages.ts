@@ -43,6 +43,8 @@ export const designMessages = {
   terminalClosed: m("design.terminal.closed"),
   terminalClosedReason: m("design.terminal.closedReason"),
   terminalReconnect: m("design.terminal.reconnect"),
+  terminalLeave: m("design.terminal.leave"),
+  codeLeave: m("design.code.leave"),
 
   previewRisk: m("design.preview.risk"),
   previewDiffOp: m("design.preview.diffOp"),

@@ -282,6 +282,8 @@
   "design.terminal.closed": "Disconnected",
   "design.terminal.closedReason": "Disconnected: {reason}",
   "design.terminal.reconnect": "Reconnect",
+  "design.terminal.leave": "Press Esc, then Tab, to move out of the terminal.",
+  "design.code.leave": "Press Esc, then Tab, to move out of the editor.",
   "design.preview.risk": "{risk, select, read {Read only} low {Low risk} medium {Medium risk} high {High risk} critical {Critical risk} other {{risk}}}",
   "design.preview.diffOp": "{op, select, add {Added} remove {Removed} other {Changed}}",
   "design.preview.sensitive": "hidden",

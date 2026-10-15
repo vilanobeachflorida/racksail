@@ -27,8 +27,10 @@ import {
   placeholder as placeholderExtension,
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
+import { useIntl } from "react-intl";
 import { cn } from "@/lib/utils";
+import { designMessages as m } from "../../messages";
 import { type Language, languages } from "./languages";
 
 /**
@@ -163,6 +165,8 @@ export default function CodeEditor({
   className,
   onSave,
 }: CodeEditorProps) {
+  const intl = useIntl();
+  const hintId = useId();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const languageSlot = useRef(new Compartment());
@@ -216,7 +220,7 @@ export default function CodeEditor({
         indentWithTab,
       ]),
       editorTheme,
-      EditorView.contentAttributes.of({ "aria-label": label }),
+      EditorView.contentAttributes.of({ "aria-label": label, "aria-describedby": hintId }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           callbacks.current.onChange?.(update.state.doc.toString());
@@ -284,11 +288,16 @@ export default function CodeEditor({
   }, [diagnostics]);
 
   return (
-    <div
-      ref={host}
-      data-slot="code-editor"
-      className={cn("min-w-0 [&_.cm-editor]:h-full", className)}
-      style={{ height }}
-    />
+    <>
+      <p id={hintId} className="sr-only">
+        {intl.formatMessage(m.codeLeave)}
+      </p>
+      <div
+        ref={host}
+        data-slot="code-editor"
+        className={cn("min-w-0 [&_.cm-editor]:h-full", className)}
+        style={{ height }}
+      />
+    </>
   );
 }

@@ -49,6 +49,7 @@ describe("the code editor", () => {
     );
     const content = await screen.findByRole("textbox", { name: "nginx.conf" });
     expect(content).toHaveAttribute("contenteditable", "true");
+    expect(content).toHaveAccessibleDescription("Press Esc, then Tab, to move out of the editor.");
     expect(content).toHaveTextContent("listen 80;");
 
     const view = viewOf(content);
