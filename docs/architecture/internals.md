@@ -52,7 +52,7 @@ Code written against the interfaces won't change when these are kept on disk, so
 - **Manage a server:** commands that call a panel's API. They're built from `clientCommands` in `client.go`, a list of builder functions that get the shared flags (`--server`, `--ca-file`, `--output`). Commands that change something are wrapped in `mutating(cmd)`, which also gives them `--dry-run`. `status` is the only client command so far; the commands generated from the OpenAPI document are to append their builders to the list from `init` functions, wrapping every operation that isn't a GET in `mutating`.
 - **Tools:** `openapi`, `version` and `theme`.
 
-`core.go` wires the panel: the store, the event bus, the job queue, the secrets store, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on and notifies `core.boot`. Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on. Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process), in how they listen, and in who may connect: the panel only accepts requests from `panel.allow_from` in `racksail.toml` when it is set.
+`core.go` wires the panel: the store, the event bus, the job queue, the secrets store, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on, notifies `core.boot` and starts the periodic resync (`reconcile.Runner.Resync`). Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on. Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process), in how they listen, and in who may connect: the panel only accepts requests from `panel.allow_from` in `racksail.toml` when it is set.
 
 The binary refuses to start if any registry recorded a problem while packages initialized (`checkRegistries`): an error code defined twice, a malformed agent operation, a duplicate job type, a bad manifest. The same check runs in the tests, so these mistakes never reach a release.
 
@@ -62,7 +62,7 @@ The binary refuses to start if any registry recorded a problem while packages in
 |---|---|
 | `internal/store` | Resources, kinds, TypeIDs, the `Store` interface, its in-memory implementation and the `Overlay` the pipeline plans against |
 | `internal/changeset` | The change pipeline: requests, diffs, plans, previews, apply jobs, undo, retention and secret values |
-| `internal/reconcile` | The reconciler interface, the typed adapter and the runner |
+| `internal/reconcile` | The reconciler interface, the typed adapter, the runner with its health checks, and the periodic resync |
 | `internal/agent` | The typed operation allowlist, the agent's HTTP server and the clients that call it |
 | `internal/system` | Adapter interfaces for everything the agent touches, and the pure renderers for unit files and apt sources |
 | `internal/system/linux` | The real adapters, for Debian 13 |
@@ -166,7 +166,9 @@ cs, err := svc.Pipeline.Submit(ctx, changeset.Request{
 
 For each change in turn, `Engine.Submit` fills in the kind's defaults, asks the authorizer, takes the change's secret values, runs the kind's validation and the validate hooks, then asks the resource's reconciler for a plan and runs its steps in the agent's check mode, so the preview lists the exact downloads, packages, files and ports. Reconcilers plan against the overlay too, so the site's reconciler can read the database it uses before either exists. Modify hooks then run once per plan point, with the indexes of the changes the point is about. They may rewrite the specs of those changes and add changes and effects, and nothing else: no hook can turn an update into a delete, move a change to another resource or scope, or drop one. What they add is labelled with its source, and two of them changing the same field is reported as a conflict. Every change a hook rewrote or added is authorized for the actor, validated and run past the validate hooks again, and added changes, which can only be creates, updates and deletes, are planned too, so the preview shows what they do to the machine. Added changes don't go through modify hooks themselves.
 
-A dry run then makes the store writes in a transaction it throws away, so the preview also reports a name that's already taken, and returns the change set. Otherwise every change is written in one store transaction and a `changeset.apply` job runs the plans with live progress. Events and audit records follow, including for denied attempts. When a request has several changes, field errors say which change they belong to: `changes[1].spec.domains`.
+A change set with a destructive effect gets `Snapshot`, and its preview lists the snapshots applying it takes. A dry run then makes the store writes in a transaction it throws away, so the preview also reports a name that's already taken, and returns the change set. Otherwise the pipeline first takes read-only Btrfs snapshots of the subvolumes that hold what the change set removes (`agent.SnapshotPaths`; data that isn't on Btrfs goes without, and if taking them fails nothing changes), then writes every change in one store transaction, and a `changeset.apply` job runs the plans with live progress and verifies the result: the runner runs each plan's health checks, and the job runs an action's `Checks` after its steps. A check that doesn't pass fails the change set, which can then be undone. Events and audit records follow, including for denied attempts. When a request has several changes, field errors say which change they belong to: `changes[1].spec.domains`.
+
+The snapshots are recorded in `ChangeSet.Snapshots` and deleted when the change set is no longer kept. Undo puts back specs; bringing back data from a snapshot is a restore, which starts from that list.
 
 - `Undo(ctx, changeset.UndoRequest{Actor, ChangeSet, DryRun, IdempotencyKey})` turns the recorded previous specs, labels and placement into a new request (creates become deletes, deletes become creates with the same ID) and sends it through the same stages, so an undo is authorized, validated, hooked and previewed like any change. Applied and failed change sets can be undone; an action that changed no settings can't.
 - A retry with the same `IdempotencyKey` by the same actor returns the first change set for 24 hours, as long as it's kept. A second request with the key while the first is still running gets `changeset.duplicate_request`.
@@ -216,7 +218,18 @@ func (zoneReconciler) Apply(ctx context.Context, z *store.Object[ZoneSpec, ZoneS
 }
 ```
 
-The module returns `reconcile.Typed(Zone, zoneReconciler{})` from `Reconcilers()`. Plans must be idempotent: every operation reports `Changed: false` when its effect is already in place, so running a plan twice changes nothing, and the runner can resync everything on a timer. When a resource is deleted, the plan removes what earlier plans created; the runner purges the resource once that has worked. Reconcilers of kinds with actions also implement `reconcile.ActionPlanner`.
+The module returns `reconcile.Typed(Zone, zoneReconciler{})` from `Reconcilers()`. Plans must be idempotent: every operation reports `Changed: false` when its effect is already in place, so running a plan twice changes nothing. The panel relies on that: its resync reconciles every resource every 15 minutes (`reconcile.ResyncInterval`), which puts back what drifted on the machine and carries out changes whose apply job never ran, and the runner reconciles one resource at a time, so the resync and an apply job never work on the same resource at once. When a resource is deleted, the plan removes what earlier plans created; the runner purges the resource once that has worked. Reconcilers of kinds with actions also implement `reconcile.ActionPlanner`.
+
+A plan's `Checks` verify the result once its steps have run:
+
+```go
+return reconcile.Plan{Steps: steps, Checks: []reconcile.HealthCheck{
+	{Name: "knot", Type: reconcile.CheckUnit, Target: "knot.service"},
+	{Name: "answers", Type: reconcile.CheckDNS, Target: z.Spec.Name},
+}}, nil
+```
+
+Checks are `http` (a status below 400, or `Expect`), `tcp`, `tls` (a certificate valid for the host, or for `Expect`), `dns` and `unit` (active, or `Expect`). Each is tried until it passes or its timeout, 30 seconds unless it sets one, runs out, since a service that was just started may need a moment. Unit checks ask the agent; the others go out from the panel, as visitors' requests would. When one doesn't pass, the resource's `Ready` condition turns false with the reason `VerifyFailed`.
 
 `req.Read` reads other resources: the store, or during a preview the change set's planned state. `req.Facts` describes the machine the resource is placed on, and `req.Secrets` resolves secret references.
 

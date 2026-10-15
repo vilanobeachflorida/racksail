@@ -8,7 +8,9 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -274,6 +276,84 @@ func TestStorageOps(t *testing.T) {
 	}
 	if res, err := StartScrub.Call(ctx, c, MountPointInput{Mount: "/mnt/racksail/pool"}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("scrub = %+v, %v", res, err)
+	}
+}
+
+func TestSnapshotPaths(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	b := m.Backend()
+	blog := "/srv/racksail/accounts/blog"
+	if _, err := EnsureSubvolume.Call(ctx, c, SubvolumeInput{Path: blog}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: blog + "/index.html", Content: []byte("home"), Mode: 0o644}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	in := SnapshotPathsInput{Label: "chg_01test", Paths: []string{
+		blog + "/index.html",
+		blog,
+		"/etc/racksail/generated/blog.conf",
+		"/boot/efi/EFI/debian/grub.cfg",
+		"/.snapshots/racksail/chg_01old/root",
+	}}
+	dir := SnapshotDir + "/chg_01test"
+	want := []Snapshot{{Source: blog, Path: dir + "/" + snapshotName(blog)}, {Source: "/", Path: dir + "/" + snapshotName("/")}}
+	if !strings.HasPrefix(path.Base(want[0].Path), "srv-racksail-accounts-blog-") || !strings.HasPrefix(path.Base(want[1].Path), "root-") {
+		t.Errorf("snapshot names = %v", want)
+	}
+	if snapshotName("/srv/racksail") != "srv-racksail-abdff825" || snapshotName("/") != "root-8a5edab2" {
+		t.Errorf("snapshot names = %s, %s", snapshotName("/srv/racksail"), snapshotName("/"))
+	}
+	if snapshotName("/srv/a-b") == snapshotName("/srv/a/b") {
+		t.Error("subvolumes whose names read the same get different snapshots")
+	}
+
+	check, err := SnapshotPaths.Call(ctx, c, in, CallOptions{Check: true})
+	if err != nil || !check.Changed || len(check.Effects) != 2 || !slices.Equal(check.Snapshots, want) {
+		t.Fatalf("check = %+v, %v", check, err)
+	}
+	if !slices.Equal(check.Unprotected, []string{"/boot/efi/EFI/debian/grub.cfg", "/.snapshots/racksail/chg_01old/root"}) {
+		t.Errorf("paths no snapshot covers = %v", check.Unprotected)
+	}
+	if _, err := b.Files.Stat(ctx, dir); !errors.Is(err, system.ErrNotFound) {
+		t.Fatal("check mode must not snapshot anything")
+	}
+
+	res, err := SnapshotPaths.Call(ctx, c, in, CallOptions{})
+	if err != nil || !res.Changed || !slices.Equal(res.Snapshots, want) {
+		t.Fatalf("snapshots = %+v, %v", res, err)
+	}
+	if data, err := b.Files.ReadFile(ctx, want[0].Path+"/index.html", 0); err != nil || string(data) != "home" {
+		t.Errorf("the snapshot holds the site's files: %q, %v", data, err)
+	}
+	if info, err := b.Files.Stat(ctx, dir); err != nil || info.Perm() != 0o700 {
+		t.Errorf("snapshot directory = %v, %v", info, err)
+	}
+	svs, _ := b.Btrfs.Subvolumes(ctx, "/.snapshots")
+	readOnly := 0
+	for _, sv := range svs {
+		if strings.HasPrefix(sv.Path, dir+"/") && sv.ReadOnly {
+			readOnly++
+		}
+	}
+	if readOnly != 2 {
+		t.Errorf("read-only snapshots = %d in %+v", readOnly, svs)
+	}
+	again, err := SnapshotPaths.Call(ctx, c, in, CallOptions{})
+	if err != nil || again.Changed || !slices.Equal(again.Snapshots, want) {
+		t.Errorf("taking them again = %+v, %v", again, err)
+	}
+	if _, err := SnapshotPaths.Call(ctx, c, SnapshotPathsInput{Label: "../etc", Paths: []string{blog}}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a label with a path in it: %v", err)
+	}
+	for _, s := range want {
+		if _, err := DeleteSubvolume.Call(ctx, c, SubvolumeInput{Path: s.Path}, CallOptions{}); err != nil {
+			t.Errorf("deleting %s: %v", s.Path, err)
+		}
+	}
+	if _, err := RemovePath.Call(ctx, c, RemovePathInput{Path: dir}, CallOptions{}); err != nil {
+		t.Errorf("removing the emptied directory: %v", err)
 	}
 }
 

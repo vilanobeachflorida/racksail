@@ -10,7 +10,9 @@
 // twice changes nothing; ApplySteps is the standard Apply.
 //
 // Typed lets a module write its reconciler against its own spec and status
-// types. The Runner loads a resource, plans, applies, writes the status and,
-// for deleted resources, purges them once their system state is gone.
-// Reconcilers run on change, on a timer and when the agent reports drift.
+// types. The Runner loads a resource, plans, applies, verifies the result
+// with the plan's health checks (through a Checker), writes the status and,
+// for deleted resources, purges them once their system state is gone. It
+// reconciles one resource at a time. Resources are reconciled when a change
+// to them is applied, and all of them again at every Resync.
 package reconcile

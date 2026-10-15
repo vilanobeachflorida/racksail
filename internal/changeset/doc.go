@@ -20,10 +20,12 @@
 // actor, validated and run past the validate hooks again, and they can't
 // change anything else.
 //
-// Applying writes every resource change in one store transaction and then
-// runs the reconcilers as a job with live progress. Undo is a new change set
-// built from the recorded previous specs, labels and placement, planned and
-// applied like any other.
+// Applying a change set that removes data first takes read-only snapshots of
+// what it removes. It then writes every resource change in one store
+// transaction and runs the reconcilers as a job with live progress, which
+// verifies the result with the plans' health checks. Undo is a new change
+// set built from the recorded previous specs, labels and placement, planned
+// and applied like any other.
 //
 // Secret values never enter specs. A kind's sensitive fields hold references
 // to the resource's own secrets; values arrive in Change.Secrets and are

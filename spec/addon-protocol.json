@@ -138,6 +138,15 @@
           "snapshot": {
             "type": "boolean"
           },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/Snapshot"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "state": {
             "enum": [
               "planned",
@@ -384,6 +393,45 @@
         ],
         "type": "object"
       },
+      "HealthCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "expect": {
+            "description": "The expected status code, unit state, address or certificate name",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the check confirms, such as the site answering",
+            "type": "string"
+          },
+          "target": {
+            "description": "A URL, host:port, unit name or DNS name",
+            "type": "string"
+          },
+          "timeout": {
+            "description": "How long the check keeps trying, in nanoseconds",
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": {
+            "description": "How the check works",
+            "enum": [
+              "http",
+              "tcp",
+              "unit",
+              "dns",
+              "tls"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "target"
+        ],
+        "type": "object"
+      },
       "HookCall": {
         "additionalProperties": false,
         "properties": {
@@ -534,6 +582,15 @@
           },
           "after": {},
           "before": {},
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/HealthCheck"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "diff": {
             "items": {
               "$ref": "#/components/schemas/FieldDiff"
@@ -622,6 +679,24 @@
         },
         "required": [
           "level"
+        ],
+        "type": "object"
+      },
+      "Snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Where the snapshot is",
+            "type": "string"
+          },
+          "source": {
+            "description": "The subvolume, such as /srv/racksail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "path"
         ],
         "type": "object"
       },

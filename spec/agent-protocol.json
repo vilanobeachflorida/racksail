@@ -2056,6 +2056,24 @@
         ],
         "type": "object"
       },
+      "Snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Where the snapshot is",
+            "type": "string"
+          },
+          "source": {
+            "description": "The subvolume, such as /srv/racksail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "path"
+        ],
+        "type": "object"
+      },
       "SnapshotInput": {
         "additionalProperties": false,
         "properties": {
@@ -2075,6 +2093,74 @@
         "required": [
           "source",
           "dest"
+        ],
+        "type": "object"
+      },
+      "SnapshotPathsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "description": "Names the directory the snapshots go in, such as the ID of the change set they protect",
+            "type": "string"
+          },
+          "paths": {
+            "description": "Paths a change is about to remove",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "paths",
+          "label"
+        ],
+        "type": "object"
+      },
+      "SnapshotResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "snapshots": {
+            "description": "The snapshots, one per subvolume",
+            "items": {
+              "$ref": "#/components/schemas/Snapshot"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "unprotected": {
+            "description": "Paths no snapshot covers, because they aren't on Btrfs",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "snapshots",
+          "changed"
         ],
         "type": "object"
       },
@@ -8846,6 +8932,119 @@
           }
         },
         "summary": "Send a signal to a process",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/SnapshotPaths": {
+      "post": {
+        "description": "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected.",
+        "operationId": "SnapshotPaths",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotPathsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Snapshot what a change is about to remove",
         "tags": [
           "core"
         ]

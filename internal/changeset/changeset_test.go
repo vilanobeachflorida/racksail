@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -128,6 +129,10 @@ func (pageReconciler) Apply(ctx context.Context, obj *store.Object[pageSpec, pag
 	return st, err
 }
 
+// publishChecks are the checks the publish action's plan carries, for the
+// tests of the verify stage.
+var publishChecks []reconcile.HealthCheck
+
 func (pageReconciler) PlanAction(ctx context.Context, req reconcile.ActionRequest) (reconcile.ActionPlan, error) {
 	if req.Action == "touch" {
 		return reconcile.ActionPlan{}, nil
@@ -138,7 +143,7 @@ func (pageReconciler) PlanAction(ctx context.Context, req reconcile.ActionReques
 	}
 	return reconcile.ActionPlan{Plan: reconcile.Plan{Steps: []agent.Step{
 		agent.WriteFile.Step(agent.WriteFileInput{Path: pagesDir + "/.published", Content: []byte(in.Message), Mode: 0o644}),
-	}}}, nil
+	}, Checks: publishChecks}}, nil
 }
 
 // A menu lists pages; planning it reads them, so it can only be planned
@@ -878,4 +883,94 @@ func mustSubmit(t *testing.T, engine *Engine, req Request) *ChangeSet {
 		t.Fatal(err)
 	}
 	return cs
+}
+
+// failingSnapshots makes the agent's SnapshotPaths fail when it is really
+// asked to take snapshots, as a full disk would.
+type failingSnapshots struct{ agent.Client }
+
+func (f failingSnapshots) Call(ctx context.Context, op string, input json.RawMessage, opts agent.CallOptions) (json.RawMessage, error) {
+	if op == agent.SnapshotPaths.Name() && !opts.Check {
+		return nil, agent.ErrFailed.New("op", op, "reason", "no space left on device")
+	}
+	return f.Client.Call(ctx, op, input, opts)
+}
+
+func TestSnapshotsBeforeRemovingData(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{MaxFinished: 2}, nil)
+	page := e.submit(t, false, e.createPage(pageSpec{Path: "old.html", Content: "old news"}))
+	id := page.Changes[0].ID
+	if page.Snapshot || len(page.Snapshots) != 0 {
+		t.Errorf("creating a page removes nothing: %+v", page)
+	}
+
+	preview := e.submit(t, true, Change{Op: OpDelete, Kind: "test.page", ID: id})
+	var listed bool
+	for _, eff := range preview.Effects {
+		listed = listed || (eff.Action == "snapshot" && eff.Detail == "/srv/racksail")
+	}
+	if !preview.Snapshot || !listed || len(preview.Snapshots) != 0 {
+		t.Errorf("the preview says a snapshot of /srv/racksail comes first: %+v", preview.Effects)
+	}
+
+	runner := e.engine.opts.Runner
+	local := runner.Agent
+	runner.Agent = failingSnapshots{local}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, ErrSnapshotFailed) {
+		t.Errorf("without its snapshot, a risky change doesn't go ahead: %v", err)
+	}
+	if got, err := e.store.Get(ctx, id); err != nil || got.Deleted() {
+		t.Errorf("nothing was written: %v", err)
+	}
+	runner.Agent = local
+
+	del := e.submit(t, false, Change{Op: OpDelete, Kind: "test.page", ID: id})
+	if del.State != StateApplied || len(del.Snapshots) != 1 || del.Snapshots[0].Source != "/srv/racksail" {
+		t.Fatalf("delete = %+v", del)
+	}
+	snap := del.Snapshots[0].Path
+	if got := e.file(snap + "/pages/old.html"); got != "old news" {
+		t.Errorf("the snapshot keeps what the delete removed: %q", got)
+	}
+	if e.file(pagesDir+"/old.html") != "" {
+		t.Error("the page is gone from the site")
+	}
+
+	// Once the change set is no longer kept, neither is its snapshot.
+	for i := range 3 {
+		e.submit(t, false, e.createPage(pageSpec{Path: fmt.Sprintf("p%d.html", i), Content: "x"}))
+	}
+	if _, err := e.engine.Get(ctx, del.ID); !errors.Is(err, i18n.ErrNotFound) {
+		t.Fatalf("the delete should be dropped by now: %v", err)
+	}
+	if _, err := e.sim.Backend().Files.Stat(ctx, snap); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("its snapshot is deleted: %v", err)
+	}
+	if _, err := e.sim.Backend().Files.Stat(ctx, path.Dir(snap)); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("and so is its directory: %v", err)
+	}
+}
+
+func TestActionChecks(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	id := e.submit(t, false, e.createPage(pageSpec{Path: "news.html", Content: "news"})).Changes[0].ID
+	defer func() { publishChecks = nil }()
+	publish := func() *ChangeSet {
+		cs, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpAction, Kind: "test.page", ID: id, Action: "publish", Input: json.RawMessage(`{"message":"hello"}`)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.wait(t, cs)
+	}
+	publishChecks = []reconcile.HealthCheck{{Name: "ssh", Type: reconcile.CheckUnit, Target: "ssh.service"}}
+	if cs := publish(); cs.State != StateApplied || len(cs.Changes[0].Checks) != 1 {
+		t.Errorf("a passing check = %+v", cs)
+	}
+	publishChecks = []reconcile.HealthCheck{{Name: "stopped ssh", Type: reconcile.CheckUnit, Target: "ssh.service", Expect: "inactive", Timeout: 50 * time.Millisecond}}
+	failed := publish()
+	if failed.State != StateFailed || !strings.Contains(failed.Error, "stopped ssh") {
+		t.Errorf("a failing check fails the change, which can then be undone: %+v", failed)
+	}
 }

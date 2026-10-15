@@ -10,6 +10,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -104,6 +105,9 @@ type ResourceChange struct {
 	// Steps are agent operations an action runs once, on top of the
 	// resource's reconcile.
 	Steps []agent.Step `json:"steps,omitempty"`
+	// Checks confirm that an action's steps worked. They run after the steps
+	// and the resource's reconcile, whose own plan has checks of its own.
+	Checks []reconcile.HealthCheck `json:"checks,omitempty"`
 }
 
 // Clone returns a copy of rc whose maps, documents and lists can be changed
@@ -123,6 +127,7 @@ func (rc ResourceChange) Clone() ResourceChange {
 		}
 	}
 	c.Steps = slices.Clone(rc.Steps)
+	c.Checks = slices.Clone(rc.Checks)
 	return c
 }
 
@@ -174,10 +179,16 @@ type ChangeSet struct {
 	Conflicts     []Conflict       `json:"conflicts,omitempty"`
 	Risk          store.Risk       `json:"risk" enum:"read,low,medium,high,critical"`
 	Estimate      Estimate         `json:"estimate"`
-	// Snapshot says a filesystem snapshot is taken before applying.
-	Snapshot bool  `json:"snapshot,omitempty"`
-	DryRun   bool  `json:"dryRun,omitempty"`
-	State    State `json:"state" enum:"planned,applying,applied,failed,undone"`
+	// Snapshot says the change set removes data, so before it is applied,
+	// read-only snapshots are taken of the Btrfs subvolumes that hold what it
+	// removes.
+	Snapshot bool `json:"snapshot,omitempty"`
+	// Snapshots are the snapshots taken. A restore can bring back what the
+	// change set removed from them; they are deleted when the change set is
+	// no longer kept.
+	Snapshots []agent.Snapshot `json:"snapshots,omitempty"`
+	DryRun    bool             `json:"dryRun,omitempty"`
+	State     State            `json:"state" enum:"planned,applying,applied,failed,undone"`
 	// Job carries out the system changes once the change set is applied.
 	Job       store.ID   `json:"job,omitempty"`
 	UndoOf    store.ID   `json:"undoOf,omitempty"`
@@ -201,6 +212,7 @@ func (cs *ChangeSet) Clone() *ChangeSet {
 		}
 	}
 	c.Effects = slices.Clone(cs.Effects)
+	c.Snapshots = slices.Clone(cs.Snapshots)
 	if cs.Contributions != nil {
 		c.Contributions = make([]Contribution, len(cs.Contributions))
 		for i, con := range cs.Contributions {

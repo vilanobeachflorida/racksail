@@ -56,6 +56,8 @@ func ChangedPart(a, b ResourceChange) string {
 		return "source"
 	case !sameJSON(a.Steps, b.Steps):
 		return "steps"
+	case !sameJSON(a.Checks, b.Checks):
+		return "checks"
 	}
 	return ""
 }
@@ -167,8 +169,8 @@ func (e *Engine) addContribution(ctx context.Context, p *draft, actor *auth.Acto
 		return bad("it doesn't say which hook it comes from")
 	case c.Op != OpCreate && c.Op != OpUpdate && c.Op != OpDelete:
 		return bad("hooks can add creates, updates and deletes, not actions")
-	case c.Action != "" || len(c.Input) > 0 || len(c.Steps) > 0:
-		return bad("it carries an action's input or steps")
+	case c.Action != "" || len(c.Input) > 0 || len(c.Steps) > 0 || len(c.Checks) > 0:
+		return bad("it carries an action's input, steps or checks")
 	}
 	kind, ok := e.opts.Kinds.Get(c.Kind)
 	if !ok {

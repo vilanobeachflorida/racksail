@@ -12,7 +12,8 @@ import (
 
 // Retention bounds the change sets an Engine keeps. Change sets live in the
 // engine's memory, so Get and Undo reach only the ones kept here, and none
-// survive a restart of the panel.
+// survive a restart of the panel. The snapshots taken before a change set was
+// applied are deleted with it.
 type Retention struct {
 	// Previews is how long dry runs stay available. The default is an hour.
 	Previews time.Duration
@@ -96,7 +97,8 @@ func (e *Engine) settle(key string, id store.ID) {
 }
 
 // save keeps a copy of cs, then drops what has outlived the retention and
-// deletes the secret versions only dropped change sets used.
+// deletes the secret versions only dropped change sets used, and the
+// snapshots taken for them.
 func (e *Engine) save(ctx context.Context, cs *ChangeSet) {
 	now := e.opts.Now()
 	e.mu.Lock()
@@ -111,6 +113,9 @@ func (e *Engine) save(ctx context.Context, cs *ChangeSet) {
 	e.mu.Unlock()
 	if len(candidates) > 0 {
 		e.collectSecrets(ctx, candidates, kept)
+	}
+	for _, old := range evicted {
+		e.dropSnapshots(ctx, old.Snapshots)
 	}
 }
 

@@ -176,6 +176,9 @@ func (e *Engine) plan(ctx context.Context, req Request) (*draft, error) {
 			cs.Snapshot = true
 		}
 	}
+	if cs.Snapshot {
+		e.previewSnapshots(ctx, cs)
+	}
 	cs.Summarize()
 	cs.Title = req.Title
 	if cs.Title == "" {
@@ -327,6 +330,7 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 			}
 		}
 		change.Steps = actionPlan.Plan.Steps
+		change.Checks = actionPlan.Plan.Checks
 		effects = append(effects, actionPlan.Plan.Effects...)
 	}
 	if ch.Op != OpDelete {
@@ -528,16 +532,23 @@ func (e *Engine) checkWrites(ctx context.Context, cs *ChangeSet) error {
 	return err
 }
 
-// apply stores the secret values, writes every change in one transaction
-// and queues the job that carries out the system changes. It reports
-// whether the store was written: when queueing the job fails after that,
-// the change set is kept as failed and the periodic resync carries the
-// changes out.
+// apply takes the snapshots a risky change set needs, stores the secret
+// values, writes every change in one transaction and queues the job that
+// carries out the system changes. It reports whether the store was written:
+// when queueing the job fails after that, the change set is kept as failed
+// and the periodic resync (reconcile.Runner.Resync) carries the changes out.
 func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Ref][]byte) (bool, error) {
+	// Snapshots come first, so nothing changes when they can't be taken.
+	if cs.Snapshot {
+		if err := e.takeSnapshots(ctx, cs); err != nil {
+			return false, err
+		}
+	}
 	var stored []secrets.Ref
 	if len(values) > 0 {
 		var err error
 		if stored, err = e.putSecrets(ctx, values); err != nil {
+			e.dropSnapshots(ctx, cs.Snapshots)
 			return false, err
 		}
 	}
@@ -546,6 +557,7 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 	})
 	if err != nil {
 		e.dropSecrets(ctx, stored)
+		e.dropSnapshots(ctx, cs.Snapshots)
 		return false, err
 	}
 	// The change set is kept before its job is queued, because the job
@@ -555,6 +567,7 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 	job, err := e.opts.Jobs.Enqueue(ctx, ApplyJob, cs.ID, jobs.Options{Title: cs.Title, Actor: cs.Actor, ChangeSet: cs.ID})
 	if err != nil {
 		// The store has the changes; the periodic resync carries them out.
+		e.opts.Log.Error("queueing a change set's apply job", "changeSet", cs.ID, "error", err)
 		message := i18n.From(err).Message
 		e.update(cs.ID, func(s *ChangeSet) { s.State, s.Error = StateFailed, message })
 	} else {
@@ -658,6 +671,9 @@ func (e *Engine) runApply(ctx context.Context, job *jobs.Job, args json.RawMessa
 	return map[string]string{"changeSet": string(cs.ID), "state": string(final.State)}, failure
 }
 
+// applyChange carries out one change: an action's own steps, then the
+// resource's reconcile, which verifies its result with the plan's checks,
+// then the checks of the action.
 func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Reporter) error {
 	runner := e.opts.Runner
 	if runner == nil {
@@ -675,13 +691,18 @@ func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Repor
 			return err
 		}
 	}
-	if _, ok := e.reconciler(c.Kind); !ok {
-		if c.Op == OpDelete {
-			return e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) })
+	if _, ok := e.reconciler(c.Kind); ok {
+		if err := runner.Reconcile(ctx, c.ID, progress); err != nil {
+			return err
 		}
-		return nil
+	} else if c.Op == OpDelete {
+		return e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) })
 	}
-	return runner.Reconcile(ctx, c.ID, progress)
+	if len(c.Checks) > 0 {
+		r.Log(slog.LevelInfo, "Checking the result", "resource", c.ID, "checks", len(c.Checks))
+		return runner.Verify(ctx, c.Server, c.Checks)
+	}
+	return nil
 }
 
 // eventType names the event emitted after a change succeeds.

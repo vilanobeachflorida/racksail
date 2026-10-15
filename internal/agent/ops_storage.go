@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -123,6 +125,174 @@ var CreateSnapshot = Register(Def[SnapshotInput, Result]{
 		return Changed(effect), env.System.Btrfs.Snapshot(ctx, in.Source, in.Dest, in.ReadOnly)
 	},
 })
+
+// SnapshotPathsInput asks for read-only snapshots of the Btrfs subvolumes
+// that hold some paths, taken before a change removes data under them.
+type SnapshotPathsInput struct {
+	Paths []string `json:"paths" doc:"Paths a change is about to remove"`
+	Label string   `json:"label" doc:"Names the directory the snapshots go in, such as the ID of the change set they protect"`
+}
+
+var snapshotLabelPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// Validate implements Input.
+func (in SnapshotPathsInput) Validate() error {
+	if len(in.Paths) == 0 || len(in.Paths) > 256 {
+		return fmt.Errorf("give between 1 and 256 paths")
+	}
+	for _, p := range in.Paths {
+		if err := cleanAbs(p); err != nil {
+			return err
+		}
+	}
+	if !snapshotLabelPattern.MatchString(in.Label) {
+		return fmt.Errorf("label %q must be lowercase letters, digits and underscores, starting with a letter", in.Label)
+	}
+	return nil
+}
+
+// Snapshot is a read-only snapshot of a subvolume.
+type Snapshot struct {
+	Source string `json:"source" doc:"The subvolume, such as /srv/racksail"`
+	Path   string `json:"path" doc:"Where the snapshot is"`
+}
+
+// SnapshotResult is what SnapshotPaths took, or in check mode would take.
+type SnapshotResult struct {
+	Result
+	Snapshots []Snapshot `json:"snapshots" doc:"The snapshots, one per subvolume"`
+	// Unprotected paths aren't on a Btrfs filesystem Racksail manages, or
+	// are snapshots themselves, so no snapshot covers them.
+	Unprotected []string `json:"unprotected,omitempty" doc:"Paths no snapshot covers, because they aren't on Btrfs"`
+}
+
+// SnapshotDir is where pre-change snapshots of the system disk go. Other
+// Btrfs filesystems keep theirs in .snapshots/racksail at their mount point.
+const SnapshotDir = "/.snapshots/racksail"
+
+// SnapshotPaths snapshots the subvolumes that hold the given paths, once each,
+// so data a change removes can be brought back. Snapshots of the system disk
+// go to /.snapshots/racksail/<label>, others next to their filesystem. Taking
+// them again does nothing.
+var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
+	Name:    "SnapshotPaths",
+	Summary: "Snapshot what a change is about to remove",
+	Description: "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, " +
+		"before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected.",
+	Run: func(ctx context.Context, env *Env, in SnapshotPathsInput) (SnapshotResult, error) {
+		out := SnapshotResult{Snapshots: []Snapshot{}}
+		mounts, err := env.System.Mounts.List(ctx)
+		if err != nil {
+			return out, err
+		}
+		var rootDevice string
+		for _, m := range mounts {
+			if m.Target == "/" {
+				rootDevice = m.Source
+			}
+		}
+		subvolumes := map[string][]system.Subvolume{}
+		taken := map[string]bool{}
+		for _, p := range in.Paths {
+			mt, ok := mountOf(mounts, p)
+			if !ok || mt.FSType != "btrfs" || strings.Contains(p+"/", "/.snapshots/") {
+				out.Unprotected = append(out.Unprotected, p)
+				continue
+			}
+			svs, ok := subvolumes[mt.Target]
+			if !ok {
+				if svs, err = env.System.Btrfs.Subvolumes(ctx, mt.Target); err != nil {
+					return out, err
+				}
+				subvolumes[mt.Target] = svs
+			}
+			source := ""
+			for _, sv := range svs {
+				if (p == sv.Path || strings.HasPrefix(p, strings.TrimSuffix(sv.Path, "/")+"/")) && len(sv.Path) > len(source) {
+					source = sv.Path
+				}
+			}
+			dir := path.Join(SnapshotDir, in.Label)
+			if mt.Source != rootDevice {
+				dir = path.Join(mt.Target, ".snapshots", "racksail", in.Label)
+			}
+			if source == "" || checkWrite(dir) != nil {
+				out.Unprotected = append(out.Unprotected, p)
+				continue
+			}
+			if taken[source] {
+				continue
+			}
+			taken[source] = true
+			dest := path.Join(dir, snapshotName(source))
+			out.Snapshots = append(out.Snapshots, Snapshot{Source: source, Path: dest})
+			if _, err := env.System.Files.Stat(ctx, dest); err == nil {
+				continue
+			}
+			out.Changed = true
+			out.Effects = append(out.Effects, system.Effect{Type: system.EffectStorage, Action: "snapshot", Target: dest, Detail: source})
+			if env.Check {
+				continue
+			}
+			if err := makeSnapshotDir(ctx, env.System.Files, dir); err != nil {
+				return out, err
+			}
+			if err := env.System.Btrfs.Snapshot(ctx, source, dest, true); err != nil {
+				return out, err
+			}
+		}
+		return out, nil
+	},
+})
+
+// mountOf returns the mount a path is on: the deepest mount point above it.
+func mountOf(mounts []system.Mount, p string) (system.Mount, bool) {
+	var best system.Mount
+	found := false
+	for _, m := range mounts {
+		if (m.Target == "/" || p == m.Target || strings.HasPrefix(p, m.Target+"/")) && (!found || len(m.Target) > len(best.Target)) {
+			best, found = m, true
+		}
+	}
+	return best, found
+}
+
+// snapshotName names the snapshot of a subvolume after its path, such as
+// srv-racksail-abdff825 for /srv/racksail and root-8a5edab2 for /. The hash
+// of the path keeps names apart that would otherwise read the same, such as
+// those of /srv/a-b and /srv/a/b, however many calls the snapshots of one
+// label take.
+func snapshotName(source string) string {
+	name := strings.ReplaceAll(strings.Trim(source, "/"), "/", "-")
+	if name == "" {
+		name = "root"
+	}
+	sum := sha256.Sum256([]byte(source))
+	return name + "-" + hex.EncodeToString(sum[:4])
+}
+
+// makeSnapshotDir creates the directory snapshots go in, readable by root
+// only: a snapshot of the system disk holds a copy of everything on it.
+func makeSnapshotDir(ctx context.Context, f system.Files, dir string) error {
+	if err := checkNoSymlinks(ctx, f, dir); err != nil {
+		return err
+	}
+	var missing []string
+	for d := dir; checkWrite(d) == nil; d = path.Dir(d) {
+		if _, err := f.Stat(ctx, d); err == nil {
+			break
+		} else if !errors.Is(err, system.ErrNotFound) {
+			return err
+		}
+		missing = append([]string{d}, missing...)
+	}
+	for _, d := range missing {
+		if err := f.Mkdir(ctx, d, 0o700, system.Owner{}); err != nil && !errors.Is(err, system.ErrExists) {
+			return err
+		}
+	}
+	return nil
+}
 
 // QuotaInput sets a subvolume quota.
 type QuotaInput struct {

@@ -140,6 +140,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		log.Warn("some modules didn't start; the health check lists them")
 	}
 	hookRunner.Notify(ctx, hooks.CoreBoot, auth.System("core"), nil)
+	// The resync puts back what drifts on the machine and carries out
+	// changes whose apply job never ran.
+	go runner.Resync(ctx, reconcile.ResyncInterval)
 	return c, nil
 }
 

@@ -60,6 +60,7 @@
   "error.changeset.hook_tampered": "A hook changed {what}, which hooks can't change, so the change was stopped.",
   "error.changeset.not_applied": "Only applied changes can be undone.",
   "error.changeset.nothing_to_undo": "{title} can't be undone because it didn't change any settings.",
+  "error.changeset.snapshot_failed": "The snapshot taken before {title} failed, so nothing was changed: {reason}",
   "error.changeset.still_removing": "{what} is still being removed. Try again when the removal has finished.",
   "error.changeset.undoing": "{title} is already being undone.",
   "error.changeset.unknown_action": "{kind} has no action called {action}.",
@@ -80,6 +81,7 @@
   "error.modules.unknown": "There is no module called {module}.",
   "error.notify.send_failed": "The {channel} notification couldn't be sent: {reason}.",
   "error.notify.unknown_type": "There is no notification channel type called {type}.",
+  "error.reconcile.check_failed": "The {check} health check didn't pass: {reason}.",
   "error.secrets.bad_ref": "{ref} isn't a secret reference; use the owner's id, a slash and the secret's name.",
   "error.secrets.not_found": "The secret {ref} doesn't exist."
 }
