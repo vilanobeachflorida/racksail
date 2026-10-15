@@ -29,7 +29,7 @@ Other commands that help during development:
 | `racksail status --server http://127.0.0.1:7070` | Asks a panel for its health and version |
 | `racksail openapi` | Prints the API's OpenAPI document; `--agent` prints the agent protocol and `--addon` the add-on protocol |
 | `racksail theme css [FILE]` | Renders a theme as CSS custom properties; `theme validate FILE` checks one |
-| `racksail install --answers FILE --dry-run` | Shows the steps a convert-mode answers file would take on this server; `--sim` carries them out on a simulated server. Install and restore modes erase disks, so they only run from the installer image |
+| `racksail install --answers FILE --dry-run` | Shows the steps a convert-mode answers file would take on this server; `--convert` plans the same without a file, and `--sim` carries them out on a simulated server. Install and restore modes erase disks, so they only run from the installer image |
 | `racksail agent --sim` | Runs a standalone agent against a simulated server, without root. It listens in a directory of your own under `$XDG_RUNTIME_DIR` or the temporary directory, and `--socket` picks another path |
 
 ## What isn't kept yet
