@@ -104,6 +104,9 @@ var Kind = store.Define[WebhookSpec, WebhookStatus](store.KindInfo{
 		},
 	},
 	Indexes: []store.Index{{Name: "url", Path: "url"}},
+	// A webhook sends the panel's events to another server, so pointing one
+	// somewhere new is never approved on its own.
+	Risks: store.Risks{Create: store.RiskMedium, Update: store.RiskMedium, Delete: store.RiskMedium},
 	UI: store.UIHints{
 		Icon: "webhook", TitleField: "url", SubtitleField: "description",
 		Columns: []store.Column{{Field: "spec.url", Format: "link"}, {Field: "spec.events", Format: "badge"}, {Field: "status.phase", Format: "status"}, {Field: "status.lastDelivery", Format: "date"}},
