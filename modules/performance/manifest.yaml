@@ -1,0 +1,30 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: performance
+name: Performance
+description: >-
+  Measured defaults, recommendations, app presets, before-and-after comparisons and capacity tests.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies:
+  requiresAny: [web, databases]
+profiles: [all-in-one, web-hosting]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 15
+  diskMB: 10
+  notes: Capacity tests run only when you start one.
+upstream:
+  - id: oha
+    name: oha
+    license: MIT
+    homepage: https://github.com/hatoo/oha
+    source:
+      type: vendor-archive
+      url: https://github.com/hatoo/oha/releases
+      verification: SHA-256 checksum pinned per version.
+    install: On the first capacity test.
+capabilities:
+  provides: [performance.recommendations]

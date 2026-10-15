@@ -1,0 +1,8 @@
+# Managed by Racksail. Changes made here are overwritten.
+Package: *
+Pin: origin packages.sury.org
+Pin-Priority: -1
+
+Package: php* libapache2-mod-php*
+Pin: origin packages.sury.org
+Pin-Priority: 600

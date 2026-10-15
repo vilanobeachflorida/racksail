@@ -1,0 +1,45 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: network
+name: Network
+description: >-
+  IP addresses and their roles, NAT mapping, gateways and routing, IPv6, bonds, VLANs, bridges, the
+  firewall, brute-force bans, outbound IP per account, reverse DNS and blocklist checks.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: core
+required: true
+dependencies: {}
+profiles: [all-in-one, web-hosting, home-server, virtualization-host, mail-server, dns-server, minimal]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 10
+  diskMB: 2
+  notes: nftables runs in the kernel; systemd-networkd is already part of every Debian install.
+upstream:
+  - id: systemd-networkd
+    name: systemd-networkd
+    license: LGPL-2.1-or-later
+    homepage: https://systemd.io/
+    source:
+      type: present
+      packages: [systemd]
+    install: >-
+      Part of every Debian install. Racksail renders its configuration and applies it with a
+      60-second automatic rollback.
+  - id: nftables
+    name: nftables
+    license: GPL-2.0-only
+    homepage: https://netfilter.org/projects/nftables/
+    source:
+      type: debian
+      packages: [nftables]
+    install: "The first time the firewall is applied, which happens as soon as the network module starts."
+capabilities:
+  provides: [network.addresses, network.firewall, network.routing]
+hooks:
+  - point: system.nftables.ruleset
+    description: Patches to the firewall ruleset before it is checked and applied.
+  - point: system.networkd.config
+    description: Patches to the systemd-networkd files before they are applied.

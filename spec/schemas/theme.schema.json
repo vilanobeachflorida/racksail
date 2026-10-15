@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/theme.schema.json",
+  "title": "Racksail theme",
+  "description": "A theme is design tokens and asset files, never code. Every theme is also checked for WCAG AA contrast and for references outside the package.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "id", "name", "version", "license", "tokens"],
+  "properties": {
+    "format": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "license": { "description": "SPDX license expression.", "type": "string", "minLength": 1 },
+    "author": { "type": "string" },
+    "description": { "type": "string" },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["light", "dark"],
+      "properties": {
+        "light": { "$ref": "#/$defs/palette" },
+        "dark": { "$ref": "#/$defs/palette" },
+        "typography": { "$ref": "#/$defs/typography" },
+        "radius": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sm": { "$ref": "#/$defs/length" },
+            "md": { "$ref": "#/$defs/length" },
+            "lg": { "$ref": "#/$defs/length" },
+            "xl": { "$ref": "#/$defs/length" }
+          }
+        },
+        "density": { "enum": ["comfortable", "compact"] },
+        "shadows": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sm": { "$ref": "#/$defs/shadow" },
+            "md": { "$ref": "#/$defs/shadow" },
+            "lg": { "$ref": "#/$defs/shadow" }
+          }
+        },
+        "motion": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fast": { "$ref": "#/$defs/duration" },
+            "normal": { "$ref": "#/$defs/duration" },
+            "slow": { "$ref": "#/$defs/duration" }
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logoLight": { "$ref": "#/$defs/asset" },
+        "logoDark": { "$ref": "#/$defs/asset" },
+        "mark": { "$ref": "#/$defs/asset" },
+        "favicon": { "$ref": "#/$defs/asset" },
+        "loginBackground": { "$ref": "#/$defs/asset" },
+        "illustrations": { "type": "object", "additionalProperties": { "$ref": "#/$defs/asset" } }
+      }
+    },
+    "templates": {
+      "description": "Logic-less templates: variables only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "email": { "$ref": "#/$defs/asset" },
+        "error": { "$ref": "#/$defs/asset" },
+        "maintenance": { "$ref": "#/$defs/asset" },
+        "suspended": { "$ref": "#/$defs/asset" }
+      }
+    },
+    "console": {
+      "description": "Terminal palette for the installer, the console status screen and the CLI.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background": { "$ref": "#/$defs/color" },
+        "foreground": { "$ref": "#/$defs/color" },
+        "accent": { "$ref": "#/$defs/color" },
+        "success": { "$ref": "#/$defs/color" },
+        "warning": { "$ref": "#/$defs/color" },
+        "danger": { "$ref": "#/$defs/color" }
+      }
+    }
+  },
+  "$defs": {
+    "color": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+    "length": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(px|rem)$" },
+    "duration": { "type": "string", "pattern": "^[0-9]+ms$" },
+    "shadow": { "type": "string", "pattern": "^[0-9a-zA-Z#(),.%\\s-]+$" },
+    "asset": {
+      "description": "A path inside the theme package. URLs aren't allowed: themes never load anything from the network.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$"
+    },
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "surfaceRaised", "surfaceSunken", "text", "textMuted", "border", "borderStrong", "brand", "brandText", "accent", "accentText", "success", "successText", "warning", "warningText", "danger", "dangerText", "info", "infoText", "focus", "chart"],
+      "properties": {
+        "surface": { "$ref": "#/$defs/color" },
+        "surfaceRaised": { "$ref": "#/$defs/color" },
+        "surfaceSunken": { "$ref": "#/$defs/color" },
+        "text": { "$ref": "#/$defs/color" },
+        "textMuted": { "$ref": "#/$defs/color" },
+        "border": { "$ref": "#/$defs/color" },
+        "borderStrong": { "$ref": "#/$defs/color" },
+        "brand": { "$ref": "#/$defs/color" },
+        "brandText": { "$ref": "#/$defs/color" },
+        "accent": { "$ref": "#/$defs/color" },
+        "accentText": { "$ref": "#/$defs/color" },
+        "success": { "$ref": "#/$defs/color" },
+        "successText": { "$ref": "#/$defs/color" },
+        "warning": { "$ref": "#/$defs/color" },
+        "warningText": { "$ref": "#/$defs/color" },
+        "danger": { "$ref": "#/$defs/color" },
+        "dangerText": { "$ref": "#/$defs/color" },
+        "info": { "$ref": "#/$defs/color" },
+        "infoText": { "$ref": "#/$defs/color" },
+        "focus": { "$ref": "#/$defs/color" },
+        "chart": { "type": "array", "minItems": 6, "maxItems": 12, "items": { "$ref": "#/$defs/color" } }
+      }
+    },
+    "font": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family"],
+      "properties": {
+        "family": { "type": "string", "minLength": 1 },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/asset" } }
+      }
+    },
+    "typography": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sans": { "$ref": "#/$defs/font" },
+        "mono": { "$ref": "#/$defs/font" },
+        "baseSize": { "$ref": "#/$defs/length" },
+        "scale": {
+          "description": "Ratio between steps of the type scale.",
+          "type": "number",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "weights": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "regular": { "type": "integer", "minimum": 100, "maximum": 900 },
+            "medium": { "type": "integer", "minimum": 100, "maximum": 900 },
+            "semibold": { "type": "integer", "minimum": 100, "maximum": 900 },
+            "bold": { "type": "integer", "minimum": 100, "maximum": 900 }
+          }
+        }
+      }
+    }
+  }
+}

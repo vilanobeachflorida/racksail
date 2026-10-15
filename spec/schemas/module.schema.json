@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/module.schema.json",
+  "title": "Racksail module manifest",
+  "description": "The manifest.yaml embedded in every module: what it is, what it depends on, what it installs on first use and what it costs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "description", "version", "license", "category", "dependencies", "profiles", "hardware", "cost", "upstream"],
+  "properties": {
+    "id": {
+      "description": "Module id, also the package name under modules/ and the prefix of its kinds.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*$"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "description": { "type": "string", "minLength": 1 },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "license": { "description": "SPDX license expression of the module's code.", "type": "string", "minLength": 1 },
+    "category": { "enum": ["core", "hosting", "apps", "storage", "operations", "home", "assistant"] },
+    "required": { "description": "Required modules are always on and can't be turned off.", "type": "boolean" },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requires": { "description": "Modules that must be on.", "$ref": "#/$defs/moduleList" },
+        "requiresAny": { "description": "At least one of these modules must be on.", "$ref": "#/$defs/moduleList" },
+        "uses": { "description": "Modules this one works with when they are on.", "$ref": "#/$defs/moduleList" },
+        "note": { "description": "Dependencies that can't be listed up front, in plain words.", "type": "string" }
+      }
+    },
+    "profiles": {
+      "description": "Setup profiles that turn the module on.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/profile" }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arch"],
+      "properties": {
+        "arch": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["amd64", "arm64"] } },
+        "minMemoryMB": { "type": "integer", "minimum": 0 },
+        "minDiskGB": { "type": "integer", "minimum": 0 },
+        "features": {
+          "description": "Hardware the module can't run without.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["virtualization", "kvm", "iommu", "tpm", "uefi"] }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "cost": {
+      "description": "Estimated resource use, shown before the module is turned on.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["idleMemoryMB", "activeMemoryMB", "diskMB"],
+      "properties": {
+        "idleMemoryMB": {
+          "description": "Memory used when on but nothing needs it yet.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeMemoryMB": {
+          "description": "Typical memory once its software runs, idle.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "diskMB": { "description": "Disk used by its software once installed.", "type": "integer", "minimum": 0 },
+        "notes": { "type": "string" }
+      }
+    },
+    "upstream": {
+      "description": "Software the module installs, only when something first needs it.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/upstream" }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provides": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/capability" } },
+        "needs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/capability" } }
+      }
+    },
+    "settings": { "description": "JSON Schema of the module's settings.", "type": "object" },
+    "permissions": {
+      "description": "Permissions the module adds beyond the generated <kind>.<operation> ones.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "hooks": {
+      "description": "Hook points the module adds beyond the generated ones.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["point", "description"],
+        "properties": {
+          "point": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9_-]*)+$" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "recipes": {
+      "description": "Recipes the module ships, as paths inside the module.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "moduleList": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*$" } },
+    "profile": {
+      "enum": ["all-in-one", "web-hosting", "home-server", "virtualization-host", "mail-server", "dns-server", "minimal"]
+    },
+    "capability": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$" },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "license", "source", "install"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.+-]*$" },
+        "name": { "type": "string" },
+        "license": { "description": "SPDX license expression.", "type": "string" },
+        "homepage": { "type": "string", "format": "uri" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "description": "debian: the Debian archive. apt-repository: a vendor repository pinned to its packages. vendor-archive: a release archive verified against checksums or signatures. racksail-build: built by Racksail CI and published to GitHub Container Registry. embedded: compiled into the racksail binary. present: part of every Debian install.",
+              "enum": ["debian", "apt-repository", "vendor-archive", "racksail-build", "embedded", "present"]
+            },
+            "packages": { "type": "array", "items": { "type": "string" } },
+            "repository": { "type": "string", "format": "uri" },
+            "url": { "type": "string", "format": "uri" },
+            "verification": { "type": "string" }
+          }
+        },
+        "install": { "description": "When it is installed, in plain words.", "type": "string", "minLength": 1 },
+        "optIn": { "description": "Only installed when an admin asks for it.", "type": "boolean" }
+      }
+    }
+  }
+}

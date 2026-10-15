@@ -1,0 +1,56 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: home
+name: Home extras
+description: >-
+  UPS monitoring, WireGuard VPN, Headscale, Wake-on-LAN, dynamic DNS, hardware sensors and single
+  sign-on for apps.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: home
+dependencies:
+  requires: [network]
+profiles: [home-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 40
+  diskMB: 60
+  notes: Each feature installs its software only when you set it up.
+upstream:
+  - id: nut
+    name: Network UPS Tools
+    license: GPL-2.0-or-later
+    homepage: https://networkupstools.org/
+    source:
+      type: debian
+      packages: [nut]
+    install: When a UPS is set up.
+  - id: wireguard-tools
+    name: WireGuard tools
+    license: GPL-2.0-only
+    homepage: https://www.wireguard.com/
+    source:
+      type: debian
+      packages: [wireguard-tools]
+    install: When the first WireGuard peer is added.
+  - id: headscale
+    name: Headscale
+    license: BSD-3-Clause
+    homepage: https://headscale.net/
+    source:
+      type: vendor-archive
+      url: https://github.com/juanfont/headscale/releases
+      verification: SHA-256 checksums published with each release.
+    install: When Headscale is turned on.
+  - id: lm-sensors
+    name: lm-sensors
+    license: GPL-2.0-or-later
+    homepage: https://github.com/lm-sensors/lm-sensors
+    source:
+      type: debian
+      packages: [lm-sensors]
+    install: The first time hardware sensors are read.
+capabilities:
+  provides: [home.vpn, home.ups, home.sso]
+  needs: [network.firewall]

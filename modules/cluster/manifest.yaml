@@ -1,0 +1,28 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: cluster
+name: Multi-server
+description: "Servers, roles, placement, account moves, standby pairs, failover and a standby panel."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies: {}
+profiles: []
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 40
+  diskMB: 30
+  notes: Each joined server runs its own agent.
+upstream:
+  - id: litestream
+    name: Litestream
+    license: Apache-2.0
+    homepage: https://litestream.io/
+    source:
+      type: vendor-archive
+      url: https://github.com/benbjohnson/litestream/releases
+      verification: SHA-256 checksums published with each release.
+    install: When a standby panel is set up.
+capabilities:
+  provides: [cluster.servers, cluster.placement, cluster.standby]

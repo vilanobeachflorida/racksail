@@ -1,0 +1,38 @@
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Site www of blog
+After=network.target
+
+[Service]
+Slice=racksail-acct-blog.slice
+ExecStart=/opt/racksail/runtimes/php/8.4.13/sbin/php-fpm --nodaemonize
+User=blog
+Group=blog
+ProtectSystem=strict
+ProtectHome=tmpfs
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+InaccessiblePaths=-/run/racksail
+MemoryDenyWriteExecute=yes
+BindPaths=/srv/racksail/accounts/blog/sites/www
+BindReadOnlyPaths=/opt/racksail/runtimes/php/8.4.13
+SocketBindDeny=any
+SocketBindAllow=tcp:9000
+
+[Install]
+WantedBy=multi-user.target

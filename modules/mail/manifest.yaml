@@ -1,0 +1,74 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: mail
+name: Mail
+description: >-
+  Mail domains, mailboxes, aliases, forwarders, catch-alls, autoresponders, filters, spam, outbound
+  relay, deliverability, message trace and webmail.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: hosting
+dependencies:
+  requires: [network]
+  uses: [dns, web]
+profiles: [all-in-one, web-hosting, mail-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 250
+  diskMB: 120
+  notes: Rspamd uses most of the memory. Webmail adds a managed site.
+upstream:
+  - id: postfix
+    name: Postfix
+    license: IPL-1.0 OR EPL-2.0
+    homepage: https://www.postfix.org/
+    source:
+      type: debian
+      packages: [postfix]
+    install: When the first mail domain is created.
+  - id: cyrus-imapd
+    name: Cyrus IMAP
+    license: BSD-Attribution-HPND-disclaimer
+    homepage: https://www.cyrusimap.org/
+    source:
+      type: debian
+      packages: [cyrus-imapd]
+    install: When the first mailbox is created.
+  - id: rspamd
+    name: Rspamd
+    license: Apache-2.0
+    homepage: https://rspamd.com/
+    source:
+      type: debian
+      packages: [rspamd]
+    install: When the first mail domain is created.
+  - id: valkey
+    name: Valkey
+    license: BSD-3-Clause
+    homepage: https://valkey.io/
+    source:
+      type: debian
+      packages: [valkey-server]
+    install: "With Rspamd, for its statistics and caches."
+  - id: roundcube
+    name: Roundcube
+    license: GPL-3.0-or-later
+    homepage: https://roundcube.net/
+    source:
+      type: vendor-archive
+      url: https://github.com/roundcube/roundcubemail/releases
+      verification: GPG signatures from the Roundcube release key.
+    install: When webmail is turned on; it runs as a managed site with single sign-on.
+capabilities:
+  provides: [mail.domains, mail.mailboxes]
+  needs: [network.firewall]
+hooks:
+  - point: system.postfix.main
+    description: "Patches to Postfix's main.cf."
+  - point: system.postfix.master
+    description: "Patches to Postfix's master.cf services."
+  - point: system.cyrus.config
+    description: Patches to the Cyrus IMAP configuration.
+  - point: system.rspamd.config
+    description: "Patches to Rspamd's local configuration."

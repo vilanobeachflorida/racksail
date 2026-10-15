@@ -1,0 +1,42 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: shares
+name: Shares
+description: "SMB, NFS and WebDAV shares, share users, permissions, Time Machine and the recycle bin."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: storage
+dependencies:
+  requires: [storage]
+profiles: [all-in-one, home-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 60
+  diskMB: 80
+  notes: Samba uses most of it; WebDAV is served by the edge.
+upstream:
+  - id: samba
+    name: Samba
+    license: GPL-3.0-or-later
+    homepage: https://www.samba.org/
+    source:
+      type: debian
+      packages: [samba]
+    install: When the first SMB share is created.
+  - id: nfs-kernel-server
+    name: NFS server
+    license: GPL-2.0-only
+    homepage: https://linux-nfs.org/
+    source:
+      type: debian
+      packages: [nfs-kernel-server]
+    install: When the first NFS share is created.
+capabilities:
+  provides: [shares.smb, shares.nfs, shares.webdav]
+  needs: [storage.pools]
+hooks:
+  - point: system.samba.global
+    description: "Patches to Samba's global settings."
+  - point: system.samba.share
+    description: "Patches to one share's Samba settings."

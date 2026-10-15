@@ -1,0 +1,81 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: storage
+name: Storage
+description: >-
+  Disks, SMART, pools (Btrfs, mdadm, ZFS), parity arrays (SnapRAID with mergerfs), cache tiering,
+  spin-down, scrubs and disk replacement.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: storage
+dependencies: {}
+profiles: [all-in-one, home-server, virtualization-host]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 20
+  diskMB: 30
+  notes: Tools only; ZFS adds a kernel module built with DKMS when chosen.
+upstream:
+  - id: btrfs-progs
+    name: Btrfs tools
+    license: GPL-2.0-only
+    homepage: https://btrfs.readthedocs.io/
+    source:
+      type: present
+      packages: [btrfs-progs]
+    install: "Installed with Racksail, whose system disk uses Btrfs."
+  - id: mdadm
+    name: mdadm
+    license: GPL-2.0-only
+    homepage: https://raid.wiki.kernel.org/
+    source:
+      type: debian
+      packages: [mdadm]
+    install: When the first mdadm pool is created or imported.
+  - id: snapraid
+    name: SnapRAID
+    license: GPL-3.0-or-later
+    homepage: https://www.snapraid.it/
+    source:
+      type: debian
+      packages: [snapraid]
+    install: When the first parity array is created.
+  - id: mergerfs
+    name: mergerfs
+    license: ISC
+    homepage: https://github.com/trapexit/mergerfs
+    source:
+      type: debian
+      packages: [mergerfs]
+    install: "When the first parity array is created, to pool its disks."
+  - id: smartmontools
+    name: smartmontools
+    license: GPL-2.0-or-later
+    homepage: https://www.smartmontools.org/
+    source:
+      type: debian
+      packages: [smartmontools]
+    install: The first time disk health is read.
+  - id: hd-idle
+    name: hd-idle
+    license: GPL-3.0-or-later
+    homepage: https://github.com/adelolmo/hd-idle
+    source:
+      type: debian
+      packages: [hd-idle]
+    install: When spin-down is turned on for a disk.
+  - id: zfs
+    name: OpenZFS
+    license: CDDL-1.0
+    homepage: https://openzfs.org/
+    source:
+      type: debian
+      packages: [zfs-dkms, zfsutils-linux]
+      verification: >-
+        Debian contrib; the DKMS module is signed with a key enrolled in the firmware for Secure
+        Boot.
+    install: Only when an admin chooses ZFS for a pool. The setup explains the Secure Boot key step first.
+    optIn: true
+capabilities:
+  provides: [storage.pools, storage.disks, storage.snapshots]

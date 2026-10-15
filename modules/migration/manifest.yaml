@@ -1,0 +1,39 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: migration
+name: Migration
+description: >-
+  Importers for CWP, cPanel, DirectAdmin, HestiaCP and VestaCP, Plesk, Unraid and any SSH server,
+  with migration plans, previews and cutover.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies:
+  uses: [web, databases, dns, mail, storage, shares, containers, vms]
+  note: Turns on the modules for whatever it imports.
+profiles: []
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 50
+  diskMB: 10
+  notes: Data copied from the old server takes the space it needs on the new one.
+upstream:
+  - id: rsync
+    name: rsync
+    license: GPL-3.0-or-later
+    homepage: https://rsync.samba.org/
+    source:
+      type: debian
+      packages: [rsync]
+    install: When the first migration starts copying files.
+  - id: openssh-client
+    name: OpenSSH client
+    license: SSH-OpenSSH
+    homepage: https://www.openssh.com/
+    source:
+      type: present
+      packages: [openssh-client]
+    install: Part of every Racksail server; used to read the old server over SSH.
+capabilities:
+  provides: [migration.importers]

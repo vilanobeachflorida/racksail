@@ -1,0 +1,24 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: hosting
+name: Hosting business
+description: >-
+  Plans and limits, resellers, white-labelling, usage accounting, suspensions, billing integration
+  with FOSSBilling, and customer notifications.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: hosting
+dependencies:
+  requires: [web]
+profiles: [all-in-one, web-hosting]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 10
+  diskMB: 0
+  notes: >-
+    Runs inside the panel; it installs no software. Billing systems such as FOSSBilling run
+    elsewhere and connect through its API.
+upstream: []
+capabilities:
+  provides: [hosting.plans, hosting.resellers, hosting.billing]

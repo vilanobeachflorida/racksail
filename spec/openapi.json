@@ -1,0 +1,298 @@
+{
+  "components": {
+    "schemas": {
+      "BuildInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "channel": {
+            "description": "Release channel the binary belongs to",
+            "enum": [
+              "stable",
+              "beta",
+              "nightly",
+              "dev"
+            ],
+            "type": "string"
+          },
+          "commit": {
+            "description": "Source commit the binary was built from",
+            "type": "string"
+          },
+          "date": {
+            "description": "When the binary was built",
+            "type": "string"
+          },
+          "goVersion": {
+            "description": "Go version used to build it",
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "version": {
+            "description": "Racksail version",
+            "examples": [
+              "1.0.0"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "channel",
+          "goVersion",
+          "os",
+          "arch"
+        ],
+        "type": "object"
+      },
+      "Check": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "examples": [
+              "agent"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "failing"
+            ],
+            "examples": [
+              "ok"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "type": "object"
+      },
+      "FieldProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Stable error code",
+            "type": "string"
+          },
+          "location": {
+            "description": "Where the problem is",
+            "examples": [
+              "body.spec.domains[0]"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "description": "English explanation",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "value": {
+            "description": "The offending value, when it's safe to show"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "HealthReport": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "ok when every check passes",
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "examples": [
+              "ok"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Stable error code in the form \u003cmodule\u003e.\u003csnake_case\u003e",
+            "examples": [
+              "web.domain_taken"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "description": "English explanation of this occurrence",
+            "examples": [
+              "The domain example.com is already used by another site."
+            ],
+            "type": "string"
+          },
+          "errors": {
+            "description": "Problems with individual fields",
+            "items": {
+              "$ref": "#/components/schemas/FieldProblem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instance": {
+            "description": "A URI reference for this occurrence",
+            "format": "uri",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {},
+            "description": "Values for the placeholders in the code's message",
+            "type": "object"
+          },
+          "status": {
+            "description": "HTTP status code",
+            "examples": [
+              409
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Short summary of the problem type",
+            "examples": [
+              "Conflict"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "description": "A URI reference for the problem type",
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "session": {
+        "description": "The session cookie set when signing in to the panel.",
+        "in": "cookie",
+        "name": "racksail_session",
+        "type": "apiKey"
+      },
+      "token": {
+        "description": "An API token, scoped to permissions and accounts.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "The API of the Racksail panel. Every change goes through the change pipeline: mutating calls accept dryRun=true to preview the change set without applying it, and an Idempotency-Key header. Errors are RFC 9457 problem details with a stable code.",
+    "license": {
+      "identifier": "AGPL-3.0-or-later",
+      "name": "AGPL-3.0-or-later"
+    },
+    "title": "Racksail API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "description": "Runs the panel's health checks, such as whether the agent answers. Answers 200 when every check passes and 503 when one fails, so load balancers and uptime monitors can use it. It needs no sign-in.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
+              }
+            },
+            "description": "A check failed"
+          }
+        },
+        "summary": "Check that the panel is working",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "description": "Reports the version, release channel and build of the running panel. It needs no sign-in.",
+        "operationId": "getVersion",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildInfo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Show the Racksail version",
+        "tags": [
+          "System"
+        ]
+      }
+    }
+  }
+}

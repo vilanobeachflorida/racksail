@@ -1,0 +1,42 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: dns
+name: DNS
+description: "Zones, records, DNSSEC, templates, secondaries, nameservers and glue, and reverse zones."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: hosting
+dependencies:
+  requires: [network]
+profiles: [all-in-one, web-hosting, mail-server, dns-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 40
+  diskMB: 15
+  notes: "Knot DNS for authoritative zones and Unbound as the server's own resolver."
+upstream:
+  - id: knot
+    name: Knot DNS
+    license: GPL-3.0-or-later
+    homepage: https://www.knot-dns.cz/
+    source:
+      type: debian
+      packages: [knot]
+    install: When the first zone is created.
+  - id: unbound
+    name: Unbound
+    license: BSD-3-Clause
+    homepage: https://nlnetlabs.nl/projects/unbound/
+    source:
+      type: debian
+      packages: [unbound]
+    install: "When the first zone is created, as the server's local resolver."
+capabilities:
+  provides: [dns.zones, dns.dns01]
+  needs: [network.firewall]
+hooks:
+  - point: system.knot.zone
+    description: Patches to a zone before it is signed and published.
+  - point: system.knot.config
+    description: Patches to the Knot DNS server configuration.

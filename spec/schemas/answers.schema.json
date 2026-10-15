@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/answers.schema.json",
+  "title": "Racksail installer answers",
+  "description": "The answers file for an unattended install, read from USB, a URL or a boot parameter. It answers the installer's five questions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "mode"],
+  "properties": {
+    "format": { "const": 1 },
+    "mode": {
+      "description": "install wipes the chosen disks; convert turns the running Debian 13 into a Racksail server and only needs the mode; restore installs and then restores a backup.",
+      "enum": ["install", "convert", "restore"]
+    },
+    "locale": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$" },
+    "keyboard": { "type": "string", "pattern": "^[a-z]{2}(-[a-z0-9]+)?$" },
+    "hostname": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+    },
+    "mirror": { "description": "Debian mirror; deb.debian.org by default.", "type": "string", "format": "uri" },
+    "channel": { "enum": ["stable", "beta", "nightly"] },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["dhcp", "static"] },
+        "interface": {
+          "description": "Interface name or MAC address; the first with a carrier when absent.",
+          "type": "string"
+        },
+        "address": { "description": "IPv4 address with prefix length, such as 203.0.113.10/24.", "type": "string" },
+        "gateway": { "type": "string" },
+        "dns": { "type": "array", "items": { "type": "string" } },
+        "vlan": { "type": "integer", "minimum": 1, "maximum": 4094 },
+        "ipv6": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "enum": ["auto", "static", "off"] },
+            "address": { "type": "string" },
+            "gateway": { "type": "string" }
+          }
+        }
+      },
+      "if": { "properties": { "mode": { "const": "static" } } },
+      "then": { "required": ["address", "gateway"] }
+    },
+    "disks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layout"],
+      "properties": {
+        "layout": {
+          "description": "single: one disk. mirror: two disks in Btrfs RAID1. custom: devices and profiles as given.",
+          "enum": ["single", "mirror", "custom"]
+        },
+        "devices": { "type": "array", "items": { "type": "string" } },
+        "keepData": { "description": "Reinstall the system and keep the data subvolumes.", "type": "boolean" },
+        "profile": {
+          "description": "Btrfs data profile for custom layouts.",
+          "enum": ["single", "raid1", "raid1c3", "raid10"]
+        },
+        "confirmWipe": {
+          "description": "Must be true for install mode, which erases the chosen disks.",
+          "type": "boolean"
+        }
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["username"],
+      "properties": {
+        "username": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$" },
+        "passwordHash": {
+          "description": "A yescrypt or SHA-512 crypt hash; never a plain password.",
+          "type": "string",
+          "pattern": "^\\$(y|6)\\$"
+        },
+        "sshKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com) "
+          }
+        },
+        "githubKeys": {
+          "description": "GitHub user whose public keys are imported.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{1,39}$"
+        }
+      },
+      "anyOf": [
+        { "required": ["passwordHash"] },
+        { "required": ["sshKeys"] },
+        { "required": ["githubKeys"] }
+      ]
+    },
+    "restore": {
+      "description": "Where to restore from in restore mode.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": { "repository": { "type": "string" }, "snapshot": { "type": "string" } }
+    },
+    "reboot": { "description": "Reboot when the install has finished.", "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "mode": { "enum": ["install", "restore"] } } },
+      "then": { "required": ["network", "disks", "account"] }
+    },
+    { "if": { "properties": { "mode": { "const": "restore" } } }, "then": { "required": ["restore"] } }
+  ]
+}

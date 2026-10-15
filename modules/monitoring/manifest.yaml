@@ -1,0 +1,21 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: monitoring
+name: Monitoring and analytics
+description: >-
+  Metrics, logs, the event timeline, alerts, site analytics, bot controls, security events and
+  update tracking.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies: {}
+profiles: [all-in-one, web-hosting, home-server, virtualization-host, mail-server, dns-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 10
+  activeMemoryMB: 40
+  diskMB: 500
+  notes: "Metrics are kept per minute for 2 days, per hour for 90 days and per day after that."
+upstream: []
+capabilities:
+  provides: [monitoring.metrics, monitoring.logs, monitoring.alerts, monitoring.analytics]

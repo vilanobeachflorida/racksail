@@ -1,0 +1,44 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: builder
+name: Builder
+description: "Runtime build recipes, era-matched build roots, the build cache and custom PHP builds."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies:
+  requires: [web]
+profiles: []
+hardware:
+  arch: [amd64, arm64]
+  minMemoryMB: 1024
+  notes: Builds run at low priority in capped sandboxes.
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 300
+  diskMB: 2000
+  notes: >-
+    Memory is used only during builds; build roots and the build cache take the disk, and unused
+    builds are cleaned up.
+upstream:
+  - id: mmdebstrap
+    name: mmdebstrap
+    license: MIT
+    homepage: https://gitlab.mister-muffin.de/josch/mmdebstrap
+    source:
+      type: debian
+      packages: [mmdebstrap]
+    install: When the first custom build needs a build root.
+  - id: build-tools
+    name: Build tools
+    license: GPL-3.0-or-later
+    homepage: https://snapshot.debian.org/
+    source:
+      type: debian
+      packages: [build-essential]
+      repository: https://snapshot.debian.org/
+      verification: "Debian archive signatures of the snapshot's era."
+    install: >-
+      Inside each build root, from snapshot.debian.org for the era of the runtime being built; never
+      on the host.
+capabilities:
+  provides: [builder.runtimes]

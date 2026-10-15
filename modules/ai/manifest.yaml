@@ -1,0 +1,45 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: ai
+name: Assistant
+description: "Chat, providers, local models, model downloads, the MCP server and diagnostics."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: assistant
+dependencies: {}
+profiles: []
+hardware:
+  arch: [amd64, arm64]
+  notes: >-
+    Providers work on any server. Local models need memory: about 4 GB for the small model, 8 GB for
+    the medium and 16 GB for the large one.
+cost:
+  idleMemoryMB: 10
+  activeMemoryMB: 30
+  diskMB: 0
+  notes: >-
+    Without local models. A local model uses its own memory while it answers and is stopped when
+    idle.
+upstream:
+  - id: llama-cpp
+    name: llama.cpp
+    license: MIT
+    homepage: https://github.com/ggml-org/llama.cpp
+    source:
+      type: racksail-build
+      url: https://github.com/vilanobeachflorida/racksail/pkgs/container/runtimes
+      verification: Built from the official sources by Racksail CI and signed with Sigstore.
+    install: >-
+      When the first local model is set up. It runs as a socket-activated, capped, lowest-priority
+      service.
+  - id: models
+    name: Model files
+    license: NOASSERTION
+    homepage: https://github.com/vilanobeachflorida/racksail/tree/main/catalog
+    source:
+      type: vendor-archive
+      verification: "Checksums from the catalog; each model's license is shown before it downloads."
+    install: >-
+      When you download a model from the catalog. Downloads run in the background, resume and are
+      verified.
+capabilities:
+  provides: [ai.chat, ai.mcp, ai.diagnostics]

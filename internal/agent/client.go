@@ -1,0 +1,114 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+
+	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
+)
+
+// Client calls agent operations.
+type Client interface {
+	// Call runs one operation with a JSON input and returns its JSON output.
+	Call(ctx context.Context, op string, input json.RawMessage, opts CallOptions) (json.RawMessage, error)
+}
+
+// CallOptions apply to one call.
+type CallOptions struct {
+	// Check reports what would change without changing anything.
+	Check bool
+	// Owner is the resource the call is made for.
+	Owner store.ID
+}
+
+// Local runs operations in the same process, against any backend. Development
+// mode uses it with the simulated server, and tests use it everywhere.
+type Local struct {
+	backend *system.Backend
+	log     *slog.Logger
+}
+
+// NewLocal returns a client that runs operations against backend.
+func NewLocal(backend *system.Backend, log *slog.Logger) *Local {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Local{backend: backend, log: log}
+}
+
+// Call implements Client. The input goes through the same decoding and
+// validation as calls that arrive over the socket.
+func (l *Local) Call(ctx context.Context, op string, input json.RawMessage, opts CallOptions) (json.RawMessage, error) {
+	e, ok := Lookup(op)
+	if !ok {
+		return nil, ErrUnknownOperation.New("op", op)
+	}
+	if opts.Check && e.ReadOnly() {
+		opts.Check = false
+	}
+	return e.Invoke(ctx, &Env{System: l.backend, Check: opts.Check, Owner: opts.Owner, Log: l.log}, input)
+}
+
+// StepResult is the outcome of one step of a plan.
+type StepResult struct {
+	Step   Step            `json:"step"`
+	Output json.RawMessage `json:"output,omitempty"`
+	// Result is filled for operations whose output is a Result.
+	Result *Result `json:"result,omitempty"`
+}
+
+// Execute runs the steps of a plan in order and stops at the first error.
+// progress, when not nil, is called before each step. In check mode nothing
+// changes and the results say what would.
+func Execute(ctx context.Context, c Client, steps []Step, opts CallOptions, progress func(i int, s Step)) ([]StepResult, error) {
+	results := make([]StepResult, 0, len(steps))
+	for i, s := range steps {
+		if err := ctx.Err(); err != nil {
+			return results, err
+		}
+		if progress != nil {
+			progress(i, s)
+		}
+		input, err := json.Marshal(s.Input)
+		if err != nil {
+			return results, fmt.Errorf("step %d (%s): encoding input: %w", i+1, s.Op, err)
+		}
+		out, err := c.Call(ctx, s.Op, input, opts)
+		if err != nil {
+			return results, fmt.Errorf("step %d (%s): %w", i+1, s.Op, err)
+		}
+		r := StepResult{Step: s, Output: out}
+		var res Result
+		if json.Unmarshal(out, &res) == nil && (res.Changed || len(res.Effects) > 0) {
+			r.Result = &res
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
+// PlannedEffects describes what steps would change, from each operation's
+// static description. It needs no agent; previews use check mode when the
+// agent is reachable and fall back to this.
+func PlannedEffects(steps []Step) ([]system.Effect, error) {
+	var effects []system.Effect
+	for i, s := range steps {
+		e, ok := Lookup(s.Op)
+		if !ok {
+			return nil, ErrUnknownOperation.New("op", s.Op)
+		}
+		input, err := json.Marshal(s.Input)
+		if err != nil {
+			return nil, fmt.Errorf("step %d (%s): encoding input: %w", i+1, s.Op, err)
+		}
+		eff, err := e.Effects(input)
+		if err != nil {
+			return nil, err
+		}
+		effects = append(effects, eff...)
+	}
+	return effects, nil
+}

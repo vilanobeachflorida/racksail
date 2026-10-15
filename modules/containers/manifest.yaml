@@ -1,0 +1,37 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: containers
+name: Containers
+description: "Container apps, compose stacks, images, networks, volumes and app updates."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: apps
+dependencies:
+  requires: [network]
+profiles: [all-in-one, home-server, virtualization-host]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 80
+  diskMB: 400
+  notes: The engine itself; apps use what their images need.
+upstream:
+  - id: docker
+    name: Docker Engine
+    license: Apache-2.0
+    homepage: https://mobyproject.org/
+    source:
+      type: debian
+      packages: [docker.io]
+    install: When the first container app or compose stack is created.
+  - id: podman
+    name: Podman
+    license: Apache-2.0
+    homepage: https://podman.io/
+    source:
+      type: debian
+      packages: [podman]
+    install: "When the first account runs containers of its own, rootless."
+capabilities:
+  provides: [containers.apps]
+  needs: [network.firewall]

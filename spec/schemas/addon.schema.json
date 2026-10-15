@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/addon.schema.json",
+  "title": "Racksail add-on manifest",
+  "description": "addon.yaml: an add-on runs as its own sandboxed process and only ever receives what its permissions grant.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "id", "name", "version", "license", "source", "author", "description", "apiVersions", "permissions"],
+  "properties": {
+    "format": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "license": { "description": "SPDX license expression.", "type": "string", "minLength": 1 },
+    "source": { "type": "string", "format": "uri" },
+    "author": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "apiVersions": {
+      "description": "Hook API versions the add-on supports.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^v[0-9]+$" }
+    },
+    "hooks": { "type": "array", "items": { "$ref": "#/$defs/hook" } },
+    "provides": {
+      "description": "Capabilities implemented behind standard interfaces.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["dns", "registrar", "backup-target", "notifier", "ai", "billing", "importer", "auth-provider", "mfa"]
+      }
+    },
+    "permissions": { "$ref": "#/$defs/permissions" },
+    "ui": { "type": "array", "items": { "$ref": "#/$defs/uiExtension" } },
+    "routes": {
+      "description": "API routes served under /api/v1/addons/<id>/.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["method", "path", "summary"],
+        "properties": {
+          "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+          "path": { "type": "string", "pattern": "^/[A-Za-z0-9/{}._-]*$" },
+          "summary": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "kinds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "prefix", "scope", "title", "plural", "description", "schema"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$" },
+          "prefix": { "type": "string", "pattern": "^[a-z]+$", "maxLength": 16 },
+          "scope": { "enum": ["server", "reseller", "account"] },
+          "title": { "type": "string" },
+          "plural": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "description": { "type": "string" },
+          "schema": { "description": "JSON Schema of the spec.", "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["point", "kind"],
+      "properties": {
+        "point": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9*][a-z0-9_*-]*)+$" },
+        "kind": { "enum": ["observe", "validate", "modify", "system"] },
+        "priority": { "type": "integer" },
+        "deadline": { "description": "At most 10s.", "type": "string", "pattern": "^([1-9][0-9]{0,3}ms|([1-9]|10)s)$" },
+        "failureMode": { "enum": ["block", "allow"] },
+        "security": { "type": "boolean" }
+      }
+    },
+    "dataScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "type": "string" }, "fields": { "type": "array", "items": { "type": "string" } } }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hooks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["observe", "validate", "modify", "system"] }
+        },
+        "read": { "type": "array", "items": { "$ref": "#/$defs/dataScope" } },
+        "write": { "type": "array", "items": { "$ref": "#/$defs/dataScope" } },
+        "secrets": { "description": "secrets:read, shown in red at install.", "type": "boolean" },
+        "network": {
+          "description": "Hosts the add-on may reach; none by default.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "type": "string", "pattern": "^[0-9]{1,3}%$" },
+            "memoryMB": { "type": "integer", "minimum": 16 }
+          }
+        },
+        "override": { "description": "core.override; only a server admin can grant it.", "type": "boolean" }
+      }
+    },
+    "uiExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "label"],
+      "properties": {
+        "type": { "enum": ["nav", "tab", "card", "command", "settings", "column"] },
+        "label": { "type": "string" },
+        "icon": { "type": "string" },
+        "kind": { "description": "Kind for tabs and columns.", "type": "string" },
+        "path": { "description": "Page served by the add-on in a sandboxed frame.", "type": "string" }
+      }
+    }
+  }
+}

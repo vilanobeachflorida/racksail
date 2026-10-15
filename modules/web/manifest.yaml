@@ -1,0 +1,111 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: web
+name: Web hosting
+description: >-
+  Sites, domains on sites, runtimes, deploys, releases, staging, previews, per-site rules and
+  temporary URLs.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: hosting
+dependencies:
+  requires: [network]
+profiles: [all-in-one, web-hosting]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 10
+  activeMemoryMB: 80
+  diskMB: 150
+  notes: >-
+    Idle sites sleep and use no memory. Each PHP version adds about 30 MB on disk, each Node line
+    about 100 MB.
+upstream:
+  - id: caddy
+    name: Caddy
+    license: Apache-2.0
+    homepage: https://caddyserver.com/
+    source:
+      type: embedded
+    install: "Built into the racksail binary as the edge, which starts when the first site gets a route."
+  - id: php
+    name: PHP
+    license: PHP-3.01
+    homepage: https://www.php.net/
+    source:
+      type: apt-repository
+      packages: ["php*-fpm", "php*-cli", "php*-*"]
+      repository: https://packages.sury.org/php/
+      verification: Repository signing key pinned in the binary; the repository can only provide php packages.
+    install: Each PHP version is installed when the first site uses it; versions run side by side.
+  - id: nodejs
+    name: Node.js
+    license: MIT
+    homepage: https://nodejs.org/
+    source:
+      type: vendor-archive
+      url: https://nodejs.org/dist/
+      verification: "SHA-256 checksums from SHASUMS256.txt, signed by the Node.js release keys."
+    install: "When the first Node site uses a release line, into a versioned runtime directory."
+  - id: uv
+    name: uv
+    license: MIT OR Apache-2.0
+    homepage: https://docs.astral.sh/uv/
+    source:
+      type: vendor-archive
+      url: https://github.com/astral-sh/uv/releases
+      verification: SHA-256 checksums published with each release.
+    install: When the first Python site is created.
+  - id: python
+    name: Python
+    license: PSF-2.0
+    homepage: https://www.python.org/
+    source:
+      type: vendor-archive
+      url: https://github.com/astral-sh/python-build-standalone/releases
+      verification: SHA-256 checksums published with each release.
+    install: "When a Python site first needs a version, through uv, into a versioned runtime directory."
+  - id: ruby
+    name: Ruby
+    license: Ruby OR BSD-2-Clause
+    homepage: https://www.ruby-lang.org/
+    source:
+      type: racksail-build
+      url: https://github.com/vilanobeachflorida/racksail/pkgs/container/runtimes
+      verification: Built from the official sources by Racksail CI and signed with Sigstore.
+    install: When the first Ruby site uses a version.
+  - id: bun
+    name: Bun
+    license: MIT
+    homepage: https://bun.sh/
+    source:
+      type: vendor-archive
+      url: https://github.com/oven-sh/bun/releases
+      verification: SHA-256 checksums published with each release.
+    install: When the first Bun site is created.
+  - id: deno
+    name: Deno
+    license: MIT
+    homepage: https://deno.com/
+    source:
+      type: vendor-archive
+      url: https://github.com/denoland/deno/releases
+      verification: SHA-256 checksums published with each release.
+    install: When the first Deno site is created.
+  - id: apache2
+    name: Apache HTTP Server
+    license: Apache-2.0
+    homepage: https://httpd.apache.org/
+    source:
+      type: debian
+      packages: [apache2]
+    install: When the first site needs .htaccess support; it runs per account behind the edge.
+capabilities:
+  provides: [web.sites, web.runtimes, edge.routes]
+  needs: [network.firewall]
+hooks:
+  - point: system.caddy.config
+    description: "Patches to a site's edge configuration, such as a CDN directive."
+  - point: system.phpfpm.pool
+    description: "Patches to a site's PHP-FPM pool settings."
+  - point: system.apache.vhost
+    description: Patches to the Apache virtual host of a .htaccess site.

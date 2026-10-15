@@ -1,0 +1,32 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: files
+name: Files and terminal
+description: "The file manager and editor, SFTP users, SSH access, SSH keys and the web terminal."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies: {}
+profiles: [all-in-one, web-hosting, home-server, virtualization-host]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 15
+  diskMB: 0
+  notes: OpenSSH is already part of the server.
+upstream:
+  - id: openssh
+    name: OpenSSH
+    license: SSH-OpenSSH
+    homepage: https://www.openssh.com/
+    source:
+      type: present
+      packages: [openssh-server]
+    install: >-
+      Part of every Racksail server; Racksail manages SFTP users, keys and shell access in its
+      configuration.
+capabilities:
+  provides: [files.manager, files.sftp, files.terminal]
+hooks:
+  - point: system.sshd.config
+    description: Patches to the SSH server configuration.

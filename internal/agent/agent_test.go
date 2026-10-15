@@ -1,0 +1,422 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
+	"github.com/vilanobeachflorida/racksail/internal/system/sim"
+)
+
+func newLocal(t *testing.T) (*sim.Machine, *Local) {
+	t.Helper()
+	if err := Err(); err != nil {
+		t.Fatal(err)
+	}
+	m := sim.New(sim.Options{Hostname: "agent-test"})
+	return m, NewLocal(m.Backend(), nil)
+}
+
+func TestRegistry(t *testing.T) {
+	if err := Err(); err != nil {
+		t.Fatal(err)
+	}
+	ops := Operations()
+	if len(ops) < 40 {
+		t.Errorf("only %d operations are registered", len(ops))
+	}
+	for _, op := range ops {
+		if op.Summary() == "" {
+			t.Errorf("%s has no summary", op.Name())
+		}
+		if op.InputType().Kind().String() != "struct" {
+			t.Errorf("%s input is a %s, not a struct", op.Name(), op.InputType().Kind())
+		}
+	}
+	if _, ok := Lookup("WriteFile"); !ok {
+		t.Error("WriteFile is not registered")
+	}
+}
+
+func TestWriteFileIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	in := WriteFileInput{Path: "/etc/racksail/generated/site.conf", Content: []byte("listen 80;\n"), Mode: 0o640, Owner: system.Owner{Group: "racksail"}}
+
+	check, err := WriteFile.Call(ctx, c, in, CallOptions{Check: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check.Changed || len(check.Effects) != 1 {
+		t.Errorf("check mode = %+v", check)
+	}
+	if _, err := m.Backend().Files.Stat(ctx, in.Path); !errors.Is(err, system.ErrNotFound) {
+		t.Fatal("check mode must not write")
+	}
+	first, err := WriteFile.Call(ctx, c, in, CallOptions{})
+	if err != nil || !first.Changed {
+		t.Fatalf("first write = %+v, %v", first, err)
+	}
+	again, err := WriteFile.Call(ctx, c, in, CallOptions{})
+	if err != nil || again.Changed {
+		t.Errorf("writing the same file again should change nothing: %+v, %v", again, err)
+	}
+	in.Mode = 0o600
+	if res, _ := WriteFile.Call(ctx, c, in, CallOptions{}); !res.Changed {
+		t.Error("a new mode is a change")
+	}
+}
+
+func TestPathPolicy(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	for _, in := range []WriteFileInput{
+		{Path: "/etc/shadow", Mode: 0o600},
+		{Path: "/etc/racksail/../shadow", Mode: 0o600},
+		{Path: "/srv/racksail/x", Mode: 0o4755},
+		{Path: "relative", Mode: 0o644},
+	} {
+		_, err := WriteFile.Call(ctx, c, in, CallOptions{})
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("WriteFile(%s, %o) = %v, want invalid input", in.Path, in.Mode, err)
+		}
+	}
+	// A link planted inside an account's directory can't redirect writes.
+	b := m.Backend()
+	if err := b.Files.Mkdir(ctx, "/srv/racksail/accounts/blog", 0o755, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Files.Symlink(ctx, "/etc", "/srv/racksail/accounts/blog/etc"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := WriteFile.Call(ctx, c, WriteFileInput{Path: "/srv/racksail/accounts/blog/etc/passwd", Content: []byte("x"), Mode: 0o644}, CallOptions{})
+	if err == nil {
+		t.Error("a write through a symbolic link must fail")
+	}
+	if _, err := RemovePath.Call(ctx, c, RemovePathInput{Path: "/srv/racksail", Recursive: true}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("removing a root directory: %v", err)
+	}
+}
+
+func TestUsersAndGroups(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	acct := EnsureUserInput{Name: "blog", UID: 20001, Home: "/srv/racksail/accounts/blog", SubIDs: &system.IDRange{Start: 1065536, Count: 65536}}
+	if res, err := EnsureUser.Call(ctx, c, acct, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("create = %+v, %v", res, err)
+	}
+	if res, err := EnsureUser.Call(ctx, c, acct, CallOptions{}); err != nil || res.Changed {
+		t.Errorf("second ensure = %+v, %v", res, err)
+	}
+	acct.Locked = true
+	if res, _ := EnsureUser.Call(ctx, c, acct, CallOptions{}); !res.Changed {
+		t.Error("locking is a change")
+	}
+	if u, _ := m.Backend().Users.LookupUser(ctx, "blog"); !u.Locked {
+		t.Error("the user should be locked")
+	}
+	for _, bad := range []EnsureUserInput{
+		{Name: "blog2", UID: 5000, Home: "/srv/racksail/accounts/blog2"},
+		{Name: "blog3", UID: 20003, Home: "/srv/x", Groups: []string{"sudo"}},
+		{Name: "blog4", UID: 20004, Home: "/srv/x", Shell: "/usr/bin/python3"},
+	} {
+		if _, err := EnsureUser.Call(ctx, c, bad, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("EnsureUser(%+v) = %v", bad, err)
+		}
+	}
+	members := []string{"blog"}
+	if res, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "webusers", Members: &members}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("group = %+v, %v", res, err)
+	}
+	if _, err := DeleteUser.Call(ctx, c, DeleteUserInput{Name: "root"}, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("deleting root: %v", err)
+	}
+	if res, err := DeleteUser.Call(ctx, c, DeleteUserInput{Name: "blog"}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("delete = %+v, %v", res, err)
+	}
+	if res, _ := DeleteUser.Call(ctx, c, DeleteUserInput{Name: "blog"}, CallOptions{}); res.Changed {
+		t.Error("deleting a missing user changes nothing")
+	}
+}
+
+func TestUnitsAndPolicy(t *testing.T) {
+	ctx := context.Background()
+	_, c := newLocal(t)
+	root := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nExecStart=/bin/true\n")}
+	if _, err := EnsureUnit.Call(ctx, c, root, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a service without a user: %v", err)
+	}
+	other := EnsureUnitInput{Name: "evil.service", Content: []byte("[Service]\nUser=nobody\n")}
+	if _, err := EnsureUnit.Call(ctx, c, other, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a unit not named racksail-*: %v", err)
+	}
+	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=racksail\nExecStart=/usr/bin/sleep infinity\n")}
+	if res, err := EnsureUnit.Call(ctx, c, unit, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("ensure unit = %+v, %v", res, err)
+	}
+	if res, _ := EnsureUnit.Call(ctx, c, unit, CallOptions{}); res.Changed {
+		t.Error("the same unit file is no change")
+	}
+	if res, err := StartUnit.Call(ctx, c, UnitInput{Name: unit.Name}, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("start = %+v, %v", res, err)
+	}
+	if res, _ := StartUnit.Call(ctx, c, UnitInput{Name: unit.Name}, CallOptions{}); res.Changed {
+		t.Error("starting a running unit changes nothing")
+	}
+	if _, err := StopUnit.Call(ctx, c, UnitInput{Name: "ssh.service"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("stopping a unit Racksail doesn't manage: %v", err)
+	}
+	if _, err := EnsureDropIn.Call(ctx, c, DropInInput{Unit: unit.Name, Name: "racksail-limits", Content: []byte("[Service]\nUser=root\n")}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a drop-in changing the user: %v", err)
+	}
+	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "1G"}}}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("properties = %+v, %v", res, err)
+	}
+	if res, err := RemoveUnit.Call(ctx, c, UnitInput{Name: unit.Name}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("remove = %+v, %v", res, err)
+	}
+	st, _ := UnitStatus.Call(ctx, c, UnitStatusInput{Name: unit.Name}, CallOptions{})
+	if st.LoadState != "not-found" {
+		t.Errorf("after removal = %+v", st)
+	}
+}
+
+func TestPackagesAndSources(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	check, err := InstallPackages.Call(ctx, c, InstallPackagesInput{Packages: []system.PackageRequest{{Name: "mariadb-server"}}}, CallOptions{Check: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(check.Effects) != 2 || check.Effects[0].DownloadBytes == 0 {
+		t.Errorf("preview should list the server and its client with sizes: %+v", check.Effects)
+	}
+	if res, err := InstallPackages.Call(ctx, c, InstallPackagesInput{Packages: []system.PackageRequest{{Name: "mariadb-server"}}}, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("install = %+v, %v", res, err)
+	}
+	if res, _ := InstallPackages.Call(ctx, c, InstallPackagesInput{Packages: []system.PackageRequest{{Name: "mariadb-server"}}}, CallOptions{}); res.Changed {
+		t.Error("installing an installed package changes nothing")
+	}
+	if _, err := EnsureAptSource.Call(ctx, c, SourceInput{Name: "unknown-vendor"}, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("unregistered source: %v", err)
+	}
+	RegisterAptSource(system.AptSource{
+		Name: "agent-test-php", URIs: []string{"https://packages.sury.org/php/"}, Suites: []string{"trixie"}, Components: []string{"main"},
+		Key: []byte("-----BEGIN PGP PUBLIC KEY BLOCK-----\nk\n-----END PGP PUBLIC KEY BLOCK-----\n"), Packages: []string{"php*"},
+	})
+	if res, err := EnsureAptSource.Call(ctx, c, SourceInput{Name: "agent-test-php"}, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("source = %+v, %v", res, err)
+	}
+	if res, _ := EnsureAptSource.Call(ctx, c, SourceInput{Name: "agent-test-php"}, CallOptions{}); res.Changed {
+		t.Error("an enabled source is no change")
+	}
+	if _, err := InstallPackages.Call(ctx, c, InstallPackagesInput{Packages: []system.PackageRequest{{Name: "php8.4-fpm"}}}, CallOptions{}); err != nil {
+		t.Errorf("installing from the source: %v", err)
+	}
+	if st, _ := m.Backend().Units.Status(ctx, "php8.4-fpm.service"); !st.Active() {
+		t.Error("the package's service should be running")
+	}
+	archive := InstallArchiveInput{Archive: system.Archive{URL: "https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz", SHA256: strings.Repeat("ab", 32), Size: 30 << 20, Format: "tar.xz", Dest: "/opt/racksail/runtimes/node/22.11.0", StripComponents: 1}}
+	if res, err := InstallArchive.Call(ctx, c, archive, CallOptions{}); err != nil || !res.Changed || res.Effects[0].Source == "" {
+		t.Errorf("archive = %+v, %v", res, err)
+	}
+	archive.Archive.Dest = "/etc/racksail/evil"
+	if _, err := InstallArchive.Call(ctx, c, archive, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("archive outside the runtime directories: %v", err)
+	}
+}
+
+func TestStorageOps(t *testing.T) {
+	ctx := context.Background()
+	_, c := newLocal(t)
+	sv := SubvolumeInput{Path: "/srv/racksail/accounts/blog"}
+	if res, err := EnsureSubvolume.Call(ctx, c, sv, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("subvolume = %+v, %v", res, err)
+	}
+	if res, _ := EnsureSubvolume.Call(ctx, c, sv, CallOptions{}); res.Changed {
+		t.Error("an existing subvolume is no change")
+	}
+	if res, err := SetSubvolumeQuota.Call(ctx, c, QuotaInput{Path: sv.Path, LimitBytes: 5 << 30}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("quota = %+v, %v", res, err)
+	}
+	if res, _ := SetSubvolumeQuota.Call(ctx, c, QuotaInput{Path: sv.Path, LimitBytes: 5 << 30}, CallOptions{}); res.Changed {
+		t.Error("the same quota is no change")
+	}
+	snap := SnapshotInput{Source: sv.Path, Dest: "/.snapshots/blog-1", ReadOnly: true}
+	if res, err := CreateSnapshot.Call(ctx, c, snap, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("snapshot = %+v, %v", res, err)
+	}
+	if _, err := WipeDevice.Call(ctx, c, DeviceInput{Device: "/dev/nvme0n1"}, CallOptions{}); err == nil {
+		t.Error("wiping the system disk must fail")
+	}
+	if _, err := FormatDevice.Call(ctx, c, FormatInput{Spec: system.FormatSpec{Type: "btrfs", Devices: []string{"/dev/sda", "/dev/sdb"}, Profiles: system.BtrfsProfiles{Data: "raid1", Metadata: "raid1"}}}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: "/mnt/racksail/pool", Mode: 0o755}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	mount := MountInput{Mount: system.Mount{Source: "/dev/sda", Target: "/mnt/racksail/pool", FSType: "btrfs"}}
+	if res, err := EnsureMounted.Call(ctx, c, mount, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("mount = %+v, %v", res, err)
+	}
+	if _, err := WipeDevice.Call(ctx, c, DeviceInput{Device: "/dev/sdb"}, CallOptions{}); err == nil {
+		t.Error("wiping a member of a mounted pool must fail")
+	}
+	if res, err := StartScrub.Call(ctx, c, MountPointInput{Mount: "/mnt/racksail/pool"}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("scrub = %+v, %v", res, err)
+	}
+}
+
+func TestNetworkAndSystemOps(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	ruleset := "table inet racksail {\n  set bans { type ipv4_addr; flags timeout; }\n  chain input { type filter hook input priority 0; policy drop; }\n}\n"
+	if res, err := ApplyFirewall.Call(ctx, c, ApplyFirewallInput{Ruleset: ruleset}, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("firewall = %+v, %v", res, err)
+	}
+	if res, err := ApplyFirewall.Call(ctx, c, ApplyFirewallInput{Ruleset: ruleset}, CallOptions{}); err != nil || res.Changed {
+		t.Errorf("the same ruleset is no change: %+v, %v", res, err)
+	}
+	if _, err := ApplyFirewall.Call(ctx, c, ApplyFirewallInput{Ruleset: "flush ruleset\ntable inet filter {}\n"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("foreign tables: %v", err)
+	}
+	bans := SetElementsInput{Set: system.SetRef{Family: "inet", Table: "racksail", Set: "bans"}, Elements: []system.SetElement{{Value: "198.51.100.4"}}}
+	if _, err := AddFirewallElements.Call(ctx, c, bans, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := ListFirewallElements.Call(ctx, c, SetRefInput{Set: bans.Set}, CallOptions{})
+	if len(list.Elements) != 1 {
+		t.Errorf("bans = %+v", list)
+	}
+	files := NetworkConfigInput{Files: map[string]string{"50-racksail-enp1s0.network": "[Match]\nName=enp1s0\n"}}
+	if res, err := ApplyNetworkConfig.Call(ctx, c, files, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("network = %+v, %v", res, err)
+	}
+	if res, _ := ApplyNetworkConfig.Call(ctx, c, files, CallOptions{}); res.Changed {
+		t.Error("the same network files are no change")
+	}
+	sysctl := SysctlInput{Name: "network", Values: map[string]string{"net.core.default_qdisc": "fq", "net.ipv4.tcp_congestion_control": "bbr"}}
+	if res, err := SetSysctl.Call(ctx, c, sysctl, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("sysctl = %+v, %v", res, err)
+	}
+	if res, _ := SetSysctl.Call(ctx, c, sysctl, CallOptions{}); res.Changed {
+		t.Error("the same parameters are no change")
+	}
+	if _, err := SetSysctl.Call(ctx, c, SysctlInput{Name: "x", Values: map[string]string{"kernel.modules_disabled": "1"}}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a parameter outside the allowlist: %v", err)
+	}
+	procs, _ := ListProcesses.Call(ctx, c, ProcessFilterInput{}, CallOptions{})
+	var sshPID int
+	for _, p := range procs.Processes {
+		if p.Unit == "ssh.service" {
+			sshPID = p.PID
+		}
+	}
+	if _, err := SignalProcess.Call(ctx, c, SignalInput{PID: sshPID, Signal: system.SIGKILL}, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("killing sshd: %v", err)
+	}
+	facts, err := GetFacts.Call(ctx, c, Empty{}, CallOptions{})
+	if err != nil || facts.Hostname != "agent-test" {
+		t.Errorf("facts = %+v, %v", facts, err)
+	}
+	_ = m
+}
+
+func TestExecuteAndPlannedEffects(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	steps := []Step{
+		EnsureDir.Step(EnsureDirInput{Path: "/srv/racksail/accounts/shop", Mode: 0o750, Parents: true}),
+		WriteFile.Titled("Write the index page", WriteFileInput{Path: "/srv/racksail/accounts/shop/index.html", Content: []byte("hi"), Mode: 0o644}),
+	}
+	effects, err := PlannedEffects(steps)
+	if err != nil || len(effects) != 2 {
+		t.Fatalf("planned effects = %+v, %v", effects, err)
+	}
+	var seen []string
+	results, err := Execute(ctx, c, steps, CallOptions{Owner: store.NewID("site")}, func(i int, s Step) { seen = append(seen, s.Title) })
+	if err != nil || len(results) != 2 || !results[1].Result.Changed || seen[1] != "Write the index page" {
+		t.Fatalf("execute = %+v, %v (%v)", results, err, seen)
+	}
+	m.FailNext("files.write", "/srv/racksail/accounts/shop/b.html", errors.New("disk full"))
+	failing := append(steps, WriteFile.Step(WriteFileInput{Path: "/srv/racksail/accounts/shop/b.html", Mode: 0o644}))
+	if _, err := Execute(ctx, c, failing, CallOptions{}, nil); !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "step 3") {
+		t.Errorf("a failing step: %v", err)
+	}
+	if _, err := c.Call(ctx, "NoSuchOperation", json.RawMessage(`{}`), CallOptions{}); !errors.Is(err, ErrUnknownOperation) {
+		t.Errorf("unknown operation: %v", err)
+	}
+	if _, err := c.Call(ctx, "WriteFile", json.RawMessage(`{"path":"/srv/racksail/x","mode":"0644","content":"","extra":1}`), CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("unknown fields must be refused: %v", err)
+	}
+}
+
+func TestHTTPServerRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	m := sim.New(sim.Options{Hostname: "remote"})
+	srv := NewServer(m.Backend(), "test", nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	client := NewHTTPClient(ts.URL, ts.Client())
+
+	h, err := client.Health(ctx)
+	if err != nil || h.Status != "ok" || h.Backend != "sim" {
+		t.Fatalf("health = %+v, %v", h, err)
+	}
+	res, err := WriteFile.Call(ctx, client, WriteFileInput{Path: "/etc/racksail/generated/a.conf", Content: []byte("a"), Mode: 0o644}, CallOptions{Check: true})
+	if err != nil || !res.Changed {
+		t.Fatalf("check over HTTP = %+v, %v", res, err)
+	}
+	facts, err := GetFacts.Call(ctx, client, Empty{}, CallOptions{})
+	if err != nil || facts.Hostname != "remote" {
+		t.Errorf("facts over HTTP = %+v, %v", facts, err)
+	}
+	_, err = WriteFile.Call(ctx, client, WriteFileInput{Path: "/etc/shadow", Mode: 0o644}, CallOptions{})
+	var coded *i18n.Error
+	if !errors.As(err, &coded) || coded.Code != ErrInvalidInput.Code || coded.Status != 422 {
+		t.Errorf("errors keep their code over HTTP: %v", err)
+	}
+	if _, err := client.Call(ctx, "NoSuchOperation", json.RawMessage(`{}`), CallOptions{}); err == nil {
+		t.Error("unknown operations must fail over HTTP")
+	}
+	unreachable := NewHTTPClient("http://127.0.0.1:1", nil)
+	if _, err := unreachable.Health(ctx); !errors.Is(err, ErrUnreachable) {
+		t.Errorf("unreachable agent: %v", err)
+	}
+}
+
+func TestProtocolDocument(t *testing.T) {
+	doc, err := NewServer(nil, "test", nil).OpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		OpenAPI string         `json:"openapi"`
+		Paths   map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(doc, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.OpenAPI != "3.1.0" || parsed.Paths["/v1/ops/WriteFile"] == nil || parsed.Paths["/v1/health"] == nil {
+		t.Errorf("unexpected document: openapi %s, %d paths", parsed.OpenAPI, len(parsed.Paths))
+	}
+}
+
+func TestMode(t *testing.T) {
+	var m Mode
+	if err := m.UnmarshalText([]byte("0755")); err != nil || m != 0o755 {
+		t.Errorf("mode = %o, %v", m, err)
+	}
+	if b, _ := Mode(0o1777).MarshalText(); string(b) != "1777" {
+		t.Errorf("text = %s", b)
+	}
+	if err := m.UnmarshalText([]byte("rwx")); err == nil {
+		t.Error("non-octal modes must fail")
+	}
+}

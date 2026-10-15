@@ -1,0 +1,21 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: marketplace
+name: Marketplace
+description: >-
+  Catalogs, browsing and installing recipes, third-party catalogs and add-ons, and themes from
+  catalogs.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: apps
+dependencies: {}
+profiles: [all-in-one, web-hosting, home-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 15
+  diskMB: 20
+  notes: "The catalog index is fetched daily while the module is on, and never otherwise."
+upstream: []
+capabilities:
+  provides: [marketplace.catalogs, marketplace.recipes]

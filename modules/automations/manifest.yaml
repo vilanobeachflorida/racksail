@@ -1,0 +1,19 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: automations
+name: Automations
+description: "Workflows, triggers, runs and templates."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies: {}
+profiles: [all-in-one, web-hosting, home-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 15
+  diskMB: 5
+  notes: Runs inside the panel; it installs no software.
+upstream: []
+capabilities:
+  provides: [automations.workflows]

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/archive.schema.json",
+  "title": "Racksail portable account archive manifest",
+  "description": "manifest.json at the root of a portable account archive. Backups, customer downloads and migrations all produce and read this format.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "createdAt", "source", "account", "resources", "contents"],
+  "properties": {
+    "format": { "const": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "description": "What produced the archive.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product"],
+      "properties": {
+        "product": {
+          "enum": ["racksail", "cwp", "cpanel", "directadmin", "hestiacp", "vestacp", "plesk", "unraid", "ssh"]
+        },
+        "version": { "type": "string" },
+        "hostname": { "type": "string" }
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug"],
+      "properties": {
+        "slug": { "type": "string", "pattern": "^[a-z][a-z0-9]{2,15}$" },
+        "name": { "type": "string" },
+        "plan": { "type": "string" }
+      }
+    },
+    "resources": {
+      "description": "Every resource of the account, with its spec.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "spec"],
+        "properties": {
+          "kind": { "type": "string", "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$" },
+          "id": { "type": "string" },
+          "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+          "spec": { "type": "object" }
+        }
+      }
+    },
+    "contents": {
+      "description": "The data in the archive, by resource.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "path", "sha256", "size"],
+        "properties": {
+          "type": { "enum": ["files", "database", "mailbox", "dns-zone", "certificate", "app-data", "vm-disk"] },
+          "resource": { "description": "The resource the data belongs to.", "type": "string" },
+          "path": {
+            "description": "Path inside the archive.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$"
+          },
+          "format": {
+            "description": "tar, sql, maildir, zone or raw.",
+            "enum": ["tar", "sql", "maildir", "zone", "pem", "raw"]
+          },
+          "engine": { "description": "Database engine and version for database dumps.", "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "secrets": {
+      "description": "How secrets in the archive are protected.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "encryption": { "enum": ["none", "age"] },
+        "recipients": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

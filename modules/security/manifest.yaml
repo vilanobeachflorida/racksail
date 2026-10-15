@@ -1,0 +1,30 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: security
+name: Security scanning
+description: "Malware and web-shell scanning, and system file integrity."
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+dependencies: {}
+profiles: []
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 1200
+  diskMB: 400
+  notes: >-
+    ClamAV loads its signatures into about 1 GB of memory while it scans and is opt-in. Web-shell
+    rules and file integrity checks run without it.
+upstream:
+  - id: clamav
+    name: ClamAV
+    license: GPL-2.0-only
+    homepage: https://www.clamav.net/
+    source:
+      type: debian
+      packages: [clamav, clamav-daemon, clamav-freshclam]
+    install: Only when an admin turns on malware scanning.
+    optIn: true
+capabilities:
+  provides: [security.scanning, security.integrity]

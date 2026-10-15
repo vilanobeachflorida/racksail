@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/policy.schema.json",
+  "title": "Racksail rule",
+  "description": "The spec of a core.policy resource: a one-line CEL rule that denies changes or fills in defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "type"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string" },
+    "type": {
+      "description": "validate rules deny a change with a message; default rules fill or override fields on create.",
+      "enum": ["validate", "default"]
+    },
+    "kinds": {
+      "description": "Kinds the rule applies to; all kinds when empty.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$" }
+    },
+    "operations": {
+      "description": "Operations the rule applies to: create, update, delete or action names; all when empty.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+    },
+    "expression": {
+      "description": "For validate rules, a CEL expression that is true when the change must be refused. Variables: request, resource, oldResource, account, plan, user, server.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "message": { "description": "Shown to the person whose change was refused.", "type": "string", "maxLength": 500 },
+    "defaults": {
+      "description": "For default rules, fields to fill on create.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "expression"],
+        "properties": {
+          "field": {
+            "description": "Spec path, such as quotaBytes or headers.security.",
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+          },
+          "expression": {
+            "description": "CEL expression producing the value.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "override": {
+            "description": "Replace a value the request set, not only fill a missing one.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "enabled": { "type": "boolean" },
+    "priority": { "type": "integer" }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "validate" } } }, "then": { "required": ["expression", "message"] } },
+    { "if": { "properties": { "type": { "const": "default" } } }, "then": { "required": ["defaults"] } }
+  ]
+}

@@ -1,0 +1,29 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: backups
+name: Backups
+description: >-
+  Snapshot schedules, restic repositories, policies, restores, the key ceremony, restore tests and
+  portable archives.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: storage
+dependencies: {}
+profiles: [all-in-one, web-hosting, home-server, virtualization-host, mail-server, dns-server]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 60
+  diskMB: 30
+  notes: Memory is used while a backup runs; backups run at low priority and are spread out.
+upstream:
+  - id: restic
+    name: restic
+    license: BSD-2-Clause
+    homepage: https://restic.net/
+    source:
+      type: debian
+      packages: [restic]
+    install: When the first backup destination is set up.
+capabilities:
+  provides: [backups.snapshots, backups.repositories, backups.archives]

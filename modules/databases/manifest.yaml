@@ -1,0 +1,93 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: databases
+name: Databases
+description: >-
+  Database servers by engine and version, databases, users, grants, remote access, slow queries and
+  Adminer.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: hosting
+dependencies:
+  requires: [network]
+profiles: [all-in-one, web-hosting]
+hardware:
+  arch: [amd64, arm64]
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 150
+  diskMB: 250
+  notes: >-
+    Measured for one MariaDB server tuned for a small server; each further server or engine adds its
+    own.
+upstream:
+  - id: mariadb
+    name: MariaDB
+    license: GPL-2.0-only
+    homepage: https://mariadb.org/
+    source:
+      type: debian
+      packages: [mariadb-server, mariadb-client]
+    install: When the first MariaDB server is created. It is the default engine.
+  - id: mysql
+    name: MySQL Community Server
+    license: GPL-2.0-only
+    homepage: https://dev.mysql.com/
+    source:
+      type: vendor-archive
+      url: https://dev.mysql.com/downloads/mysql/
+      verification: "Checksums and GPG signatures from Oracle's MySQL release key."
+    install: When the first MySQL server of a version is created; versions run side by side.
+  - id: percona-server
+    name: Percona Server for MySQL
+    license: GPL-2.0-only
+    homepage: https://www.percona.com/mysql/software/percona-server-for-mysql
+    source:
+      type: vendor-archive
+      url: https://downloads.percona.com/downloads/
+      verification: "Checksums and GPG signatures from Percona's release key."
+    install: When the first Percona server of a version is created; versions run side by side.
+  - id: postgresql
+    name: PostgreSQL
+    license: PostgreSQL
+    homepage: https://www.postgresql.org/
+    source:
+      type: apt-repository
+      packages: ["postgresql-*", "postgresql-client-*", postgresql-common]
+      repository: https://apt.postgresql.org/pub/repos/apt
+      verification: >-
+        Repository signing key pinned in the binary; the repository can only provide PostgreSQL
+        packages.
+    install: When the first PostgreSQL server of a version is created; versions run side by side.
+  - id: valkey
+    name: Valkey
+    license: BSD-3-Clause
+    homepage: https://valkey.io/
+    source:
+      type: debian
+      packages: [valkey-server]
+    install: "When the first Valkey instance is created, such as an object cache for a site."
+  - id: memcached
+    name: Memcached
+    license: BSD-3-Clause
+    homepage: https://memcached.org/
+    source:
+      type: debian
+      packages: [memcached]
+    install: When the first Memcached instance is created.
+  - id: adminer
+    name: Adminer
+    license: Apache-2.0 OR GPL-2.0-only
+    homepage: https://www.adminer.org/
+    source:
+      type: vendor-archive
+      url: https://github.com/vrana/adminer/releases
+      verification: SHA-256 checksum pinned per version.
+    install: The first time someone opens a database in Adminer from the panel.
+capabilities:
+  provides: [databases.mysql, databases.postgresql, databases.cache]
+  needs: [network.firewall]
+hooks:
+  - point: system.mariadb.server
+    description: "Patches to MariaDB, MySQL and Percona server settings."
+  - point: system.postgresql.server
+    description: Patches to PostgreSQL server settings.

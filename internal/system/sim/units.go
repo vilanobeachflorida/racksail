@@ -1,0 +1,597 @@
+package sim
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"fmt"
+	"path"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/vilanobeachflorida/racksail/internal/system"
+)
+
+type unitRuntime struct {
+	active   string
+	sub      string
+	pid      int
+	since    time.Time
+	restarts int
+	props    map[string]string
+}
+
+type simUnits struct{ m *Machine }
+
+func unitPath(name string) string { return path.Join(system.UnitDir, name) }
+
+// unitFile returns the unit's own file, or the template file for an
+// instance such as site@blog.service. The caller holds m.mu.
+func (m *Machine) unitFile(name string) ([]byte, bool) {
+	if n, ok := m.files[unitPath(name)]; ok && !n.mode.IsDir() {
+		return n.data, true
+	}
+	if at := strings.IndexByte(name, '@'); at > 0 {
+		dot := strings.LastIndexByte(name, '.')
+		if n, ok := m.files[unitPath(name[:at+1]+name[dot:])]; ok {
+			return n.data, true
+		}
+	}
+	return nil, false
+}
+
+// unitExists reports whether systemd would find the unit. The caller holds
+// m.mu.
+func (m *Machine) unitExists(name string) bool {
+	if _, ok := m.unitFile(name); ok || m.builtin[name] {
+		return true
+	}
+	for pkg := range m.packages {
+		for _, u := range catalogEntry(pkg).units {
+			if u == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// unitDirective returns the first value of key in a unit file.
+func unitDirective(content []byte, key string) string {
+	sc := bufio.NewScanner(bytes.NewReader(content))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if v, ok := strings.CutPrefix(line, key+"="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func hasInstallSection(content []byte) bool {
+	return bytes.Contains(content, []byte("[Install]"))
+}
+
+func (m *Machine) unitState(name string) system.UnitState {
+	st := system.UnitState{Name: name, LoadState: "not-found", ActiveState: "inactive", SubState: "dead"}
+	if !m.unitExists(name) {
+		return st
+	}
+	st.LoadState = "loaded"
+	content, own := m.unitFile(name)
+	if own {
+		st.Description = unitDirective(content, "Description")
+	}
+	switch {
+	case m.enabled[name]:
+		st.UnitFileState = "enabled"
+	case own && !hasInstallSection(content):
+		st.UnitFileState = "static"
+	default:
+		st.UnitFileState = "disabled"
+	}
+	if rt, ok := m.units[name]; ok {
+		st.ActiveState, st.SubState, st.MainPID = rt.active, rt.sub, rt.pid
+		st.Restarts = rt.restarts
+		if rt.active == "active" {
+			st.ActiveSince = rt.since
+			if p, ok := m.procs[rt.pid]; ok {
+				st.MemoryBytes = p.RSSBytes
+				st.CPUTime = p.CPUTime
+				st.Tasks = 1
+			}
+		}
+	}
+	return st
+}
+
+func (u simUnits) WriteUnit(ctx context.Context, name string, content []byte) error {
+	m := u.m
+	if !system.ValidUnitName(name) {
+		return invalid("unit name %q", name)
+	}
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "write", name); err != nil {
+		return err
+	}
+	return m.writeFile(unitPath(name), content, 0o644, system.Owner{})
+}
+
+func (u simUnits) ReadUnit(ctx context.Context, name string) ([]byte, error) {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer m.mu.Unlock()
+	n, ok := m.files[unitPath(name)]
+	if !ok {
+		return nil, notFound("unit file " + name)
+	}
+	return bytes.Clone(n.data), nil
+}
+
+func (u simUnits) RemoveUnit(ctx context.Context, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "remove", name); err != nil {
+		return err
+	}
+	if _, ok := m.files[unitPath(name)]; !ok {
+		return notFound("unit file " + name)
+	}
+	delete(m.files, unitPath(name))
+	m.removeTree(unitPath(name) + ".d")
+	delete(m.enabled, name)
+	return nil
+}
+
+func (u simUnits) WriteDropIn(ctx context.Context, unit, name string, content []byte) error {
+	m := u.m
+	if !system.ValidUnitName(unit) || strings.ContainsAny(name, "/\x00") || name == "" {
+		return invalid("drop-in %s for %s", name, unit)
+	}
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "write_dropin", unit+"/"+name); err != nil {
+		return err
+	}
+	dir := unitPath(unit) + ".d"
+	if _, ok := m.files[dir]; !ok {
+		if err := m.mkdir(dir, 0o755, system.Owner{}); err != nil {
+			return err
+		}
+	}
+	return m.writeFile(path.Join(dir, name+".conf"), content, 0o644, system.Owner{})
+}
+
+func (u simUnits) RemoveDropIn(ctx context.Context, unit, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "remove_dropin", unit+"/"+name); err != nil {
+		return err
+	}
+	p := path.Join(unitPath(unit)+".d", name+".conf")
+	if _, ok := m.files[p]; !ok {
+		return notFound("drop-in " + p)
+	}
+	delete(m.files, p)
+	return nil
+}
+
+func (u simUnits) DaemonReload(ctx context.Context) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "daemon_reload", ""); err != nil {
+		return err
+	}
+	m.reloads++
+	return nil
+}
+
+func (u simUnits) Start(ctx context.Context, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "start", name); err != nil {
+		return err
+	}
+	return m.startUnit(name)
+}
+
+// startUnit starts a unit that isn't running. The caller holds m.mu.
+func (m *Machine) startUnit(name string) error {
+	if !m.unitExists(name) {
+		return notFound("unit " + name)
+	}
+	rt := m.units[name]
+	if rt == nil {
+		rt = &unitRuntime{}
+		m.units[name] = rt
+	}
+	if rt.active == "active" {
+		return nil
+	}
+	rt.active, rt.since = "active", m.now()
+	switch path.Ext(name) {
+	case ".service":
+		content, _ := m.unitFile(name)
+		if unitDirective(content, "Type") == "oneshot" {
+			rt.sub, rt.pid = "exited", 0
+			if unitDirective(content, "RemainAfterExit") != "yes" {
+				rt.active, rt.sub = "inactive", "dead"
+			}
+			return nil
+		}
+		rt.sub = "running"
+		rt.pid = m.spawn(name, content)
+	case ".socket":
+		rt.sub = "listening"
+	case ".timer", ".path":
+		rt.sub = "waiting"
+	case ".mount":
+		rt.sub = "mounted"
+	default:
+		rt.sub = "active"
+	}
+	return nil
+}
+
+// spawn creates the main process of a service. The caller holds m.mu.
+func (m *Machine) spawn(unit string, content []byte) int {
+	user := unitDirective(content, "User")
+	if user == "" {
+		user = "root"
+	}
+	uid := 0
+	if u, ok := m.users[user]; ok {
+		uid = u.UID
+	}
+	command := strings.TrimSuffix(unit, ".service")
+	var args []string
+	if exec := strings.Fields(strings.TrimLeft(unitDirective(content, "ExecStart"), "-@:+!")); len(exec) > 0 {
+		command = path.Base(exec[0])
+		args = exec
+	}
+	m.nextPID++
+	pid := m.nextPID
+	m.procs[pid] = &system.Process{
+		PID: pid, PPID: 1, User: user, UID: uid, Command: command, Args: args, State: "S",
+		RSSBytes: int64(16<<20) + int64(hash(unit)%(48<<20)),
+		Started:  m.now(), Unit: unit,
+	}
+	return pid
+}
+
+// stopUnit stops a unit and its process. The caller holds m.mu.
+func (m *Machine) stopUnit(name string) {
+	rt, ok := m.units[name]
+	if !ok {
+		return
+	}
+	if rt.pid != 0 {
+		delete(m.procs, rt.pid)
+	}
+	rt.active, rt.sub, rt.pid = "inactive", "dead", 0
+}
+
+func (u simUnits) Stop(ctx context.Context, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "stop", name); err != nil {
+		return err
+	}
+	if !m.unitExists(name) {
+		return notFound("unit " + name)
+	}
+	m.stopUnit(name)
+	return nil
+}
+
+func (u simUnits) Restart(ctx context.Context, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "restart", name); err != nil {
+		return err
+	}
+	if !m.unitExists(name) {
+		return notFound("unit " + name)
+	}
+	m.stopUnit(name)
+	return m.startUnit(name)
+}
+
+func (u simUnits) Reload(ctx context.Context, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "reload", name); err != nil {
+		return err
+	}
+	rt, ok := m.units[name]
+	if !ok || rt.active != "active" {
+		return invalid("unit %s is not active, so it can't be reloaded", name)
+	}
+	return nil
+}
+
+func (u simUnits) Enable(ctx context.Context, names ...string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	for _, name := range names {
+		if err := m.record("units", "enable", name); err != nil {
+			return err
+		}
+		if !m.unitExists(name) {
+			return notFound("unit " + name)
+		}
+		m.enabled[name] = true
+	}
+	return nil
+}
+
+func (u simUnits) Disable(ctx context.Context, names ...string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	for _, name := range names {
+		if err := m.record("units", "disable", name); err != nil {
+			return err
+		}
+		delete(m.enabled, name)
+	}
+	return nil
+}
+
+func (u simUnits) Status(ctx context.Context, name string) (system.UnitState, error) {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return system.UnitState{}, err
+	}
+	defer m.mu.Unlock()
+	return m.unitState(name), nil
+}
+
+func (u simUnits) List(ctx context.Context, patterns ...string) ([]system.UnitState, error) {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer m.mu.Unlock()
+	names := map[string]bool{}
+	for n := range m.builtin {
+		names[n] = true
+	}
+	for n := range m.units {
+		names[n] = true
+	}
+	for p, n := range m.files {
+		if path.Dir(p) == system.UnitDir && !n.mode.IsDir() && !strings.Contains(path.Base(p), "@.") {
+			names[path.Base(p)] = true
+		}
+	}
+	for pkg := range m.packages {
+		for _, u := range catalogEntry(pkg).units {
+			names[u] = true
+		}
+	}
+	var out []system.UnitState
+	for n := range names {
+		if matchesAny(n, patterns) {
+			out = append(out, m.unitState(n))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func matchesAny(name string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range patterns {
+		if ok, _ := path.Match(p, name); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (u simUnits) SetProperties(ctx context.Context, name string, runtime bool, props ...system.UnitProperty) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "set_properties", name); err != nil {
+		return err
+	}
+	if !m.unitExists(name) {
+		return notFound("unit " + name)
+	}
+	rt := m.units[name]
+	if rt == nil {
+		rt = &unitRuntime{active: "inactive", sub: "dead"}
+		m.units[name] = rt
+	}
+	if rt.props == nil {
+		rt.props = map[string]string{}
+	}
+	for _, p := range props {
+		rt.props[p.Name] = p.Value
+	}
+	if !runtime {
+		dir := unitPath(name) + ".d"
+		if _, ok := m.files[dir]; !ok {
+			if err := m.mkdir(dir, 0o755, system.Owner{}); err != nil {
+				return err
+			}
+		}
+		var b strings.Builder
+		b.WriteString("[" + unitSectionFor(name) + "]\n")
+		for _, k := range sortedKeys(rt.props) {
+			fmt.Fprintf(&b, "%s=%s\n", k, rt.props[k])
+		}
+		return m.writeFile(path.Join(dir, "50-properties.conf"), []byte(b.String()), 0o644, system.Owner{})
+	}
+	return nil
+}
+
+func unitSectionFor(name string) string {
+	switch path.Ext(name) {
+	case ".slice":
+		return "Slice"
+	case ".socket":
+		return "Socket"
+	case ".mount":
+		return "Mount"
+	default:
+		return "Service"
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Property returns a property set with SetProperties, for tests.
+func (m *Machine) Property(unit, name string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rt, ok := m.units[unit]
+	if !ok {
+		return "", false
+	}
+	v, ok := rt.props[name]
+	return v, ok
+}
+
+func (u simUnits) Kill(ctx context.Context, name string, signal system.Signal) error {
+	m := u.m
+	if !signal.Valid() {
+		return invalid("signal %q", signal)
+	}
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "kill", name); err != nil {
+		return err
+	}
+	rt, ok := m.units[name]
+	if !ok || rt.pid == 0 {
+		return invalid("unit %s has no running process", name)
+	}
+	m.signal(rt.pid, signal)
+	return nil
+}
+
+func (u simUnits) ResetFailed(ctx context.Context, name string) error {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("units", "reset_failed", name); err != nil {
+		return err
+	}
+	if rt, ok := m.units[name]; ok && rt.active == "failed" {
+		rt.active, rt.sub = "inactive", "dead"
+	}
+	return nil
+}
+
+// signal delivers a signal to a simulated process. The caller holds m.mu.
+func (m *Machine) signal(pid int, sig system.Signal) {
+	p, ok := m.procs[pid]
+	if !ok {
+		return
+	}
+	switch sig {
+	case system.SIGTERM, system.SIGINT, system.SIGKILL:
+		delete(m.procs, pid)
+		if rt, ok := m.units[p.Unit]; ok && rt.pid == pid {
+			rt.pid = 0
+			if sig == system.SIGKILL {
+				rt.active, rt.sub = "failed", "failed"
+			} else {
+				rt.active, rt.sub = "inactive", "dead"
+			}
+		}
+	}
+}
+
+// CrashUnit makes a running service fail, as if its process died, so tests
+// can exercise restart and drift handling.
+func (m *Machine) CrashUnit(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if rt, ok := m.units[name]; ok && rt.pid != 0 {
+		m.signal(rt.pid, system.SIGKILL)
+	}
+}
+
+func (m *Machine) seedUnitsAndPackages(now time.Time) {
+	for _, name := range []string{"base-files", "systemd", "systemd-sysv", "openssh-server", "openssh-client", "btrfs-progs", "ca-certificates", "sudo", "cron"} {
+		e := catalogEntry(name)
+		m.packages[name] = e.pkg(name, m.facts.Arch)
+	}
+	for _, name := range []string{
+		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-agent.service",
+		"racksail-edge.service", "systemd-networkd.service", "systemd-journald.service",
+		"systemd-timesyncd.service", "ssh.service", "cron.service", "multi-user.target",
+	} {
+		m.builtin[name] = true
+	}
+	for _, name := range []string{
+		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-agent.service",
+		"systemd-networkd.service", "systemd-journald.service", "systemd-timesyncd.service", "ssh.service", "cron.service",
+	} {
+		if err := m.startUnit(name); err == nil && path.Ext(name) == ".service" {
+			m.enabled[name] = true
+		}
+	}
+	m.enabled["racksail-edge.service"] = true
+	if p, ok := m.procs[m.units["racksail-panel.service"].pid]; ok {
+		p.User, p.UID = "racksail", 990
+		p.Command, p.Args = "racksail", []string{"/usr/bin/racksail", "panel"}
+	}
+	if p, ok := m.procs[m.units["racksail-agent.service"].pid]; ok {
+		p.Command, p.Args = "racksail", []string{"/usr/bin/racksail", "agent"}
+	}
+	m.procs[1] = &system.Process{PID: 1, User: "root", Command: "systemd", Args: []string{"/sbin/init"}, State: "S", RSSBytes: 12 << 20, Started: now.Add(-72 * time.Hour)}
+}

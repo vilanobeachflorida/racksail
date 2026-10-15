@@ -1,0 +1,60 @@
+# Module manifest. See spec/schemas/module.schema.json.
+id: vms
+name: Virtual machines
+description: >-
+  Virtual machines, system containers, the ISO library, templates, passthrough, consoles and
+  snapshots.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: apps
+dependencies:
+  requires: [network]
+profiles: [all-in-one, home-server, virtualization-host]
+hardware:
+  arch: [amd64, arm64]
+  minMemoryMB: 2048
+  features: [virtualization, kvm]
+  notes: >-
+    Hardware virtualization (VT-x, AMD-V or the arm64 equivalent) must be on in the firmware. PCI
+    and GPU passthrough also need an active IOMMU.
+cost:
+  idleMemoryMB: 5
+  activeMemoryMB: 150
+  diskMB: 600
+  notes: Incus and QEMU themselves; guests use the memory and disks you give them.
+upstream:
+  - id: incus
+    name: Incus
+    license: Apache-2.0
+    homepage: https://linuxcontainers.org/incus/
+    source:
+      type: debian
+      packages: [incus]
+    install: When the first virtual machine or system container is created.
+  - id: qemu
+    name: QEMU
+    license: GPL-2.0-only
+    homepage: https://www.qemu.org/
+    source:
+      type: debian
+      packages: [qemu-system-x86, qemu-system-arm]
+    install: "When the first virtual machine is created, for the server's architecture."
+  - id: ovmf
+    name: OVMF
+    license: BSD-2-Clause-Patent
+    homepage: https://github.com/tianocore/tianocore.github.io/wiki/OVMF
+    source:
+      type: debian
+      packages: [ovmf, qemu-efi-aarch64]
+    install: "With QEMU, for UEFI guests."
+  - id: swtpm
+    name: swtpm
+    license: BSD-3-Clause
+    homepage: https://github.com/stefanberger/swtpm
+    source:
+      type: debian
+      packages: [swtpm]
+    install: "With QEMU, for guests with a virtual TPM such as Windows 11."
+capabilities:
+  provides: [vms.machines, vms.system-containers]
+  needs: [network.bridges]
