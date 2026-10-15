@@ -1,0 +1,211 @@
+---
+// Every operation of the panel API, read from the committed OpenAPI
+// document when the site is built, so the reference always matches the code
+// it was built with.
+import doc from "../../../../spec/openapi.json";
+
+type Param = { name: string; in: string; required?: boolean; description?: string };
+type Schema = { $ref?: string; type?: string; items?: Schema };
+type Response = { description?: string; content?: Record<string, { schema?: Schema }> };
+type Operation = {
+  operationId: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: Param[];
+  requestBody?: { content?: Record<string, { schema?: Schema }> };
+  responses?: Record<string, Response>;
+  security?: unknown[];
+  [extension: `x-${string}`]: unknown;
+};
+type Entry = { path: string; method: string; op: Operation };
+
+const methods = ["get", "post", "put", "patch", "delete"];
+const groups = new Map<string, Entry[]>();
+for (const [path, item] of Object.entries(doc.paths as unknown as Record<string, Record<string, Operation>>)) {
+  for (const method of methods) {
+    const op = item[method];
+    if (!op) continue;
+    const tag = op.tags?.[0] ?? "Other";
+    groups.set(tag, [...(groups.get(tag) ?? []), { path, method, op }]);
+  }
+}
+for (const entries of groups.values()) {
+  entries.sort((a, b) => a.path.localeCompare(b.path) || methods.indexOf(a.method) - methods.indexOf(b.method));
+}
+const tags = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+
+const anchor = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+// The name of the schema a body or response refers to, as in the document's
+// components.
+const schemaName = (schema?: Schema): string | undefined => {
+  if (!schema) return undefined;
+  if (schema.$ref) return schema.$ref.split("/").pop();
+  if (schema.type === "array") {
+    const item = schemaName(schema.items);
+    return item ? `array of ${item}` : undefined;
+  }
+  return schema.type;
+};
+const bodyOf = (content?: Record<string, { schema?: Schema }>) => {
+  const [type, media] = Object.entries(content ?? {})[0] ?? [];
+  return type ? { type, schema: schemaName(media?.schema) } : undefined;
+};
+
+// What the x-racksail extensions say about an operation, in words.
+const traits = (op: Operation) => {
+  const out: string[] = [];
+  if (op["x-racksail-dry-run"]) out.push("previews with dryRun");
+  if (op["x-racksail-long"]) out.push("runs as a job");
+  if (op["x-racksail-destructive"]) out.push("destructive");
+  if (op["x-racksail-reversible"]) out.push("can be undone");
+  if (op["x-racksail-stream"]) out.push("Server-Sent Events");
+  return out;
+};
+---
+
+<p>
+  {groups.size} groups, {[...groups.values()].reduce((n, entries) => n + entries.length, 0)} operations, from
+  version {doc.info.version} of the API document.
+</p>
+
+<ul class="api-groups">
+  {tags.map((tag) => <li><a href={`#${anchor(tag)}`}>{tag}</a></li>)}
+</ul>
+
+{
+  tags.map((tag) => (
+    <section class="api-group">
+      <h2 id={anchor(tag)}>{tag}</h2>
+      {groups.get(tag)!.map(({ path, method, op }) => {
+        const body = bodyOf(op.requestBody?.content);
+        const params = op.parameters ?? [];
+        const risk = op["x-racksail-risk"] as string | undefined;
+        const permission = op["x-racksail-permission"] as string | undefined;
+        const signIn = (op.security?.length ?? 0) > 0;
+        const notes = traits(op);
+        return (
+          <article class="api-operation" id={op.operationId}>
+            <h3>
+              <span class="api-method">{method.toUpperCase()}</span> <code>{path}</code>
+            </h3>
+            <p>
+              <strong>{op.summary}</strong>
+            </p>
+            {op.description && <p>{op.description}</p>}
+            <dl class="api-facts">
+              <dt>Operation ID</dt>
+              <dd>
+                <code>{op.operationId}</code>
+              </dd>
+              {risk && (
+                <>
+                  <dt>Risk</dt>
+                  <dd>{risk}</dd>
+                </>
+              )}
+              <dt>Permission</dt>
+              <dd>{signIn ? (permission ? <code>{permission}</code> : "any signed-in user") : "none; no sign-in needed"}</dd>
+              {notes.length > 0 && (
+                <>
+                  <dt>Behaviour</dt>
+                  <dd>{notes.join(", ")}</dd>
+                </>
+              )}
+            </dl>
+            {params.length > 0 && (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Parameter</th>
+                    <th>In</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {params.map((p) => (
+                    <tr>
+                      <td>
+                        <code>{p.name}</code>
+                        {p.required && " (required)"}
+                      </td>
+                      <td>{p.in}</td>
+                      <td>{p.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {body && (
+              <p>
+                Body: <code>{body.type}</code>
+                {body.schema && (
+                  <>
+                    {" "}
+                    with <code>{body.schema}</code>
+                  </>
+                )}
+              </p>
+            )}
+            <table>
+              <thead>
+                <tr>
+                  <th>Answer</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(op.responses ?? {}).map(([status, response]) => {
+                  const out = bodyOf(response.content);
+                  return (
+                    <tr>
+                      <td>
+                        <code>{status === "default" ? "4xx, 5xx" : status}</code>
+                      </td>
+                      <td>
+                        {response.description}
+                        {out?.schema && (
+                          <>
+                            {": "}
+                            <code>{out.schema}</code>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </article>
+        );
+      })}
+    </section>
+  ))
+}
+
+<style>
+  .api-groups {
+    columns: 14rem;
+  }
+  .api-operation {
+    border-block-start: 1px solid var(--sl-color-hairline);
+    padding-block-start: 1rem;
+  }
+  .api-method {
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-sm);
+  }
+  .api-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.25rem 1rem;
+  }
+  .api-facts dt {
+    font-weight: 600;
+    margin: 0;
+  }
+  .api-facts dd {
+    margin: 0;
+  }
+</style>
