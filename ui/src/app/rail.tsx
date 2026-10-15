@@ -26,7 +26,7 @@ function RailLink({
       activeOptions={{ exact: exact ?? false }}
       onClick={onNavigate}
       className={cn(
-        "flex items-center rounded-md text-muted-foreground text-xs hover:bg-accent hover:text-accent-foreground focus-visible:focus-ring data-[status=active]:bg-primary-subtle data-[status=active]:font-medium data-[status=active]:text-foreground",
+        "flex items-center rounded-md text-muted-foreground text-xs hover:bg-accent hover:text-accent-foreground focus-visible:focus-ring-inset data-[status=active]:bg-primary-subtle data-[status=active]:font-medium data-[status=active]:text-foreground",
         wide ? "h-control-lg gap-3 px-3 text-sm" : "flex-col gap-1 px-1 py-2 text-center",
       )}
     >

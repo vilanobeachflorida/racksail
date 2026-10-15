@@ -8,8 +8,10 @@ export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrim
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
+      // The baseline is a shadow rather than a border, so the active tab's
+      // underline can cover it without overflowing the scrolling list.
       className={cn(
-        "inline-flex max-w-full items-center gap-1 overflow-x-auto border-border border-b",
+        "inline-flex max-w-full items-center gap-1 self-start overflow-x-auto shadow-[inset_0_-1px_0_var(--color-border)]",
         className,
       )}
       {...props}
@@ -22,7 +24,7 @@ export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsP
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "-mb-px inline-flex h-control-md items-center gap-2 whitespace-nowrap border-transparent border-b-2 px-3 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground focus-visible:focus-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border-primary data-[state=active]:text-foreground [&_svg]:size-4",
+        "inline-flex h-control-md items-center gap-2 whitespace-nowrap border-transparent border-b-2 px-3 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground focus-visible:focus-ring-inset disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border-primary data-[state=active]:text-foreground [&_svg]:size-4",
         className,
       )}
       {...props}

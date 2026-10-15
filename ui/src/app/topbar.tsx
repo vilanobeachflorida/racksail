@@ -26,10 +26,11 @@ import {
 } from "@/design/components/ui/overlay";
 import type { Preferences } from "@/design/theme/prefs";
 import { useTheme } from "@/design/theme/provider";
+import { cn } from "@/lib/utils";
 import { BrandLogo, useBrandName } from "./brand";
 import { messages } from "./messages";
 import { useShell } from "./shell-state";
-import { ShortcutKeys } from "./shortcuts";
+import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
 
 /** The documentation site; the panel links to it but never loads anything from it. */
 export const docsURL = "https://vilanobeachflorida.github.io/racksail/";
@@ -56,7 +57,11 @@ export function Breadcrumbs() {
           const title = match.staticData.title ? intl.formatMessage(match.staticData.title) : "";
           const last = i === trail.length - 1;
           return (
-            <li key={match.id} className="flex min-w-0 items-center gap-1">
+            // Phones only have room for the page itself.
+            <li
+              key={match.id}
+              className={cn("min-w-0 items-center gap-1", last ? "flex" : "hidden sm:flex")}
+            >
               <ChevronRight
                 className="hidden size-4 shrink-0 text-muted-foreground sm:block rtl:rotate-180"
                 aria-hidden="true"
@@ -157,15 +162,18 @@ export function TopBar({ runningJobs }: { runningJobs: number }) {
       </div>
       <Button
         variant="outline"
-        className="hidden w-64 justify-between text-muted-foreground md:inline-flex"
+        className="hidden w-64 justify-between gap-3 text-muted-foreground md:inline-flex lg:w-72"
         onClick={() => shell.setCommandOpen(true)}
-        aria-keyshortcuts="Meta+K Control+K"
+        aria-keyshortcuts={ariaKeyShortcuts("mod+k")}
       >
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           <Search aria-hidden="true" />
-          {intl.formatMessage(messages.commandOpen)}
+          <span className="truncate">{intl.formatMessage(messages.commandOpen)}</span>
         </span>
-        <ShortcutKeys keys="mod+k" />
+        {/* The button names its shortcut with aria-keyshortcuts. */}
+        <span aria-hidden="true" className="shrink-0">
+          <ShortcutKeys keys="mod+k" />
+        </span>
       </Button>
       <Button
         variant="ghost"

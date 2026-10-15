@@ -164,6 +164,12 @@
   outline-offset: var(--rs-focus-offset);
 }
 
+/* Inside the edges, for controls in a scrolling container, which would clip an outer ring. */
+@utility focus-ring-inset {
+  outline: var(--rs-focus-width) solid var(--rs-focus);
+  outline-offset: calc(-1 * var(--rs-focus-width));
+}
+
 /* Safety-critical areas take their colors from the protected palette. */
 @utility critical-area {
   background-color: var(--rs-critical-surface);
