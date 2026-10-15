@@ -30,7 +30,7 @@ Settled choices. Change one by opening a pull request that edits this file and e
 | T12 | Secrets at rest: encrypted with a key sealed by systemd-creds (TPM2 when present, host key otherwise). |
 | T13 | Configuration file: TOML (`/etc/racksail/racksail.toml`). Authored metadata (manifests, recipes, themes, add-ons): YAML validated by JSON Schema in `spec/schemas/`. |
 | T14 | Logging: `log/slog`, structured, never secrets. |
-| T15 | systemd: D-Bus through `github.com/coreos/go-systemd/v22`. Firewall: `github.com/google/nftables`. Netlink: `github.com/vishvananda/netlink`. DNS parsing: `github.com/miekg/dns`. Incus: its Go client. Docker and Podman: their HTTP APIs. |
+| T15 | systemd: D-Bus through `github.com/coreos/go-systemd/v22`. Firewall: rulesets rendered as nftables text, checked with `nft --check` and loaded in one transaction with `nft --file`, sets changed with `nft add element`. Interfaces, addresses and routes: read from `ip -json`. DNS parsing: `github.com/miekg/dns`. Incus: its Go client. Docker and Podman: their HTTP APIs. A rendered ruleset can be previewed, kept as a golden file and diffed, and loads atomically, which building it from `github.com/google/nftables` netlink calls can't offer; reading the network needs nothing that `ip -json` doesn't give, so neither `github.com/vishvananda/netlink` nor `github.com/google/nftables` is a dependency. Both programs are run with argument vectors, like every other. |
 | T16 | External tools are always run with an argument vector through the agent, never through a shell. |
 
 ## Software Racksail manages
@@ -81,5 +81,5 @@ Settled choices. Change one by opening a pull request that edits this file and e
 | R1 | Releases: GitHub Releases, signed with Sigstore (cosign keyless), with SBOMs (syft) and checksums. Prebuilt runtime builds and catalog indexes: GitHub Container Registry as OCI artifacts. |
 | R2 | The ISO is built with Debian live-build in GitHub Actions, boots Debian's signed shim, GRUB and kernel, and installs Debian from the official mirrors. A separate firmware ISO adds Debian's non-free firmware. |
 | R3 | Installer UI: Bubble Tea terminal app, a browser mode protected by a one-time code, and an unattended answers file (YAML). |
-| R4 | CI: GitHub Actions. Dependency updates: Renovate. Vulnerability scanning: govulncheck and osv-scanner. License allowlist check on every change. |
+| R4 | CI: GitHub Actions. Dependency updates: Renovate. Vulnerability scanning: govulncheck and osv-scanner. License allowlist check on every change: OSI-approved licenses compatible with AGPL-3.0, and the exceptions listed here, each with its reason. `github.com/zeebo/blake3` is CC0-1.0, a public domain dedication the FSF lists as compatible with the GPL that the OSI never approved because it disclaims patent grants; `github.com/caddyserver/certmagic` needs it, so decision T9 does. |
 | R5 | Resource targets: core idle under 100 MB; web-only under 250 MB; everything on and idle under 500 MB. Minimum server: 1 CPU, 1 GB RAM, 20 GB disk. Recommended: 2 CPUs, 4 GB, 40 GB. |
