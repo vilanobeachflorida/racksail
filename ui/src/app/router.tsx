@@ -16,7 +16,7 @@ import { Shell } from "./shell";
 
 declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
-    /** The page title, shown in the browser tab. */
+    /** The page title, shown in the browser tab and the breadcrumb. */
     title?: MessageDescriptor;
   }
 }
@@ -40,6 +40,46 @@ export function createAppRouter(
     notFoundComponent: NotFound,
     errorComponent: RouteError,
   });
+  const settings = createRoute({
+    getParentRoute: () => root,
+    path: "settings",
+    staticData: { title: messages.settingsTitle },
+  });
+  const appearance = createRoute({
+    getParentRoute: () => settings,
+    path: "appearance",
+    staticData: { title: messages.appearanceTitle },
+  });
+  const settingsTree = settings.addChildren([
+    createRoute({
+      getParentRoute: () => settings,
+      path: "/",
+      component: lazyRouteComponent(() => import("./settings/index")),
+    }),
+    appearance.addChildren([
+      createRoute({
+        getParentRoute: () => appearance,
+        path: "/",
+        component: lazyRouteComponent(() => import("./settings/appearance")),
+      }),
+      createRoute({
+        getParentRoute: () => appearance,
+        path: "theme",
+        component: lazyRouteComponent(() => import("./settings/theme-editor")),
+        staticData: { title: messages.themeEditorTitle },
+      }),
+    ]),
+    ...modules.flatMap((module) =>
+      (module.settings ?? []).map((page) =>
+        createRoute({
+          getParentRoute: () => settings,
+          path: `${module.id}/${page.id}`,
+          component: lazyRouteComponent(page.page),
+          staticData: { title: page.title },
+        }),
+      ),
+    ),
+  ]);
   const routes: AnyRoute[] = [
     createRoute({
       getParentRoute: () => root,
@@ -47,6 +87,7 @@ export function createAppRouter(
       component: Home,
       staticData: { title: messages.homeTitle },
     }),
+    settingsTree,
   ];
   for (const module of modules) {
     if (module.routes?.length) {
@@ -66,16 +107,6 @@ export function createAppRouter(
             }),
           ),
         ),
-      );
-    }
-    for (const page of module.settings ?? []) {
-      routes.push(
-        createRoute({
-          getParentRoute: () => root,
-          path: `settings/${module.id}/${page.id}`,
-          component: lazyRouteComponent(page.page),
-          staticData: { title: page.title },
-        }),
       );
     }
   }

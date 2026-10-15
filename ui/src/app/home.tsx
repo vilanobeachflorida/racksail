@@ -4,7 +4,7 @@ import { Skeleton } from "@/design/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { HomeCard, LazyComponent } from "@/modules/types";
 import { messages } from "./messages";
-import { homeCards, useModules } from "./modules";
+import { homeCards, useActiveModules, usePermission } from "./modules";
 import { PanelStatus } from "./status";
 
 // One lazy component per card loader, so re-rendering the home screen never
@@ -29,13 +29,14 @@ const spans: Record<NonNullable<HomeCard["size"]>, string> = {
 /** The home screen: the panel's status and the cards modules add. */
 export function Home() {
   const intl = useIntl();
-  const modules = useModules();
+  const modules = useActiveModules();
+  const allowed = usePermission();
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.homeTitle)}</h1>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <PanelStatus />
-        {homeCards(modules, intl).map((card) => {
+        {homeCards(modules, intl, allowed).map((card) => {
           const Card = lazyCard(card.card);
           return (
             <div key={card.key} className={cn(spans[card.size ?? "small"])}>

@@ -1,0 +1,752 @@
+import { Check, Download, Eye, EyeOff, Plus, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type IntlShape, type MessageDescriptor, useIntl } from "react-intl";
+import { issueMessage } from "@/design/components/schema-form";
+import { Button } from "@/design/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/design/components/ui/card";
+import { Switch } from "@/design/components/ui/choice";
+import { Alert, Badge } from "@/design/components/ui/display";
+import { Field, Label } from "@/design/components/ui/field";
+import { Input, Textarea } from "@/design/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/design/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/design/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/design/components/ui/tabs";
+import { toast } from "@/design/components/ui/toaster";
+import { checkTheme, contrastTable } from "@/design/theme/check";
+import { isColor } from "@/design/theme/color";
+import { resolveLayers } from "@/design/theme/layers";
+import { useTheme } from "@/design/theme/provider";
+import { builtinTheme, builtinThemes } from "@/design/theme/spec";
+import { type PaletteKey, paletteKeys, type Theme, type ThemeProblem } from "@/design/theme/types";
+import {
+  readThemeDocument,
+  readThemeFile,
+  type ThemeReading,
+  themeToJSON,
+  themeToYAML,
+} from "@/design/theme/validate";
+import { messages } from "../messages";
+import { ThemePreview } from "./theme-preview";
+
+type Mode = "light" | "dark";
+
+/** Explains a palette problem in the user's language. */
+export function problemMessage(intl: IntlShape, p: ThemeProblem): string {
+  const token = (name: string) => tokenLabel(intl, name);
+  const mode = intl.formatMessage(messages.themeModeName, { mode: p.mode });
+  if (p.kind === "meaning") {
+    return intl.formatMessage(messages.themeProblemMeaning, {
+      mode,
+      token: token(p.foreground),
+      hue: p.purpose ?? "",
+    });
+  }
+  if (p.kind === "color") {
+    return intl.formatMessage(messages.themeProblemColor, { mode, token: token(p.foreground) });
+  }
+  return intl.formatMessage(messages.themeProblemContrast, {
+    mode,
+    foreground: token(p.foreground),
+    background: token(p.background ?? ""),
+    ratio: intl.formatNumber(p.ratio ?? 0, { maximumFractionDigits: 2 }),
+    minimum: intl.formatNumber(p.minimum ?? 0, { maximumFractionDigits: 1 }),
+  });
+}
+
+const tokenMessages: Record<string, keyof typeof messages> = {
+  surface: "tokenSurface",
+  surfaceRaised: "tokenSurfaceRaised",
+  surfaceSunken: "tokenSurfaceSunken",
+  text: "tokenText",
+  textMuted: "tokenTextMuted",
+  border: "tokenBorder",
+  borderStrong: "tokenBorderStrong",
+  brand: "tokenBrand",
+  brandText: "tokenBrandText",
+  accent: "tokenAccent",
+  accentText: "tokenAccentText",
+  success: "tokenSuccess",
+  successText: "tokenSuccessText",
+  warning: "tokenWarning",
+  warningText: "tokenWarningText",
+  danger: "tokenDanger",
+  dangerText: "tokenDangerText",
+  info: "tokenInfo",
+  infoText: "tokenInfoText",
+  focus: "tokenFocus",
+  overlay: "tokenOverlay",
+  accentSubtle: "tokenAccentSubtle",
+  successSubtle: "tokenSuccessSubtle",
+  warningSubtle: "tokenWarningSubtle",
+  dangerSubtle: "tokenDangerSubtle",
+  infoSubtle: "tokenInfoSubtle",
+};
+
+/** A token's name for people: "Raised surface" for surfaceRaised, "Chart color 3" for chart3. */
+export function tokenLabel(intl: IntlShape, name: string): string {
+  const chart = /^chart(\d+)$/.exec(name);
+  if (chart) {
+    return intl.formatMessage(messages.tokenChart, { n: Number(chart[1]) });
+  }
+  const key = tokenMessages[name];
+  return key ? intl.formatMessage(messages[key]) : name;
+}
+
+function download(name: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ColorField({
+  label,
+  value,
+  onChange,
+  alpha,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  alpha?: boolean;
+}) {
+  const intl = useIntl();
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const valid = isColor(text) && (alpha || text.length === 7);
+  return (
+    <Field
+      label={label}
+      error={
+        valid
+          ? undefined
+          : intl.formatMessage(messages.themeBadColor, { alpha: alpha ? "yes" : "no" })
+      }
+    >
+      {(control) => (
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            aria-label={intl.formatMessage(messages.themePickColor, { token: label })}
+            value={isColor(value) ? value.slice(0, 7) : ""}
+            onChange={(e) =>
+              onChange(
+                alpha && value.length === 9
+                  ? `${e.target.value.toUpperCase()}${value.slice(7)}`
+                  : e.target.value.toUpperCase(),
+              )
+            }
+            className="h-control-md w-12 shrink-0 cursor-pointer rounded-md border border-input bg-card p-1"
+          />
+          <Input
+            {...control}
+            value={text}
+            spellCheck={false}
+            className="font-mono uppercase"
+            onChange={(e) => {
+              const next = e.target.value.trim();
+              setText(next);
+              if (isColor(next) && (alpha || next.length === 7)) {
+                onChange(next.toUpperCase());
+              }
+            }}
+          />
+        </div>
+      )}
+    </Field>
+  );
+}
+
+function ContrastChecker({ theme }: { theme: Theme }) {
+  const intl = useIntl();
+  const rows = useMemo(() => contrastTable(theme), [theme]);
+  const [mode, setMode] = useState<Mode>("light");
+  const [onlyFailing, setOnlyFailing] = useState(false);
+  const failing = rows.filter((r) => !r.pass).length;
+  const shown = rows.filter((r) => r.mode === mode && (!onlyFailing || !r.pass));
+  const switchId = useId();
+  return (
+    <Card aria-labelledby={`${switchId}-title`}>
+      <CardHeader>
+        <CardTitle id={`${switchId}-title`}>
+          {intl.formatMessage(messages.themeContrastTitle)}
+        </CardTitle>
+        <CardDescription>
+          {failing === 0
+            ? intl.formatMessage(messages.themeContrastAllPass, { count: rows.length })
+            : intl.formatMessage(messages.themeContrastFailing, { count: failing })}
+        </CardDescription>
+      </CardHeader>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+          <TabsList>
+            <TabsTrigger value="light">
+              {intl.formatMessage(messages.themeModeName, { mode: "light" })}
+            </TabsTrigger>
+            <TabsTrigger value="dark">
+              {intl.formatMessage(messages.themeModeName, { mode: "dark" })}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="flex items-center gap-2">
+          <Switch id={switchId} checked={onlyFailing} onCheckedChange={setOnlyFailing} />
+          <Label htmlFor={switchId} className="font-normal">
+            {intl.formatMessage(messages.themeContrastOnlyFailing)}
+          </Label>
+        </div>
+      </div>
+      <CardContent className="max-h-[28rem] overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{intl.formatMessage(messages.themeContrastPair)}</TableHead>
+              <TableHead className="text-end">
+                {intl.formatMessage(messages.themeContrastRatio)}
+              </TableHead>
+              <TableHead className="text-end">
+                {intl.formatMessage(messages.themeContrastNeeds)}
+              </TableHead>
+              <TableHead>{intl.formatMessage(messages.themeContrastResult)}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {shown.map((r) => (
+              <TableRow key={`${r.mode}-${r.foreground}-${r.background}`}>
+                <TableCell>
+                  <p className="font-medium">
+                    {intl.formatMessage(messages.themeContrastOn, {
+                      foreground: tokenLabel(intl, r.foreground),
+                      background: tokenLabel(intl, r.background),
+                    })}
+                  </p>
+                  <p className="text-muted-foreground text-xs">{r.purpose}</p>
+                </TableCell>
+                <TableCell className="text-end tabular-nums">
+                  {r.ratio === null
+                    ? "–"
+                    : intl.formatMessage(messages.themeRatio, {
+                        ratio: intl.formatNumber(r.ratio, { maximumFractionDigits: 2 }),
+                      })}
+                </TableCell>
+                <TableCell className="text-end tabular-nums">
+                  {intl.formatMessage(messages.themeRatio, {
+                    ratio: intl.formatNumber(r.minimum, { maximumFractionDigits: 1 }),
+                  })}
+                </TableCell>
+                <TableCell>
+                  {r.pass ? (
+                    <Badge variant="success">
+                      <Check aria-hidden="true" />
+                      {intl.formatMessage(messages.themeContrastPass)}
+                    </Badge>
+                  ) : (
+                    <Badge variant="danger">
+                      <X aria-hidden="true" />
+                      {intl.formatMessage(messages.themeContrastFail)}
+                    </Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function readingErrors(intl: IntlShape, reading: ThemeReading): string[] {
+  if (reading.error === "too-large") {
+    return [intl.formatMessage(messages.themeImportTooLarge)];
+  }
+  if (reading.error === "unreadable") {
+    return [intl.formatMessage(messages.themeImportUnreadable)];
+  }
+  if (reading.error === "protected") {
+    return [
+      intl.formatMessage(messages.themeImportProtected, {
+        tokens: reading.protectedKeys.join(", "),
+      }),
+    ];
+  }
+  return reading.issues.map(
+    (i) =>
+      `${i.path || intl.formatMessage(messages.themeImportDocument)}: ${issueMessage(intl, i)}`,
+  );
+}
+
+/**
+ * The theme editor: change every token of a theme with a live preview on
+ * real components in both modes and a contrast checker, start from a
+ * built-in theme or an imported file, try it on the whole panel, and
+ * export it as a theme.yaml for a theme package.
+ */
+export default function ThemeEditor() {
+  const intl = useIntl();
+  const t = (d: MessageDescriptor, v?: Record<string, string | number>) => intl.formatMessage(d, v);
+  const { layers, preview, setPreview } = useTheme();
+  const current = useMemo(() => resolveLayers(layers), [layers]);
+  const [theme, setTheme] = useState<Theme>(() => structuredClone(preview ?? current));
+  const [mode, setMode] = useState<Mode>("light");
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const trying = preview !== null;
+  const problems = useMemo(() => checkTheme(theme), [theme]);
+  const schemaIssues = useMemo(() => readThemeDocument(theme).issues, [theme]);
+
+  useEffect(() => {
+    if (trying) {
+      setPreview(theme);
+    }
+  }, [theme, trying, setPreview]);
+  // Leaving the editor stops trying the theme on the whole panel.
+  useEffect(() => () => setPreview(null), [setPreview]);
+
+  const update = (change: (draft: Theme) => void) => {
+    setTheme((t0) => {
+      const next = structuredClone(t0);
+      change(next);
+      return next;
+    });
+  };
+  const setField = (
+    field: "name" | "id" | "version" | "license" | "author" | "description",
+    value: string | undefined,
+  ) =>
+    update((d) => {
+      if (field === "author" || field === "description") {
+        d[field] = value;
+      } else {
+        d[field] = value ?? "";
+      }
+    });
+  const setColor = (m: Mode, key: PaletteKey, value: string) =>
+    update((d) => {
+      d.tokens[m][key] = value;
+    });
+
+  const onImport = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) {
+      return;
+    }
+    const reading = await readThemeFile(await file.text());
+    if (reading.theme) {
+      setTheme(reading.theme);
+      setImportErrors([]);
+      toast.success(t(messages.themeImported, { name: reading.theme.name }));
+    } else {
+      setImportErrors(readingErrors(intl, reading));
+    }
+  };
+
+  const fileName = theme.id || "theme";
+  return (
+    <div className="mx-auto flex max-w-7xl flex-col gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-semibold text-2xl">{t(messages.themeEditorTitle)}</h1>
+          <p className="max-w-2xl text-muted-foreground">{t(messages.themeEditorDescription)}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            onValueChange={(id) => {
+              setTheme(id === "current" ? structuredClone(current) : builtinTheme(id));
+              setImportErrors([]);
+            }}
+          >
+            <SelectTrigger className="w-56" aria-label={t(messages.themeStartFrom)}>
+              <SelectValue placeholder={t(messages.themeStartFrom)} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="current">{t(messages.themeCurrent)}</SelectItem>
+              {builtinThemes().map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".yaml,.yml,.json,application/json"
+            className="hidden"
+            onChange={(e) => void onImport(e)}
+          />
+          <Button variant="outline" onClick={() => fileInput.current?.click()}>
+            <Upload aria-hidden="true" />
+            {t(messages.themeImport)}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={problems.length > 0 || schemaIssues.length > 0}
+            onClick={async () =>
+              download(`${fileName}.yaml`, await themeToYAML(theme), "application/yaml")
+            }
+          >
+            <Download aria-hidden="true" />
+            {t(messages.themeExportYAML)}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={problems.length > 0 || schemaIssues.length > 0}
+            onClick={() => download(`${fileName}.json`, themeToJSON(theme), "application/json")}
+          >
+            <Download aria-hidden="true" />
+            {t(messages.themeExportJSON)}
+          </Button>
+          <Button
+            variant={trying ? "secondary" : "default"}
+            onClick={() => setPreview(trying ? null : theme)}
+          >
+            {trying ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+            {t(trying ? messages.themeStopTrying : messages.themeTry)}
+          </Button>
+        </div>
+      </div>
+
+      {importErrors.length > 0 ? (
+        <Alert tone="danger" title={t(messages.themeImportFailed)}>
+          <ul className="list-disc ps-5">
+            {importErrors.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+        </Alert>
+      ) : null}
+      {problems.length > 0 || schemaIssues.length > 0 ? (
+        <Alert
+          tone="warning"
+          title={t(messages.themeProblems, { count: problems.length + schemaIssues.length })}
+        >
+          <ul className="list-disc ps-5">
+            {schemaIssues.map((i) => (
+              <li key={`${i.path}-${i.keyword}`}>{`${i.path}: ${issueMessage(intl, i)}`}</li>
+            ))}
+            {problems.map((p) => (
+              <li key={`${p.mode}-${p.kind}-${p.foreground}-${p.background ?? ""}`}>
+                {problemMessage(intl, p)}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      ) : (
+        <p className="flex items-center gap-2 text-sm text-success">
+          <Check className="size-4" aria-hidden="true" />
+          {t(messages.themeAllGood)}
+        </p>
+      )}
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <Tabs defaultValue="colors" className="min-w-0">
+          <TabsList>
+            <TabsTrigger value="colors">{t(messages.themeTabColors)}</TabsTrigger>
+            <TabsTrigger value="type">{t(messages.themeTabType)}</TabsTrigger>
+            <TabsTrigger value="shape">{t(messages.themeTabShape)}</TabsTrigger>
+            <TabsTrigger value="details">{t(messages.themeTabDetails)}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="colors" className="flex flex-col gap-4">
+            <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+              <TabsList>
+                <TabsTrigger value="light">
+                  {t(messages.themeModeName, { mode: "light" })}
+                </TabsTrigger>
+                <TabsTrigger value="dark">
+                  {t(messages.themeModeName, { mode: "dark" })}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {paletteKeys.map((key) => (
+                <ColorField
+                  key={`${mode}-${key}`}
+                  label={tokenLabel(intl, key)}
+                  value={theme.tokens[mode][key] ?? ""}
+                  alpha={key === "overlay"}
+                  onChange={(v) => setColor(mode, key, v)}
+                />
+              ))}
+            </div>
+            <fieldset className="flex flex-col gap-3">
+              <legend className="mb-2 font-semibold text-sm">{t(messages.themeChart)}</legend>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {theme.tokens[mode].chart.map((c, i) => (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: chart colors are positional
+                    key={`${mode}-chart-${i}`}
+                    className="flex items-end gap-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <ColorField
+                        label={tokenLabel(intl, `chart${i + 1}`)}
+                        value={c}
+                        onChange={(v) =>
+                          update((d) => {
+                            d.tokens[mode].chart[i] = v;
+                          })
+                        }
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={theme.tokens[mode].chart.length <= 6}
+                      aria-label={t(messages.themeRemoveChart, { n: i + 1 })}
+                      onClick={() =>
+                        update((d) => {
+                          d.tokens[mode].chart.splice(i, 1);
+                        })
+                      }
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="self-start"
+                disabled={theme.tokens[mode].chart.length >= 12}
+                onClick={() =>
+                  update((d) => {
+                    d.tokens[mode].chart.push(d.tokens[mode].accent);
+                  })
+                }
+              >
+                <Plus aria-hidden="true" />
+                {t(messages.themeAddChart)}
+              </Button>
+            </fieldset>
+          </TabsContent>
+          <TabsContent value="type" className="grid gap-4 sm:grid-cols-2">
+            <Field label={t(messages.themeFontSans)} description={t(messages.themeFontHelp)}>
+              <Input
+                value={theme.tokens.typography?.sans?.family ?? ""}
+                onChange={(e) =>
+                  update((d) => {
+                    d.tokens.typography = {
+                      ...d.tokens.typography,
+                      sans: { ...d.tokens.typography?.sans, family: e.target.value },
+                    };
+                  })
+                }
+              />
+            </Field>
+            <Field label={t(messages.themeFontMono)}>
+              <Input
+                value={theme.tokens.typography?.mono?.family ?? ""}
+                onChange={(e) =>
+                  update((d) => {
+                    d.tokens.typography = {
+                      ...d.tokens.typography,
+                      mono: { ...d.tokens.typography?.mono, family: e.target.value },
+                    };
+                  })
+                }
+              />
+            </Field>
+            <Field label={t(messages.themeBaseSize)}>
+              <Input
+                value={theme.tokens.typography?.baseSize ?? ""}
+                onChange={(e) =>
+                  update((d) => {
+                    d.tokens.typography = { ...d.tokens.typography, baseSize: e.target.value };
+                  })
+                }
+              />
+            </Field>
+            <Field label={t(messages.themeScale)} description={t(messages.themeScaleHelp)}>
+              <Input
+                type="number"
+                step={0.025}
+                min={1}
+                max={2}
+                value={theme.tokens.typography?.scale ?? ""}
+                onChange={(e) =>
+                  update((d) => {
+                    const n = e.target.valueAsNumber;
+                    d.tokens.typography = {
+                      ...d.tokens.typography,
+                      scale: Number.isNaN(n) ? undefined : n,
+                    };
+                  })
+                }
+              />
+            </Field>
+            {(["regular", "medium", "semibold", "bold"] as const).map((w) => (
+              <Field key={w} label={t(messages.themeWeight, { weight: w })}>
+                <Input
+                  type="number"
+                  step={100}
+                  min={100}
+                  max={900}
+                  value={theme.tokens.typography?.weights?.[w] ?? ""}
+                  onChange={(e) =>
+                    update((d) => {
+                      const n = e.target.valueAsNumber;
+                      d.tokens.typography = {
+                        ...d.tokens.typography,
+                        weights: {
+                          ...d.tokens.typography?.weights,
+                          [w]: Number.isNaN(n) ? undefined : n,
+                        },
+                      };
+                    })
+                  }
+                />
+              </Field>
+            ))}
+          </TabsContent>
+          <TabsContent value="shape" className="grid gap-4 sm:grid-cols-2">
+            <Field label={t(messages.themeDensity)}>
+              {(control) => (
+                <Select
+                  value={theme.tokens.density ?? "comfortable"}
+                  onValueChange={(v) =>
+                    update((d) => {
+                      d.tokens.density = v as "comfortable" | "compact";
+                    })
+                  }
+                >
+                  <SelectTrigger {...control}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="comfortable">{t(messages.densityComfortable)}</SelectItem>
+                    <SelectItem value="compact">{t(messages.densityCompact)}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </Field>
+            {(["sm", "md", "lg", "xl"] as const).map((size) => (
+              <Field key={`radius-${size}`} label={t(messages.themeRadius, { size })}>
+                <Input
+                  value={theme.tokens.radius?.[size] ?? ""}
+                  onChange={(e) =>
+                    update((d) => {
+                      d.tokens.radius = { ...d.tokens.radius, [size]: e.target.value };
+                    })
+                  }
+                />
+              </Field>
+            ))}
+            {(["sm", "md", "lg"] as const).map((size) => (
+              <Field
+                key={`shadow-${size}`}
+                label={t(messages.themeShadow, { size })}
+                className="sm:col-span-2"
+              >
+                <Input
+                  value={theme.tokens.shadows?.[size] ?? ""}
+                  onChange={(e) =>
+                    update((d) => {
+                      d.tokens.shadows = { ...d.tokens.shadows, [size]: e.target.value };
+                    })
+                  }
+                />
+              </Field>
+            ))}
+            {(["fast", "normal", "slow"] as const).map((speed) => (
+              <Field key={speed} label={t(messages.themeMotion, { speed })}>
+                <Input
+                  value={theme.tokens.motion?.[speed] ?? ""}
+                  onChange={(e) =>
+                    update((d) => {
+                      d.tokens.motion = { ...d.tokens.motion, [speed]: e.target.value };
+                    })
+                  }
+                />
+              </Field>
+            ))}
+            <Field label={t(messages.themeFocusWidth)}>
+              <Input
+                value={theme.tokens.focusRing?.width ?? ""}
+                onChange={(e) =>
+                  update((d) => {
+                    d.tokens.focusRing = { ...d.tokens.focusRing, width: e.target.value };
+                  })
+                }
+              />
+            </Field>
+            <Field label={t(messages.themeFocusOffset)}>
+              <Input
+                value={theme.tokens.focusRing?.offset ?? ""}
+                onChange={(e) =>
+                  update((d) => {
+                    d.tokens.focusRing = { ...d.tokens.focusRing, offset: e.target.value };
+                  })
+                }
+              />
+            </Field>
+          </TabsContent>
+          <TabsContent value="details" className="grid gap-4 sm:grid-cols-2">
+            <Field label={t(messages.themeName)}>
+              <Input value={theme.name} onChange={(e) => setField("name", e.target.value)} />
+            </Field>
+            <Field label={t(messages.themeId)} description={t(messages.themeIdHelp)}>
+              <Input
+                value={theme.id}
+                onChange={(e) => setField("id", e.target.value)}
+                spellCheck={false}
+              />
+            </Field>
+            <Field label={t(messages.themeVersion)}>
+              <Input value={theme.version} onChange={(e) => setField("version", e.target.value)} />
+            </Field>
+            <Field label={t(messages.themeLicense)} description={t(messages.themeLicenseHelp)}>
+              <Input value={theme.license} onChange={(e) => setField("license", e.target.value)} />
+            </Field>
+            <Field label={t(messages.themeAuthor)}>
+              <Input
+                value={theme.author ?? ""}
+                onChange={(e) => setField("author", e.target.value || undefined)}
+              />
+            </Field>
+            <Field label={t(messages.themeDescriptionField)} className="sm:col-span-2">
+              <Textarea
+                value={theme.description ?? ""}
+                onChange={(e) => setField("description", e.target.value || undefined)}
+              />
+            </Field>
+          </TabsContent>
+        </Tabs>
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold text-lg">{t(messages.themePreview)}</h2>
+            <Button variant="ghost" size="sm" onClick={() => setTheme(structuredClone(current))}>
+              <RotateCcw aria-hidden="true" />
+              {t(messages.themeReset)}
+            </Button>
+          </div>
+          <ThemePreview theme={theme} mode="light" />
+          <ThemePreview theme={theme} mode="dark" />
+          <ContrastChecker theme={theme} />
+        </div>
+      </div>
+    </div>
+  );
+}

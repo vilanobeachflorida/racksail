@@ -7,44 +7,112 @@ import {
 import { type RouterHistory, RouterProvider } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import type { IntlConfig } from "react-intl";
+import { TooltipProvider } from "@/design/components/ui/overlay";
+import type { ThemeLayers } from "@/design/theme/layers";
+import type { Preferences } from "@/design/theme/prefs";
+import { ThemeProvider } from "@/design/theme/provider";
 import type { ApiClient } from "@/lib/api/client";
 import { ApiProvider } from "@/lib/api/context";
 import {
   applyLocale,
   defaultLocale,
   I18nProvider,
+  initialLocale,
+  LocaleChoiceProvider,
   loadMessages,
-  pickLocale,
+  localeKey,
   shellMessages,
+  storedLocale,
 } from "@/lib/i18n";
+import { type LiveClient, LiveProvider } from "@/lib/live";
 import type { Messages } from "@/lib/messages";
 import { createQueryClient } from "@/lib/query";
-import { loadModules } from "@/modules/registry";
+import { loadModules, type ModuleId } from "@/modules/registry";
 import type { ModuleUI } from "@/modules/types";
 import { BootError } from "./errors";
-import { ModulesProvider } from "./modules";
+import { type ModuleState, ModulesProvider } from "./modules";
 import { createAppRouter } from "./router";
 import { ShellSkeleton } from "./shell";
+import { ShellStateProvider } from "./shell-state";
 
 export interface AppProps {
   api: ApiClient;
   queryClient?: QueryClient;
-  /** The locale to show; by default the best match for the browser's languages. */
+  /** The locale to show; by default the one chosen in this browser, or the best match for its languages. */
   locale?: string;
   /** Where the router keeps its location; by default the browser's address bar. */
   history?: RouterHistory;
   /** Called for message formatting problems, such as a missing message. */
   onIntlError?: IntlConfig["onError"];
+  /** The server and reseller themes on top of the default one. */
+  themeLayers?: ThemeLayers;
+  /** Where a theme package's fonts are served. */
+  fontURL?: (path: string) => string;
+  /** Which modules are on; every module counts as on without it. */
+  moduleStates?: Partial<Record<ModuleId, ModuleState>> | null;
+  /** Whether the signed-in person has a permission. */
+  can?: (permission: string) => boolean;
+  /** Keeps personal preferences with the account as well as in the browser. */
+  onPreferencesChange?: (preferences: Preferences) => void;
+  /** Live data connections; tests give one with fake event sources. */
+  live?: LiveClient;
 }
 
 /** The web UI: providers, then the shell once modules and messages have loaded. */
-export function App({ api, queryClient, locale, history, onIntlError }: AppProps) {
+export function App({
+  api,
+  queryClient,
+  locale,
+  history,
+  onIntlError,
+  themeLayers,
+  fontURL,
+  moduleStates,
+  can,
+  onPreferencesChange,
+  live,
+}: AppProps) {
   const [client] = useState(() => queryClient ?? createQueryClient());
-  const [shown] = useState(() => locale ?? pickLocale(navigator.languages));
+  const [choice, setChoice] = useState<string | null>(() => (locale ? null : storedLocale()));
+  const shown = locale ?? choice ?? initialLocale();
+  const localeChoice = useMemo(
+    () => ({
+      choice,
+      setChoice: (next: string | null) => {
+        try {
+          if (next === null) {
+            window.localStorage.removeItem(localeKey);
+          } else {
+            window.localStorage.setItem(localeKey, next);
+          }
+        } catch {
+          // The choice lasts until the page is closed.
+        }
+        setChoice(next);
+      },
+    }),
+    [choice],
+  );
   return (
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>
-        <Panel locale={shown} history={history} onIntlError={onIntlError} />
+        <LiveProvider {...(live ? { client: live } : {})}>
+          <ThemeProvider
+            {...(themeLayers ? { layers: themeLayers } : {})}
+            {...(fontURL ? { fontURL } : {})}
+            {...(onPreferencesChange ? { onPreferencesChange } : {})}
+          >
+            <LocaleChoiceProvider value={localeChoice}>
+              <Panel
+                locale={shown}
+                history={history}
+                onIntlError={onIntlError}
+                moduleStates={moduleStates ?? null}
+                can={can}
+              />
+            </LocaleChoiceProvider>
+          </ThemeProvider>
+        </LiveProvider>
       </QueryClientProvider>
     </ApiProvider>
   );
@@ -72,10 +140,14 @@ function Panel({
   locale,
   history,
   onIntlError,
+  moduleStates,
+  can,
 }: {
   locale: string;
   history: RouterHistory | undefined;
   onIntlError: IntlConfig["onError"] | undefined;
+  moduleStates: Partial<Record<ModuleId, ModuleState>> | null;
+  can: ((permission: string) => boolean) | undefined;
 }) {
   const queryClient = useQueryClient();
   const loaded = useQuery({
@@ -90,6 +162,7 @@ function Panel({
     () => (modules ? createAppRouter(modules, queryClient, history) : null),
     [modules, queryClient, history],
   );
+  const assistant = modules?.find((m) => m.assistant)?.assistant ?? null;
 
   useEffect(() => applyLocale(locale), [locale]);
 
@@ -102,9 +175,17 @@ function Panel({
   }
   return (
     <I18nProvider locale={locale} messages={loaded.data.messages} onError={onIntlError}>
-      <ModulesProvider modules={loaded.data.modules}>
-        <RouterProvider router={router} />
-      </ModulesProvider>
+      <TooltipProvider delayDuration={400}>
+        <ModulesProvider
+          modules={loaded.data.modules}
+          states={moduleStates}
+          {...(can ? { can } : {})}
+        >
+          <ShellStateProvider assistant={assistant}>
+            <RouterProvider router={router} />
+          </ShellStateProvider>
+        </ModulesProvider>
+      </TooltipProvider>
     </I18nProvider>
   );
 }

@@ -1,24 +1,23 @@
-import { Link, Outlet, useMatches } from "@tanstack/react-router";
-import { House, type LucideIcon } from "lucide-react";
-import { useEffect } from "react";
+import { Outlet, useMatches, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo } from "react";
 import { useIntl } from "react-intl";
 import { Mark } from "@/design/components/mark";
+import { Sheet, SheetContent, SheetTitle } from "@/design/components/ui/dialog";
 import { Skeleton } from "@/design/components/ui/skeleton";
+import { Toaster } from "@/design/components/ui/toaster";
+import { jobDone } from "@/lib/changes";
+import { useMediaQuery } from "@/lib/media";
+import { AssistantDock } from "./assistant-dock";
+import { CommandBar } from "./command-bar";
+import { RouteAnnouncer, useRouteFocus } from "./focus";
+import { Jobs, useJobs } from "./jobs";
 import { messages } from "./messages";
-import { navEntries, useModules } from "./modules";
-
-function RailLink({ to, icon: Icon, label }: { to: string; icon: LucideIcon; label: string }) {
-  return (
-    <Link
-      to={to}
-      activeOptions={{ exact: to === "/" }}
-      className="flex flex-col items-center gap-1 rounded-md px-1 py-2 text-center text-muted-foreground text-xs hover:bg-accent hover:text-accent-foreground data-[status=active]:bg-accent data-[status=active]:font-medium data-[status=active]:text-foreground"
-    >
-      <Icon className="size-5" aria-hidden="true" />
-      {label}
-    </Link>
-  );
-}
+import { moduleCommands, useActiveModules, usePermission } from "./modules";
+import { NavLinks, Rail } from "./rail";
+import { useShell } from "./shell-state";
+import { type Binding, useShortcuts } from "./shortcuts";
+import { ShortcutsHelp } from "./shortcuts-help";
+import { TopBar } from "./topbar";
 
 /** Keeps the browser tab's title on the deepest route that names its page. */
 function useDocumentTitle() {
@@ -32,43 +31,115 @@ function useDocumentTitle() {
   }, [intl, page, name]);
 }
 
-/** The frame around every screen: the top bar, the icon rail and the content. */
-export function Shell() {
+function SkipLinks() {
   const intl = useIntl();
-  const modules = useModules();
-  useDocumentTitle();
-
+  const shell = useShell();
+  // On phones the navigation lives in the menu sheet, so the link goes to
+  // the button that opens it.
+  const wide = useMediaQuery("(min-width: 48rem)");
+  const link =
+    "sr-only focus:not-sr-only focus:absolute focus:start-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:shadow-md focus:focus-ring";
   return (
-    <div className="grid min-h-dvh grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_1fr] bg-background text-foreground">
-      <a
-        href="#content"
-        className="sr-only focus:not-sr-only focus:absolute focus:start-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:shadow-md"
-      >
+    <div>
+      <a href="#content" className={link}>
         {intl.formatMessage(messages.skipToContent)}
       </a>
-      <header className="col-span-2 flex h-14 items-center gap-3 border-border border-b bg-card px-4">
-        <Link to="/" className="flex items-center gap-2 rounded-md font-semibold text-lg">
-          <Mark className="h-7" />
+      <a href={wide ? "#navigation" : "#menu-button"} className={link}>
+        {intl.formatMessage(messages.skipToNav)}
+      </a>
+      {shell.assistant && shell.dock.open ? (
+        <a href="#assistant" className={link}>
+          {intl.formatMessage(messages.skipToAssistant)}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function MobileNav() {
+  const intl = useIntl();
+  const shell = useShell();
+  return (
+    <Sheet open={shell.navOpen} onOpenChange={shell.setNavOpen}>
+      <SheetContent side="start" className="flex flex-col gap-4" aria-describedby={undefined}>
+        <SheetTitle className="flex items-center gap-2">
+          <Mark className="h-6" />
           {intl.formatMessage(messages.name)}
-        </Link>
-      </header>
-      <nav
-        aria-label={intl.formatMessage(messages.navLabel)}
-        className="flex w-20 flex-col gap-1 border-border border-e bg-card p-2"
-      >
-        <RailLink to="/" icon={House} label={intl.formatMessage(messages.navHome)} />
-        {navEntries(modules, intl).map((entry) => (
-          <RailLink
-            key={`${entry.module.id}.${entry.id}`}
-            to={entry.href}
-            icon={entry.icon}
-            label={intl.formatMessage(entry.label)}
-          />
-        ))}
-      </nav>
-      <main id="content" tabIndex={-1} className="min-w-0 p-6 outline-none">
-        <Outlet />
-      </main>
+        </SheetTitle>
+        <nav
+          aria-label={intl.formatMessage(messages.navLabel)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <NavLinks wide onNavigate={() => shell.setNavOpen(false)} />
+        </nav>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/**
+ * The frame around every screen: skip links, the top bar, the icon rail,
+ * the content, the assistant dock and the command bar, jobs drawer and
+ * shortcut help they open.
+ */
+export function Shell() {
+  const shell = useShell();
+  const navigate = useNavigate();
+  const modules = useActiveModules();
+  const allowed = usePermission();
+  const jobs = useJobs();
+  const announcement = useRouteFocus();
+  useDocumentTitle();
+
+  const running = (jobs.data ?? []).filter((j) => !jobDone(j.state)).length;
+  const bindings = useMemo<Binding[]>(
+    () => [
+      { keys: "mod+k", run: () => shell.setCommandOpen(!shell.commandOpen), global: true },
+      { keys: "mod+j", run: () => shell.setJobsOpen(!shell.jobsOpen), global: true },
+      {
+        keys: "mod+.",
+        run: () => {
+          if (shell.assistant) {
+            shell.setDockOpen(!shell.dock.open);
+          }
+        },
+        global: true,
+      },
+      { keys: "shift+?", run: () => shell.setShortcutsOpen(true) },
+      { keys: "g h", run: () => void navigate({ to: "/" }) },
+      { keys: "g s", run: () => void navigate({ to: "/settings" }) },
+      ...moduleCommands(modules, allowed)
+        .filter((c) => c.shortcut)
+        .map((c) => ({
+          keys: c.shortcut ?? "",
+          run: () => void c.run({ navigate: (to: string) => void navigate({ to }) }),
+        })),
+    ],
+    [shell, navigate, modules, allowed],
+  );
+  useShortcuts(bindings);
+
+  return (
+    <div className="flex h-dvh flex-col bg-background text-foreground">
+      <SkipLinks />
+      <TopBar runningJobs={running} />
+      <div className="flex min-h-0 flex-1">
+        <Rail />
+        <main
+          id="content"
+          tabIndex={-1}
+          className="min-w-0 flex-1 overflow-y-auto px-4 py-6 outline-none sm:px-6"
+        >
+          <Outlet />
+        </main>
+        <AssistantDock />
+      </div>
+      <MobileNav />
+      <CommandBar />
+      <Jobs open={shell.jobsOpen} onOpenChange={shell.setJobsOpen} />
+      <ShortcutsHelp />
+      <RouteAnnouncer text={announcement} />
+      <Toaster />
     </div>
   );
 }
@@ -80,20 +151,22 @@ export function ShellSkeleton() {
     <div
       role="status"
       aria-label={intl.formatMessage(messages.loading)}
-      className="grid min-h-dvh grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_1fr] bg-background"
+      className="flex h-dvh flex-col bg-background"
     >
-      <div className="col-span-2 flex h-14 items-center gap-3 border-border border-b bg-card px-4">
+      <div className="flex h-14 items-center gap-3 border-border border-b bg-card px-4">
         <Mark className="h-7" />
         <Skeleton className="h-5 w-24" />
       </div>
-      <div className="flex w-20 flex-col items-center gap-3 border-border border-e bg-card p-2 pt-4">
-        <Skeleton className="size-8" />
-        <Skeleton className="size-8" />
-        <Skeleton className="size-8" />
-      </div>
-      <div className="flex flex-col gap-4 p-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-32 w-full max-w-md" />
+      <div className="flex min-h-0 flex-1">
+        <div className="hidden w-20 flex-col items-center gap-3 border-border border-e bg-card p-2 pt-4 md:flex">
+          <Skeleton className="size-8" />
+          <Skeleton className="size-8" />
+          <Skeleton className="size-8" />
+        </div>
+        <div className="flex flex-1 flex-col gap-4 p-6">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-32 w-full max-w-md" />
+        </div>
       </div>
     </div>
   );

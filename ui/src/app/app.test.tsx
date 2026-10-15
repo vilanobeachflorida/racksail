@@ -1,24 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Globe } from "lucide-react";
-import type { IntlConfig } from "react-intl";
+import { Globe, Plus } from "lucide-react";
 import { describe, expect, it } from "vitest";
-import { type ApiClient, createApiClient } from "@/lib/api/client";
-import { ApiProvider } from "@/lib/api/context";
-import { I18nProvider, shellMessages } from "@/lib/i18n";
+import { shellMessages } from "@/lib/i18n";
 import type { ModuleUI } from "@/modules/types";
-import { App } from "./app";
-import { ModulesProvider } from "./modules";
-import { createAppRouter } from "./router";
-
-const failOnIntlError: IntlConfig["onError"] = (error) => {
-  throw error;
-};
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+import { fakeApi, json, renderApp, renderShell } from "@/test/render";
 
 const version = {
   version: "1.2.3",
@@ -28,39 +14,16 @@ const version = {
   arch: "arm64",
 };
 
-function fakeApi(health: () => Response | Promise<Response>): ApiClient {
-  return createApiClient({
-    baseUrl: "http://panel.test",
-    fetch: async (request: Request) => {
-      switch (new URL(request.url).pathname) {
-        case "/api/v1/health":
-          return health();
-        case "/api/v1/version":
-          return json(version);
-        default:
-          return new Response("not found", { status: 404 });
-      }
-    },
+function panel(health: () => Response | Promise<Response>) {
+  return fakeApi({
+    "GET /api/v1/health": health,
+    "GET /api/v1/version": () => json(version),
   });
-}
-
-const queryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-function renderApp(api: ApiClient, path = "/") {
-  return render(
-    <App
-      api={api}
-      locale="en"
-      queryClient={queryClient()}
-      history={createMemoryHistory({ initialEntries: [path] })}
-      onIntlError={failOnIntlError}
-    />,
-  );
 }
 
 describe("the shell", () => {
   it("shows the mark, the name and the panel's status", async () => {
-    renderApp(fakeApi(() => json({ status: "ok", checks: [{ name: "agent", status: "ok" }] })));
+    renderApp(panel(() => json({ status: "ok", checks: [{ name: "agent", status: "ok" }] })));
     expect(await screen.findByRole("link", { name: "Racksail" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
@@ -75,7 +38,7 @@ describe("the shell", () => {
 
   it("lists failing health checks", async () => {
     renderApp(
-      fakeApi(() =>
+      panel(() =>
         json(
           {
             status: "degraded",
@@ -91,7 +54,7 @@ describe("the shell", () => {
 
   it("says so when the panel doesn't answer", async () => {
     renderApp(
-      fakeApi(() => {
+      panel(() => {
         throw new TypeError("Failed to fetch");
       }),
     );
@@ -99,23 +62,22 @@ describe("the shell", () => {
   });
 
   it("has a page for addresses that lead nowhere", async () => {
-    renderApp(
-      fakeApi(() => json({ status: "ok", checks: [] })),
-      "/nowhere",
-    );
-    expect(
-      await screen.findByRole("heading", { name: "This page doesn't exist" }),
-    ).toBeInTheDocument();
+    renderApp(panel(() => json({ status: "ok", checks: [] })), "/nowhere");
+    expect(await screen.findByRole("heading", { name: "This page doesn't exist" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("link", { name: "Go to the home screen" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
   });
 
-  it("lets keyboard users skip to the content", async () => {
-    renderApp(fakeApi(() => json({ status: "ok", checks: [] })));
+  it("lets keyboard users skip to the content and the navigation", async () => {
+    renderApp(panel(() => json({ status: "ok", checks: [] })));
     await screen.findByRole("heading", { level: 1, name: "Home" });
     await userEvent.tab();
     expect(screen.getByRole("link", { name: "Skip to content" })).toHaveFocus();
     expect(screen.getByRole("main")).toHaveAttribute("id", "content");
+    await userEvent.tab();
+    // Narrow screens keep the navigation in the menu sheet.
+    expect(screen.getByRole("link", { name: "Skip to navigation" })).toHaveAttribute("href", "#menu-button");
+    expect(document.getElementById("menu-button")).toHaveAccessibleName("Open the menu");
   });
 });
 
@@ -147,6 +109,15 @@ describe("module contributions", () => {
         page: async () => ({ default: () => <h1>PHP defaults</h1> }),
       },
     ],
+    commands: [
+      {
+        id: "new-site",
+        label: { id: "web.newSite" },
+        icon: Plus,
+        permission: "web.site.create",
+        run: ({ navigate }) => navigate("/web/sites"),
+      },
+    ],
   };
   const messages = {
     ...shellMessages,
@@ -155,43 +126,53 @@ describe("module contributions", () => {
     "web.sites": "Sites",
     "web.summary": "Sites at a glance",
     "web.php": "PHP",
+    "web.newSite": "Create a site",
   };
-
-  function renderWith(path: string) {
-    const client = queryClient();
-    const router = createAppRouter([web], client, createMemoryHistory({ initialEntries: [path] }));
-    render(
-      <ApiProvider client={fakeApi(() => json({ status: "ok", checks: [] }))}>
-        <QueryClientProvider client={client}>
-          <I18nProvider locale="en" messages={messages} onError={failOnIntlError}>
-            <ModulesProvider modules={[web]}>
-              <RouterProvider router={router} />
-            </ModulesProvider>
-          </I18nProvider>
-        </QueryClientProvider>
-      </ApiProvider>,
-    );
-    return router;
-  }
+  const api = panel(() => json({ status: "ok", checks: [] }));
 
   it("puts navigation entries in the rail and cards on the home screen", async () => {
-    renderWith("/");
+    renderShell({ modules: [web], messages, api });
     const nav = await screen.findByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "Sites" })).toHaveAttribute("href", "/web/sites");
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
     expect(await screen.findByText("Three sites are running.")).toBeInTheDocument();
   });
 
-  it("mounts screens under the module's path", async () => {
-    renderWith("/");
-    await userEvent.click(await screen.findByRole("link", { name: "Sites" }));
+  it("mounts screens under the module's path, with a breadcrumb", async () => {
+    renderShell({ modules: [web], messages, api });
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    await userEvent.click(within(nav).getByRole("link", { name: "Sites" }));
     expect(await screen.findByRole("heading", { name: "All sites" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Sites" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Sites" })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(document.title).toBe("Sites · Racksail"));
+    const trail = screen.getByRole("navigation", { name: "Where you are" });
+    expect(within(trail).getByRole("link", { name: "Web hosting" })).toHaveAttribute("href", "/web");
+    expect(within(trail).getByText("Sites")).toHaveAttribute("aria-current", "page");
   });
 
-  it("mounts settings pages under /settings", async () => {
-    renderWith("/settings/web/php");
+  it("mounts settings pages under /settings and lists them", async () => {
+    const { router } = renderShell({ modules: [web], messages, path: "/settings/web/php", api });
     expect(await screen.findByRole("heading", { name: "PHP defaults" })).toBeInTheDocument();
     await waitFor(() => expect(document.title).toBe("PHP · Racksail"));
+    await router.navigate({ to: "/settings" });
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /PHP/ })).toHaveAttribute("href", "/settings/web/php");
+    expect(screen.getByRole("link", { name: /^Appearance/ })).toHaveAttribute("href", "/settings/appearance");
+  });
+
+  it("leaves out modules that are off and entries the person may not use", async () => {
+    renderShell({ modules: [web], messages, api, states: { web: "off" } });
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    expect(within(nav).queryByRole("link", { name: "Sites" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Three sites are running.")).not.toBeInTheDocument();
+  });
+
+  it("offers module commands in the command bar to people allowed to run them", async () => {
+    const user = userEvent.setup();
+    renderShell({ modules: [web], messages, api, can: (p) => p !== "web.site.create" });
+    await screen.findByRole("navigation", { name: "Main" });
+    await user.keyboard("{Control>}k{/Control}");
+    expect(await screen.findByRole("dialog", { name: "Command bar" })).toBeInTheDocument();
+    expect(screen.queryByText("Create a site")).not.toBeInTheDocument();
   });
 });
