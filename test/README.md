@@ -27,7 +27,7 @@ npm ci
 npx playwright test --ui
 ```
 
-The suites check what holds for every panel: the API's health, version, document and errors, the UI's security headers, that it loads nothing from other origins and starts without errors, that its screens meet WCAG 2.2 AA as far as [axe](https://github.com/dequelabs/axe-core) can tell, on a desktop and on a phone, and, where a signed-in session is available, the shell's landmarks, keyboard access and pages. Each module adds its own flows next to them, and runs axe on its screens the same way.
+The suites check what holds for every panel: the API's health, version, document and errors, the UI's security headers, that it loads nothing from other origins and starts without errors, that its screens meet WCAG 2.2 AA as far as [axe](https://github.com/dequelabs/axe-core) can tell, on a desktop and on a phone, that the first screen loads within the bundle budget of 250 KiB of code and styles compressed, and, where a signed-in session is available, the shell's landmarks, keyboard access and pages. Each module adds its own flows next to them, and runs axe on its screens the same way.
 
 ## Installing on a virtual machine
 
