@@ -51,6 +51,8 @@ export interface AppProps {
   themeFileURL?: ThemeFileURL;
   /** The name the server's or reseller's logo stands for, such as a hosting company's. */
   brandName?: string;
+  /** Where the server's custom CSS is served, when an admin has turned it on. */
+  customCSSURL?: string;
   /** Which modules are on; every module counts as on without it. */
   moduleStates?: Partial<Record<ModuleId, ModuleState>> | null;
   /** Whether the signed-in person has a permission. */
@@ -71,6 +73,7 @@ export function App({
   themeLayers,
   themeFileURL,
   brandName,
+  customCSSURL,
   moduleStates,
   can,
   onPreferencesChange,
@@ -105,6 +108,7 @@ export function App({
             {...(themeLayers ? { layers: themeLayers } : {})}
             {...(themeFileURL ? { fileURL: themeFileURL } : {})}
             {...(brandName ? { brandName } : {})}
+            {...(customCSSURL ? { customCSSURL } : {})}
             {...(onPreferencesChange ? { onPreferencesChange } : {})}
           >
             <LocaleChoiceProvider value={localeChoice}>

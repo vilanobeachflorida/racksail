@@ -71,6 +71,21 @@ function useSystemDark(): boolean {
   return dark;
 }
 
+/** Adds a stylesheet to the page while there's one to add. */
+function useStylesheet(href: string | undefined, marker: string) {
+  useEffect(() => {
+    if (!href) {
+      return;
+    }
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.dataset[marker] = "";
+    document.head.append(link);
+    return () => link.remove();
+  }, [href, marker]);
+}
+
 /** Shows the theme's favicon in the browser tab instead of Racksail's, while there is one. */
 function useFavicon(href: string | undefined) {
   useEffect(() => {
@@ -111,6 +126,12 @@ export interface ThemeProviderProps {
   fileURL?: ThemeFileURL;
   /** The name the server's or reseller's logo stands for, such as a hosting company's. */
   brandName?: string;
+  /**
+   * Where the server's custom CSS is served, when an admin has turned it on.
+   * The panel checks it and wraps it in its cascade layer, below personal
+   * preferences and the protected palette (internal/theme.WrapCustomCSS).
+   */
+  customCSSURL?: string;
   /** Called when the person changes a preference, to keep it with their account too. */
   onPreferencesChange?: (preferences: Preferences) => void;
   children: ReactNode;
@@ -126,6 +147,7 @@ export function ThemeProvider({
   layers,
   fileURL,
   brandName,
+  customCSSURL,
   onPreferencesChange,
   children,
 }: ThemeProviderProps) {
@@ -168,6 +190,7 @@ export function ThemeProvider({
     [server, reseller, fileURL],
   );
   useFavicon(assets.favicon);
+  useStylesheet(customCSSURL, "rsCustom");
 
   useInsertionEffect(() => {
     if (css === "") {

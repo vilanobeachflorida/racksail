@@ -338,6 +338,15 @@ describe("white-labeling", () => {
     expect(home.querySelector("img")).toBeNull();
     expect(home).toHaveTextContent("Racksail");
   });
+
+  it("loads the server's custom CSS while an admin has it on", async () => {
+    const custom = () => document.head.querySelector<HTMLLinkElement>("link[data-rs-custom]");
+    const { unmount } = await shell({ theme: { customCSSURL: "/api/v1/theme/custom.css" } });
+    expect(custom()?.getAttribute("href")).toBe("/api/v1/theme/custom.css");
+    expect(custom()?.rel).toBe("stylesheet");
+    unmount();
+    expect(custom()).toBeNull();
+  });
 });
 
 describe("the menu on phones", () => {
