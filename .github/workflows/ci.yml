@@ -188,13 +188,33 @@ jobs:
             dpkg-deb --contents "$deb"
             dpkg-deb --contents "$deb" | grep -q ' ./usr/lib/systemd/system/racksail-panel.service$'
           done
-      - name: Install the amd64 package
+      - name: Install, remove, install again and purge the amd64 package
         run: |
+          units=(racksail-agent.service racksail-panel.service racksail-edge.socket)
+          # The units are enabled and were started; whether the agent and the
+          # panel stay up on this Ubuntu runner doesn't matter here.
+          check() {
+            for unit in "${units[@]}"; do
+              state=$(systemctl is-enabled "$unit" || true)
+              if [ "$state" != enabled ]; then echo "$unit is $state after $1"; exit 1; fi
+              if [ "$(systemctl show --property=ActiveState --value "$unit")" = inactive ]; then echo "$unit wasn't started after $1"; exit 1; fi
+            done
+            systemctl is-active racksail-edge.socket
+          }
           sudo apt-get install -y ./dist/racksail_*_amd64.deb
           /usr/bin/racksail version
-          systemctl cat racksail-agent.service racksail-panel.service racksail-edge.socket
+          systemctl cat "${units[@]}"
           getent passwd racksail racksail-edge
+          check "the install"
+          sudo apt-get remove -y racksail
+          for unit in "${units[@]}"; do
+            if systemctl is-active --quiet "$unit"; then echo "$unit still runs after the removal"; exit 1; fi
+          done
+          sudo apt-get install -y ./dist/racksail_*_amd64.deb
+          check "installing it again"
           sudo apt-get purge -y racksail
+          left=$(sudo find /var/lib/systemd/deb-systemd-helper-enabled -name 'racksail*')
+          if [ -n "$left" ]; then echo "purging left the units' state behind: $left"; exit 1; fi
 
   e2e-local:
     name: End to end against racksail dev

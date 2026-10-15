@@ -29,7 +29,7 @@ Racksail runs as three services in `racksail.slice`, `racksail-panel.service`, `
 
 `make deb` builds `racksail_<version>_<arch>.deb` for amd64 and arm64 with nfpm. [deb/](deb/) renders what goes in it besides the binary from the plan `racksail install --convert` carries out: the units, a sysusers.d file for the `racksail` and `racksail-edge` users, a tmpfiles.d file for Racksail's directories, and maintainer scripts that enable and start the same units a conversion does. A server installed from the package is set up the same way as a converted one; a test fails if the convert plan gains a step the package can't express.
 
-The package installs the binary as `/usr/bin/racksail`, with shell completions, the copyright file, the licenses of everything built into the binary, and the templates in [apt/](apt/) under `/usr/share/racksail/apt/`. Removing it stops the services; purging it keeps `/var/lib/racksail` and `/srv/racksail`.
+The package installs the binary as `/usr/bin/racksail`, with shell completions, the copyright file, the licenses of everything built into the binary, and the templates in [apt/](apt/) under `/usr/share/racksail/apt/`. Its maintainer scripts do what debhelper's do for units: an upgrade restarts the services that run, a unit an administrator disabled stays disabled, removing the package stops the services without masking them, so installing it again brings them back, and purging it keeps `/var/lib/racksail` and `/srv/racksail`. [deb/scripts_test.go](deb/scripts_test.go) runs the scripts through each of dpkg's sequences, and CI and the end-to-end harness install, remove and install the package again on real systems.
 
 ## apt templates
 
