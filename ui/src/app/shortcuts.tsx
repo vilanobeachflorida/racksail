@@ -120,6 +120,26 @@ export function useShortcuts(bindings: readonly Binding[]): void {
   }, []);
 }
 
+/**
+ * The shortcut as aria-keyshortcuts writes it, such as "Control+K", for
+ * screen readers. Sequences like "g h" have no such form.
+ */
+export function ariaKeyShortcuts(keys: Shortcut): string | undefined {
+  if (keys.includes(" ")) {
+    return undefined;
+  }
+  const names: Record<string, string> = {
+    mod: isApple() ? "Meta" : "Control",
+    shift: "Shift",
+    alt: "Alt",
+    escape: "Escape",
+  };
+  return keys
+    .split("+")
+    .map((k) => names[k] ?? (k.length === 1 ? k.toUpperCase() : k))
+    .join("+");
+}
+
 /** Shows a shortcut the way the platform writes it: ⌘ K or Ctrl K. */
 export function ShortcutKeys({ keys }: { keys: Shortcut }) {
   const apple = isApple();

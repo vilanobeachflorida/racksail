@@ -71,12 +71,17 @@ export function CommandGroup({
   );
 }
 
+/** A line between groups. Their headings already tell them apart, so it's hidden from screen readers. */
 export function CommandSeparator({
   className,
   ...props
 }: ComponentProps<typeof CommandPrimitive.Separator>) {
   return (
-    <CommandPrimitive.Separator className={cn("-mx-1 h-px bg-border", className)} {...props} />
+    <CommandPrimitive.Separator
+      aria-hidden="true"
+      className={cn("-mx-1 h-px bg-border", className)}
+      {...props}
+    />
   );
 }
 
@@ -93,9 +98,14 @@ export function CommandItem({ className, ...props }: ComponentProps<typeof Comma
   );
 }
 
+/**
+ * The keys of an item's shortcut, for the eye only: the item names them for
+ * screen readers with aria-keyshortcuts.
+ */
 export function CommandShortcut({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
+      aria-hidden="true"
       className={cn("ms-auto text-muted-foreground text-xs tracking-wide", className)}
       {...props}
     />

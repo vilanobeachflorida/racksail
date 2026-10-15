@@ -29,7 +29,7 @@ import { useTheme } from "@/design/theme/provider";
 import { messages } from "./messages";
 import { moduleCommands, navEntries, useActiveModules, usePermission } from "./modules";
 import { useShell } from "./shell-state";
-import { ShortcutKeys } from "./shortcuts";
+import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
 
 /**
  * The command bar (⌘K): go anywhere, run any action modules offer, change
@@ -110,7 +110,7 @@ export function CommandBar() {
                           }
                         >
                           <Sparkles aria-hidden="true" />
-                          <span className="font-mono">/{c.name}</span>
+                          <span className="font-mono">/{c.name}</span>{" "}
                           <span className="text-muted-foreground">
                             {intl.formatMessage(c.description)}
                           </span>
@@ -141,7 +141,7 @@ export function CommandBar() {
                         onSelect={() => go(entry.href)}
                       >
                         <entry.icon aria-hidden="true" />
-                        {intl.formatMessage(entry.label)}
+                        {intl.formatMessage(entry.label)}{" "}
                         <span className="text-muted-foreground text-xs">
                           {intl.formatMessage(entry.module.name)}
                         </span>
@@ -154,6 +154,7 @@ export function CommandBar() {
                         <CommandItem
                           key={c.key}
                           value={`${intl.formatMessage(c.label)} ${(c.keywords ?? []).join(" ")}`}
+                          aria-keyshortcuts={c.shortcut ? ariaKeyShortcuts(c.shortcut) : undefined}
                           onSelect={() => {
                             close();
                             void c.run({ navigate: (to) => void navigate({ to }) });
@@ -254,6 +255,7 @@ export function CommandBar() {
                     </CommandItem>
                     <CommandItem
                       value={intl.formatMessage(messages.jobsOpen)}
+                      aria-keyshortcuts={ariaKeyShortcuts("mod+j")}
                       onSelect={() => {
                         close();
                         shell.setJobsOpen(true);
@@ -267,6 +269,7 @@ export function CommandBar() {
                     </CommandItem>
                     <CommandItem
                       value={intl.formatMessage(messages.shortcutsTitle)}
+                      aria-keyshortcuts={ariaKeyShortcuts("shift+?")}
                       onSelect={() => {
                         close();
                         shell.setShortcutsOpen(true);
