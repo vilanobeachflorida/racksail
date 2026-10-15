@@ -12,7 +12,7 @@ go test ./internal/store     # one package
 go test ./internal/system -update   # rewrite golden files after an intended change
 ```
 
-`racksail dev` puts its directories under `.dev/` (or `--data`): `etc/`, `state/` and `run/`, where the simulated agent and the edge have their sockets. The simulated server and everything the panel holds live in memory, so every start begins with a freshly installed server. Everyone who reaches it is signed in as the admin, which is why it refuses to listen on anything but loopback addresses. The panel listens on `--addr` (127.0.0.1:7070 by default), and the edge on `--edge-http` and `--edge-https` (127.0.0.1:7080 and 127.0.0.1:7443) once a module adds a route. The simulated agent and the edge also answer on their Unix sockets when the path is short enough for one.
+`racksail dev` puts its directories under `.dev/` (or `--data`): `etc/`, `state/`, `run/`, where the simulated agent and the edge have their sockets, and `machine/`, where the simulated server is kept between runs (`machine.json`, with a copy of its files under `machine/root/` that the edge serves from). The simulated server takes as long as a small real one to install packages or start services; `--fresh` starts over with a newly installed one and no saved state. The panel's resources still live in memory (see below), while its secrets and the edge's certificates are kept under `state/`. Everyone who reaches it is signed in as the admin, which is why it refuses to listen on anything but loopback addresses. The panel listens on `--addr` (127.0.0.1:7070 by default), and the edge on `--edge-http` and `--edge-https` (127.0.0.1:7080 and 127.0.0.1:7443) once a module adds a route, with certificates from a local CA. The simulated agent and the edge also answer on their Unix sockets when the path is short enough for one.
 
 To run several instances side by side, as separate checkouts do, give each its own addresses and data directory. Port 0 lets the edge pick free ports, which it logs when it starts:
 
@@ -31,13 +31,14 @@ Other commands that help during development:
 | `racksail theme css [FILE]` | Renders a theme as CSS custom properties; `theme validate FILE` checks one |
 | `racksail install --answers FILE --dry-run` | Shows the steps a convert-mode answers file would take on this server; `--sim` carries them out on a simulated server. Install and restore modes erase disks, so they only run from the installer image |
 | `racksail agent --sim` | Runs a standalone agent against a simulated server, without root. It listens in a directory of your own under `$XDG_RUNTIME_DIR` or the temporary directory, and `--socket` picks another path |
+| `racksail agent join HUB TOKEN --fingerprint FP` | Enrolls a server with a panel's hub; `--cluster-file` keeps the certificate somewhere other than `/var/lib/racksail-agent`, for trying it without root |
+| `racksail edge --state DIR` | Runs an edge by hand, keeping its certificates and routing table in `DIR` |
 
 ## What isn't kept yet
 
-Everything the panel holds lives in memory for now, in `racksail panel` as much as in `racksail dev`, and the panel logs a warning about it when it starts:
+Most of what the panel holds lives in memory for now, in `racksail panel` as much as in `racksail dev`, and the panel logs a warning about it when it starts. Secrets are the exception: they are kept on disk (see [Secrets](#secrets)).
 
 - Resources and their history live in `store.Memory`. The production store is SQLite (decision T3) behind the same `store.Store` interface.
-- Secrets live in `secrets.Memory`, encrypted with a key made at every start. On a server the key will be sealed with systemd-creds (decision T12) and kept.
 - Change sets live in the change pipeline's engine, within its `Retention`: dry runs for an hour, at most 200, and finished change sets for seven days, at most 1000. `Get` and `Undo` only reach those, and none survive a restart.
 - Jobs and their logs live in `jobs.Memory`, within its `Retention`: finished jobs for seven days, at most 2000.
 - Module states live in the module manager.
@@ -48,13 +49,15 @@ Code written against the interfaces won't change when these are kept on disk, so
 
 `cmd/racksail` is the only binary. `main.go` runs the cobra root command from `root.go`, which groups the commands:
 
-- **Run Racksail:** `panel`, `agent`, `edge`, `dev` and `install`, one file each.
+- **Run Racksail:** `panel`, `agent` (with `agent join`), `edge`, `wake-proxy`, `dev` and `install`. `wake-proxy` is what the units of sleeping applications run; it lives in `edge.go`.
 - **Manage a server:** commands that call a panel's API. They're built from `clientCommands` in `client.go`, a list of builder functions that get the shared flags (`--server`, `--ca-file`, `--output`). Commands that change something are wrapped in `mutating(cmd)`, which also gives them `--dry-run`. `status` is the only client command so far; the commands generated from the OpenAPI document are to append their builders to the list from `init` functions, wrapping every operation that isn't a GET in `mutating`.
 - **Tools:** `openapi`, `version` and `theme`.
 
 `core.go` wires the panel: the store, the event bus, the job queue, the secrets store, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on, notifies `core.boot` and starts the periodic resync (`reconcile.Runner.Resync`). Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on. Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process), in how they listen, and in who may connect: the panel only accepts requests from `panel.allow_from` in `racksail.toml` when it is set.
 
-On a server, `internal/installer` renders the units: the agent and the panel as services, and the edge as `racksail-edge.service` behind `racksail-edge.socket`. systemd creates the edge's admin socket, `/run/racksail/edge.sock`, for the `racksail` group, so the panel can reach it without the edge belonging to that group (which would let it reach the agent's socket too), and starts the edge the first time the panel sends it routes. `racksail edge` takes the socket systemd passes in, and creates one for its own user when started by hand.
+On a server, `racksail install` writes the units `system.PlatformUnits` renders, which `packaging/systemd` keeps a copy of for `/usr/bin/racksail`: `racksail.slice` and `racksail-accounts.slice`, the agent (as root, of type `notify`) and the panel (as `racksail`, importing the `racksail-secrets-key` credential) as services, and the edge as `racksail-edge.service` behind `racksail-edge.socket`. systemd creates the edge's admin socket, `/run/racksail/edge.sock`, for the `racksail` group, so the panel can reach it without the edge belonging to that group (which would let it reach the agent's socket too), and starts the edge the first time the panel sends it routes. `racksail edge` takes the socket systemd passes in, and creates one for its own user when started by hand.
+
+`dev.go` builds `racksail dev` from `newDevServer`, which the one-process test in `dev_test.go` also uses: the simulated server, one agent runtime shared by the panel and the agent socket, and the edge serving the same `edge.Table` the panel's core writes to. The panel answers the edge's questions in the same process there; `racksail panel` answers them over the edge's socket with `edge.AnswerQuestions`, and asks the edge to serve the panel under `panel.hostname` once sites are routed.
 
 The binary refuses to start if any registry recorded a problem while packages initialized (`checkRegistries`): an error code defined twice, a malformed agent operation, a duplicate job type, a bad manifest. The same check runs in the tests, so these mistakes never reach a release.
 
@@ -65,8 +68,8 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/store` | Resources, kinds, TypeIDs, the `Store` interface, its in-memory implementation and the `Overlay` the pipeline plans against |
 | `internal/changeset` | The change pipeline: requests, diffs, plans, previews, apply jobs, undo, retention and secret values |
 | `internal/reconcile` | The reconciler interface, the typed adapter, the runner with its health checks, and the periodic resync |
-| `internal/agent` | The typed operation allowlist, the agent's HTTP server and the clients that call it |
-| `internal/system` | Adapter interfaces for everything the agent touches, and the pure renderers for unit files and apt sources |
+| `internal/agent` | The typed operation allowlist, the agent's HTTP server, its runtime (audit trail, drift ledger, network rollback), mutual TLS and the hub agents connect to, and the clients that call it |
+| `internal/system` | Adapter interfaces for everything the agent touches, and the pure renderers: units, slices, sandbox profiles, the platform units, networkd, nftables, apt sources and pins, kernel defaults, zram and unattended upgrades |
 | `internal/system/linux` | The real adapters, for Debian 13 |
 | `internal/system/sim` | A simulated Debian 13 server implementing every adapter in memory |
 | `internal/modules` | Manifests, the `Module` interface and its optional capabilities, the registry and the module manager |
@@ -77,9 +80,9 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/events` | The event bus, the timeline and the audit log |
 | `internal/jobs` | The job queue with progress, logs, cancel and retry |
 | `internal/i18n` | Error codes and their English messages |
-| `internal/edge` | The routing table and the server that answers from it |
+| `internal/edge` | The routing table and the embedded Caddy that serves it, certificates, the edge's admin API and the wake proxy |
 | `internal/config` | `racksail.toml` |
-| `internal/secrets` | Secret storage, encrypted at rest |
+| `internal/secrets` | Secret storage, encrypted at rest with a key sealed by systemd-creds |
 | `internal/theme` | Theme parsing, validation, contrast checks and CSS rendering |
 | `internal/notify` | Notification channels |
 | `internal/recipes` | Recipes, their inputs and catalog indexes |
@@ -195,6 +198,10 @@ When the change set is applied (never in a dry run), the pipeline stores each va
 - Recipe inputs of type `password` and `secret` can only be used in sensitive fields, and `Recipe.Request` moves their values into `Secrets`.
 - Secrets a module manages itself, such as generated DKIM keys, go straight to `svc.Secrets` under names of its own. The pipeline only deletes the versions it made.
 
+### Where secrets are kept
+
+`secrets.Open` keeps every secret in its own file under the panel's state (`/var/lib/racksail/secrets`), encrypted with AES-256-GCM. The key comes, in order, from the credential systemd imported for the panel (`$CREDENTIALS_DIRECTORY/racksail-secrets-key`), from the sealed credential opened through the agent (`UnsealCredential`), when the panel runs outside systemd, or from the key file `/var/lib/racksail/secrets.key`. The first start makes a key and seals it with `SealCredential`, which runs `systemd-creds` with the TPM2 chip when there is one and the host key always, and keeps it in `/etc/credstore.encrypted`; when that isn't possible it writes the key file instead. A `key-check` file lets a start tell a wrong key from a missing one, and no new key is made while there are secrets the missing one would open. In development the simulated server seals the key and keeps it in `.dev/machine`.
+
 ## Reconcilers
 
 A reconciler makes the machine match one kind's resources. Plan is pure: it reads the request and returns agent steps. Apply runs them; `reconcile.ApplySteps` does that and sets the phase and the `Ready` condition.
@@ -269,17 +276,31 @@ var ReloadZones = agent.Register(agent.Def[ReloadZonesInput, agent.Result]{
 - `Run` works through `env.System`, never through `os` or `exec` directly, so it runs the same against the simulated machine. External programs get a fixed path and an argument vector; there is no shell and no operation that runs an arbitrary command.
 - In check mode (`env.Check`) an operation reports what it would change without changing it. `Effects` describes a step without asking the machine, for previews where check mode can't run; `ReadOnly` marks operations that never change anything.
 - Inputs and outputs travel as JSON, up to about 86 MiB on the socket: enough for the largest file `WriteFile` writes, base64-encoded. Keep bulk data such as archives out of inputs; operations download it themselves.
-- What file, unit and package operations may touch is fixed when the binary starts. Modules extend it from `init` functions: `agent.AllowWrite("/etc/knot")`, `agent.AllowRead(...)`, `agent.AllowUnit("knot.service")`, `agent.AllowRootUnit(...)` for platform services only, and `agent.RegisterAptSource(...)` for vendor repositories, which the panel can then only name.
+- What file, unit and package operations may touch is fixed when the binary starts. Modules extend it from `init` functions: `agent.AllowWrite("/etc/knot")`, `agent.AllowRead(...)`, `agent.AllowUnit("knot.service")`, `agent.AllowRootUnit(...)` for platform services only, `agent.RegisterAptSource(...)` for vendor repositories and `agent.RegisterSigningKey(...)` for the keys vendor archives are signed with, which the panel can then only name.
+- `Sensitive` marks operations that take or return secrets, such as `SealCredential`; the audit trail keeps no hash of their input.
+
+Every call is recorded in the audit trail, including refusals and calls that never reached an operation: who called, for which resource, what it touched (paths, units, names), a hash of the input, how long it took and how it ended. A server keeps it in `/var/log/racksail/agent-audit.jsonl`; `ReadAudit` reads it back. The runtime (`agent.Runtime`) also keeps what must outlive single calls in `/var/lib/racksail-agent`, through the backend so the simulated server keeps it too: a ledger of the files, units and drop-ins written for each resource, which `CheckDrift` and a periodic check compare with the machine; network changes applied with `confirmWithin`, which roll back on their own unless `ConfirmNetworkConfig` comes in time, even across a restart; and account IDs handed out by `AllocateAccountID` but not used yet. `GET /v1/events` streams drift and rollbacks to the panel as they happen. Streams under `/v1/streams/` move what is too large for JSON, such as Btrfs send streams and uploads, and are validated and audited like operations.
+
+Other servers are reached with mutual TLS. The panel keeps a CA (`agent.NewCA`) and every certificate names its holder in a URI, `racksail://panel` or `racksail://agent/<server>`, which both sides check instead of host names. A server joins with `racksail agent join`, which trades a one-time token for a certificate at the panel's hub (`agent.Hub`, port 8444 by default), pinning the CA's fingerprint. Its agent then connects out to the hub and serves the panel over those connections (`agent.Connector`), so it needs no open management port, and renews its certificate before it expires; `--listen-tls` also accepts the panel directly.
 
 Operations registered anywhere in the binary are in the agent's allowlist, because `cmd/racksail` imports every module through `modules/all`. After adding or changing one, run `make gen` to update `spec/agent-protocol.json`; a test fails until you do.
 
 ## System adapters
 
-`system.Backend` is a struct of interfaces, one per area: facts, users, files, units, packages, Btrfs, mounts, disks, firewall, network, sysctl, processes, certificates and program execution.
+`system.Backend` is a struct of interfaces, one per area: facts, users, files, units, packages, Btrfs, mounts, disks, firewall, network, sysctl, processes, certificates, the journal, metrics and program execution.
 
 - `internal/system/linux` implements them for Debian 13. Code that only builds on Linux, such as D-Bus access to systemd, sits behind the `linux` build tag; everything else takes injected dependencies (a command runner, a root directory, a systemd connection), so its tests run on any machine with fakes.
-- `internal/system/sim` implements them in memory. A new `sim.Machine` looks like a freshly installed server with a few empty disks and a network interface, and every operation changes it the way it would change a real one. Modules teach it about their software with `sim.RegisterPackage` (what a package installs) and `sim.RegisterProgram` (what a program does when run), from `init` functions in their simulation code. Tests inspect `Calls()` and make the next operation fail with `FailNext`.
-- Rendering is separate from applying. Configuration files are produced by pure functions such as `system.UnitFile.Render` and `system.AptSource.Render`, with golden files in `testdata/`; `go test -update` rewrites them after an intended change.
+- `internal/system/sim` implements them in memory. A new `sim.Machine` looks like a freshly installed server with a few empty disks, network interfaces, CPUs with their flags and a TPM, and every operation changes it the way it would change a real one, including its journal, metrics and SMART data. `sim.Open` keeps one in a directory between runs, with a copy of its files on disk (`HostPath`), and `Options.Realistic` makes operations take as long as on a small real server. It simulates `timedatectl` and `systemd-creds`; modules teach it about their software with `sim.RegisterPackage` (what a package installs) and `sim.RegisterProgram` (what a program does when run), from `init` functions in their simulation code. Tests inspect `Calls()`, make the next operation fail with `FailNext`, offer upgrades with `OfferUpgrade` and reboot with `Reboot`.
+- Rendering is separate from applying. Configuration files are produced by pure functions such as `system.ServiceSpec.Render`, `system.PlatformUnits`, `system.WakeSpec.Units`, `system.NetworkConfig.Render`, `system.FirewallPolicy.Render`, `system.AptSource.Render` and `system.KernelDefaults`, with golden files in `testdata/`; `go test -update` rewrites them after an intended change, and also `packaging/systemd`.
+- Archives are packed and unpacked inside a directory opened as a `system.Tree`, which on Linux is an `os.Root`, so neither names in an archive nor links in an account's directory can reach outside it.
+
+## The edge
+
+`internal/edge` embeds Caddy. Caddy's configuration names no sites: Racksail's router module (`http.handlers.racksail`) serves the `edge.Table`, compiling each route into Caddy handlers in a context of its own and replacing them as the table changes, so sites never reload Caddy. Caddy starts with the first route that isn't passive and stops with the last; `Edge.Loads` counts its configuration loads, which only settings change.
+
+Certificates all go through one on-demand automation policy. Its permission module allows the names routes serve and asks the panel about names on routes with `TLS.Ask`; its certificate manager hands out uploaded certificates; and its issuers each take one kind of subject: IP addresses (an ACME profile for short-lived certificates), wildcards (DNS-01, with records the panel publishes), other public names (HTTP-01 and TLS-ALPN-01) and private names (the local CA, which issues everything in development). The edge obtains the certificates of auto routes itself before anyone visits, renews them whether or not anyone does, and lists them with their expiry; `GET /certificates/{subject}/export` hands one to services such as mail.
+
+The edge never calls the panel. It asks its questions (may this name have a certificate, publish this challenge record) through a `Responder`: directly in `racksail dev`, and through `GET /questions` and `POST /answers` on its admin socket otherwise, where `edge.AnswerQuestions` polls. Modules plug their answers into `edge.DefaultAnswers` with `ApproveNames` and `SetDNSChallenger`. `internal/edge/acme_test.go` runs the whole ACME flow against Pebble, Let's Encrypt's test CA, in the test process.
 
 ## Modules
 
