@@ -112,12 +112,11 @@ func TestRunWritesTheFiles(t *testing.T) {
 	license := filepath.Join(dir, "LICENSE")
 	os.WriteFile(license, []byte("License text.\n"), 0o644)
 	out := filepath.Join(dir, "out")
-	os.MkdirAll(filepath.Join(out, "stale"), 0o755)
 	if err := run([]string{"-out", out, "-license", license}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(out, "stale")); err == nil {
-		t.Error("the output directory must be emptied first")
+	if err := run([]string{"-out", out, "-license", license}); err == nil {
+		t.Error("writing into a directory that isn't empty must fail")
 	}
 	info, err := os.Stat(filepath.Join(out, "scripts", "postinst"))
 	if err != nil || info.Mode().Perm() != 0o755 {

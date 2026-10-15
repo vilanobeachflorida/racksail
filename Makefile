@@ -236,6 +236,7 @@ release:
 # The Debian packages, from the binaries make cross builds.
 deb: notices
 	@for p in $(PLATFORMS); do test -f $(BIN)/racksail-linux-$${p#*/} || { echo "run make cross first"; exit 1; }; done
+	rm -rf build/deb.new
 	$(GO) run ./packaging/deb -out build/deb.new -license LICENSE
 	mkdir -p build/deb.new/completions
 	$(GO) run ./cmd/racksail completion bash > build/deb.new/completions/racksail.bash

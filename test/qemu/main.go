@@ -64,6 +64,9 @@ func main() {
 	log.SetFlags(log.Ltime)
 	log.SetPrefix("harness: ")
 	cfg, err := parseFlags(os.Args[1:])
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -139,14 +142,38 @@ func kvmUsable() bool {
 	return true
 }
 
+// workMarker marks a work directory as the harness's, which it may empty
+// at the start of the next run.
+const workMarker = ".racksail-e2e"
+
+// prepareWork empties the work directory of an earlier run, and refuses to
+// touch a directory the harness didn't make.
+func prepareWork(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if len(entries) > 0 {
+		if _, err := os.Stat(filepath.Join(dir, workMarker)); err != nil {
+			return fmt.Errorf("%s isn't empty and isn't a work directory of the harness; choose another with -work", dir)
+		}
+		for _, e := range entries {
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, workMarker), nil, 0o644)
+}
+
 func run(ctx context.Context, c Config) error {
+	if err := prepareWork(c.Work); err != nil {
+		return err
+	}
 	logs := filepath.Join(c.Work, "logs")
-	if err := os.RemoveAll(c.Work); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(logs, 0o755); err != nil {
-		return err
-	}
 	m := Machine{Arch: c.Arch, Firmware: c.Firmware, Accel: c.Accel, CPUs: c.CPUs, MemoryMB: c.MemoryMB, DiskBus: c.DiskBus}
 	if c.Firmware != "bios" {
 		code, vars := c.Code, c.Vars

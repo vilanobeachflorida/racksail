@@ -247,6 +247,28 @@ func TestRenderUserData(t *testing.T) {
 	}
 }
 
+func TestPrepareWork(t *testing.T) {
+	dir := t.TempDir()
+	if err := prepareWork(dir); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "logs", "old.log"), []byte("x"), 0o644)
+	if err := prepareWork(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "logs", "old.log")); err == nil {
+		t.Error("an earlier run's files must go")
+	}
+	other := t.TempDir()
+	os.WriteFile(filepath.Join(other, "precious.txt"), []byte("x"), 0o644)
+	if err := prepareWork(other); err == nil {
+		t.Error("a directory the harness didn't make must be refused")
+	}
+	if _, err := os.Stat(filepath.Join(other, "precious.txt")); err != nil {
+		t.Error("a refused directory must be left alone")
+	}
+}
+
 func TestFlags(t *testing.T) {
 	c, err := parseFlags([]string{"-iso", "dist/racksail-1.2.3-arm64.iso", "-accel", "tcg", "-suites", "api"})
 	if err != nil || c.Arch != "arm64" || c.Accel != "tcg" || len(c.Suites) != 1 {

@@ -25,7 +25,7 @@ func main() {
 
 func run(args []string) error {
 	flags := flag.NewFlagSet("deb", flag.ContinueOnError)
-	out := flags.String("out", "", "directory to write the package's files into; it is emptied first")
+	out := flags.String("out", "", "directory to write the package's files into; it must not exist or be empty")
 	license := flags.String("license", "LICENSE", "the license text for the copyright file")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -41,8 +41,8 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(*out); err != nil {
-		return err
+	if entries, err := os.ReadDir(*out); err == nil && len(entries) > 0 {
+		return fmt.Errorf("%s isn't empty; write the package's files into a new directory", *out)
 	}
 	for name, f := range files {
 		path := filepath.Join(*out, filepath.FromSlash(name))
