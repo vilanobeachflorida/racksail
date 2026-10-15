@@ -58,6 +58,22 @@ func TestHealthAndVersion(t *testing.T) {
 	if resp.StatusCode != 503 || !strings.Contains(body, `"degraded"`) || strings.Contains(body, "connection refused") {
 		t.Errorf("failing health = %d %s", resp.StatusCode, body)
 	}
+	off := newServer(
+		HealthCheck{Name: "agent", Check: func(context.Context) error { return nil }},
+		HealthCheck{Name: "dns.knot", Active: func() bool { return false }, Check: func(context.Context) error { return errors.New("not running") }},
+	)
+	resp, body = do(t, off.Handler(), "GET", "/api/v1/health", nil)
+	if resp.StatusCode != 200 || strings.Contains(body, "dns.knot") {
+		t.Errorf("checks of modules that are off aren't run: %d %s", resp.StatusCode, body)
+	}
+	// Checks run side by side, so slow ones don't add up.
+	slow := func(context.Context) error { time.Sleep(300 * time.Millisecond); return nil }
+	parallel := newServer(HealthCheck{Name: "a", Check: slow}, HealthCheck{Name: "b", Check: slow}, HealthCheck{Name: "c", Check: slow})
+	start := time.Now()
+	resp, body = do(t, parallel.Handler(), "GET", "/api/v1/health", nil)
+	if resp.StatusCode != 200 || time.Since(start) > 800*time.Millisecond || strings.Index(body, `"a"`) > strings.Index(body, `"c"`) {
+		t.Errorf("parallel checks = %d %s in %s", resp.StatusCode, body, time.Since(start))
+	}
 	resp, body = do(t, s.Handler(), "GET", "/api/v1/version", map[string]string{"X-Request-Id": "req-from-client-1"})
 	if resp.StatusCode != 200 || !strings.Contains(body, `"version"`) || resp.Header.Get("X-Request-Id") != "req-from-client-1" {
 		t.Errorf("version = %d %s", resp.StatusCode, body)

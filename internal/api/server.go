@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -61,7 +62,14 @@ type HealthReport struct {
 type HealthCheck struct {
 	Name  string
 	Check func(ctx context.Context) error
+	// Active reports whether the check applies right now, such as the checks
+	// of a module only while it is on. Nil means always.
+	Active func() bool
 }
+
+// healthTimeout bounds each health check. The checks run side by side, so
+// it also bounds the whole report.
+const healthTimeout = 5 * time.Second
 
 // Options are the dependencies of the server.
 type Options struct {
@@ -194,23 +202,18 @@ func (s *Server) registerSystem() {
 		Method:      http.MethodGet,
 		Path:        Prefix + "/health",
 		Summary:     "Check that the panel is working",
-		Description: "Runs the panel's health checks, such as whether the agent answers. " +
+		Description: "Runs the panel's health checks, such as whether the agent answers, and those of every module that is on. " +
 			"Answers 200 when every check passes and 503 when one fails, so load balancers and uptime monitors can use it. It needs no sign-in.",
 		Tags: []string{"System"},
 		Responses: map[string]*huma.Response{
 			"503": {Description: "A check failed", Content: map[string]*huma.MediaType{"application/json": {Schema: report}}},
 		},
 	}, func(ctx context.Context, _ *struct{}) (*healthOutput, error) {
-		out := &healthOutput{Status: http.StatusOK, Body: HealthReport{Status: "ok", Checks: []Check{}}}
-		for _, hc := range s.opts.Health {
-			c := Check{Name: hc.Name, Status: "ok"}
-			checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			if err := hc.Check(checkCtx); err != nil {
-				c.Status, c.Message = "failing", i18n.From(err).Message
+		out := &healthOutput{Status: http.StatusOK, Body: HealthReport{Status: "ok", Checks: s.runChecks(ctx)}}
+		for _, c := range out.Body.Checks {
+			if c.Status != "ok" {
 				out.Status, out.Body.Status = http.StatusServiceUnavailable, "degraded"
 			}
-			cancel()
-			out.Body.Checks = append(out.Body.Checks, c)
 		}
 		return out, nil
 	})
@@ -224,6 +227,34 @@ func (s *Server) registerSystem() {
 	}, func(ctx context.Context, _ *struct{}) (*versionOutput, error) {
 		return &versionOutput{Body: updates.Build()}, nil
 	})
+}
+
+// runChecks runs the health checks that apply, side by side, and reports
+// them in their order.
+func (s *Server) runChecks(ctx context.Context) []Check {
+	var active []HealthCheck
+	for _, hc := range s.opts.Health {
+		if hc.Active == nil || hc.Active() {
+			active = append(active, hc)
+		}
+	}
+	checks := make([]Check, len(active))
+	var wg sync.WaitGroup
+	for i, hc := range active {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := Check{Name: hc.Name, Status: "ok"}
+			checkCtx, cancel := context.WithTimeout(ctx, healthTimeout)
+			defer cancel()
+			if err := hc.Check(checkCtx); err != nil {
+				c.Status, c.Message = "failing", i18n.From(err).Message
+			}
+			checks[i] = c
+		}()
+	}
+	wg.Wait()
+	return checks
 }
 
 // authErrorKey carries the error of a request whose credentials weren't

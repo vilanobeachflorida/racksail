@@ -109,11 +109,14 @@ type BackupProvider interface {
 
 // HealthCheck checks something a module runs.
 type HealthCheck struct {
+	// Name is short and unique within the module, such as "knot"; the
+	// panel's health report shows it as "<module id>.<name>".
 	Name  string
 	Check func(ctx context.Context, svc *Services) error
 }
 
-// HealthProvider declares health checks.
+// HealthProvider declares health checks. The panel's health report runs
+// them while the module is on or active, side by side with the core's own.
 type HealthProvider interface {
 	HealthChecks() []HealthCheck
 }

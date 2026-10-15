@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Check that the panel is working
-         * @description Runs the panel's health checks, such as whether the agent answers. Answers 200 when every check passes and 503 when one fails, so load balancers and uptime monitors can use it. It needs no sign-in.
+         * @description Runs the panel's health checks, such as whether the agent answers, and those of every module that is on. Answers 200 when every check passes and 503 when one fails, so load balancers and uptime monitors can use it. It needs no sign-in.
          */
         get: operations["getHealth"];
         put?: never;

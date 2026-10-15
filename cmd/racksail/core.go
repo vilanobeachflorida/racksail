@@ -120,7 +120,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
 	c := &core{log: log, agent: agentClient, modules: reg, manager: manager, services: svc}
-	c.health = []api.HealthCheck{
+	c.health = append([]api.HealthCheck{
 		{Name: "agent", Check: func(ctx context.Context) error {
 			_, err := facts(ctx)
 			return err
@@ -133,7 +133,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			}
 			return failed[ids[0]]
 		}},
-	}
+	}, moduleHealthChecks(reg, manager, svc)...)
 	// A module that doesn't start is reported by the health check rather
 	// than keeping the panel down, so it can still be turned off.
 	if err := manager.Boot(ctx); err != nil {
@@ -141,6 +141,30 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 	hookRunner.Notify(ctx, hooks.CoreBoot, auth.System("core"), nil)
 	return c, nil
+}
+
+// moduleHealthChecks returns the health checks modules declare, named
+// "<module id>.<check>". Each runs only while its module is on or active.
+func moduleHealthChecks(reg *modules.Registry, manager *modules.Manager, svc *modules.Services) []api.HealthCheck {
+	var out []api.HealthCheck
+	for _, m := range reg.All() {
+		hp, ok := m.(modules.HealthProvider)
+		if !ok {
+			continue
+		}
+		id := m.Manifest().ID
+		for _, hc := range hp.HealthChecks() {
+			out = append(out, api.HealthCheck{
+				Name: id + "." + hc.Name,
+				Active: func() bool {
+					s := manager.State(id)
+					return s == modules.StateOn || s == modules.StateActive
+				},
+				Check: func(ctx context.Context) error { return hc.Check(ctx, svc) },
+			})
+		}
+	}
+	return out
 }
 
 // stop stops the modules that are running.
