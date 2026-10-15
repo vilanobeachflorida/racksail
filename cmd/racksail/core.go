@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
@@ -72,19 +74,6 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	facts := func(ctx context.Context) (system.MachineFacts, error) {
 		return agent.GetFacts.Call(ctx, agentClient, agent.Empty{}, agent.CallOptions{})
 	}
-	runner := &reconcile.Runner{
-		Store: st, Agent: agentClient, Registry: recs, Log: log,
-		Facts: func(ctx context.Context, server store.ID) (system.MachineFacts, error) { return facts(ctx) },
-	}
-	hookRunner := &hooks.Runner{Registry: hookReg, Events: bus, Log: log}
-	authorizer := auth.NewRoleAuthorizer(nil)
-	pipeline, err := changeset.NewEngine(changeset.Options{
-		Store: st, Kinds: kinds, Runner: runner, Jobs: queue, Events: bus, Audit: bus,
-		Hooks: hookRunner, Authorizer: authorizer, Log: log,
-	})
-	if err != nil {
-		return nil, err
-	}
 	key, err := secrets.NewKey()
 	if err != nil {
 		return nil, err
@@ -93,9 +82,23 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err != nil {
 		return nil, err
 	}
+	vault := secrets.NewMemory(box)
+	runner := &reconcile.Runner{
+		Store: st, Agent: agentClient, Registry: recs, Secrets: vault, Log: log,
+		Facts: func(ctx context.Context, server store.ID) (system.MachineFacts, error) { return facts(ctx) },
+	}
+	hookRunner := &hooks.Runner{Registry: hookReg, Events: bus, Log: log}
+	authorizer := auth.NewRoleAuthorizer(nil)
+	pipeline, err := changeset.NewEngine(changeset.Options{
+		Store: st, Kinds: kinds, Runner: runner, Jobs: queue, Events: bus, Audit: bus,
+		Hooks: hookRunner, Authorizer: authorizer, Secrets: vault, Log: log,
+	})
+	if err != nil {
+		return nil, err
+	}
 	svc := &modules.Services{
 		Config: cfg, Store: st, Kinds: kinds, Pipeline: pipeline, Jobs: queue, Events: bus, Audit: bus,
-		Agent: agentClient, Edge: router, Secrets: secrets.NewMemory(box), Hooks: hookReg, Authorizer: authorizer, Log: log,
+		Agent: agentClient, Edge: router, Secrets: vault, Hooks: hookRunner, Authorizer: authorizer, Log: log,
 	}
 	for _, m := range reg.All() {
 		if hp, ok := m.(modules.HookProvider); ok {
@@ -106,38 +109,34 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			}
 		}
 	}
-	c := &core{log: log, agent: agentClient, modules: reg, manager: modules.NewManager(reg, facts), services: svc}
-	c.health = []api.HealthCheck{{Name: "agent", Check: func(ctx context.Context) error {
-		_, err := facts(ctx)
-		return err
-	}}}
-	for id, state := range c.manager.States() {
-		if state != modules.StateOn {
-			continue
-		}
-		m, _ := reg.Get(id)
-		if s, ok := m.(modules.Starter); ok {
-			if err := s.Start(ctx, svc); err != nil {
-				return nil, fmt.Errorf("starting module %s: %w", id, err)
+	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
+	c := &core{log: log, agent: agentClient, modules: reg, manager: manager, services: svc}
+	c.health = []api.HealthCheck{
+		{Name: "agent", Check: func(ctx context.Context) error {
+			_, err := facts(ctx)
+			return err
+		}},
+		{Name: "modules", Check: func(ctx context.Context) error {
+			failed := manager.Failed()
+			ids := slices.Sorted(maps.Keys(failed))
+			if len(ids) == 0 {
+				return nil
 			}
-		}
+			return failed[ids[0]]
+		}},
 	}
+	// A module that doesn't start is reported by the health check rather
+	// than keeping the panel down, so it can still be turned off.
+	if err := manager.Boot(ctx); err != nil {
+		log.Warn("some modules didn't start; the health check lists them")
+	}
+	hookRunner.Notify(ctx, hooks.CoreBoot, auth.System("core"), nil)
 	return c, nil
 }
 
-// stop stops the modules that are on.
+// stop stops the modules that are running.
 func (c *core) stop(ctx context.Context) {
-	for id, state := range c.manager.States() {
-		if state != modules.StateOn && state != modules.StateActive {
-			continue
-		}
-		m, _ := c.modules.Get(id)
-		if s, ok := m.(modules.Stopper); ok {
-			if err := s.Stop(ctx); err != nil {
-				c.log.Warn("stopping a module", "module", id, "error", err)
-			}
-		}
-	}
+	c.manager.Shutdown(ctx)
 }
 
 // apiServer builds the panel API with the embedded UI.

@@ -28,17 +28,19 @@ type Module interface {
 
 // Services are the parts of the core a module works with.
 type Services struct {
-	Config     config.Config
-	Store      store.Store
-	Kinds      *store.KindRegistry
-	Pipeline   changeset.Pipeline
-	Jobs       jobs.Queue
-	Events     events.Bus
-	Audit      events.AuditLog
-	Agent      agent.Client
-	Edge       edge.Router
-	Secrets    secrets.Store
-	Hooks      *hooks.Registry
+	Config   config.Config
+	Store    store.Store
+	Kinds    *store.KindRegistry
+	Pipeline changeset.Pipeline
+	Jobs     jobs.Queue
+	Events   events.Bus
+	Audit    events.AuditLog
+	Agent    agent.Client
+	Edge     edge.Router
+	Secrets  secrets.Store
+	// Hooks runs hook points outside the change pipeline, such as
+	// backups.run.before, and its Registry lists providers and extensions.
+	Hooks      *hooks.Runner
 	Authorizer auth.Authorizer
 	Log        *slog.Logger
 }
@@ -60,8 +62,9 @@ type APIProvider interface {
 	RegisterAPI(api huma.API, svc *Services)
 }
 
-// HookProvider registers a module's hooks, such as system patches to the
-// configuration of other modules' services.
+// HookProvider registers a module's hooks: validate, modify and observe
+// hooks on any point, system patches to the configuration of other modules'
+// services, and providers of capabilities such as provide.dns.
 type HookProvider interface {
 	Hooks(svc *Services) []hooks.Registration
 }
@@ -77,7 +80,9 @@ type MigrationProvider interface {
 	Migrations() fs.FS
 }
 
-// RecipeProvider returns recipes the module ships.
+// RecipeProvider returns the recipes a module ships, embedded from
+// modules/<id>/recipes/, one <recipe id>.yaml each. The manifest lists their
+// ids under recipes. The official catalog's recipes live in catalog/ instead.
 type RecipeProvider interface {
 	Recipes() fs.FS
 }
@@ -127,12 +132,17 @@ type HintProvider interface {
 	Hints() []Hint
 }
 
-// Starter runs when the module is turned on, or at boot when it is on.
+// Starter is implemented by modules with work to start: Start runs when the
+// module is turned on, and when the panel starts while the module is on or
+// active. A module that fails to start stays off when it was being turned
+// on, and is reported by the panel's health checks at boot.
 type Starter interface {
 	Start(ctx context.Context, svc *Services) error
 }
 
-// Stopper runs when the module is turned off or the panel stops.
+// Stopper is implemented by modules with work to stop: Stop runs when the
+// module is turned off, and when the panel stops. Turning a module off
+// keeps its data and settings.
 type Stopper interface {
 	Stop(ctx context.Context) error
 }

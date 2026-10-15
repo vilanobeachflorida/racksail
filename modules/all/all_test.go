@@ -1,12 +1,16 @@
 package all
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/vilanobeachflorida/racksail/internal/modules"
+	"github.com/vilanobeachflorida/racksail/internal/recipes"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 	"github.com/vilanobeachflorida/racksail/spec"
 )
@@ -67,7 +71,7 @@ func TestProfilesAndDependencies(t *testing.T) {
 		modules.DNSServer:          {"network", "dns", "backups", "monitoring"},
 		modules.Minimal:            {"network"},
 	}
-	mgr := modules.NewManager(modules.Default(), nil)
+	mgr := modules.NewManager(modules.Default(), modules.ManagerOptions{})
 	for p, want := range profiles {
 		got := mgr.ProfileModules(p)
 		slices.Sort(got)
@@ -108,5 +112,41 @@ func TestVMsNeedVirtualization(t *testing.T) {
 	}
 	if problems := modules.HardwareProblems(vms.Manifest(), system.MachineFacts{Arch: "amd64", MemoryBytes: 8 << 30, CPU: system.CPUInfo{Virtualization: true}, KVM: true}); len(problems) != 0 {
 		t.Errorf("a capable machine was refused: %v", problems)
+	}
+}
+
+// A module's recipes are the files its Recipes returns, and its manifest
+// lists exactly their ids.
+func TestShippedRecipesMatchTheManifests(t *testing.T) {
+	for _, id := range IDs {
+		m, _ := modules.Default().Get(id)
+		declared := slices.Clone(m.Manifest().Recipes)
+		slices.Sort(declared)
+		var shipped []string
+		if rp, ok := m.(modules.RecipeProvider); ok {
+			err := fs.WalkDir(rp.Recipes(), ".", func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() || !strings.HasSuffix(path, ".yaml") {
+					return err
+				}
+				data, err := fs.ReadFile(rp.Recipes(), path)
+				if err != nil {
+					return err
+				}
+				r, err := recipes.Parse(data)
+				if err != nil {
+					return fmt.Errorf("%s: %w", path, err)
+				}
+				shipped = append(shipped, r.ID)
+				return nil
+			})
+			if err != nil {
+				t.Errorf("%s: %v", id, err)
+				continue
+			}
+		}
+		slices.Sort(shipped)
+		if !slices.Equal(shipped, declared) {
+			t.Errorf("%s ships recipes %v, its manifest lists %v", id, shipped, declared)
+		}
 	}
 }

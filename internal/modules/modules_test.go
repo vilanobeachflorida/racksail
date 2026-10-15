@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -101,7 +103,7 @@ func facts(virt bool) func(context.Context) (system.MachineFacts, error) {
 
 func TestManagerRules(t *testing.T) {
 	ctx := context.Background()
-	m := NewManager(newRegistry(t), facts(false))
+	m := NewManager(newRegistry(t), ManagerOptions{Facts: facts(false)})
 	if m.State("net") != StateOn || m.State("web") != StateOff {
 		t.Errorf("states = %v", m.States())
 	}
@@ -136,7 +138,7 @@ func TestManagerRules(t *testing.T) {
 
 func TestApplyProfileSkipsUnsupportedHardware(t *testing.T) {
 	ctx := context.Background()
-	m := NewManager(newRegistry(t), facts(false))
+	m := NewManager(newRegistry(t), ManagerOptions{Facts: facts(false)})
 	order := m.ProfileModules(AllInOne)
 	if order[0] != "net" {
 		t.Errorf("dependencies come first: %v", order)
@@ -151,7 +153,7 @@ func TestApplyProfileSkipsUnsupportedHardware(t *testing.T) {
 	if m.State("perf") != StateOn || m.State("web") != StateOn {
 		t.Errorf("states = %v", m.States())
 	}
-	capable := NewManager(newRegistry(t), facts(true))
+	capable := NewManager(newRegistry(t), ManagerOptions{Facts: facts(true)})
 	if skipped, _ := capable.ApplyProfile(ctx, AllInOne); len(skipped) != 0 {
 		t.Errorf("a capable machine skips nothing: %v", skipped)
 	}
@@ -165,5 +167,110 @@ func TestHardwareProblems(t *testing.T) {
 	problems := HardwareProblems(man, system.MachineFacts{Arch: "arm64", MemoryBytes: 1 << 30})
 	if len(problems) != 6 {
 		t.Errorf("problems = %v", problems)
+	}
+}
+
+// lifecycleModule records when it is started and stopped.
+type lifecycleModule struct {
+	Base
+	log     *[]string
+	failing bool
+}
+
+func (l lifecycleModule) Start(ctx context.Context, svc *Services) error {
+	if l.failing {
+		return errors.New("the socket is taken")
+	}
+	*l.log = append(*l.log, "start "+l.Manifest().ID)
+	return nil
+}
+
+func (l lifecycleModule) Stop(ctx context.Context) error {
+	*l.log = append(*l.log, "stop "+l.Manifest().ID)
+	return nil
+}
+
+func TestLifecycle(t *testing.T) {
+	ctx := context.Background()
+	var log []string
+	reg := NewRegistry()
+	for _, m := range []Module{
+		lifecycleModule{Base: NewBase(manifestYAML("net", "required: true\ndependencies: {}\n")), log: &log},
+		lifecycleModule{Base: NewBase(manifestYAML("web", "dependencies: {requires: [net]}\n")), log: &log},
+		lifecycleModule{Base: NewBase(manifestYAML("broken", "dependencies: {}\n")), log: &log, failing: true},
+	} {
+		if err := reg.Add(m, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hookReg := hooks.NewRegistry()
+	for _, id := range reg.IDs() {
+		for _, p := range hooks.ModulePoints(id) {
+			hookReg.Declare(p, "lifecycle")
+		}
+	}
+	transitions := make(chan Transition, 4)
+	for _, p := range []hooks.Point{hooks.ModuleOn("web"), hooks.ModuleOff("web")} {
+		if err := hookReg.Register(hooks.Registration{Point: p, Kind: hooks.Observe, Owner: "module:monitoring",
+			OnObserve: func(ctx context.Context, c *hooks.Context) { transitions <- c.Data.(Transition) }}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := NewManager(reg, ManagerOptions{Services: &Services{Hooks: &hooks.Runner{Registry: hookReg}}})
+	next := func() Transition {
+		select {
+		case tr := <-transitions:
+			return tr
+		case <-time.After(time.Second):
+			t.Fatal("no lifecycle notification")
+			return Transition{}
+		}
+	}
+
+	if err := m.Boot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TurnOn(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if tr := next(); tr != (Transition{Module: "web", From: StateOff, To: StateOn}) {
+		t.Errorf("on = %+v", tr)
+	}
+	if err := m.TurnOn(ctx, "web"); err != nil {
+		t.Errorf("turning on twice is harmless: %v", err)
+	}
+	if err := m.TurnOn(ctx, "broken"); !errors.Is(err, ErrStartFailed) {
+		t.Errorf("a module that can't start: %v", err)
+	}
+	if m.State("broken") != StateOff {
+		t.Error("a module that didn't start stays off")
+	}
+	if err := m.TurnOff(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if tr := next(); tr.To != StateOff || tr.From != StateOn {
+		t.Errorf("off = %+v", tr)
+	}
+	if err := m.TurnOn(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	next()
+	m.Shutdown(ctx)
+	want := "start net,start web,stop web,start web,stop web,stop net"
+	if got := strings.Join(log, ","); got != want {
+		t.Errorf("lifecycle = %s, want %s", got, want)
+	}
+	if m.State("web") != StateOn {
+		t.Error("stopping the panel doesn't turn modules off")
+	}
+
+	m.mu.Lock()
+	m.states["broken"] = StateActive
+	m.mu.Unlock()
+	if err := m.Boot(ctx); !errors.Is(err, ErrStartFailed) {
+		t.Errorf("boot reports modules that didn't start: %v", err)
+	}
+	if failed := m.Failed(); failed["broken"] == nil || len(failed) != 1 {
+		t.Errorf("failed = %v", failed)
 	}
 }
