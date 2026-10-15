@@ -1,0 +1,11 @@
+format: 1
+kind: theme
+id: contrast-theme
+name: Contrast
+version: 1.0.0
+summary: Stronger contrast for every surface.
+license: CC-BY-4.0
+licenseClass: free-to-use
+icon: icon.svg
+categories: [accessibility]
+maintainers: [{name: Example maintainers, github: example}]

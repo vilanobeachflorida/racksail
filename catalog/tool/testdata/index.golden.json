@@ -1,0 +1,343 @@
+{
+  "format": 1,
+  "catalog": "test",
+  "built": "2026-10-15T00:00:00Z",
+  "items": [
+    {
+      "id": "notes-addon",
+      "kind": "addon",
+      "name": "Notes",
+      "version": "1.2.0",
+      "summary": "Adds a notes tab to every site.",
+      "licenseClass": "open-source",
+      "categories": [
+        "productivity"
+      ],
+      "path": "addons/notes-addon/recipe.yaml",
+      "sha256": "745b1ad38dd82e35dd521ab5ff6c6ada06969948e7a3dc5a1a56cf7e4670ad3c",
+      "icon": "addons/notes-addon/icon.svg",
+      "files": [
+        {
+          "path": "addons/notes-addon/addon.yaml",
+          "sha256": "dcd4d7ae19797cad48c3d6aea8aae510161029f45ed6c43b3356a084bda08739",
+          "size": 422
+        },
+        {
+          "path": "addons/notes-addon/icon.svg",
+          "sha256": "9b58eb6f8c71ac015cd9e95a794cd73464dd2f8ef27e7d82aaf42c1a2cece7ca",
+          "size": 250
+        },
+        {
+          "path": "addons/notes-addon/recipe.yaml",
+          "sha256": "745b1ad38dd82e35dd521ab5ff6c6ada06969948e7a3dc5a1a56cf7e4670ad3c",
+          "size": 247
+        }
+      ]
+    },
+    {
+      "id": "hello-site",
+      "kind": "app",
+      "name": "Hello site",
+      "version": "1.0.0",
+      "summary": "A static page that says hello.",
+      "licenseClass": "open-source",
+      "categories": [
+        "static"
+      ],
+      "path": "apps/hello-site/recipe.yaml",
+      "sha256": "61ecdb2a96312016f9ccc0d49761aee9072cef428bd084df32b99da9ff7967d8",
+      "icon": "apps/hello-site/icon.svg",
+      "requires": {
+        "modules": [
+          "web"
+        ],
+        "memoryMB": 16,
+        "diskMB": 5
+      },
+      "files": [
+        {
+          "path": "apps/hello-site/icon.svg",
+          "sha256": "8053146965a7defe34463ff1315f81634469ed16606e89c136c4ee9ef0f20c7a",
+          "size": 240
+        },
+        {
+          "path": "apps/hello-site/recipe.yaml",
+          "sha256": "61ecdb2a96312016f9ccc0d49761aee9072cef428bd084df32b99da9ff7967d8",
+          "size": 818
+        }
+      ],
+      "featured": true
+    },
+    {
+      "id": "uptime-alerts",
+      "kind": "automation",
+      "name": "Uptime alerts",
+      "version": "1.0.0",
+      "summary": "Checks a site every minute and tells you when it stops answering.",
+      "licenseClass": "open-source",
+      "categories": [
+        "monitoring"
+      ],
+      "path": "automations/uptime-alerts/recipe.yaml",
+      "sha256": "9c1667c3cc014e896282f6244e01e484c2984c5cece5892d755ed40a8a297ae2",
+      "icon": "automations/uptime-alerts/icon.svg",
+      "requires": {
+        "modules": [
+          "automations",
+          "monitoring"
+        ]
+      },
+      "files": [
+        {
+          "path": "automations/uptime-alerts/icon.svg",
+          "sha256": "57a7a976fdf7fa9964c753d1f74b3f032c5950ebc2dc0027f6c5b2d72cc0d184",
+          "size": 239
+        },
+        {
+          "path": "automations/uptime-alerts/recipe.yaml",
+          "sha256": "9c1667c3cc014e896282f6244e01e484c2984c5cece5892d755ed40a8a297ae2",
+          "size": 857
+        }
+      ],
+      "unmaintained": true
+    },
+    {
+      "id": "mail-records",
+      "kind": "dns-template",
+      "name": "Example Mail",
+      "version": "1",
+      "summary": "The records Example Mail needs for a domain's email.",
+      "licenseClass": "open-source",
+      "categories": [
+        "mail"
+      ],
+      "path": "dns-templates/mail-records/recipe.yaml",
+      "sha256": "4f406b15aaf1fe765003257c80f4ac86d748c4253e4ecc4be903f89170fcf468",
+      "icon": "dns-templates/mail-records/icon.svg",
+      "requires": {
+        "modules": [
+          "dns"
+        ]
+      },
+      "files": [
+        {
+          "path": "dns-templates/mail-records/icon.svg",
+          "sha256": "9040316e7ba9e32156d1d4f4b2b1f8801f83bb60d065fd58ec84dd2be3857e14",
+          "size": 241
+        },
+        {
+          "path": "dns-templates/mail-records/recipe.yaml",
+          "sha256": "4f406b15aaf1fe765003257c80f4ac86d748c4253e4ecc4be903f89170fcf468",
+          "size": 742
+        }
+      ]
+    },
+    {
+      "id": "tiny-model",
+      "kind": "model",
+      "name": "Tiny model",
+      "version": "1.0",
+      "summary": "A small model for the command bar on servers with little memory.",
+      "licenseClass": "open-source",
+      "categories": [
+        "ai"
+      ],
+      "path": "models/tiny-model/recipe.yaml",
+      "sha256": "f1ddaacecdccf4c8730812190daa0423d78a7c30d1bb4af7a2fb7d4ecbb58e3c",
+      "icon": "models/tiny-model/icon.svg",
+      "requires": {
+        "modules": [
+          "ai"
+        ],
+        "memoryMB": 1024,
+        "diskMB": 700
+      },
+      "files": [
+        {
+          "path": "models/tiny-model/icon.svg",
+          "sha256": "90a78e07750dc4426ec82be27cbcb0d6f801ebffb0f04aecea6afb27e4d067d5",
+          "size": 235
+        },
+        {
+          "path": "models/tiny-model/recipe.yaml",
+          "sha256": "f1ddaacecdccf4c8730812190daa0423d78a7c30d1bb4af7a2fb7d4ecbb58e3c",
+          "size": 783
+        }
+      ]
+    },
+    {
+      "id": "php-runtime",
+      "kind": "runtime",
+      "name": "PHP 8.4",
+      "version": "8.4.13",
+      "summary": "PHP 8.4 with the extensions most sites need.",
+      "licenseClass": "open-source",
+      "categories": [
+        "runtime"
+      ],
+      "path": "runtimes/php-runtime/recipe.yaml",
+      "sha256": "ad426a8f2e29ff18868ae421a61e9e27b17f8d7274ce663a8ab5cf59a289484a",
+      "icon": "runtimes/php-runtime/icon.svg",
+      "requires": {
+        "modules": [
+          "web",
+          "builder"
+        ],
+        "diskMB": 120
+      },
+      "files": [
+        {
+          "path": "runtimes/php-runtime/icon.svg",
+          "sha256": "7331409578b003253e1c0d8d4afbd690e5cf2b36dcbcc8ceaf33622bc7552ba0",
+          "size": 236
+        },
+        {
+          "path": "runtimes/php-runtime/recipe.yaml",
+          "sha256": "ad426a8f2e29ff18868ae421a61e9e27b17f8d7274ce663a8ab5cf59a289484a",
+          "size": 653
+        }
+      ]
+    },
+    {
+      "id": "cache-service",
+      "kind": "service",
+      "name": "Cache service",
+      "version": "8.1.4",
+      "summary": "An in-memory key-value store for caching.",
+      "licenseClass": "open-source",
+      "categories": [
+        "cache"
+      ],
+      "path": "services/cache-service/recipe.yaml",
+      "sha256": "c807890794fe12a158f455908880882bdf1d212f14edc544baf4b7908bd0e307",
+      "icon": "services/cache-service/icon.png",
+      "requires": {
+        "modules": [
+          "databases"
+        ],
+        "memoryMB": 64
+      },
+      "files": [
+        {
+          "path": "services/cache-service/icon.png",
+          "sha256": "03b424d971ad9cf38f08180b5f7d765af592f77d1d93ecbfe110c39f9a9444f6",
+          "size": 105
+        },
+        {
+          "path": "services/cache-service/recipe.yaml",
+          "sha256": "c807890794fe12a158f455908880882bdf1d212f14edc544baf4b7908bd0e307",
+          "size": 879
+        }
+      ]
+    },
+    {
+      "id": "blog-stack",
+      "kind": "stack",
+      "name": "Blog stack",
+      "version": "2.3.0",
+      "summary": "A blog with its database and an object cache.",
+      "licenseClass": "open-source",
+      "categories": [
+        "blog",
+        "cms"
+      ],
+      "path": "stacks/blog-stack/recipe.yaml",
+      "sha256": "e2677a1356682c8304386d7ec62196a097d7e795aef6a07aea32f82feac93657",
+      "icon": "stacks/blog-stack/icon.svg",
+      "requires": {
+        "modules": [
+          "web",
+          "databases"
+        ],
+        "memoryMB": 256,
+        "diskMB": 200,
+        "arch": [
+          "amd64",
+          "arm64"
+        ]
+      },
+      "files": [
+        {
+          "path": "stacks/blog-stack/icon.svg",
+          "sha256": "ef528265d372f007a009e8ee1ced3d9e20fc0d4b8227ae2a8ffed18272e2743b",
+          "size": 247
+        },
+        {
+          "path": "stacks/blog-stack/recipe.yaml",
+          "sha256": "e2677a1356682c8304386d7ec62196a097d7e795aef6a07aea32f82feac93657",
+          "size": 1436
+        }
+      ],
+      "featured": true
+    },
+    {
+      "id": "contrast-theme",
+      "kind": "theme",
+      "name": "Contrast",
+      "version": "1.0.0",
+      "summary": "Stronger contrast for every surface.",
+      "licenseClass": "free-to-use",
+      "categories": [
+        "accessibility"
+      ],
+      "path": "themes/contrast-theme/recipe.yaml",
+      "sha256": "63d571ab199c514dff7d311a0001f85d7988cd653652c7f4ed3b5bc7d107e1ec",
+      "icon": "themes/contrast-theme/icon.svg",
+      "files": [
+        {
+          "path": "themes/contrast-theme/icon.svg",
+          "sha256": "2b2a863cde5b016271c0ff287961abf3a96b3315a856e32c51e1100e973fe7d4",
+          "size": 245
+        },
+        {
+          "path": "themes/contrast-theme/mark.svg",
+          "sha256": "48a621b5cfd6dae1fe80edab3d5328d40f6cd2714da3c2343946ca11f2aa5db3",
+          "size": 160
+        },
+        {
+          "path": "themes/contrast-theme/recipe.yaml",
+          "sha256": "63d571ab199c514dff7d311a0001f85d7988cd653652c7f4ed3b5bc7d107e1ec",
+          "size": 265
+        },
+        {
+          "path": "themes/contrast-theme/theme.yaml",
+          "sha256": "6608698d6cacc65d9e1873de13a95059ef1861ed32bf126445e70bd5623582b8",
+          "size": 1455
+        }
+      ]
+    },
+    {
+      "id": "fast-site",
+      "kind": "tuning-preset",
+      "name": "Fast PHP site",
+      "version": "1.0.0",
+      "summary": "Measured PHP and cache settings for busy PHP sites.",
+      "licenseClass": "open-source",
+      "categories": [
+        "performance"
+      ],
+      "path": "tuning-presets/fast-site/recipe.yaml",
+      "sha256": "7181179d8c7430cbe79109154b4a4d64bd3f94f38cef82ff58fa5e77e10c9887",
+      "icon": "tuning-presets/fast-site/icon.svg",
+      "requires": {
+        "modules": [
+          "performance",
+          "web"
+        ]
+      },
+      "files": [
+        {
+          "path": "tuning-presets/fast-site/icon.svg",
+          "sha256": "8a72fecf5a903333a79ab65c9c5538f9c64184d565b154b0f19091fc5a58e4af",
+          "size": 250
+        },
+        {
+          "path": "tuning-presets/fast-site/recipe.yaml",
+          "sha256": "7181179d8c7430cbe79109154b4a4d64bd3f94f38cef82ff58fa5e77e10c9887",
+          "size": 627
+        }
+      ],
+      "broken": true
+    }
+  ]
+}

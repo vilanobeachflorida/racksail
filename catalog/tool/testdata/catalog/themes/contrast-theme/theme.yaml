@@ -1,0 +1,61 @@
+format: 1
+id: contrast-theme
+name: Contrast
+version: 1.0.0
+license: CC-BY-4.0
+author: Example
+description: Stronger contrast for every surface.
+tokens:
+  light:
+    surface: "#FFFFFF"
+    surfaceRaised: "#FFFFFF"
+    surfaceSunken: "#EEF2F7"
+    text: "#000000"
+    textMuted: "#2B3A4F"
+    border: "#7A889C"
+    borderStrong: "#3D4A5C"
+    brand: "#01214F"
+    brandText: "#FFFFFF"
+    accent: "#0052AD"
+    accentText: "#FFFFFF"
+    success: "#116329"
+    successText: "#FFFFFF"
+    warning: "#7D4E00"
+    warningText: "#FFFFFF"
+    danger: "#A40E26"
+    dangerText: "#FFFFFF"
+    info: "#0052AD"
+    infoText: "#FFFFFF"
+    focus: "#0052AD"
+    chart: ["#0052AD", "#B4410A", "#1F7A33", "#8A2BA3", "#8F5B00", "#08687A"]
+  dark:
+    surface: "#000000"
+    surfaceRaised: "#0A1626"
+    surfaceSunken: "#000000"
+    text: "#FFFFFF"
+    textMuted: "#C9D4E1"
+    border: "#5B6F88"
+    borderStrong: "#9FB0C4"
+    brand: "#3D9BFF"
+    brandText: "#00142F"
+    accent: "#5CADFF"
+    accentText: "#00142F"
+    success: "#56D364"
+    successText: "#00142F"
+    warning: "#E3B341"
+    warningText: "#00142F"
+    danger: "#FF7B72"
+    dangerText: "#00142F"
+    info: "#5CADFF"
+    infoText: "#00142F"
+    focus: "#5CADFF"
+    chart: ["#5CADFF", "#FFA657", "#56D364", "#D2A8FF", "#E3B341", "#39C5CF"]
+assets:
+  mark: mark.svg
+console:
+  background: "#000000"
+  foreground: "#FFFFFF"
+  accent: "#5CADFF"
+  success: "#56D364"
+  warning: "#E3B341"
+  danger: "#FF7B72"

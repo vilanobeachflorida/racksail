@@ -1,0 +1,30 @@
+format: 1
+kind: model
+id: tiny-model
+name: Tiny model
+version: "1.0"
+summary: A small model for the command bar on servers with little memory.
+license: Apache-2.0
+licenseClass: open-source
+icon: icon.svg
+categories: [ai]
+maintainers: [{name: Example maintainers, github: example}]
+requires: {modules: [ai], memoryMB: 1024, diskMB: 700}
+model:
+  family: tiny
+  parameters: 0.6B
+  quantization: Q4_K_M
+  format: gguf
+  contextLength: 32768
+  size: small
+  capabilities: [chat, tools]
+resources:
+  - name: model
+    kind: ai.model
+    spec: {file: tiny-model-q4.gguf, contextLength: 32768}
+downloads:
+  - url: https://downloads.example.com/tiny-model-q4.gguf
+    sha256: 1a15803ce4b9b15126ae3b610d897940dc7e03a003fe7a423f3de72f3390a3be
+    size: 484442112
+tests:
+  timeoutSeconds: 1800

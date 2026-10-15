@@ -1,0 +1,11 @@
+format: 1
+kind: addon
+id: notes-addon
+name: Notes
+version: 1.2.0
+summary: Adds a notes tab to every site.
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [productivity]
+maintainers: [{name: Example maintainers, github: example}]

@@ -1,0 +1,5 @@
+featured: [hello-site, blog-stack]
+broken:
+  - {id: fast-site, reason: The install test fails since the PHP settings screen changed., since: 2026-09-01}
+unmaintained:
+  - {id: uptime-alerts, reason: Its maintainer stepped down., since: 2026-08-01}
