@@ -65,6 +65,8 @@ make e2e-local
 
 `make e2e-local` builds the binary with the UI, starts `racksail dev` on 127.0.0.1:7170, runs both suites against it and stops it. To work on browser tests, run `npx playwright test --ui` in `test/e2e`.
 
+Besides each module's flows, the browser suite holds every panel to the rules in the [conventions](https://github.com/vilanobeachflorida/racksail/blob/main/docs/architecture/conventions.md): its screens meet WCAG 2.2 AA as far as axe can tell, on a desktop and on a phone, and the first screen loads within the bundle budget of 250 KiB of code and styles, compressed. A module's tests run axe on its own screens the same way.
+
 On Linux with KVM, the QEMU harness installs Racksail from the ISO onto a virtual machine, checks that Racksail's own services idle within the memory budget, 100 MiB with every module off, and runs the same suites against the real thing:
 
 ```sh
