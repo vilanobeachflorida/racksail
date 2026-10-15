@@ -202,17 +202,17 @@ export function TopBar({ runningJobs }: { runningJobs: number }) {
       {shell.assistant ? (
         <Tooltip
           content={intl.formatMessage(
-            shell.dock.open ? messages.assistantClose : messages.assistantOpen,
+            shell.assistantOpen ? messages.assistantClose : messages.assistantOpen,
           )}
         >
           <Button
             variant="ghost"
             size="icon"
             aria-label={intl.formatMessage(
-              shell.dock.open ? messages.assistantClose : messages.assistantOpen,
+              shell.assistantOpen ? messages.assistantClose : messages.assistantOpen,
             )}
-            aria-pressed={shell.dock.open}
-            onClick={() => shell.setDockOpen(!shell.dock.open)}
+            aria-pressed={shell.assistantOpen}
+            onClick={() => shell.setAssistantOpen(!shell.assistantOpen)}
           >
             <PanelRight className="rtl:-scale-x-100" aria-hidden="true" />
           </Button>

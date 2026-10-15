@@ -47,7 +47,7 @@ function SkipLinks() {
       <a href={wide ? "#navigation" : "#menu-button"} className={link}>
         {intl.formatMessage(messages.skipToNav)}
       </a>
-      {shell.assistant && shell.dock.open ? (
+      {shell.assistant && shell.docked && shell.assistantOpen ? (
         <a href="#assistant" className={link}>
           {intl.formatMessage(messages.skipToAssistant)}
         </a>
@@ -100,7 +100,7 @@ export function Shell() {
         keys: "mod+.",
         run: () => {
           if (shell.assistant) {
-            shell.setDockOpen(!shell.dock.open);
+            shell.setAssistantOpen(!shell.assistantOpen);
           }
         },
         global: true,

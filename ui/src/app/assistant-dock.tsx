@@ -2,7 +2,6 @@ import { type KeyboardEvent, lazy, type PointerEvent, Suspense, useMemo, useRef 
 import { useIntl } from "react-intl";
 import { Sheet, SheetContent, SheetTitle } from "@/design/components/ui/dialog";
 import { Skeleton } from "@/design/components/ui/skeleton";
-import { useMediaQuery } from "@/lib/media";
 import type { AssistantContribution } from "@/modules/types";
 import { messages } from "./messages";
 import { dockLimits, useShell } from "./shell-state";
@@ -62,34 +61,33 @@ function PanelBody({
 export function AssistantDock() {
   const intl = useIntl();
   const shell = useShell();
-  const wide = useMediaQuery("(min-width: 64rem)");
   const dragging = useRef<{ startX: number; startShare: number } | null>(null);
   const assistant = shell.assistant;
   if (!assistant) {
     return null;
   }
-  const close = () => shell.setDockOpen(false);
+  const close = () => shell.setAssistantOpen(false);
 
-  if (!wide) {
+  if (!shell.docked) {
     return (
-      <Sheet open={shell.dock.open} onOpenChange={shell.setDockOpen}>
+      <Sheet open={shell.assistantOpen} onOpenChange={shell.setAssistantOpen}>
         <SheetContent side="bottom" className="h-[85dvh] p-0" aria-describedby={undefined}>
           <SheetTitle className="sr-only">{intl.formatMessage(messages.assistantLabel)}</SheetTitle>
           <div id="assistant" className="min-h-0 flex-1 overflow-hidden">
-            {shell.dock.open ? <PanelBody assistant={assistant} onClose={close} /> : null}
+            {shell.assistantOpen ? <PanelBody assistant={assistant} onClose={close} /> : null}
           </div>
         </SheetContent>
       </Sheet>
     );
   }
-  if (!shell.dock.open) {
+  if (!shell.assistantOpen) {
     return null;
   }
 
   const rtl = document.documentElement.dir === "rtl";
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragging.current = { startX: e.clientX, startShare: shell.dock.width };
+    dragging.current = { startX: e.clientX, startShare: shell.dockWidth };
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = dragging.current;
@@ -105,9 +103,9 @@ export function AssistantDock() {
     const toward = rtl ? "ArrowRight" : "ArrowLeft";
     const away = rtl ? "ArrowLeft" : "ArrowRight";
     if (e.key === toward) {
-      shell.setDockWidth(shell.dock.width + step);
+      shell.setDockWidth(shell.dockWidth + step);
     } else if (e.key === away) {
-      shell.setDockWidth(shell.dock.width - step);
+      shell.setDockWidth(shell.dockWidth - step);
     } else if (e.key === "Home") {
       shell.setDockWidth(dockLimits.min);
     } else if (e.key === "End") {
@@ -124,7 +122,7 @@ export function AssistantDock() {
       tabIndex={-1}
       aria-label={intl.formatMessage(messages.assistantLabel)}
       className="relative flex min-h-0 flex-col border-border border-s bg-card outline-none"
-      style={{ width: `${(shell.dock.width * 100).toFixed(2)}vw` }}
+      style={{ width: `${(shell.dockWidth * 100).toFixed(2)}vw` }}
     >
       {/* biome-ignore lint/a11y/useSemanticElements: a focusable separator is the ARIA pattern for a resizable pane */}
       <div
@@ -133,7 +131,7 @@ export function AssistantDock() {
         aria-label={intl.formatMessage(messages.assistantResize)}
         aria-valuemin={Math.round(dockLimits.min * 100)}
         aria-valuemax={Math.round(dockLimits.max * 100)}
-        aria-valuenow={Math.round(shell.dock.width * 100)}
+        aria-valuenow={Math.round(shell.dockWidth * 100)}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
