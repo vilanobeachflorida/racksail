@@ -437,6 +437,8 @@ func queryMatches(info *KindInfo, r *Resource, q Query) bool {
 		return false
 	case q.Server != nil && r.Server != *q.Server:
 		return false
+	case len(q.IDs) > 0 && !slices.Contains(q.IDs, r.ID):
+		return false
 	}
 	return labelsMatch(r.Labels, q.Labels) && indexMatch(info, r, q.Index)
 }

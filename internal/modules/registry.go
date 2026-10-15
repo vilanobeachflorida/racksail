@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -108,6 +109,29 @@ func (r *Registry) Err() error {
 	r.mu.RUnlock()
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
 	return errors.Join(errs...)
+}
+
+// Ownership returns what the module that keeps resellers says about which
+// reseller an account belongs to, or nil when no module says. Two modules
+// saying it is an error.
+func (r *Registry) Ownership(svc *Services) (auth.Ownership, error) {
+	var found auth.Ownership
+	var by string
+	for _, m := range r.All() {
+		op, ok := m.(OwnershipProvider)
+		if !ok {
+			continue
+		}
+		id := m.Manifest().ID
+		if found != nil {
+			return nil, fmt.Errorf("modules: %s and %s both say which reseller an account belongs to", by, id)
+		}
+		if found = op.Ownership(svc); found == nil {
+			return nil, fmt.Errorf("modules: %s provides no ownership", id)
+		}
+		by = id
+	}
+	return found, nil
 }
 
 // The modules compiled into the binary. modules/all imports every one.

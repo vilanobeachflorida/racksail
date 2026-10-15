@@ -15,8 +15,9 @@
 // discovered through interfaces: KindProvider for kinds, ReconcilerProvider,
 // APIProvider for API operations beyond the generated ones, HookProvider,
 // EventProvider, MigrationProvider, RecipeProvider, BackupProvider,
-// HealthProvider, HintProvider for the assistant, and Starter and Stopper for
-// work that runs while the module is on. Each capability receives the
+// HealthProvider, HintProvider for the assistant, OwnershipProvider for the
+// module that keeps resellers, and Starter and Stopper for work that runs
+// while the module is on. Each capability receives the
 // Services it needs.
 //
 // Modules are compiled into the binary and stay dormant until turned on;

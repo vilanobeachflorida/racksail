@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
@@ -57,6 +58,43 @@ func newRegistry(t *testing.T) *Registry {
 		}
 	}
 	return reg
+}
+
+// resellers stands in for the hosting module, which keeps resellers.
+type resellers struct {
+	Base
+	owners map[store.ID]store.ID
+}
+
+func (r resellers) Ownership(svc *Services) auth.Ownership { return r }
+
+func (r resellers) ResellerOf(ctx context.Context, account store.ID) (store.ID, error) {
+	return r.owners[account], nil
+}
+
+func TestOwnership(t *testing.T) {
+	reg := newRegistry(t)
+	if o, err := reg.Ownership(&Services{}); o != nil || err != nil {
+		t.Errorf("without a module that keeps resellers = %v, %v", o, err)
+	}
+	reseller, customer := store.NewID("rsl"), store.NewID("acct")
+	hosting := resellers{Base: NewBase(manifestYAML("hosting", "dependencies: {}\n")), owners: map[store.ID]store.ID{customer: reseller}}
+	if err := reg.Add(hosting, nil); err != nil {
+		t.Fatal(err)
+	}
+	o, err := reg.Ownership(&Services{})
+	if err != nil || o == nil {
+		t.Fatalf("ownership = %v, %v", o, err)
+	}
+	if got, _ := o.ResellerOf(context.Background(), customer); got != reseller {
+		t.Errorf("reseller of the customer = %s", got)
+	}
+	if err := reg.Add(resellers{Base: NewBase(manifestYAML("billing", "dependencies: {}\n"))}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Ownership(&Services{}); err == nil || !strings.Contains(err.Error(), "billing and hosting") {
+		t.Errorf("two modules saying it: %v", err)
+	}
 }
 
 func TestRegistry(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -184,6 +185,15 @@ type Authorizer interface {
 	Authorize(ctx context.Context, actor *Actor, perm Permission, target Target) error
 }
 
+// ObjectAuthorizer is implemented by authorizers that grant permissions on
+// single resources. A list uses it when no grant covers the scope it lists,
+// to find the resources the actor may still see there.
+type ObjectAuthorizer interface {
+	// Objects returns the resources the actor holds perm on through grants
+	// on single resources, within scope, or anywhere when scope is nil.
+	Objects(ctx context.Context, actor *Actor, perm Permission, scope *store.Scope) ([]store.ID, error)
+}
+
 // Ownership answers questions about tenancy the authorizer needs.
 type Ownership interface {
 	// ResellerOf returns the reseller an account belongs to, or "" when the
@@ -209,12 +219,36 @@ var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storag
 // RoleAuthorizer is the default Authorizer: roles map to permission
 // patterns, and grants map roles to scopes.
 type RoleAuthorizer struct {
+	mu     sync.RWMutex
 	owners Ownership
 }
 
+var (
+	_ Authorizer       = (*RoleAuthorizer)(nil)
+	_ ObjectAuthorizer = (*RoleAuthorizer)(nil)
+)
+
 // NewRoleAuthorizer returns an authorizer that asks owners about tenancy.
+// owners may be nil until the module that keeps resellers sets it with
+// SetOwnership; until then reseller grants cover only the reseller's own
+// scope, not their customers' accounts.
 func NewRoleAuthorizer(owners Ownership) *RoleAuthorizer {
 	return &RoleAuthorizer{owners: owners}
+}
+
+// SetOwnership tells the authorizer which reseller each account belongs to.
+// The panel calls it at startup with what the module that keeps resellers
+// provides.
+func (r *RoleAuthorizer) SetOwnership(owners Ownership) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.owners = owners
+}
+
+func (r *RoleAuthorizer) ownership() Ownership {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.owners
 }
 
 // Authorize implements Authorizer.
@@ -238,6 +272,33 @@ func (r *RoleAuthorizer) Authorize(ctx context.Context, actor *Actor, perm Permi
 		}
 	}
 	return i18n.ErrForbidden.New("action", string(perm))
+}
+
+// Objects implements ObjectAuthorizer: the objects of the actor's grants on
+// single resources that carry perm, sorted. Grants on whole scopes don't
+// count; Authorize covers those.
+func (r *RoleAuthorizer) Objects(ctx context.Context, actor *Actor, perm Permission, scope *store.Scope) ([]store.ID, error) {
+	if actor == nil {
+		return nil, i18n.ErrUnauthenticated.New()
+	}
+	var out []store.ID
+	for _, g := range actor.Grants {
+		if g.Object == "" || !g.Role.Valid() || !permits(g, perm) {
+			continue
+		}
+		if scope != nil {
+			covers, err := r.covers(ctx, g.Scope, *scope)
+			if err != nil {
+				return nil, err
+			}
+			if !covers {
+				continue
+			}
+		}
+		out = append(out, g.Object)
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
 }
 
 func permits(g Grant, perm Permission) bool {
@@ -282,8 +343,8 @@ func (r *RoleAuthorizer) covers(ctx context.Context, grant, target store.Scope) 
 		if target.Level == store.ScopeReseller {
 			return target.ID == grant.ID, nil
 		}
-		if target.Level == store.ScopeAccount && r.owners != nil {
-			reseller, err := r.owners.ResellerOf(ctx, target.ID)
+		if owners := r.ownership(); target.Level == store.ScopeAccount && owners != nil {
+			reseller, err := owners.ResellerOf(ctx, target.ID)
 			if err != nil {
 				return false, err
 			}

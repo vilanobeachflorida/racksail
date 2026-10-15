@@ -13,7 +13,8 @@
 // requirement. That only establishes who is calling: every operation also
 // asks the central authorizer what the caller may do. Reads never go through
 // the change pipeline, so their handlers authorize them with Authorize,
-// AuthorizeRead and Readable. Changes go through Submit, which carries the
-// dryRun and Idempotency-Key parameters every mutating operation accepts
-// (ChangeParams) into the pipeline, where each change is authorized again.
+// AuthorizeRead and List, which also honours grants on single resources.
+// Changes go through Submit, which carries the dryRun and Idempotency-Key
+// parameters every mutating operation accepts (ChangeParams) into the
+// pipeline, where each change is authorized again.
 package api

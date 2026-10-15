@@ -98,6 +98,9 @@ type Query struct {
 	Labels map[string]string
 	// Index matches values of indexes the kind declares, by index name.
 	Index map[string]string
+	// IDs limits the list to these resources when it isn't empty, as for an
+	// actor whose grants name single resources.
+	IDs []ID
 	// IncludeDeleted also returns resources marked as deleted.
 	IncludeDeleted bool
 	// Cursor continues a previous list; it comes from Page.Next.

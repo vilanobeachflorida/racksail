@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -212,6 +213,86 @@ func TestAuthorizingReads(t *testing.T) {
 	items, err := Readable(owner, authz, []*store.Resource{theirs, mine})
 	if err != nil || len(items) != 1 || items[0] != mine {
 		t.Errorf("readable = %v, %v", items, err)
+	}
+}
+
+type noteSpec struct {
+	Text string `json:"text"`
+}
+
+var noteKind = store.Define[noteSpec, store.Status](store.KindInfo{
+	Name: "test.note", Prefix: "note", Scope: store.ScopeAccount, Title: "Note", Plural: "notes",
+	Description: "A note, for list tests.",
+})
+
+func TestListing(t *testing.T) {
+	ctx := context.Background()
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(noteKind); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewMemory(kinds)
+	acctA, acctB := store.NewID("acct"), store.NewID("acct")
+	create := func(acct store.ID) store.ID {
+		r := &store.Resource{Meta: store.Meta{Kind: "test.note", Scope: store.AccountScope(acct)}, Spec: json.RawMessage(`{"text":"x"}`)}
+		if err := st.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, r) }); err != nil {
+			t.Fatal(err)
+		}
+		return r.ID
+	}
+	a1, a2, a3, b1 := create(acctA), create(acctA), create(acctA), create(acctB)
+	authz := auth.NewRoleAuthorizer(nil)
+	as := func(grants ...auth.Grant) context.Context {
+		return auth.WithActor(ctx, &auth.Actor{Type: auth.ActorUser, Grants: grants})
+	}
+	scopeA := store.AccountScope(acctA)
+	list := func(ctx context.Context, q store.Query) ([]store.ID, string, error) {
+		t.Helper()
+		q.Kind = "test.note"
+		page, err := List(ctx, authz, st, q)
+		if err != nil {
+			return nil, "", err
+		}
+		var ids []store.ID
+		for _, r := range page.Items {
+			ids = append(ids, r.ID)
+		}
+		return ids, page.Next, nil
+	}
+	same := func(got []store.ID, want ...store.ID) bool { return slices.Equal(got, want) }
+
+	owner := as(auth.Grant{Role: auth.RoleOwner, Scope: scopeA})
+	if got, _, err := list(owner, store.Query{Scope: &scopeA}); err != nil || !same(got, a1, a2, a3) {
+		t.Errorf("the owner's list = %v, %v", got, err)
+	}
+	first, next, err := list(owner, store.Query{Scope: &scopeA, Limit: 2})
+	if err != nil || !same(first, a1, a2) || next == "" {
+		t.Errorf("first page = %v, %q, %v", first, next, err)
+	}
+	if rest, _, _ := list(owner, store.Query{Scope: &scopeA, Limit: 2, Cursor: next}); !same(rest, a3) {
+		t.Errorf("second page = %v", rest)
+	}
+
+	collab := as(auth.Grant{Role: auth.RoleCollaborator, Scope: scopeA, Object: a2, Permissions: []auth.Permission{"test.note.read"}})
+	if got, _, err := list(collab, store.Query{Scope: &scopeA}); err != nil || !same(got, a2) {
+		t.Errorf("a collaborator granted one note sees that note: %v, %v", got, err)
+	}
+	if got, _, err := list(collab, store.Query{}); err != nil || !same(got, a2) {
+		t.Errorf("listing every scope falls back the same way: %v, %v", got, err)
+	}
+	if got, _, err := list(collab, store.Query{Scope: &scopeA, IDs: []store.ID{a1}}); err != nil || len(got) != 0 {
+		t.Errorf("asking for notes not granted finds nothing: %v, %v", got, err)
+	}
+	stranger := as(auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(acctB)})
+	if _, _, err := list(stranger, store.Query{Scope: &scopeA}); !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("another account's owner: %v", err)
+	}
+	admin := as(auth.Grant{Role: auth.RoleAdmin, Scope: store.ServerScope()})
+	if got, _, err := list(admin, store.Query{}); err != nil || !same(got, a1, a2, a3, b1) {
+		t.Errorf("the admin lists everything: %v, %v", got, err)
+	}
+	if _, _, err := list(ctx, store.Query{Scope: &scopeA}); !errors.Is(err, i18n.ErrUnauthenticated) {
+		t.Errorf("without signing in: %v", err)
 	}
 }
 

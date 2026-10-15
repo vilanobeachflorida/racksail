@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"slices"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -53,10 +54,67 @@ func AuthorizeRead(ctx context.Context, authz auth.Authorizer, m store.Meta) err
 	return err
 }
 
-// Readable keeps the resources of a list the signed-in actor may read, in
-// order. A list operation first authorizes the scope it lists, with
-// Authorize and ReadPermission, and queries the store for that scope only,
-// so pages stay full; Readable then covers grants on single resources.
+// List returns one page of the resources q selects that the signed-in actor
+// may read. It is how every list operation reads the store.
+//
+// When a grant covers the whole scope listed (q.Scope, or every scope when
+// it is nil) the store's page is used as it is. Otherwise the list falls
+// back to the resources the actor holds grants on single resources for, so
+// a collaborator granted one site sees that site; with neither, the list is
+// refused with core.forbidden. The query names those resources, so pages
+// stay full. Either way each resource is authorized on its own before it is
+// returned.
+func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Query) (*store.Page, error) {
+	actor, err := Actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope := store.ServerScope()
+	if q.Scope != nil {
+		scope = *q.Scope
+	}
+	perm := ReadPermission(q.Kind)
+	err = Authorize(ctx, authz, perm, auth.Target{Scope: scope})
+	switch {
+	case err == nil:
+	case i18n.ErrForbidden.Is(err):
+		objects, ok := authz.(auth.ObjectAuthorizer)
+		if !ok {
+			return nil, err
+		}
+		ids, objErr := objects.Objects(ctx, actor, perm, q.Scope)
+		if objErr != nil {
+			return nil, objErr
+		}
+		if len(ids) == 0 {
+			return nil, err
+		}
+		if len(q.IDs) > 0 {
+			// The caller asked for some resources; keep the ones granted.
+			ids = slices.DeleteFunc(ids, func(id store.ID) bool { return !slices.Contains(q.IDs, id) })
+			if len(ids) == 0 {
+				return &store.Page{Items: []*store.Resource{}}, nil
+			}
+		}
+		q.IDs = ids
+	default:
+		return nil, err
+	}
+	page, err := st.List(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	items, err := Readable(ctx, authz, page.Items)
+	if err != nil {
+		return nil, err
+	}
+	return &store.Page{Items: items, Next: page.Next}, nil
+}
+
+// Readable keeps the resources the signed-in actor may read, in order,
+// authorizing each with AuthorizeRead. List uses it on every page; use it on
+// its own for resources found some other way, such as the ones a search
+// returns.
 func Readable(ctx context.Context, authz auth.Authorizer, items []*store.Resource) ([]*store.Resource, error) {
 	out := make([]*store.Resource, 0, len(items))
 	for _, r := range items {

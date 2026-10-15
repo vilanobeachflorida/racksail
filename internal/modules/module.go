@@ -118,6 +118,14 @@ type HealthProvider interface {
 	HealthChecks() []HealthCheck
 }
 
+// OwnershipProvider says which reseller each account belongs to. The
+// authorizer asks it when a reseller's grant is checked against one of their
+// customers' accounts, so the module that keeps resellers implements it, and
+// no other module may.
+type OwnershipProvider interface {
+	Ownership(svc *Services) auth.Ownership
+}
+
 // Hint helps the assistant use a module's tools: a short description and
 // examples of requests, for a kind or one of its actions.
 type Hint struct {

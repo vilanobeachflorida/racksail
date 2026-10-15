@@ -65,6 +65,53 @@ func TestAuthorize(t *testing.T) {
 	}
 }
 
+// The module that keeps resellers sets the ownership after the authorizer
+// is built; from then on a reseller's grant covers their customers.
+func TestSetOwnership(t *testing.T) {
+	ctx := context.Background()
+	reseller, customer := store.NewID("rsl"), store.NewID("acct")
+	az := NewRoleAuthorizer(nil)
+	res := &Actor{Type: ActorUser, Grants: []Grant{{Role: RoleReseller, Scope: store.ResellerScope(reseller)}}}
+	target := Target{Scope: store.AccountScope(customer)}
+	if err := az.Authorize(ctx, res, "web.site.read", target); !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("without ownership nothing says the account is the reseller's: %v", err)
+	}
+	az.SetOwnership(owners{customer: reseller})
+	if err := az.Authorize(ctx, res, "web.site.read", target); err != nil {
+		t.Errorf("with ownership the reseller reaches their customer: %v", err)
+	}
+	if err := az.Authorize(ctx, res, "web.site.read", Target{Scope: store.AccountScope(store.NewID("acct"))}); !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("but not other accounts: %v", err)
+	}
+}
+
+func TestObjects(t *testing.T) {
+	ctx := context.Background()
+	acctA, acctB := store.NewID("acct"), store.NewID("acct")
+	siteA, siteB, other := store.NewID("site"), store.NewID("site"), store.NewID("site")
+	az := NewRoleAuthorizer(nil)
+	collab := &Actor{Type: ActorUser, Grants: []Grant{
+		{Role: RoleCollaborator, Scope: store.AccountScope(acctA), Object: siteA, Permissions: []Permission{"web.site.read", "web.site.deploy"}},
+		{Role: RoleCollaborator, Scope: store.AccountScope(acctB), Object: siteB, Permissions: []Permission{"web.site.read"}},
+		{Role: RoleCollaborator, Scope: store.AccountScope(acctA), Object: other, Permissions: []Permission{"web.site.deploy"}},
+		{Role: RoleOwner, Scope: store.AccountScope(store.NewID("acct"))},
+	}}
+	scopeA := store.AccountScope(acctA)
+	if got, err := az.Objects(ctx, collab, "web.site.read", &scopeA); err != nil || len(got) != 1 || got[0] != siteA {
+		t.Errorf("objects in one account = %v, %v", got, err)
+	}
+	all, err := az.Objects(ctx, collab, "web.site.read", nil)
+	if err != nil || len(all) != 2 {
+		t.Errorf("objects anywhere = %v, %v", all, err)
+	}
+	if got, _ := az.Objects(ctx, collab, "web.site.delete", nil); len(got) != 0 {
+		t.Errorf("grants without the permission don't count: %v", got)
+	}
+	if _, err := az.Objects(ctx, nil, "web.site.read", nil); !errors.Is(err, i18n.ErrUnauthenticated) {
+		t.Errorf("nobody: %v", err)
+	}
+}
+
 func TestActor(t *testing.T) {
 	user, token := store.NewID("user"), store.NewID("tok")
 	a := &Actor{Type: ActorToken, ID: token, User: user, Source: SourceCLI}

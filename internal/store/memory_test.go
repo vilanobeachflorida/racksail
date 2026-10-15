@@ -231,6 +231,14 @@ func TestMemoryListFiltersAndPages(t *testing.T) {
 		}
 	}
 
+	picked, err := s.List(ctx, Query{Kind: "test.site", IDs: []ID{ids[3], ids[1], NewID("tsite")}, Limit: 1})
+	if err != nil || len(picked.Items) != 1 || picked.Items[0].ID != ids[1] || picked.Next == "" {
+		t.Fatalf("by IDs = %+v, %v", picked, err)
+	}
+	if rest, _ := s.List(ctx, Query{Kind: "test.site", IDs: []ID{ids[3], ids[1]}, Cursor: picked.Next}); len(rest.Items) != 1 || rest.Items[0].ID != ids[3] {
+		t.Errorf("lists by IDs page like any other: %+v", rest)
+	}
+
 	byDomain, err := s.List(ctx, Query{Kind: "test.site", Index: map[string]string{"domain": "B.TEST"}})
 	if err != nil || len(byDomain.Items) != 1 {
 		t.Errorf("index filter: %d items, %v", len(byDomain.Items), err)

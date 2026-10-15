@@ -52,7 +52,7 @@ Code written against the interfaces won't change when these are kept on disk, so
 - **Manage a server:** commands that call a panel's API. They're built from `clientCommands` in `client.go`, a list of builder functions that get the shared flags (`--server`, `--ca-file`, `--output`). Commands that change something are wrapped in `mutating(cmd)`, which also gives them `--dry-run`. `status` is the only client command so far; the commands generated from the OpenAPI document are to append their builders to the list from `init` functions, wrapping every operation that isn't a GET in `mutating`.
 - **Tools:** `openapi`, `version` and `theme`.
 
-`core.go` wires the panel: the store, the event bus, the job queue, the secrets store, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It starts the modules that are on, notifies `core.boot`, and reports modules that didn't start through the `modules` health check rather than refusing to run, so they can still be turned off. Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process) and in how they listen.
+`core.go` wires the panel: the store, the event bus, the job queue, the secrets store, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on and notifies `core.boot`. Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off. Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process) and in how they listen.
 
 The binary refuses to start if any registry recorded a problem while packages initialized (`checkRegistries`): an error code defined twice, a malformed agent operation, a duplicate job type, a bad manifest. The same check runs in the tests, so these mistakes never reach a release.
 
@@ -297,6 +297,7 @@ func init() {
 | `RecipeProvider` | `Recipes() fs.FS` | Recipes the module ships |
 | `BackupProvider` | `Backups() []Backup` | What data belongs to each kind and how to quiesce it |
 | `HealthProvider` | `HealthChecks() []HealthCheck` | Health checks for what the module runs |
+| `OwnershipProvider` | `Ownership(svc *Services) auth.Ownership` | Which reseller each account belongs to, so reseller grants cover their customers. Only the module that keeps resellers implements it |
 | `HintProvider` | `Hints() []Hint` | Descriptions and examples that help the assistant |
 | `Starter`, `Stopper` | `Start`, `Stop` | Work to start when the module is turned on and to stop when it's turned off |
 
@@ -458,7 +459,15 @@ func (m *Module) RegisterAPI(a huma.API, svc *modules.Services) {
 }
 ```
 
-A list authorizes the scope it lists with `api.Authorize(ctx, svc.Authorizer, api.ReadPermission(kind), auth.Target{Scope: scope})`, queries the store for that scope only, so pages stay full, and passes the page through `api.Readable`, which also covers grants on single resources. Anything else an operation does is checked the same way, with the permission it needs.
+A list reads the store through `api.List`, which authorizes it:
+
+```go
+page, err := api.List(ctx, svc.Authorizer, svc.Store, store.Query{
+	Kind: "dns.zone", Scope: &scope, Cursor: in.Cursor, Limit: in.Limit,
+})
+```
+
+When a grant covers the whole scope listed (or every scope, when `Scope` is nil), the store's page is used as it is. Otherwise the list falls back to the resources the actor holds grants on single resources for (`auth.ObjectAuthorizer`), so a collaborator granted one zone sees that zone; the query names those resources, so pages stay full. With neither, the list answers `core.forbidden`. Each resource on the page is authorized again before it's returned. Anything else an operation does is checked the same way, with the permission it needs.
 
 ### Changes
 

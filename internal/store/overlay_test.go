@@ -63,6 +63,10 @@ func TestOverlayShowsPlannedChanges(t *testing.T) {
 	if len(withDeleted.Items) != 4 {
 		t.Errorf("deleted resources are listed on request: %d", len(withDeleted.Items))
 	}
+	picked, _ := o.List(ctx, Query{Kind: "test.site", IDs: []ID{added.ID, gone.ID, kept.ID}})
+	if len(picked.Items) != 2 || picked.Items[0].ID != kept.ID || picked.Items[1].ID != added.ID {
+		t.Errorf("a list of IDs selects stored and planned resources: %+v", picked.Items)
+	}
 }
 
 func TestOverlayPages(t *testing.T) {

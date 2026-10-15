@@ -109,6 +109,15 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			}
 		}
 	}
+	// Reseller grants cover their customers' accounts once the module that
+	// keeps resellers says which accounts those are.
+	owners, err := reg.Ownership(svc)
+	if err != nil {
+		return nil, err
+	}
+	if owners != nil {
+		authorizer.SetOwnership(owners)
+	}
 	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
 	c := &core{log: log, agent: agentClient, modules: reg, manager: manager, services: svc}
 	c.health = []api.HealthCheck{
