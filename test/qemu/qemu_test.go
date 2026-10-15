@@ -298,16 +298,22 @@ func TestPackageScript(t *testing.T) {
 	}
 }
 
-// panelStub answers like a panel: its version, which upgradeAfter calls
-// change, over TLS with its own certificate.
-func panelStub(t *testing.T, upgradeAfter int32) *httptest.Server {
+// panelStub answers like a panel, over TLS with its own certificate: 1.2.4
+// for the first upgradeAfter version requests and 1.3.0 after them. With
+// stall, every answer after the first takes until the client gives up.
+func panelStub(t *testing.T, upgradeAfter int32, stall bool) *httptest.Server {
 	t.Helper()
 	var calls atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path != "/api/v1/version":
+		if r.URL.Path != "/api/v1/version" {
 			http.NotFound(w, r)
-		case calls.Add(1) > upgradeAfter:
+			return
+		}
+		n := calls.Add(1)
+		switch {
+		case stall && n > 1:
+			<-r.Context().Done()
+		case n > upgradeAfter:
 			w.Write([]byte(`{"version":"1.3.0","channel":"stable"}`))
 		default:
 			w.Write([]byte(`{"version":"1.2.4","channel":"stable"}`))
@@ -319,7 +325,7 @@ func panelStub(t *testing.T, upgradeAfter int32) *httptest.Server {
 
 func TestPanelChecks(t *testing.T) {
 	ctx := context.Background()
-	srv := panelStub(t, 2)
+	srv := panelStub(t, 2, false)
 	if v, err := PanelVersion(ctx, srv.URL); err != nil || v != "1.2.4" {
 		t.Errorf("PanelVersion = %q, %v", v, err)
 	}
@@ -331,8 +337,10 @@ func TestPanelChecks(t *testing.T) {
 		t.Errorf("PanelFingerprint = %s, %v", got, err)
 	}
 
-	stuck := panelStub(t, 1000)
-	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	// The panel answers the old version once and then not in time: the
+	// error names the answer, not the request the deadline cut short.
+	stuck := panelStub(t, 1000, true)
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	if err := WaitForVersion(waitCtx, stuck.URL, "1.3.0", time.Millisecond); err == nil || !strings.Contains(err.Error(), "last answer: version 1.2.4") {
 		t.Errorf("a panel that stays on the old version must fail with what it answered: %v", err)

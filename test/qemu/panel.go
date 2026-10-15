@@ -30,18 +30,21 @@ func FreePort() (int, error) {
 // WaitForPanel polls the panel's health endpoint until it answers 200 or the
 // context ends. The panel's certificate is its own, so it isn't verified.
 func WaitForPanel(ctx context.Context, url string, every time.Duration) error {
-	var last string
+	last := "none"
 	for {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/api/v1/health", nil)
 		resp, err := panelClient.Do(req)
-		if err == nil {
+		switch {
+		case err == nil:
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
 			last = fmt.Sprintf("%s: %s", resp.Status, body)
-		} else {
+		case ctx.Err() == nil:
+			// A request the deadline cut short says less than the one
+			// before it.
 			last = err.Error()
 		}
 		select {

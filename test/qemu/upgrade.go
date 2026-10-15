@@ -112,15 +112,18 @@ func PanelFingerprint(ctx context.Context, url string) (string, error) {
 // WaitForVersion polls the panel until it reports version, while it
 // restarts after an upgrade.
 func WaitForVersion(ctx context.Context, url, version string, every time.Duration) error {
-	var last string
+	last := "none"
 	for {
 		v, err := PanelVersion(ctx, url)
-		if err == nil && v == version {
+		switch {
+		case err == nil && v == version:
 			return nil
-		}
-		if err != nil {
+		case ctx.Err() != nil:
+			// The deadline cut this request short; the answer before it
+			// says more about what went wrong.
+		case err != nil:
 			last = err.Error()
-		} else {
+		default:
 			last = "version " + v
 		}
 		select {
