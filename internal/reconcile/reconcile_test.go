@@ -4,18 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
+	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
@@ -316,39 +319,310 @@ func TestReconcilesOfOneResourceDontOverlap(t *testing.T) {
 	}
 }
 
-func TestResync(t *testing.T) {
-	r, m, s := setup(t)
-	id := createNote(t, s, "drifted")
+// run starts the runner's queue for the rest of the test.
+func run(t *testing.T, r *Runner, interval time.Duration) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r.Resync(ctx, 10*time.Millisecond)
+		r.Run(ctx, interval)
 	}()
-	path := notePath(id)
-	waitFor := func(what string, ok func() bool) {
-		t.Helper()
-		deadline := time.Now().Add(2 * time.Second)
-		for !ok() {
-			if time.Now().After(deadline) {
-				t.Fatalf("the resync never %s", what)
-			}
-			time.Sleep(5 * time.Millisecond)
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatalf("never %s", what)
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func TestResyncPutsBackWhatDrifted(t *testing.T) {
+	r, m, s := setup(t)
+	bus := events.NewMemory(100)
+	r.Events = bus
+	drifts := bus.Subscribe(events.Filter{Types: []string{"test.note.drifted"}}, 4)
+	defer drifts.Close()
+	id := createNote(t, s, "drifted")
+	run(t, r, 20*time.Millisecond)
+	path := notePath(id)
+	ctx := context.Background()
 	// The first pass runs at once and writes the note nobody reconciled yet.
-	waitFor("wrote the note", func() bool {
-		data, err := m.Backend().Files.ReadFile(context.Background(), path, 0)
+	waitFor(t, "wrote the note", func() bool {
+		data, err := m.Backend().Files.ReadFile(ctx, path, 0)
 		return err == nil && string(data) == "drifted"
 	})
-	// Later passes put back what changed on the machine.
-	if err := m.Backend().Files.Remove(context.Background(), path); err != nil {
+	waitFor(t, "marked the note ready", func() bool {
+		got, err := noteKind.Get(ctx, s, id)
+		return err == nil && got.Status.Phase == store.PhaseReady
+	})
+	select {
+	case e := <-drifts.C:
+		t.Fatalf("writing a note for the first time isn't drift: %+v", e)
+	default:
+	}
+	// Later passes put back what changed on the machine, and say so.
+	if err := m.Backend().Files.Remove(ctx, path); err != nil {
 		t.Fatal(err)
 	}
-	waitFor("put the note back", func() bool {
-		_, err := m.Backend().Files.Stat(context.Background(), path)
+	waitFor(t, "put the note back", func() bool {
+		_, err := m.Backend().Files.Stat(ctx, path)
 		return err == nil
 	})
-	cancel()
-	<-done
+	select {
+	case e := <-drifts.C:
+		var d events.Drift
+		if err := json.Unmarshal(e.Data, &d); err != nil || !d.Corrected || d.Source != "resync" || len(d.Changes) == 0 || e.Subject != id || e.Severity != events.SeverityWarning {
+			t.Errorf("drift event = %+v, %+v", e, d)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no drift event")
+	}
+	waitFor(t, "recorded the correction", func() bool {
+		got, _ := noteKind.Get(ctx, s, id)
+		c, ok := got.Status.Condition(ConditionDrifted)
+		return ok && c.Status == store.ConditionFalse && c.Reason == "Corrected" && strings.Contains(c.Message, path)
+	})
+}
+
+func TestReportedDrift(t *testing.T) {
+	r, m, s := setup(t)
+	bus := events.NewMemory(100)
+	r.Events = bus
+	drifts := bus.Subscribe(events.Filter{Types: []string{"*.drifted"}}, 4)
+	defer drifts.Close()
+	ctx := context.Background()
+	id := createNote(t, s, "original")
+	if err := r.Reconcile(ctx, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Someone edits the file by hand; the agent notices before the queue
+	// runs, and the report stands until the queue puts the file back.
+	if err := m.Backend().Files.WriteFile(ctx, notePath(id), []byte("edited"), 0o644, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ReportDrift(ctx, DriftReport{Resource: id, Changes: []string{notePath(id) + " was edited"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := noteKind.Get(ctx, s, id)
+	if !got.Status.IsTrue(ConditionDrifted) || got.Status.Phase != store.PhaseReady {
+		t.Errorf("status after the report = %+v", got.Status)
+	}
+	if e := <-drifts.C; e.Subject != id || !strings.Contains(e.Message, "was edited") {
+		t.Errorf("event = %+v", e)
+	}
+	run(t, r, time.Hour)
+	r.Enqueue(id, "drift")
+	waitFor(t, "put the file back", func() bool {
+		data, _ := m.Backend().Files.ReadFile(ctx, notePath(id), 0)
+		return string(data) == "original"
+	})
+	waitFor(t, "cleared the condition", func() bool {
+		got, _ := noteKind.Get(ctx, s, id)
+		c, ok := got.Status.Condition(ConditionDrifted)
+		return ok && c.Status == store.ConditionFalse
+	})
+	if err := r.ReportDrift(ctx, DriftReport{Resource: store.NewID("note")}); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a report about a resource that doesn't exist: %v", err)
+	}
+}
+
+// flakyReconciler fails until failures runs out.
+type flakyReconciler struct {
+	failures *atomic.Int32
+	calls    *atomic.Int32
+}
+
+func (f flakyReconciler) Plan(ctx context.Context, obj *store.Object[noteSpec, noteStatus], req Request) (Plan, error) {
+	return Plan{}, nil
+}
+
+func (f flakyReconciler) Apply(ctx context.Context, obj *store.Object[noteSpec, noteStatus], plan Plan, ex Executor) (noteStatus, error) {
+	f.calls.Add(1)
+	st := obj.Status
+	if f.failures.Add(-1) >= 0 {
+		err := i18n.ErrUnavailable.New("what", "The mirror")
+		st.Phase, st.Message = store.PhaseFailed, err.Message
+		return st, err
+	}
+	return st, ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
+}
+
+func TestFailedReconcilesAreRetried(t *testing.T) {
+	ctx := context.Background()
+	reg := store.NewKindRegistry()
+	if err := reg.Register(noteKind); err != nil {
+		t.Fatal(err)
+	}
+	s := store.NewMemory(reg)
+	var failures, calls atomic.Int32
+	failures.Store(2)
+	recs := NewRegistry()
+	if err := recs.Register(Typed(noteKind, flakyReconciler{failures: &failures, calls: &calls})); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.NewMemory(100)
+	failed := bus.Subscribe(events.Filter{Types: []string{"test.note.failed"}}, 4)
+	defer failed.Close()
+	r := &Runner{Store: s, Registry: recs, Events: bus, Backoff: 10 * time.Millisecond, Log: slog.New(slog.DiscardHandler)}
+	id := createNote(t, s, "flaky")
+	run(t, r, time.Hour)
+	waitFor(t, "succeeded after its retries", func() bool {
+		got, _ := noteKind.Get(ctx, s, id)
+		return got.Status.Phase == store.PhaseReady
+	})
+	if calls.Load() != 3 || r.Failures(id) != 0 {
+		t.Errorf("calls = %d, failures = %d", calls.Load(), r.Failures(id))
+	}
+	// Only the first failure in a row is news.
+	if e := <-failed.C; e.Subject != id || e.Severity != events.SeverityError {
+		t.Errorf("failure event = %+v", e)
+	}
+	select {
+	case e := <-failed.C:
+		t.Errorf("a second failure event: %+v", e)
+	default:
+	}
+
+	// After MaxRetries failures in a row the queue stops retrying on its
+	// own.
+	failures.Store(100)
+	calls.Store(0)
+	r2 := &Runner{Store: s, Registry: recs, Backoff: time.Millisecond, MaxRetries: 2, Log: slog.New(slog.DiscardHandler)}
+	other := createNote(t, s, "hopeless")
+	run(t, r2, time.Hour)
+	waitFor(t, "gave up", func() bool { return r2.Failures(other) == 3 })
+	time.Sleep(50 * time.Millisecond)
+	if r2.Failures(other) != 3 {
+		t.Errorf("failures = %d, want the first try and two retries", r2.Failures(other))
+	}
+}
+
+// gateReconciler counts how many reconciles of its kind run at once.
+type gateReconciler struct {
+	running, most *atomic.Int32
+	limit         int
+}
+
+func (g gateReconciler) Plan(ctx context.Context, obj *store.Object[noteSpec, noteStatus], req Request) (Plan, error) {
+	return Plan{}, nil
+}
+
+func (g gateReconciler) Apply(ctx context.Context, obj *store.Object[noteSpec, noteStatus], plan Plan, ex Executor) (noteStatus, error) {
+	n := g.running.Add(1)
+	defer g.running.Add(-1)
+	for {
+		most := g.most.Load()
+		if n <= most || g.most.CompareAndSwap(most, n) {
+			break
+		}
+	}
+	time.Sleep(15 * time.Millisecond)
+	st := obj.Status
+	return st, ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
+}
+
+func (g gateReconciler) Concurrency() int { return g.limit }
+
+func TestConcurrencyLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		limit, global int
+		want          int32
+	}{
+		{"the kind's own limit", 1, 8, 1},
+		{"the runner's default per kind", 0, 8, 2},
+		{"the limit across kinds", 5, 3, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			reg := store.NewKindRegistry()
+			if err := reg.Register(noteKind); err != nil {
+				t.Fatal(err)
+			}
+			s := store.NewMemory(reg)
+			var running, most atomic.Int32
+			recs := NewRegistry()
+			if err := recs.Register(Typed(noteKind, gateReconciler{running: &running, most: &most, limit: tc.limit})); err != nil {
+				t.Fatal(err)
+			}
+			r := &Runner{Store: s, Registry: recs, Workers: tc.global}
+			var ids []store.ID
+			for i := range 8 {
+				ids = append(ids, createNote(t, s, fmt.Sprint(i)))
+			}
+			var wg sync.WaitGroup
+			for _, id := range ids {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if err := r.Reconcile(ctx, id, nil); err != nil {
+						t.Error(err)
+					}
+				}()
+			}
+			wg.Wait()
+			if most.Load() != tc.want {
+				t.Errorf("%d ran at once, want %d", most.Load(), tc.want)
+			}
+		})
+	}
+}
+
+func TestStatusShowsWorkInProgress(t *testing.T) {
+	r, _, s := setup(t)
+	ctx := context.Background()
+	id := createNote(t, s, "x")
+	w := s.Watch(store.WatchFilter{IDs: []store.ID{id}}, 16)
+	defer w.Close()
+	if err := r.Reconcile(ctx, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	var phases []store.Phase
+	for len(phases) < 2 {
+		select {
+		case c := <-w.C:
+			phases = append(phases, c.Phase)
+		case <-time.After(time.Second):
+			t.Fatalf("phases = %v", phases)
+		}
+	}
+	if phases[0] != store.PhaseApplying || phases[1] != store.PhaseReady {
+		t.Errorf("phases = %v", phases)
+	}
+	// Reconciling a resource that is ready changes nothing about it.
+	if err := r.Reconcile(ctx, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case c := <-w.C:
+		if c.Phase != store.PhaseReady {
+			t.Errorf("a resync of a ready resource reported %v", c.Phase)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestRunCarriesOutUnfinishedChangesFirst(t *testing.T) {
+	r, m, s := setup(t)
+	ctx := context.Background()
+	done := createNote(t, s, "done")
+	if err := r.Reconcile(ctx, done, nil); err != nil {
+		t.Fatal(err)
+	}
+	waiting := createNote(t, s, "waiting")
+	m.ResetCalls()
+	run(t, r, time.Hour)
+	waitFor(t, "wrote the waiting note", func() bool {
+		data, _ := m.Backend().Files.ReadFile(ctx, notePath(waiting), 0)
+		return string(data) == "waiting"
+	})
 }
