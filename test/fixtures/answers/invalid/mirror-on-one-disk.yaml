@@ -1,0 +1,6 @@
+# A mirror needs exactly two disks.
+format: 1
+mode: install
+network: {mode: dhcp}
+disks: {layout: mirror, devices: [/dev/vda], confirmWipe: true}
+account: {username: admin, githubKeys: racksail-e2e}

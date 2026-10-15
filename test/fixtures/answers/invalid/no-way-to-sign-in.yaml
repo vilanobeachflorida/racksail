@@ -1,0 +1,6 @@
+# The admin needs a password hash, SSH keys or a GitHub account to sign in.
+format: 1
+mode: install
+network: {mode: dhcp}
+disks: {layout: single, devices: [/dev/vda], confirmWipe: true}
+account: {username: admin}

@@ -1,0 +1,6 @@
+# The gateway must be on the network of the address.
+format: 1
+mode: install
+network: {mode: static, address: 203.0.113.10/24, gateway: 198.51.100.1}
+disks: {layout: single, devices: [/dev/vda], confirmWipe: true}
+account: {username: admin, githubKeys: racksail-e2e}

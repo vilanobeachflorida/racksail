@@ -1,0 +1,5 @@
+# Converting a running Debian 13 server, as the cloud image scenario does.
+format: 1
+mode: convert
+hostname: racksail-cloud.example.test
+channel: nightly

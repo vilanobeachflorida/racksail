@@ -1,0 +1,6 @@
+# Installing erases the chosen disks, so it needs confirmWipe.
+format: 1
+mode: install
+network: {mode: dhcp}
+disks: {layout: single, devices: [/dev/vda]}
+account: {username: admin, githubKeys: racksail-e2e}

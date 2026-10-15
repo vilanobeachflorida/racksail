@@ -1,0 +1,40 @@
+import { defineConfig, devices } from "@playwright/test";
+
+// The panel under test: RACKSAIL_E2E_URL for a running server, such as one
+// the QEMU harness installed, or otherwise a racksail dev that Playwright
+// starts on its own address and data directory, next to any development
+// instance.
+const external = process.env.RACKSAIL_E2E_URL;
+const devAddr = process.env.RACKSAIL_E2E_ADDR ?? "127.0.0.1:7170";
+const devData = process.env.RACKSAIL_E2E_DATA ?? ".dev-e2e";
+
+export default defineConfig({
+  testDir: "./specs",
+  fullyParallel: true,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  timeout: 30_000,
+  reporter: [["list"], ["html", { open: "never", outputFolder: process.env.RACKSAIL_E2E_REPORT ?? "playwright-report" }]],
+  outputDir: process.env.RACKSAIL_E2E_RESULTS ?? "test-results",
+  use: {
+    baseURL: external ?? `http://${devAddr}`,
+    ignoreHTTPSErrors: Boolean(process.env.RACKSAIL_E2E_INSECURE),
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
+  projects: [
+    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
+    { name: "phone", use: { ...devices["Pixel 7"] } },
+  ],
+  webServer: external
+    ? undefined
+    : {
+        command: `go run ./cmd/racksail dev --addr ${devAddr} --edge-http 127.0.0.1:0 --edge-https 127.0.0.1:0 --data ${devData}`,
+        cwd: "../..",
+        url: `http://${devAddr}/api/v1/health`,
+        reuseExistingServer: !process.env.CI,
+        timeout: 180_000,
+        stdout: "ignore",
+        stderr: "pipe",
+      },
+});

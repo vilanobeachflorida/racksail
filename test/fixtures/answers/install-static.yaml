@@ -1,0 +1,19 @@
+# An unattended install with a static address, using the addresses QEMU's
+# user networking hands out, so the same file works in the harness.
+format: 1
+mode: install
+hostname: racksail-static.example.test
+network:
+  mode: static
+  address: 10.0.2.15/24
+  gateway: 10.0.2.2
+  dns: [10.0.2.3]
+  ipv6: {mode: "off"}
+disks:
+  layout: single
+  devices: [/dev/vda]
+  confirmWipe: true
+account:
+  username: admin
+  sshKeys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILOVCx0Utmhvafzmm0HYOckUK9zP6j0GTY3znySw9HGV e2e@racksail.test"]
+reboot: true
