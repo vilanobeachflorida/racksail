@@ -53,7 +53,41 @@ if (typeof window !== "undefined") {
       set: () => true,
     },
   );
-  HTMLCanvasElement.prototype.getContext = (() => context) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = (() =>
+    context) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  // uPlot builds its lines as Path2D objects.
+  globalThis.Path2D ??= class {
+    addPath() {}
+    closePath() {}
+    moveTo() {}
+    lineTo() {}
+    bezierCurveTo() {}
+    quadraticCurveTo() {}
+    arc() {}
+    arcTo() {}
+    ellipse() {}
+    rect() {}
+    roundRect() {}
+  } as unknown as typeof Path2D;
+
+  // Virtualized tables measure their scrolling area; give it the size of a
+  // laptop screen's table so the first rows render.
+  for (const [prop, size] of [
+    ["offsetHeight", 640],
+    ["offsetWidth", 1024],
+  ] as const) {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, prop);
+    Object.defineProperty(HTMLElement.prototype, prop, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.getAttribute("role") === "table" ? size : (original?.get?.call(this) ?? 0);
+      },
+    });
+  }
+
+  // The code editor measures text through ranges.
+  Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 
   window.URL.createObjectURL ??= () => "blob:test";
   window.URL.revokeObjectURL ??= () => {};
@@ -63,7 +97,15 @@ afterEach(() => {
   cleanup();
   if (typeof window !== "undefined") {
     window.localStorage.clear();
-    for (const attr of ["data-theme", "data-contrast", "data-density", "data-text-size", "data-motion"]) {
+    for (const attr of [
+      "lang",
+      "dir",
+      "data-theme",
+      "data-contrast",
+      "data-density",
+      "data-text-size",
+      "data-motion",
+    ]) {
       document.documentElement.removeAttribute(attr);
     }
   }

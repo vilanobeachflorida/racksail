@@ -1,17 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { IntlConfig } from "react-intl";
 import { App, type AppProps } from "@/app/app";
-import { ModulesProvider, type ModuleState } from "@/app/modules";
+import { type ModuleState, ModulesProvider } from "@/app/modules";
 import { createAppRouter } from "@/app/router";
 import { ShellStateProvider } from "@/app/shell-state";
 import { TooltipProvider } from "@/design/components/ui/overlay";
 import { ThemeProvider } from "@/design/theme/provider";
 import { type ApiClient, createApiClient } from "@/lib/api/client";
 import { ApiProvider } from "@/lib/api/context";
-import { I18nProvider, shellMessages } from "@/lib/i18n";
+import { applyLocale, I18nProvider, shellMessages } from "@/lib/i18n";
 import { LiveClient, LiveProvider } from "@/lib/live";
 import type { Messages } from "@/lib/messages";
 import type { ModuleId } from "@/modules/registry";
@@ -111,21 +111,21 @@ export function fakeLive(): { live: LiveClient; sources: FakeEventSource[] } {
 export const testQueryClient = () =>
   new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 
-/** Renders the whole app at a path, against a fake API, in English. */
-export function renderApp(
-  api: ApiClient,
-  path = "/",
-  options: Partial<AppProps> & { locale?: string } = {},
-) {
+/**
+ * Renders the whole app at a path, against a fake API. It's in English
+ * unless the options name a locale; locale: undefined lets the app choose
+ * one, as it does in a browser.
+ */
+export function renderApp(api: ApiClient, path = "/", options: Partial<AppProps> = {}) {
   const { live } = fakeLive();
   return render(
     <App
       api={api}
-      locale={options.locale ?? "en"}
       queryClient={testQueryClient()}
       history={createMemoryHistory({ initialEntries: [path] })}
       onIntlError={failOnIntlError}
       live={live}
+      {...("locale" in options ? {} : { locale: "en" })}
       {...options}
     />,
   );
@@ -145,9 +145,10 @@ export function Providers({
   api?: ApiClient;
   live?: LiveClient;
 }) {
+  const [queryClient] = useState(testQueryClient);
   return (
     <ApiProvider client={api}>
-      <QueryClientProvider client={testQueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <LiveProvider client={live}>
           <ThemeProvider>
             <I18nProvider locale={locale} messages={messages} onError={failOnIntlError}>
@@ -160,9 +161,21 @@ export function Providers({
   );
 }
 
-/** Renders a component with every provider it may need. */
-export function renderWithProviders(ui: ReactNode, options: Omit<Parameters<typeof Providers>[0], "children"> = {}) {
-  return render(<Providers {...options}>{ui}</Providers>);
+/** Renders a component with every provider it may need; rerender keeps them. */
+export function renderWithProviders(
+  ui: ReactNode,
+  options: Omit<Parameters<typeof Providers>[0], "children"> = {},
+) {
+  // One set of providers for the whole test, so rerenders keep their state.
+  const live = options.live ?? fakeLive().live;
+  const api = options.api ?? fakeApi();
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <Providers {...options} live={live} api={api}>
+        {children}
+      </Providers>
+    ),
+  });
 }
 
 /**
@@ -187,6 +200,8 @@ export function renderShell({
   const client = testQueryClient();
   const router = createAppRouter(modules, client, createMemoryHistory({ initialEntries: [path] }));
   const assistant = modules.find((m) => m.assistant)?.assistant ?? null;
+  // The app sets the page's language once its messages load.
+  applyLocale("en");
   const result = render(
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>

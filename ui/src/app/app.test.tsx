@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Globe, Plus } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { shellMessages } from "@/lib/i18n";
+import { pseudoMessage } from "@/lib/pseudo";
 import type { ModuleUI } from "@/modules/types";
 import { fakeApi, json, renderApp, renderShell } from "@/test/render";
 
@@ -62,8 +63,13 @@ describe("the shell", () => {
   });
 
   it("has a page for addresses that lead nowhere", async () => {
-    renderApp(panel(() => json({ status: "ok", checks: [] })), "/nowhere");
-    expect(await screen.findByRole("heading", { name: "This page doesn't exist" })).toBeInTheDocument();
+    renderApp(
+      panel(() => json({ status: "ok", checks: [] })),
+      "/nowhere",
+    );
+    expect(
+      await screen.findByRole("heading", { name: "This page doesn't exist" }),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("link", { name: "Go to the home screen" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
   });
@@ -76,7 +82,10 @@ describe("the shell", () => {
     expect(screen.getByRole("main")).toHaveAttribute("id", "content");
     await userEvent.tab();
     // Narrow screens keep the navigation in the menu sheet.
-    expect(screen.getByRole("link", { name: "Skip to navigation" })).toHaveAttribute("href", "#menu-button");
+    expect(screen.getByRole("link", { name: "Skip to navigation" })).toHaveAttribute(
+      "href",
+      "#menu-button",
+    );
     expect(document.getElementById("menu-button")).toHaveAccessibleName("Open the menu");
   });
 });
@@ -134,7 +143,10 @@ describe("module contributions", () => {
     renderShell({ modules: [web], messages, api });
     const nav = await screen.findByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "Sites" })).toHaveAttribute("href", "/web/sites");
-    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/settings",
+    );
     expect(await screen.findByText("Three sites are running.")).toBeInTheDocument();
   });
 
@@ -143,10 +155,16 @@ describe("module contributions", () => {
     const nav = await screen.findByRole("navigation", { name: "Main" });
     await userEvent.click(within(nav).getByRole("link", { name: "Sites" }));
     expect(await screen.findByRole("heading", { name: "All sites" })).toBeInTheDocument();
-    expect(within(nav).getByRole("link", { name: "Sites" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Sites" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     await waitFor(() => expect(document.title).toBe("Sites · Racksail"));
     const trail = screen.getByRole("navigation", { name: "Where you are" });
-    expect(within(trail).getByRole("link", { name: "Web hosting" })).toHaveAttribute("href", "/web");
+    expect(within(trail).getByRole("link", { name: "Web hosting" })).toHaveAttribute(
+      "href",
+      "/web",
+    );
     expect(within(trail).getByText("Sites")).toHaveAttribute("aria-current", "page");
   });
 
@@ -157,7 +175,10 @@ describe("module contributions", () => {
     await router.navigate({ to: "/settings" });
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /PHP/ })).toHaveAttribute("href", "/settings/web/php");
-    expect(screen.getByRole("link", { name: /^Appearance/ })).toHaveAttribute("href", "/settings/appearance");
+    expect(screen.getByRole("link", { name: /^Appearance/ })).toHaveAttribute(
+      "href",
+      "/settings/appearance",
+    );
   });
 
   it("leaves out modules that are off and entries the person may not use", async () => {
@@ -174,5 +195,45 @@ describe("module contributions", () => {
     await user.keyboard("{Control>}k{/Control}");
     expect(await screen.findByRole("dialog", { name: "Command bar" })).toBeInTheDocument();
     expect(screen.queryByText("Create a site")).not.toBeInTheDocument();
+  });
+});
+
+describe("pseudo-locales", () => {
+  const api = panel(() => json({ status: "ok", checks: [] }));
+
+  it("show the whole panel accented and longer, with every message intact", async () => {
+    renderApp(api, "/", { locale: "en-XA" });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: pseudoMessage("Home", "en-XA") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("navigation", { name: pseudoMessage("Main", "en-XA") }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en-XA");
+    expect(document.documentElement.dir).toBe("ltr");
+  });
+
+  it("lay the panel out right to left", async () => {
+    renderApp(api, "/settings", { locale: "ar-XB" });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: pseudoMessage("Settings", "ar-XB") }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.dir).toBe("rtl");
+  });
+
+  it("can be chosen on the appearance page and are remembered", async () => {
+    const user = userEvent.setup();
+    renderApp(api, "/settings/appearance", { locale: undefined });
+    await screen.findByRole("heading", { level: 1, name: "Appearance" });
+    await user.click(screen.getByRole("combobox", { name: "Language" }));
+    await user.click(await screen.findByRole("option", { name: "en-XA" }));
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: pseudoMessage("Appearance", "en-XA"),
+      }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem("racksail.locale")).toBe("en-XA");
+    expect(document.documentElement.lang).toBe("en-XA");
   });
 });
