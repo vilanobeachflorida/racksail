@@ -6,7 +6,7 @@ export function Card({ className, ...props }: ComponentProps<"section">) {
     <section
       data-slot="card"
       className={cn(
-        "flex flex-col gap-4 rounded-lg border border-border bg-card p-5 text-card-foreground shadow-sm",
+        "flex flex-col gap-4 rounded-lg border border-border bg-card p-card text-card-foreground shadow-sm",
         className,
       )}
       {...props}
@@ -42,4 +42,14 @@ export function CardDescription({ className, ...props }: ComponentProps<"p">) {
 
 export function CardContent({ className, ...props }: ComponentProps<"div">) {
   return <div data-slot="card-content" className={cn("text-sm", className)} {...props} />;
+}
+
+export function CardFooter({ className, ...props }: ComponentProps<"footer">) {
+  return (
+    <footer
+      data-slot="card-footer"
+      className={cn("flex flex-wrap items-center gap-2", className)}
+      {...props}
+    />
+  );
 }

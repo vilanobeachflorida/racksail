@@ -5,12 +5,68 @@ export type Schemas = components["schemas"];
 export type Problem = Schemas["Problem"];
 export type ApiClient = Client<paths>;
 
+interface Transport {
+  baseUrl: string;
+  fetch: (request: Request) => Promise<Response>;
+}
+
+// What each client was created with, so requests the generated types don't
+// cover yet go the same way, to the same server, as typed ones.
+const transports = new WeakMap<ApiClient, Transport>();
+
 /**
  * Creates a client for the panel API. The panel serves the UI, so by default
  * the client talks to the page's own origin.
  */
 export function createApiClient(options: ClientOptions = {}): ApiClient {
-  return createClient<paths>({ baseUrl: window.location.origin, ...options });
+  const baseUrl = options.baseUrl ?? window.location.origin;
+  const client = createClient<paths>({ ...options, baseUrl });
+  transports.set(client, {
+    baseUrl,
+    fetch:
+      (options.fetch as Transport["fetch"] | undefined) ??
+      ((request: Request) => globalThis.fetch(request)),
+  });
+  return client;
+}
+
+/**
+ * Calls an API operation by method and path, for operations the generated
+ * types don't describe yet. The answer is decoded from JSON, and errors
+ * become ApiErrors like those of typed calls.
+ */
+export async function requestJSON<T>(
+  client: ApiClient,
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const transport = transports.get(client);
+  if (!transport) {
+    throw new Error("the API client wasn't made by createApiClient");
+  }
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const request = new Request(new URL(path, transport.baseUrl), {
+    method,
+    credentials: "same-origin",
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const response = await transport.fetch(request);
+  const text = await response.text();
+  let parsed: unknown = text;
+  try {
+    parsed = text === "" ? undefined : JSON.parse(text);
+  } catch {
+    // Not JSON: a proxy's error page, which toProblem explains.
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, toProblem(response.status, parsed));
+  }
+  return parsed as T;
 }
 
 /** An error answer from the API, with its RFC 9457 problem details. */

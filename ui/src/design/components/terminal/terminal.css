@@ -1,0 +1,17 @@
+/*
+ * xterm.js's style sheet paints a few parts black; these take theme
+ * tokens instead.
+ */
+.xterm .composition-view {
+  background: var(--rs-surface-raised);
+  color: var(--rs-text);
+}
+
+.xterm .xterm-viewport {
+  background-color: var(--rs-surface-sunken);
+}
+
+.xterm {
+  --vscode-scrollbar-shadow: var(--rs-overlay);
+  padding: 0.5rem;
+}
