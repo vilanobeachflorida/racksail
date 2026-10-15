@@ -126,6 +126,13 @@ func timeKey(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000000000Z")
 }
 
+// FormatTime writes a time the way the panel database keeps times: UTC with
+// a fixed width, so that comparing and sorting the text compares the times.
+func FormatTime(t time.Time) string { return timeKey(t) }
+
+// ParseTime reads a time written by FormatTime.
+func ParseTime(s string) (time.Time, error) { return parseTime(s) }
+
 // generationKey formats a generation so that comparing the strings compares
 // the numbers.
 func generationKey(g int64) string { return fmt.Sprintf("%020d", g) }
