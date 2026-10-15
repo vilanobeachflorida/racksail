@@ -1,0 +1,31 @@
+---
+title: Documentation
+description: Racksail turns a Debian 13 server into a platform for websites, email, DNS, apps, file storage, containers and virtual machines, managed from one web panel.
+template: splash
+hero:
+  title: Racksail
+  tagline: Your server, your rules. One open source panel for websites, email, DNS, apps, file storage, containers and virtual machines on Debian 13.
+  image:
+    light: ../../assets/mark-light.svg
+    dark: ../../assets/mark-dark.svg
+    alt: The Racksail mark, a sailboat on a wave
+  actions:
+    - text: Get started
+      link: /getting-started/introduction/
+      icon: right-arrow
+    - text: Source on GitHub
+      link: https://github.com/vilanobeachflorida/racksail
+      icon: external
+      variant: minimal
+---
+
+import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+<Aside>Racksail is in early development. There is no release to install yet.</Aside>
+
+<CardGrid>
+  <LinkCard title="Install" href="/install/requirements/" description="What you need and the ways to install." />
+  <LinkCard title="Modules" href="/modules/overview/" description="Everything Racksail manages, one module at a time." />
+  <LinkCard title="Migration guides" href="/migration/overview/" description="Move from cPanel, Plesk, DirectAdmin and others." />
+  <LinkCard title="API reference" href="/api/overview/" description="Automate everything the panel can do." />
+</CardGrid>

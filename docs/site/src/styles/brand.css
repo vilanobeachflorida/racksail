@@ -1,0 +1,34 @@
+/* Racksail's navy and blue on Starlight's color scale. Dark mode is the default. */
+:root {
+  /* Notes and other blue elements use the brand blue's hue. */
+  --sl-hue-blue: 211;
+  --sl-font: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --sl-font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --sl-color-accent-low: #00142f;
+  --sl-color-accent: #007cfd;
+  --sl-color-accent-high: #9ccbff;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e6edf5;
+  --sl-color-gray-2: #c3cfdd;
+  --sl-color-gray-3: #9fb0c4;
+  --sl-color-gray-4: #5b6f88;
+  --sl-color-gray-5: #22344c;
+  --sl-color-gray-6: #0f2036;
+  --sl-color-black: #0a1626;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d6e8ff;
+  --sl-color-accent: #0062cc;
+  --sl-color-accent-high: #01214f;
+  --sl-color-white: #0b1b33;
+  --sl-color-gray-1: #1b2b44;
+  --sl-color-gray-2: #2e3f57;
+  --sl-color-gray-3: #4a5a70;
+  --sl-color-gray-4: #7a889c;
+  --sl-color-gray-5: #c3cfdd;
+  --sl-color-gray-6: #eef2f7;
+  --sl-color-gray-7: #f7f9fc;
+  --sl-color-black: #ffffff;
+}
