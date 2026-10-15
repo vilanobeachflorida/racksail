@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -21,11 +22,14 @@ import (
 func newDevCommand() *cobra.Command {
 	var addrs config.DevAddresses
 	var dataDir string
+	var fresh bool
 	cmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Run the panel, agent and edge in one process against a simulated server",
 		Long: "Runs everything in one process with the simulated backend and a data directory inside the " +
-			"repository, so the whole product works on macOS or Linux without root. Everyone who reaches it " +
+			"repository, so the whole product works on macOS or Linux without root. The simulated server is kept in " +
+			"the data directory between runs, with the timings of a small real server; --fresh starts over with a newly " +
+			"installed one. Everyone who reaches it " +
 			"is signed in as the admin, so it only listens on loopback addresses. Give each instance its own " +
 			"addresses and data directory to run several side by side. `make dev` also starts the UI dev server " +
 			"with hot reload.",
@@ -42,16 +46,37 @@ func newDevCommand() *cobra.Command {
 				return err
 			}
 			log := newLogger(os.Stderr, cfg.Log)
+			machineDir := filepath.Join(dataDir, "machine")
+			if fresh {
+				// Only what dev itself keeps goes, never the directory as a whole,
+				// which --data may point anywhere.
+				for _, dir := range []string{machineDir, cfg.Paths.State} {
+					if err := os.RemoveAll(dir); err != nil {
+						return err
+					}
+				}
+			}
 			for _, dir := range []string{cfg.Paths.Config, cfg.Paths.State, cfg.Paths.Run} {
 				if err := os.MkdirAll(dir, 0o755); err != nil {
 					return err
 				}
 			}
 			ctx := cmd.Context()
-			machine := sim.New(sim.Options{Hostname: "racksail-dev"})
+			machine, err := sim.Open(machineDir, sim.Options{Hostname: "racksail-dev", Realistic: true})
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if err := machine.Close(); err != nil {
+					log.Error("saving the simulated server", "error", err)
+				}
+			}()
 			backend := machine.Backend()
+			// The panel in this process and tools on the socket share one
+			// runtime, so they see the same audit trail and pending changes.
+			runtime := agent.NewRuntime(backend, agent.RuntimeOptions{Log: log})
 			table := edge.NewTable()
-			c, err := newCore(ctx, cfg, log, agent.NewLocal(backend, log), table)
+			c, err := newCore(ctx, cfg, log, agent.NewLocalRuntime(runtime), table)
 			if err != nil {
 				return err
 			}
@@ -65,7 +90,8 @@ func newDevCommand() *cobra.Command {
 				log.Warn("the simulated agent has no socket", "path", cfg.Agent.Socket, "error", err)
 			} else {
 				go func() {
-					if err := agent.NewServer(backend, updates.Build().Version, log).Serve(ctx, agentLn); err != nil {
+					srv := agent.NewServerWith(agent.ServerOptions{Backend: backend, Runtime: runtime, Version: updates.Build().Version, Log: log})
+					if err := srv.Serve(ctx, agentLn); err != nil {
 						log.Error("dev agent stopped", "error", err)
 					}
 				}()
@@ -97,6 +123,7 @@ func newDevCommand() *cobra.Command {
 	cmd.Flags().StringVar(&addrs.EdgeHTTP, "edge-http", config.DevEdgeHTTP, "address the edge serves HTTP on once a module adds a route; port 0 picks a free one")
 	cmd.Flags().StringVar(&addrs.EdgeHTTPS, "edge-https", config.DevEdgeHTTPS, "address the edge serves HTTPS on once a module adds a route; port 0 picks a free one")
 	cmd.Flags().StringVar(&dataDir, "data", "./.dev", "directory for the development state")
+	cmd.Flags().BoolVar(&fresh, "fresh", false, "start over with a newly installed simulated server and no saved state")
 	return cmd
 }
 
