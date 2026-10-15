@@ -39,6 +39,7 @@ It runs gofmt, go vet and staticcheck for macOS and Linux, builds for darwin, li
 | Target | What it checks |
 |---|---|
 | `make test-race` | The Go tests with the race detector, which needs a C compiler |
+| `make fuzz` | Every fuzz target, exploring new inputs for `FUZZ_TIME` each; CI gives each five minutes once a day, and an input that fails is saved in the package's `testdata/fuzz` for `go test` to replay |
 | `make gen-check` | That the generated files match what `make gen` writes |
 | `make licenses` | That every Go module and npm package is under a license approved by the Open Source Initiative and compatible with AGPL-3.0-or-later |
 | `make vulncheck` | Known vulnerabilities, with govulncheck for the Go code and osv-scanner for every lockfile; advisories that don't affect Racksail are listed with their reasons in `packaging/osv-scanner.toml` |

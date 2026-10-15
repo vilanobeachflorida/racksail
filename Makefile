@@ -74,6 +74,7 @@ help:
 	@echo "make catalog     check the catalog and build its index into $(CATALOG_OUT)"
 	@echo "make licenses    check that every dependency's license is allowed"
 	@echo "make vulncheck   scan the Go code and every lockfile for known vulnerabilities"
+	@echo "make fuzz        run every fuzz target for FUZZ_TIME ($(FUZZ_TIME)) each"
 	@echo "make gen-check   fail when the generated files differ from what make gen writes"
 	@echo "make sdk-check   test the add-on SDKs"
 
@@ -203,6 +204,7 @@ E2E_ADDR  ?= 127.0.0.1:7170
 E2E_DATA  ?= .dev-e2e
 E2E_FLAGS ?=
 E2E_DEPS  := test/e2e/node_modules/.package-lock.json
+SDK_TS_DEPS := sdk/ts/node_modules/.package-lock.json
 
 # Debian's cloud image, which the end-to-end tests convert or install the
 # Debian package on, checked against the checksums Debian publishes beside it.
@@ -210,15 +212,16 @@ CLOUD_ARCH  ?= amd64
 CLOUD_URL   ?= https://cloud.debian.org/images/cloud/trixie/latest
 CLOUD_IMAGE := build/cloud/debian-13-genericcloud-$(CLOUD_ARCH).qcow2
 SHA512SUM   := $(if $(shell command -v sha512sum),sha512sum,shasum -a 512)
-SDK_TS_DEPS := sdk/ts/node_modules/.package-lock.json
 
 CATALOG_OUT ?= $(BIN)/catalog
 # CI signs the index with the key in CATALOG_SIGNING_KEY, which must belong
 # to catalog/keys/official.pub.
 CATALOG_SIGN = $(if $(CATALOG_SIGNING_KEY),-key-env CATALOG_SIGNING_KEY -public catalog/keys/official.pub)
 
+FUZZ_TIME ?= 1m
+
 .PHONY: release deb sbom notices iso e2e e2e-local cloud-image catalog catalog-check catalog-publish \
-	licenses vulncheck gen-check sdk-check ci-lint
+	licenses vulncheck fuzz gen-check sdk-check ci-lint
 
 check: sdk-check
 
@@ -322,6 +325,18 @@ vulncheck:
 	$(GO) run $(GOVULNCHECK) ./...
 	cd sdk/go && $(GO) run $(GOVULNCHECK) ./...
 	$(GO) run $(OSV_SCANNER) scan source --config packaging/osv-scanner.toml $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
+
+# Runs every fuzz target in the code for FUZZ_TIME each, from its package's
+# directory so a nested module's targets run too; CI does it every day. An
+# input that fails is saved in the package's testdata/fuzz, from where go test
+# replays it on every run: commit it with the fix.
+fuzz:
+	@git grep -l '^func Fuzz' -- '*_test.go' | grep -v '^\.' | xargs -n 1 dirname | sort -u | while read -r dir; do \
+		for target in $$(sed -n 's/^func \(Fuzz[A-Za-z0-9_]*\)(.*/\1/p' "$$dir"/*_test.go); do \
+			echo "fuzzing $$target in $$dir for $(FUZZ_TIME)"; \
+			(cd "$$dir" && $(GO) test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZ_TIME) .) || exit 1; \
+		done; \
+	done
 
 # make gen rewrites the generated files; any difference means they were
 # committed out of date.
