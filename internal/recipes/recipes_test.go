@@ -170,4 +170,8 @@ func TestVerifyIndex(t *testing.T) {
 	if _, err := VerifyIndex(evil, ed25519.Sign(priv, evil), pub); err == nil {
 		t.Error("unsafe paths must be refused")
 	}
+	evilFile := []byte(strings.Replace(string(data), `"}]}`, `","files":[{"path":"/etc/passwd","sha256":"`+strings.Repeat("a", 64)+`","size":1}]}]}`, 1))
+	if _, err := VerifyIndex(evilFile, ed25519.Sign(priv, evilFile), pub); err == nil || !strings.Contains(err.Error(), "unsafe path") {
+		t.Errorf("unsafe file paths must be refused: %v", err)
+	}
 }
