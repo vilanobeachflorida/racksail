@@ -17,7 +17,7 @@ Racksail runs as root on machines connected to the internet and is trusted with 
 
 ## Rules for code
 
-1. The agent exposes only typed operations. Each validates every argument (paths stay inside allowed roots, names match strict patterns, sizes are bounded).
+1. The agent exposes only typed operations. Each validates every argument (paths stay inside allowed roots, names match strict patterns, sizes are bounded), and every call, refused ones included, is recorded in the agent's audit trail. Other servers' agents are reached only with mutual TLS, with certificates that name who holds them.
 2. No shell. External programs run with argument vectors only.
 3. Every API operation checks permissions through the central authorizer. A test enumerates every operation and fails if one isn't covered.
 4. Every mutation goes through the change pipeline, so it is validated, hooked, previewed (when interactive) and audited.
