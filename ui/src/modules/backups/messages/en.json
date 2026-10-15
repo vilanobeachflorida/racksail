@@ -1,0 +1,4 @@
+{
+  "backups.name": "Backups",
+  "backups.description": "Snapshot schedules, restic repositories, policies, restores, the key ceremony, restore tests and portable archives."
+}

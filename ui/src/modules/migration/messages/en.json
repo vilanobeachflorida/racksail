@@ -1,0 +1,4 @@
+{
+  "migration.name": "Migration",
+  "migration.description": "Importers for CWP, cPanel, DirectAdmin, HestiaCP and VestaCP, Plesk, Unraid and any SSH server, with migration plans, previews and cutover."
+}

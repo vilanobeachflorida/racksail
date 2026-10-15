@@ -1,0 +1,112 @@
+/* Generated from the Racksail theme by `racksail theme css`. Don't edit by hand. */
+:root {
+  --rs-font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --rs-font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --rs-font-size-base: 16px;
+  --rs-radius-sm: 4px;
+  --rs-radius-md: 6px;
+  --rs-radius-lg: 10px;
+  --rs-radius-xl: 16px;
+  --rs-shadow-sm: 0 1px 2px rgba(1, 33, 79, 0.08);
+  --rs-shadow-md: 0 4px 12px rgba(1, 33, 79, 0.10);
+  --rs-shadow-lg: 0 12px 32px rgba(1, 33, 79, 0.14);
+  --rs-motion-fast: 120ms;
+  --rs-motion-normal: 200ms;
+  --rs-motion-slow: 320ms;
+  --rs-weight-regular: 400;
+  --rs-weight-medium: 500;
+  --rs-weight-semibold: 600;
+  --rs-weight-bold: 700;
+  --rs-surface: #F7F9FC;
+  --rs-surface-raised: #FFFFFF;
+  --rs-surface-sunken: #EEF2F7;
+  --rs-text: #0B1B33;
+  --rs-text-muted: #4A5A70;
+  --rs-border: #D8E0EA;
+  --rs-border-strong: #7A889C;
+  --rs-brand: #01214F;
+  --rs-brand-text: #FFFFFF;
+  --rs-accent: #0062CC;
+  --rs-accent-text: #FFFFFF;
+  --rs-success: #1A7F37;
+  --rs-success-text: #FFFFFF;
+  --rs-warning: #9A6700;
+  --rs-warning-text: #FFFFFF;
+  --rs-danger: #CF222E;
+  --rs-danger-text: #FFFFFF;
+  --rs-info: #0062CC;
+  --rs-info-text: #FFFFFF;
+  --rs-focus: #007CFD;
+  --rs-chart1: #007CFD;
+  --rs-chart2: #E8590C;
+  --rs-chart3: #2F9E44;
+  --rs-chart4: #AE3EC9;
+  --rs-chart5: #F59F00;
+  --rs-chart6: #0C8599;
+  --rs-chart7: #E64980;
+  --rs-chart8: #5C7CFA;
+}
+
+:root[data-theme="dark"] {
+  --rs-surface: #0A1626;
+  --rs-surface-raised: #0F2036;
+  --rs-surface-sunken: #06101C;
+  --rs-text: #E6EDF5;
+  --rs-text-muted: #9FB0C4;
+  --rs-border: #22344C;
+  --rs-border-strong: #5B6F88;
+  --rs-brand: #007CFD;
+  --rs-brand-text: #00142F;
+  --rs-accent: #3D9BFF;
+  --rs-accent-text: #00142F;
+  --rs-success: #3FB950;
+  --rs-success-text: #00142F;
+  --rs-warning: #D29922;
+  --rs-warning-text: #00142F;
+  --rs-danger: #F85149;
+  --rs-danger-text: #00142F;
+  --rs-info: #3D9BFF;
+  --rs-info-text: #00142F;
+  --rs-focus: #3D9BFF;
+  --rs-chart1: #3D9BFF;
+  --rs-chart2: #FF922B;
+  --rs-chart3: #51CF66;
+  --rs-chart4: #CC5DE8;
+  --rs-chart5: #FCC419;
+  --rs-chart6: #22B8CF;
+  --rs-chart7: #F06595;
+  --rs-chart8: #748FFC;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rs-surface: #0A1626;
+    --rs-surface-raised: #0F2036;
+    --rs-surface-sunken: #06101C;
+    --rs-text: #E6EDF5;
+    --rs-text-muted: #9FB0C4;
+    --rs-border: #22344C;
+    --rs-border-strong: #5B6F88;
+    --rs-brand: #007CFD;
+    --rs-brand-text: #00142F;
+    --rs-accent: #3D9BFF;
+    --rs-accent-text: #00142F;
+    --rs-success: #3FB950;
+    --rs-success-text: #00142F;
+    --rs-warning: #D29922;
+    --rs-warning-text: #00142F;
+    --rs-danger: #F85149;
+    --rs-danger-text: #00142F;
+    --rs-info: #3D9BFF;
+    --rs-info-text: #00142F;
+    --rs-focus: #3D9BFF;
+    --rs-chart1: #3D9BFF;
+    --rs-chart2: #FF922B;
+    --rs-chart3: #51CF66;
+    --rs-chart4: #CC5DE8;
+    --rs-chart5: #FCC419;
+    --rs-chart6: #22B8CF;
+    --rs-chart7: #F06595;
+    --rs-chart8: #748FFC;
+  }
+}

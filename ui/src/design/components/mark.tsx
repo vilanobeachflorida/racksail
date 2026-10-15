@@ -1,0 +1,43 @@
+import type { SVGProps } from "react";
+import { cn } from "@/lib/utils";
+
+const ink =
+  "M76.2 27.1L73.4 22.9L70.6 19.1L67.3 15.2L63.2 11L59.2 7.4L56.2 4.9L51.1 1.4L48.8 0L50.9 5.2L52.2 9.1L53 12.8L53.5 15.8L53.9 19.6L54 22.9L54 26.3L53.7 29.3L53.1 33.9L52.3 37.9L51.2 41.8L48.9 47.9L45.2 56.3L54.8 54.3L59.5 53.6L67.3 52.6L72.6 52.1L77.5 51.8L87.7 51.8L86.4 48.1L84.2 42.7L82.5 38.7L80.5 34.7L78.4 30.9ZM87.2 54L79.1 54.3L65.7 55.4L58.5 56.3L45.7 58L29.1 60.6L22.4 61.9L18.6 62.9L15.4 63.9L12.5 65L10.6 65.8L8.6 67L7.6 67.7L14.7 66L20.1 65L24.4 64.4L31.8 63.7L35.3 63.6L40.2 63.7L45.8 64.1L49.2 64.5L58.9 65.8L70.9 67.9L81.2 70L84.3 67.5L93.7 59.4L98 55.6L99.4 54.3L99.4 54.2L93.4 54Z";
+const sea =
+  "M53.5 74.7L46.5 72.9L40.4 71.7L36.8 71.2L33.6 71L30.7 70.9L27.2 70.9L23.5 71.1L19.6 71.5L13.6 72.5L6.7 74.2L0 76.4L0.7 75.8L2.8 74.2L6.2 72.1L8.6 70.9L12.6 69.3L16 68.2L20.2 67.2L24.4 66.5L27.6 66.1L32 65.8L35.9 65.8L40.4 66.1L42.9 66.4L46.7 66.9L51.1 67.8L61.8 70.3L67.2 71.4L74.6 72.5L79.7 72.9L82.8 72.9L85.4 72.8L87.6 72.6L91.3 71.9L94 71.2L96.2 70.5L98.3 69.6L99.9 68.8L100 68.8L98.3 70.6L96.4 72.1L94.5 73.4L92 74.7L88.6 76.2L86 77L83 77.7L80.1 78.2L77 78.4L74.5 78.4L71.5 78.3L68.9 78L65 77.4L61.6 76.7ZM46.4 24L49.2 18.5L50.5 15.3L51 18L51.3 20.2L51.4 25.1L51.2 29.3L50.3 34.8L49.1 40L47.1 45.9L45.4 50L42.7 55.7L39.3 56.4L33.2 57.5L15.9 60.5L15.9 60.3L16.3 60L21.3 55.5L25.7 51.2L29.2 47.6L32.6 43.8L37.3 38L41.3 32.4L43.2 29.5Z";
+
+export interface MarkProps extends SVGProps<SVGSVGElement> {
+  /** Makes the mark an image with this name. Without it the mark is decorative. */
+  label?: string;
+}
+
+/**
+ * The Racksail mark. It's drawn with theme colors rather than the brand
+ * file's fixed ones, so it reads on dark surfaces too.
+ */
+export function Mark({ label, className, ...props }: MarkProps) {
+  return label ? (
+    <svg
+      viewBox="0 0 100 78.5"
+      role="img"
+      aria-label={label}
+      className={cn("h-6 w-auto", className)}
+      {...props}
+    >
+      <title>{label}</title>
+      <path className="fill-mark-ink" d={ink} />
+      <path className="fill-mark-sea" d={sea} />
+    </svg>
+  ) : (
+    <svg
+      viewBox="0 0 100 78.5"
+      aria-hidden="true"
+      focusable="false"
+      className={cn("h-6 w-auto", className)}
+      {...props}
+    >
+      <path className="fill-mark-ink" d={ink} />
+      <path className="fill-mark-sea" d={sea} />
+    </svg>
+  );
+}

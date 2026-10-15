@@ -1,0 +1,4 @@
+{
+  "dns.name": "DNS",
+  "dns.description": "Zones, records, DNSSEC, templates, secondaries, nameservers and glue, and reverse zones."
+}

@@ -1,0 +1,4 @@
+{
+  "vms.name": "Virtual machines",
+  "vms.description": "Virtual machines, system containers, the ISO library, templates, passthrough, consoles and snapshots."
+}

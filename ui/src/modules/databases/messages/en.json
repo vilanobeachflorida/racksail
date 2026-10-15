@@ -1,0 +1,4 @@
+{
+  "databases.name": "Databases",
+  "databases.description": "Database servers by engine and version, databases, users, grants, remote access, slow queries and Adminer."
+}

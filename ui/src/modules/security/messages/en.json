@@ -1,0 +1,4 @@
+{
+  "security.name": "Security scanning",
+  "security.description": "Malware and web-shell scanning, and system file integrity."
+}

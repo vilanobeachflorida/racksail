@@ -1,0 +1,4 @@
+{
+  "cluster.name": "Multi-server",
+  "cluster.description": "Servers, roles, placement, account moves, standby pairs, failover and a standby panel."
+}

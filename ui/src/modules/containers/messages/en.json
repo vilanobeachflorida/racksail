@@ -1,0 +1,4 @@
+{
+  "containers.name": "Containers",
+  "containers.description": "Container apps, compose stacks, images, networks, volumes and app updates."
+}

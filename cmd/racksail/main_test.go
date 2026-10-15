@@ -7,8 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/modules/all"
 )
 
 func run(t *testing.T, args ...string) (string, error) {
@@ -58,6 +62,20 @@ func TestOpenAPIMatchesTheCommittedDocuments(t *testing.T) {
 		if out != string(committed) {
 			t.Errorf("spec/%s is out of date; run make gen", tc.file)
 		}
+	}
+}
+
+func TestThemeCSSMatchesTheUI(t *testing.T) {
+	out, err := run(t, "theme", "css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := os.ReadFile(filepath.Join("..", "..", "ui", "src", "design", "theme.css"))
+	if err != nil {
+		t.Fatalf("%v (run make gen)", err)
+	}
+	if out != string(committed) {
+		t.Error("ui/src/design/theme.css is out of date; run make gen")
 	}
 }
 
@@ -112,5 +130,54 @@ func TestStatus(t *testing.T) {
 	defer down.Close()
 	if _, err := run(t, "status", "--server", down.URL); err == nil || !strings.Contains(err.Error(), "Sign in to continue.") {
 		t.Errorf("problem = %v", err)
+	}
+}
+
+// The UI translates the error codes the binary can return with messages
+// named error.<code>, kept in the catalog of the module the code belongs to,
+// or in the shell's catalog for codes of the core. Their English text must
+// match the server's.
+func TestErrorCodesHaveUIMessages(t *testing.T) {
+	ui := filepath.Join("..", "..", "ui", "src")
+	catalogs := map[string]map[string]string{}
+	load := func(file string) map[string]string {
+		if c, ok := catalogs[file]; ok {
+			return c
+		}
+		c := map[string]string{}
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		catalogs[file] = c
+		return c
+	}
+	catalogOf := func(code i18n.Code) string {
+		if slices.Contains(all.IDs, code.Module()) {
+			return filepath.Join(ui, "modules", code.Module(), "messages", "en.json")
+		}
+		return filepath.Join(ui, "app", "messages", "en.json")
+	}
+	defined := map[string]bool{}
+	for _, d := range i18n.Defs() {
+		file, id := catalogOf(d.Code), "error."+string(d.Code)
+		defined[id] = true
+		if got, ok := load(file)[id]; !ok || got != d.Message {
+			t.Errorf("%s needs %q: %q", file, id, d.Message)
+		}
+	}
+	load(filepath.Join(ui, "app", "messages", "en.json"))
+	for _, id := range all.IDs {
+		load(filepath.Join(ui, "modules", id, "messages", "en.json"))
+	}
+	for file, c := range catalogs {
+		for id := range c {
+			if strings.HasPrefix(id, "error.") && !defined[id] {
+				t.Errorf("%s has %q, but no error has that code", file, id)
+			}
+		}
 	}
 }

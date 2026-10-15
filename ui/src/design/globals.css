@@ -1,0 +1,189 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./theme.css";
+
+/*
+ * The dark variant follows data-theme when the user picked a mode, and the
+ * system setting otherwise, like the token blocks in theme.css.
+ */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
+/*
+ * Utilities get their values from the theme tokens and nothing else. The
+ * default palette, fonts, radii and shadows are removed so a stray
+ * bg-red-500 produces no CSS (scripts/check-tokens.mjs reports it too).
+ *
+ * Besides Racksail's own names, the names shadcn/ui components expect are
+ * mapped onto the tokens. Note that shadcn's "accent" is a subtle hover
+ * background, while the theme's accent is the color of primary actions,
+ * which shadcn calls "primary".
+ */
+@theme inline {
+  --color-*: initial;
+  --font-*: initial;
+  --font-weight-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
+  --color-surface: var(--rs-surface);
+  --color-surface-raised: var(--rs-surface-raised);
+  --color-surface-sunken: var(--rs-surface-sunken);
+  --color-brand: var(--rs-brand);
+  --color-brand-foreground: var(--rs-brand-text);
+  --color-success: var(--rs-success);
+  --color-success-foreground: var(--rs-success-text);
+  --color-warning: var(--rs-warning);
+  --color-warning-foreground: var(--rs-warning-text);
+  --color-danger: var(--rs-danger);
+  --color-danger-foreground: var(--rs-danger-text);
+  --color-info: var(--rs-info);
+  --color-info-foreground: var(--rs-info-text);
+  --color-border-strong: var(--rs-border-strong);
+  --color-focus: var(--rs-focus);
+  --color-mark-ink: var(--mark-ink);
+  --color-mark-sea: var(--mark-sea);
+
+  --color-background: var(--rs-surface);
+  --color-foreground: var(--rs-text);
+  --color-card: var(--rs-surface-raised);
+  --color-card-foreground: var(--rs-text);
+  --color-popover: var(--rs-surface-raised);
+  --color-popover-foreground: var(--rs-text);
+  --color-primary: var(--rs-accent);
+  --color-primary-foreground: var(--rs-accent-text);
+  --color-secondary: var(--rs-surface-sunken);
+  --color-secondary-foreground: var(--rs-text);
+  --color-muted: var(--rs-surface-sunken);
+  --color-muted-foreground: var(--rs-text-muted);
+  --color-accent: var(--rs-surface-sunken);
+  --color-accent-foreground: var(--rs-text);
+  --color-destructive: var(--rs-danger);
+  --color-destructive-foreground: var(--rs-danger-text);
+  --color-border: var(--rs-border);
+  --color-input: var(--rs-border-strong);
+  --color-ring: var(--rs-focus);
+  --color-sidebar: var(--rs-surface-raised);
+  --color-sidebar-foreground: var(--rs-text);
+  --color-sidebar-primary: var(--rs-brand);
+  --color-sidebar-primary-foreground: var(--rs-brand-text);
+  --color-sidebar-accent: var(--rs-surface-sunken);
+  --color-sidebar-accent-foreground: var(--rs-text);
+  --color-sidebar-border: var(--rs-border);
+  --color-sidebar-ring: var(--rs-focus);
+
+  --color-chart-1: var(--rs-chart1);
+  --color-chart-2: var(--rs-chart2);
+  --color-chart-3: var(--rs-chart3);
+  --color-chart-4: var(--rs-chart4);
+  --color-chart-5: var(--rs-chart5);
+  --color-chart-6: var(--rs-chart6);
+  --color-chart-7: var(--rs-chart7);
+  --color-chart-8: var(--rs-chart8);
+
+  --font-sans: var(--rs-font-sans);
+  --font-mono: var(--rs-font-mono);
+  --font-weight-normal: var(--rs-weight-regular);
+  --font-weight-medium: var(--rs-weight-medium);
+  --font-weight-semibold: var(--rs-weight-semibold);
+  --font-weight-bold: var(--rs-weight-bold);
+
+  --radius-xs: calc(var(--rs-radius-sm) / 2);
+  --radius-sm: var(--rs-radius-sm);
+  --radius-md: var(--rs-radius-md);
+  --radius-lg: var(--rs-radius-lg);
+  --radius-xl: var(--rs-radius-xl);
+  --radius-2xl: calc(var(--rs-radius-xl) * 1.5);
+
+  --shadow-xs: var(--rs-shadow-sm);
+  --shadow-sm: var(--rs-shadow-sm);
+  --shadow-md: var(--rs-shadow-md);
+  --shadow-lg: var(--rs-shadow-lg);
+
+  --default-transition-duration: var(--rs-motion-normal);
+}
+
+/*
+ * The mark's navy disappears on dark surfaces, so there it takes the text
+ * color while the sea keeps the brand blue.
+ */
+:root {
+  --mark-ink: var(--rs-brand);
+  --mark-sea: var(--rs-focus);
+  color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --mark-ink: var(--rs-text);
+  --mark-sea: var(--rs-brand);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --mark-ink: var(--rs-text);
+    --mark-sea: var(--rs-brand);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--rs-border);
+  }
+
+  html {
+    font-size: var(--rs-font-size-base);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--rs-surface);
+    color: var(--rs-text);
+    font-family: var(--rs-font-sans);
+    font-weight: var(--rs-weight-regular);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--rs-font-mono);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--rs-focus);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * Unlayered, so it wins over every Tailwind utility without !important,
+ * which all live in cascade layers.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
+  }
+}
