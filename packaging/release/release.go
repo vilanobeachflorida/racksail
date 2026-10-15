@@ -85,6 +85,39 @@ func NightlyVersion(tags []string, date string, run int) (string, error) {
 	return fmt.Sprintf("%d.%d.0-%s", newest.Major, newest.Minor+1, suffix), nil
 }
 
+// Previous finds where an upgrade to version starts: the newest release
+// before it that servers on channel c run. It returns "" when there is none,
+// as before the first release. Tags that aren't release versions, such as
+// the catalog's, are skipped.
+func Previous(tags []string, c updates.Channel, version string) (string, error) {
+	if !c.Valid() {
+		return "", fmt.Errorf("unknown channel %q: use stable, beta or nightly", c)
+	}
+	target, err := updates.ParseVersion(version)
+	if err != nil {
+		return "", err
+	}
+	var best string
+	var newest updates.Version
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, "v") {
+			continue
+		}
+		ch, err := Channel(tag)
+		if err != nil || !c.Accepts(ch) {
+			continue
+		}
+		v, _ := updates.ParseVersion(tag)
+		if v.Compare(target) >= 0 {
+			continue
+		}
+		if best == "" || v.Compare(newest) > 0 {
+			best, newest = tag, v
+		}
+	}
+	return best, nil
+}
+
 // artifacts lists the files of a release directory that are checksummed and
 // signed: everything except signatures, checksums and the manifest.
 func artifacts(dir string) ([]string, error) {

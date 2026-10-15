@@ -75,6 +75,42 @@ func TestNightlyVersion(t *testing.T) {
 	}
 }
 
+func TestPrevious(t *testing.T) {
+	tags := []string{
+		"catalog", "v1.1.0", "v1.2.0", "v1.2.1", "v1.3.0-beta.1", "v1.3.0-rc.1",
+		"v1.3.0-rc.1.nightly.20261014.41", "v1.3.0-rc.1.nightly.20261015.42", "v1.4.0-weird.1", "1.9.9",
+	}
+	cases := []struct {
+		channel updates.Channel
+		version string
+		want    string
+	}{
+		{updates.Stable, "1.3.0", "v1.2.1"},
+		{updates.Stable, "1.2.1", "v1.2.0"},
+		{updates.Stable, "1.1.0", ""},
+		{updates.Beta, "1.3.0-rc.2", "v1.3.0-rc.1"},
+		{updates.Beta, "1.3.0-beta.1", "v1.2.1"},
+		{updates.Nightly, "1.3.0-rc.1.nightly.20261016.43", "v1.3.0-rc.1.nightly.20261015.42"},
+		{updates.Nightly, "1.3.0-rc.1.nightly.20261015.42", "v1.3.0-rc.1.nightly.20261014.41"},
+		// Stable servers upgrade to a nightly build from the newest stable
+		// release, which an upgrade test checks as well.
+		{updates.Stable, "1.3.0-rc.1.nightly.20261016.43", "v1.2.1"},
+		{updates.Nightly, "1.0.0", ""},
+	}
+	for _, tc := range cases {
+		got, err := Previous(tags, tc.channel, tc.version)
+		if err != nil || got != tc.want {
+			t.Errorf("Previous(%s, %s) = %q, %v; want %q", tc.channel, tc.version, got, err, tc.want)
+		}
+	}
+	if _, err := Previous(tags, "lts", "1.3.0"); err == nil {
+		t.Error("an unknown channel must fail")
+	}
+	if _, err := Previous(tags, updates.Stable, "next"); err == nil {
+		t.Error("a malformed version must fail")
+	}
+}
+
 func writeRelease(t *testing.T, signed bool) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -192,21 +228,39 @@ func TestCosignPins(t *testing.T) {
 
 func TestCommands(t *testing.T) {
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"channel", "v1.3.0-rc.1"}, &out); err != nil || out.String() != "beta\n" {
+	if err := run(context.Background(), []string{"channel", "v1.3.0-rc.1"}, nil, &out); err != nil || out.String() != "beta\n" {
 		t.Errorf("channel = %q, %v", out.String(), err)
 	}
 	dir := writeRelease(t, true)
-	if err := run(context.Background(), []string{"manifest", "-dir", dir, "-tag", "v1.2.3", "-base-url", "https://example.com/v1.2.3", "-time", "2026-10-15T12:00:00Z"}, &out); err != nil {
+	if err := run(context.Background(), []string{"manifest", "-dir", dir, "-tag", "v1.2.3", "-base-url", "https://example.com/v1.2.3", "-time", "2026-10-15T12:00:00Z"}, nil, &out); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, ManifestFile))
 	if err != nil || !bytes.Contains(data, []byte(`"channel": "stable"`)) || !bytes.Contains(data, []byte(`"published": "2026-10-15T12:00:00Z"`)) {
 		t.Errorf("release.json = %s, %v", data, err)
 	}
-	if err := run(context.Background(), []string{"manifest", "-dir", dir}, &out); err == nil {
+	if err := run(context.Background(), []string{"manifest", "-dir", dir}, nil, &out); err == nil {
 		t.Error("manifest without a tag must fail")
 	}
-	if err := run(context.Background(), []string{"nonsense"}, &out); err == nil {
+	if err := run(context.Background(), []string{"nonsense"}, nil, &out); err == nil {
 		t.Error("an unknown command must fail")
+	}
+
+	out.Reset()
+	tags := strings.NewReader("v1.2.0\nv1.3.0-beta.1\ncatalog\nv1.2.1\n")
+	if err := run(context.Background(), []string{"previous", "-version", "1.3.0-beta.2"}, tags, &out); err != nil || out.String() != "v1.3.0-beta.1\n" {
+		t.Errorf("previous = %q, %v", out.String(), err)
+	}
+	out.Reset()
+	tags = strings.NewReader("v1.2.0\nv1.3.0-beta.1\n")
+	if err := run(context.Background(), []string{"previous", "-version", "1.3.0-beta.2", "-channel", "stable"}, tags, &out); err != nil || out.String() != "v1.2.0\n" {
+		t.Errorf("previous on the stable channel = %q, %v", out.String(), err)
+	}
+	out.Reset()
+	if err := run(context.Background(), []string{"previous", "-version", "0.1.0"}, strings.NewReader(""), &out); err != nil || out.Len() != 0 {
+		t.Errorf("before the first release, previous prints nothing: %q, %v", out.String(), err)
+	}
+	if err := run(context.Background(), []string{"previous"}, strings.NewReader(""), &out); err == nil {
+		t.Error("previous without a version must fail")
 	}
 }

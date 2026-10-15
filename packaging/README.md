@@ -51,6 +51,7 @@ Release binaries come from `make cross` with `VERSION` and `CHANNEL` set. `make 
 
 - `channel` names a version's channel: `1.2.3` is stable, `1.3.0-beta.1` and `1.3.0-rc.1` are beta, anything with a `nightly` part is nightly.
 - `nightly-version` names a nightly build so it sorts after everything released before it: `1.3.0-nightly.20261015.42` after 1.2.x, or `1.3.0-rc.1.nightly.20261015.42` after a release candidate.
+- `previous` reads release tags and names the newest release before a version on a channel, which is where the upgrade test starts: the workflow publishes nothing until servers on that release, and on the newest stable release, upgrade to the new one in the [QEMU harness](../test/README.md#upgrades).
 - `checksums` and `manifest` write `SHA256SUMS` and `release.json`, the second in the format `internal/updates` reads.
 
 ## Licenses

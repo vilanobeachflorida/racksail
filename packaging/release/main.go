@@ -1,9 +1,11 @@
 // Command release does the parts of publishing a release that need to agree
 // with how servers read releases: which channel a version belongs to, what
-// a nightly build is called, the checksums file and the release manifest.
+// a nightly build is called, which release an upgrade test starts from, the
+// checksums file and the release manifest.
 //
 //	go run ./packaging/release channel v1.3.0-beta.1
 //	go run ./packaging/release nightly-version -date 20261015 -run 42
+//	git tag --list 'v*' | go run ./packaging/release previous -version 1.3.0
 //	go run ./packaging/release checksums -dir dist
 //	go run ./packaging/release manifest -dir dist -tag v1.2.3 -base-url URL
 //	go run ./packaging/release check-pins [-write]
@@ -22,18 +24,20 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vilanobeachflorida/racksail/internal/updates"
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
+	if err := run(context.Background(), os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "release:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, args []string, stdout io.Writer) error {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: release channel | nightly-version | checksums | manifest | check-pins")
+		return errors.New("usage: release channel | nightly-version | previous | checksums | manifest | check-pins")
 	}
 	cmd, args := args[0], args[1:]
 	flags := flag.NewFlagSet(cmd, flag.ContinueOnError)
@@ -64,6 +68,35 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 			return err
 		}
 		fmt.Fprintln(stdout, v)
+		return nil
+
+	case "previous":
+		version := flags.String("version", "", "the version being released")
+		channel := flags.String("channel", "", "the channel of the servers that upgrade; the version's own by default")
+		if err := flags.Parse(args); err != nil {
+			return err
+		}
+		if *version == "" {
+			return errors.New("previous needs -version, and the release tags on its input")
+		}
+		ch := updates.Channel(*channel)
+		if *channel == "" {
+			var err error
+			if ch, err = Channel(*version); err != nil {
+				return err
+			}
+		}
+		tags, err := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if err != nil {
+			return err
+		}
+		tag, err := Previous(strings.Fields(string(tags)), ch, *version)
+		if err != nil {
+			return err
+		}
+		if tag != "" {
+			fmt.Fprintln(stdout, tag)
+		}
 		return nil
 
 	case "checksums":
