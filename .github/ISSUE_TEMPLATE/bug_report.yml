@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Racksail doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. If it's a security problem, don't file it here: report it privately as described in [SECURITY.md](https://github.com/vilanobeachflorida/racksail/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected to happen and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem.
+      placeholder: |
+        1. Create a site with PHP 8.4
+        2. Deploy from a Git repository
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it happens
+      options:
+        - Web panel
+        - racksail command
+        - API
+        - Installer or ISO
+        - Server console
+        - racksail dev
+        - Documentation
+        - Somewhere else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Racksail version
+      description: The output of `racksail version`.
+      placeholder: racksail 1.0.0 (stable channel)
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Server and browser
+      description: Debian version and architecture, and the browser if it's about the panel.
+      placeholder: Debian 13.1 amd64, Firefox 141
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and error messages
+      description: Error messages, job logs or `journalctl -u racksail-panel` output. Remove passwords, tokens and other secrets first.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: I searched the existing issues and this isn't one of them.
+          required: true
+        - label: I removed passwords, tokens and other secrets from what I pasted.
+          required: true
