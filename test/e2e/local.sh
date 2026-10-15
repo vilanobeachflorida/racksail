@@ -9,7 +9,7 @@
 # bin/racksail by default, which make e2e-local builds with the UI.
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 1
 binary=${1:-bin/racksail}
 addr=${E2E_ADDR:-127.0.0.1:7170}
 data=${E2E_DATA:-.dev-e2e}
@@ -42,7 +42,7 @@ export RACKSAIL_E2E_URL="http://$addr"
 status=0
 go test -count=1 ./test/e2e/api || status=1
 (
-	cd test/e2e
+	cd test/e2e || exit 1
 	RACKSAIL_E2E_REPORT="../../$logs/playwright-report" RACKSAIL_E2E_RESULTS="../../$logs/playwright-results" npx playwright test
 ) || status=1
 exit "$status"

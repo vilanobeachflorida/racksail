@@ -144,8 +144,11 @@ fi
 
 OS_RELEASE=$ROOT/etc/os-release
 [ -r "$OS_RELEASE" ] || die "$OS_RELEASE is missing, so this doesn't look like Debian 13"
+# shellcheck source=/dev/null
 OS_ID=$(. "$OS_RELEASE" && printf '%s' "${ID:-}")
+# shellcheck source=/dev/null
 OS_VERSION=$(. "$OS_RELEASE" && printf '%s' "${VERSION_ID:-}")
+# shellcheck source=/dev/null
 OS_NAME=$(. "$OS_RELEASE" && printf '%s' "${PRETTY_NAME:-unknown}")
 if [ "$OS_ID" != debian ] || [ "$OS_VERSION" != 13 ]; then
 	die "Racksail needs Debian 13 (trixie), and this is $OS_NAME"

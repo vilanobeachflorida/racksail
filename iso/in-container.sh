@@ -37,6 +37,9 @@ done
 	exit 1
 }
 
+# The quoted script runs inside the container, with the options as its
+# arguments.
+# shellcheck disable=SC2016
 exec "$engine" run --rm --privileged --platform "linux/$arch" \
 	--volume "$repo:/src" --workdir /src \
 	--env SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-}" \

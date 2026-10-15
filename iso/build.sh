@@ -151,7 +151,7 @@ export RACKSAIL_ARCH=$arch RACKSAIL_VARIANT=$variant
 [ -z "$security_mirror" ] || export RACKSAIL_SECURITY_MIRROR=$security_mirror
 
 log=$dir.log
-cd "$dir"
+cd "$dir" || exit 1
 lb config
 lb build 2>&1 | tee "$log"
 

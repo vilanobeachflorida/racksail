@@ -78,7 +78,7 @@ jobs:
           echo "$REGISTRY_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           repo="ghcr.io/${GITHUB_REPOSITORY,,}/catalog"
           day=$(date -u +%Y%m%d)
-          cd bin
+          cd bin || exit 1
           oras push "$repo:latest,$day" \
             --artifact-type application/vnd.racksail.catalog.v1 \
             catalog/index.json:application/vnd.racksail.catalog.index.v1+json \
