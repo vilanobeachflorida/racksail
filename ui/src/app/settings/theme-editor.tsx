@@ -3,13 +3,7 @@ import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from "r
 import { type IntlShape, type MessageDescriptor, useIntl } from "react-intl";
 import { issueMessage } from "@/design/components/schema-form";
 import { Button } from "@/design/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/design/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { Switch } from "@/design/components/ui/choice";
 import { Alert, Badge } from "@/design/components/ui/display";
 import { Field, Label } from "@/design/components/ui/field";
@@ -31,7 +25,7 @@ import {
 } from "@/design/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/design/components/ui/tabs";
 import { toast } from "@/design/components/ui/toaster";
-import { checkTheme, contrastTable } from "@/design/theme/check";
+import { type ContrastRow, checkTheme, contrastTable } from "@/design/theme/check";
 import { isColor } from "@/design/theme/color";
 import { resolveLayers } from "@/design/theme/layers";
 import { useTheme } from "@/design/theme/provider";
@@ -57,7 +51,7 @@ export function problemMessage(intl: IntlShape, p: ThemeProblem): string {
     return intl.formatMessage(messages.themeProblemMeaning, {
       mode,
       token: token(p.foreground),
-      hue: p.purpose ?? "",
+      hue: hueName(intl, p.foreground, p.purpose ?? ""),
     });
   }
   if (p.kind === "color") {
@@ -109,6 +103,30 @@ export function tokenLabel(intl: IntlShape, name: string): string {
   }
   const key = tokenMessages[name];
   return key ? intl.formatMessage(messages[key]) : name;
+}
+
+// The spec's pairs and meanings describe themselves in English for the
+// server's messages; the panel has its own words for each, and falls back
+// to the spec's for one added since.
+function specMessage(intl: IntlShape, id: string, fallback: string): string {
+  return Object.hasOwn(intl.messages, id) ? intl.formatMessage({ id }) : fallback;
+}
+
+/** What a checked pair of colors is used for, such as "body text on the page". */
+export function pairPurpose(
+  intl: IntlShape,
+  pair: { foreground: string; background: string; purpose: string },
+): string {
+  const chart = /^chart(\d+)$/.exec(pair.foreground);
+  if (chart) {
+    return intl.formatMessage(messages.themePurposeChart, { n: Number(chart[1]) });
+  }
+  return specMessage(intl, `app.theme.purpose.${pair.foreground}.${pair.background}`, pair.purpose);
+}
+
+/** The hue a status color has to keep, such as "green" for success. */
+export function hueName(intl: IntlShape, token: string, fallback: string): string {
+  return specMessage(intl, `app.theme.hue.${token}`, fallback);
 }
 
 function download(name: string, text: string, type: string) {
@@ -184,7 +202,6 @@ function ContrastChecker({ theme }: { theme: Theme }) {
   const [mode, setMode] = useState<Mode>("light");
   const [onlyFailing, setOnlyFailing] = useState(false);
   const failing = rows.filter((r) => !r.pass).length;
-  const shown = rows.filter((r) => r.mode === mode && (!onlyFailing || !r.pass));
   const switchId = useId();
   return (
     <Card aria-labelledby={`${switchId}-title`}>
@@ -198,8 +215,8 @@ function ContrastChecker({ theme }: { theme: Theme }) {
             : intl.formatMessage(messages.themeContrastFailing, { count: failing })}
         </CardDescription>
       </CardHeader>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+      <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
             <TabsTrigger value="light">
               {intl.formatMessage(messages.themeModeName, { mode: "light" })}
@@ -208,71 +225,80 @@ function ContrastChecker({ theme }: { theme: Theme }) {
               {intl.formatMessage(messages.themeModeName, { mode: "dark" })}
             </TabsTrigger>
           </TabsList>
-        </Tabs>
-        <div className="flex items-center gap-2">
-          <Switch id={switchId} checked={onlyFailing} onCheckedChange={setOnlyFailing} />
-          <Label htmlFor={switchId} className="font-normal">
-            {intl.formatMessage(messages.themeContrastOnlyFailing)}
-          </Label>
+          <div className="flex items-center gap-2">
+            <Switch id={switchId} checked={onlyFailing} onCheckedChange={setOnlyFailing} />
+            <Label htmlFor={switchId} className="font-normal">
+              {intl.formatMessage(messages.themeContrastOnlyFailing)}
+            </Label>
+          </div>
         </div>
-      </div>
-      <CardContent className="max-h-[28rem] overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{intl.formatMessage(messages.themeContrastPair)}</TableHead>
-              <TableHead className="text-end">
-                {intl.formatMessage(messages.themeContrastRatio)}
-              </TableHead>
-              <TableHead className="text-end">
-                {intl.formatMessage(messages.themeContrastNeeds)}
-              </TableHead>
-              <TableHead>{intl.formatMessage(messages.themeContrastResult)}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shown.map((r) => (
-              <TableRow key={`${r.mode}-${r.foreground}-${r.background}`}>
-                <TableCell>
-                  <p className="font-medium">
-                    {intl.formatMessage(messages.themeContrastOn, {
-                      foreground: tokenLabel(intl, r.foreground),
-                      background: tokenLabel(intl, r.background),
-                    })}
-                  </p>
-                  <p className="text-muted-foreground text-xs">{r.purpose}</p>
-                </TableCell>
-                <TableCell className="text-end tabular-nums">
-                  {r.ratio === null
-                    ? "–"
-                    : intl.formatMessage(messages.themeRatio, {
-                        ratio: intl.formatNumber(r.ratio, { maximumFractionDigits: 2 }),
-                      })}
-                </TableCell>
-                <TableCell className="text-end tabular-nums">
-                  {intl.formatMessage(messages.themeRatio, {
-                    ratio: intl.formatNumber(r.minimum, { maximumFractionDigits: 1 }),
-                  })}
-                </TableCell>
-                <TableCell>
-                  {r.pass ? (
-                    <Badge variant="success">
-                      <Check aria-hidden="true" />
-                      {intl.formatMessage(messages.themeContrastPass)}
-                    </Badge>
-                  ) : (
-                    <Badge variant="danger">
-                      <X aria-hidden="true" />
-                      {intl.formatMessage(messages.themeContrastFail)}
-                    </Badge>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
+        {(["light", "dark"] as const).map((m) => (
+          <TabsContent key={m} value={m} className="max-h-[28rem] overflow-auto">
+            <ContrastTable rows={rows.filter((r) => r.mode === m && (!onlyFailing || !r.pass))} />
+          </TabsContent>
+        ))}
+      </Tabs>
     </Card>
+  );
+}
+
+function ContrastTable({ rows }: { rows: ContrastRow[] }) {
+  const intl = useIntl();
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{intl.formatMessage(messages.themeContrastPair)}</TableHead>
+          <TableHead className="text-end">
+            {intl.formatMessage(messages.themeContrastRatio)}
+          </TableHead>
+          <TableHead className="text-end">
+            {intl.formatMessage(messages.themeContrastNeeds)}
+          </TableHead>
+          <TableHead>{intl.formatMessage(messages.themeContrastResult)}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((r) => (
+          <TableRow key={`${r.mode}-${r.foreground}-${r.background}`}>
+            <TableCell>
+              <p className="font-medium">
+                {intl.formatMessage(messages.themeContrastOn, {
+                  foreground: tokenLabel(intl, r.foreground),
+                  background: tokenLabel(intl, r.background),
+                })}
+              </p>
+              <p className="text-muted-foreground text-xs">{pairPurpose(intl, r)}</p>
+            </TableCell>
+            <TableCell className="text-end tabular-nums">
+              {r.ratio === null
+                ? "–"
+                : intl.formatMessage(messages.themeRatio, {
+                    ratio: intl.formatNumber(r.ratio, { maximumFractionDigits: 2 }),
+                  })}
+            </TableCell>
+            <TableCell className="text-end tabular-nums">
+              {intl.formatMessage(messages.themeRatio, {
+                ratio: intl.formatNumber(r.minimum, { maximumFractionDigits: 1 }),
+              })}
+            </TableCell>
+            <TableCell>
+              {r.pass ? (
+                <Badge variant="success">
+                  <Check aria-hidden="true" />
+                  {intl.formatMessage(messages.themeContrastPass)}
+                </Badge>
+              ) : (
+                <Badge variant="danger">
+                  <X aria-hidden="true" />
+                  {intl.formatMessage(messages.themeContrastFail)}
+                </Badge>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -394,6 +420,8 @@ export default function ThemeEditor() {
             type="file"
             accept=".yaml,.yml,.json,application/json"
             className="hidden"
+            tabIndex={-1}
+            aria-label={t(messages.themeImport)}
             onChange={(e) => void onImport(e)}
           />
           <Button variant="outline" onClick={() => fileInput.current?.click()}>
@@ -468,8 +496,12 @@ export default function ThemeEditor() {
             <TabsTrigger value="shape">{t(messages.themeTabShape)}</TabsTrigger>
             <TabsTrigger value="details">{t(messages.themeTabDetails)}</TabsTrigger>
           </TabsList>
-          <TabsContent value="colors" className="flex flex-col gap-4">
-            <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+          <TabsContent value="colors">
+            <Tabs
+              value={mode}
+              onValueChange={(v) => setMode(v as Mode)}
+              className="flex flex-col gap-4"
+            >
               <TabsList>
                 <TabsTrigger value="light">
                   {t(messages.themeModeName, { mode: "light" })}
@@ -478,69 +510,73 @@ export default function ThemeEditor() {
                   {t(messages.themeModeName, { mode: "dark" })}
                 </TabsTrigger>
               </TabsList>
-            </Tabs>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {paletteKeys.map((key) => (
-                <ColorField
-                  key={`${mode}-${key}`}
-                  label={tokenLabel(intl, key)}
-                  value={theme.tokens[mode][key] ?? ""}
-                  alpha={key === "overlay"}
-                  onChange={(v) => setColor(mode, key, v)}
-                />
-              ))}
-            </div>
-            <fieldset className="flex flex-col gap-3">
-              <legend className="mb-2 font-semibold text-sm">{t(messages.themeChart)}</legend>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {theme.tokens[mode].chart.map((c, i) => (
-                  <div
-                    // biome-ignore lint/suspicious/noArrayIndexKey: chart colors are positional
-                    key={`${mode}-chart-${i}`}
-                    className="flex items-end gap-2"
-                  >
-                    <div className="min-w-0 flex-1">
+              {(["light", "dark"] as const).map((m) => (
+                <TabsContent key={m} value={m} className="flex flex-col gap-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {paletteKeys.map((key) => (
                       <ColorField
-                        label={tokenLabel(intl, `chart${i + 1}`)}
-                        value={c}
-                        onChange={(v) =>
-                          update((d) => {
-                            d.tokens[mode].chart[i] = v;
-                          })
-                        }
+                        key={key}
+                        label={tokenLabel(intl, key)}
+                        value={theme.tokens[m][key] ?? ""}
+                        alpha={key === "overlay"}
+                        onChange={(v) => setColor(m, key, v)}
                       />
+                    ))}
+                  </div>
+                  <fieldset className="flex flex-col gap-3">
+                    <legend className="mb-2 font-semibold text-sm">{t(messages.themeChart)}</legend>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {theme.tokens[m].chart.map((c, i) => (
+                        <div
+                          // biome-ignore lint/suspicious/noArrayIndexKey: chart colors are positional
+                          key={i}
+                          className="flex items-end gap-2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <ColorField
+                              label={tokenLabel(intl, `chart${i + 1}`)}
+                              value={c}
+                              onChange={(v) =>
+                                update((d) => {
+                                  d.tokens[m].chart[i] = v;
+                                })
+                              }
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={theme.tokens[m].chart.length <= 6}
+                            aria-label={t(messages.themeRemoveChart, { n: i + 1 })}
+                            onClick={() =>
+                              update((d) => {
+                                d.tokens[m].chart.splice(i, 1);
+                              })
+                            }
+                          >
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      disabled={theme.tokens[mode].chart.length <= 6}
-                      aria-label={t(messages.themeRemoveChart, { n: i + 1 })}
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      disabled={theme.tokens[m].chart.length >= 12}
                       onClick={() =>
                         update((d) => {
-                          d.tokens[mode].chart.splice(i, 1);
+                          d.tokens[m].chart.push(d.tokens[m].accent);
                         })
                       }
                     >
-                      <Trash2 aria-hidden="true" />
+                      <Plus aria-hidden="true" />
+                      {t(messages.themeAddChart)}
                     </Button>
-                  </div>
-                ))}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="self-start"
-                disabled={theme.tokens[mode].chart.length >= 12}
-                onClick={() =>
-                  update((d) => {
-                    d.tokens[mode].chart.push(d.tokens[mode].accent);
-                  })
-                }
-              >
-                <Plus aria-hidden="true" />
-                {t(messages.themeAddChart)}
-              </Button>
-            </fieldset>
+                  </fieldset>
+                </TabsContent>
+              ))}
+            </Tabs>
           </TabsContent>
           <TabsContent value="type" className="grid gap-4 sm:grid-cols-2">
             <Field label={t(messages.themeFontSans)} description={t(messages.themeFontHelp)}>

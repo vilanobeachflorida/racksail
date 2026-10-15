@@ -7,15 +7,15 @@ export interface JSONSchema {
   $ref?: string;
   $defs?: Record<string, JSONSchema>;
   definitions?: Record<string, JSONSchema>;
-  type?: JSONType | JSONType[];
+  type?: JSONType | readonly JSONType[];
   title?: string;
   description?: string;
   default?: unknown;
-  examples?: unknown[];
-  enum?: unknown[];
+  examples?: readonly unknown[];
+  enum?: readonly unknown[];
   const?: unknown;
   properties?: Record<string, JSONSchema>;
-  required?: string[];
+  required?: readonly string[];
   additionalProperties?: boolean | JSONSchema;
   items?: JSONSchema;
   minItems?: number;
@@ -30,9 +30,9 @@ export interface JSONSchema {
   exclusiveMinimum?: number;
   exclusiveMaximum?: number;
   multipleOf?: number;
-  oneOf?: JSONSchema[];
-  anyOf?: JSONSchema[];
-  allOf?: JSONSchema[];
+  oneOf?: readonly JSONSchema[];
+  anyOf?: readonly JSONSchema[];
+  allOf?: readonly JSONSchema[];
   readOnly?: boolean;
   writeOnly?: boolean;
   deprecated?: boolean;
@@ -118,11 +118,11 @@ export function resolveRef(schema: JSONSchema, root: JSONSchema): JSONSchema {
 }
 
 /** The schema's types, as a list. */
-export function schemaTypes(schema: JSONSchema): JSONType[] {
+export function schemaTypes(schema: JSONSchema): readonly JSONType[] {
   if (schema.type === undefined) {
     return [];
   }
-  return Array.isArray(schema.type) ? schema.type : [schema.type];
+  return typeof schema.type === "string" ? [schema.type] : schema.type;
 }
 
 function joinPath(base: string, key: string | number): string {

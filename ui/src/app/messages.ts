@@ -223,4 +223,5 @@ export const messages = {
   tokenDangerSubtle: m("app.theme.token.dangerSubtle"),
   tokenInfoSubtle: m("app.theme.token.infoSubtle"),
   tokenChart: m("app.theme.token.chart"),
+  themePurposeChart: m("app.theme.purpose.chart"),
 };

@@ -20,7 +20,10 @@ import { CodeEditor } from "./code-editor";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/choice";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/display";
-import { Field } from "./ui/field";
+import { Field, type useFieldControl } from "./ui/field";
+
+type FieldControl = ReturnType<typeof useFieldControl>;
+
 import { Input, Textarea } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
@@ -76,7 +79,10 @@ export function issueMessage(intl: IntlShape, issue: SchemaIssue): string {
     case "pattern":
       return intl.formatMessage(m.formPattern);
     case "format":
-      return intl.formatMessage(m.formFormat, { format: String(issue.params.format) });
+      // Message select keys can't contain hyphens, so date-time is dateTime.
+      return intl.formatMessage(m.formFormat, {
+        format: String(issue.params.format).replace(/-(\w)/g, (_, c: string) => c.toUpperCase()),
+      });
     case "minimum":
       return intl.formatMessage(m.formMinimum, { min: issue.params.min });
     case "maximum":
@@ -111,20 +117,27 @@ function problemText(intl: IntlShape, p: FieldProblem): string {
   return p.message;
 }
 
+// Units are Intl unit names, so their abbreviations come out in the user's
+// language. Sizes use decimal units, as byte counts do elsewhere.
 const sizeUnits = [
-  ["B", 1],
-  ["KB", 1e3],
-  ["MB", 1e6],
-  ["GB", 1e9],
-  ["TB", 1e12],
+  ["byte", 1],
+  ["kilobyte", 1e3],
+  ["megabyte", 1e6],
+  ["gigabyte", 1e9],
+  ["terabyte", 1e12],
 ] as const;
 
 const durationUnits = [
-  ["s", 1],
-  ["min", 60],
-  ["h", 3600],
-  ["d", 86400],
+  ["second", 1],
+  ["minute", 60],
+  ["hour", 3600],
+  ["day", 86400],
 ] as const;
+
+function unitName(intl: IntlShape, unit: string): string {
+  const parts = intl.formatNumberToParts(1, { style: "unit", unit, unitDisplay: "short" });
+  return parts.find((p) => p.type === "unit")?.value ?? unit;
+}
 
 function pickUnit(value: number, units: readonly (readonly [string, number])[]): number {
   let best = 0;
@@ -153,6 +166,7 @@ function labelFor(field: FieldNode, props: SchemaFormProps): string {
 
 function UnitInput({
   field,
+  label,
   value,
   units,
   onChange,
@@ -160,11 +174,12 @@ function UnitInput({
   control,
 }: {
   field: FieldNode;
+  label: string;
   value: number | undefined;
   units: readonly (readonly [string, number])[];
   onChange: (next: number | undefined) => void;
   onBlur: () => void;
-  control: object;
+  control: FieldControl;
 }) {
   const intl = useIntl();
   const [unit, setUnit] = useState(() => pickUnit(value ?? 0, units));
@@ -184,14 +199,30 @@ function UnitInput({
         onBlur={onBlur}
         placeholder={field.hint.placeholder}
       />
-      <Select value={String(unit)} onValueChange={(v) => setUnit(Number(v))}>
-        <SelectTrigger className="w-24" aria-label={intl.formatMessage(m.formUnit)}>
+      <Select
+        value={String(unit)}
+        onValueChange={(v) => {
+          const next = Number(v);
+          // The unit applies to the number typed: 512 and then MB is 512 MB.
+          if (value !== undefined) {
+            onChange(Math.round((value / size) * (units[next]?.[1] ?? 1)));
+          }
+          setUnit(next);
+        }}
+      >
+        <SelectTrigger
+          className="w-24"
+          id={`${field.path}-unit`}
+          aria-describedby={undefined}
+          aria-invalid={false}
+          aria-label={intl.formatMessage(m.formUnit, { field: label })}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {units.map(([name], i) => (
             <SelectItem key={name} value={String(i)}>
-              {name}
+              {unitName(intl, name)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -206,7 +237,7 @@ function SecretInput({
   onChange,
   placeholder,
 }: {
-  control: object;
+  control: FieldControl;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
@@ -416,6 +447,7 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
           return (
             <UnitInput
               field={field}
+              label={label}
               control={control}
               value={typeof value === "number" ? value : undefined}
               units={field.hint.widget === "size" ? sizeUnits : durationUnits}
