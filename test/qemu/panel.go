@@ -112,9 +112,11 @@ func (s SSH) SecureBootOn(ctx context.Context) (bool, error) {
 }
 
 // diagnostics are collected from the server after the suites, whatever
-// happened.
+// happened. The whole journal needs root or the systemd-journal group, which
+// the account the harness signs in as may not have, so it's read with sudo
+// when that works without a password.
 var diagnostics = map[string]string{
-	"journal.txt":      "journalctl -b --no-pager -o short-iso",
+	"journal.txt":      "sudo -n journalctl -b --no-pager -o short-iso 2>/dev/null || journalctl -b --no-pager -o short-iso",
 	"units.txt":        "systemctl list-units --all --no-pager 'racksail*'",
 	"failed-units.txt": "systemctl --failed --no-pager",
 	"version.txt":      "/usr/local/bin/racksail version || /usr/bin/racksail version",

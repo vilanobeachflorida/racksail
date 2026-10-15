@@ -41,6 +41,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/vilanobeachflorida/racksail/internal/installer"
 )
 
 // Config is one run of the harness.
@@ -261,8 +263,11 @@ func run(ctx context.Context, c Config) error {
 
 	var media Media
 	var files string
+	// The cloud image's seed creates admin; the ISO creates the account its
+	// answers file names.
+	user := "admin"
 	if c.ISO != "" {
-		if err := install(ctx, c, m, pub); err != nil {
+		if user, err = install(ctx, c, m, pub); err != nil {
 			return err
 		}
 	} else {
@@ -292,7 +297,7 @@ func run(ctx context.Context, c Config) error {
 	defer vm.stop()
 
 	panel := fmt.Sprintf("https://127.0.0.1:%d", m.PanelPort)
-	ssh := SSH{Key: key, Port: m.SSHPort, User: "admin"}
+	ssh := SSH{Key: key, Port: m.SSHPort, User: user}
 	collectLogs := func() {
 		if err := ssh.CollectLogs(context.WithoutCancel(ctx), logs); err != nil {
 			log.Printf("collecting logs: %v", err)
@@ -362,7 +367,7 @@ func run(ctx context.Context, c Config) error {
 		}
 	}
 	if c.Keep {
-		log.Printf("the machine keeps running: ssh -i %s -p %d admin@127.0.0.1, panel at %s; interrupt to stop it", key, m.SSHPort, panel)
+		log.Printf("the machine keeps running: ssh -i %s -p %d %s@127.0.0.1, panel at %s; interrupt to stop it", key, m.SSHPort, user, panel)
 		<-ctx.Done()
 	}
 	return errors.Join(errs...)
@@ -374,28 +379,33 @@ func exists(path string) bool {
 }
 
 // install runs the unattended install from the ISO, which ends when the
-// installer reboots the machine.
-func install(ctx context.Context, c Config, m Machine, sshKey string) error {
+// installer reboots the machine. It returns the account the answers file
+// creates, which the harness signs in as.
+func install(ctx context.Context, c Config, m Machine, sshKey string) (string, error) {
 	for _, d := range m.Disks {
 		if err := Disk(ctx, d, "", c.DiskSizeGB); err != nil {
-			return err
+			return "", err
 		}
 	}
 	template, err := os.ReadFile(c.Answers)
 	if err != nil {
-		return err
+		return "", err
 	}
 	answers, err := RenderAnswers(template, sshKey, m.DevicePaths())
 	if err != nil {
-		return err
+		return "", err
+	}
+	a, err := installer.ParseAnswers(answers)
+	if err != nil {
+		return "", err
 	}
 	logs := filepath.Join(c.Work, "logs")
 	if err := os.WriteFile(filepath.Join(logs, "answers.yaml"), answers, 0o644); err != nil {
-		return err
+		return "", err
 	}
 	stick := filepath.Join(c.Work, "answers.img")
 	if err := FATImage(ctx, stick, "RACKSAIL", map[string][]byte{"answers.yaml": answers}); err != nil {
-		return err
+		return "", err
 	}
 
 	m.SerialLog = filepath.Join(logs, "install-serial.log")
@@ -404,23 +414,23 @@ func install(ctx context.Context, c Config, m Machine, sshKey string) error {
 	defer cancel()
 	vm, err := start(installCtx, m, Media{ISO: c.ISO, Answers: stick, NoReboot: true}, filepath.Join(logs, "qemu-install.txt"))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := vm.wait(); err != nil {
 		if installCtx.Err() != nil {
-			return fmt.Errorf("the install didn't finish within %s\nlast console lines:\n%s", c.InstallTimeout, tail(m.SerialLog, 40))
+			return "", fmt.Errorf("the install didn't finish within %s\nlast console lines:\n%s", c.InstallTimeout, tail(m.SerialLog, 40))
 		}
-		return fmt.Errorf("QEMU stopped during the install: %w\n%s", err, tail(filepath.Join(logs, "qemu-install.txt"), 20))
+		return "", fmt.Errorf("QEMU stopped during the install: %w\n%s", err, tail(filepath.Join(logs, "qemu-install.txt"), 20))
 	}
 	if c.Firmware == "secureboot" {
 		console, _ := os.ReadFile(m.SerialLog)
 		if !strings.Contains(string(console), "Secure boot enabled") {
-			return errors.New("the installer image didn't boot with Secure Boot on; its kernel didn't report it on the serial console")
+			return "", errors.New("the installer image didn't boot with Secure Boot on; its kernel didn't report it on the serial console")
 		}
 		log.Print("the installer image booted with Secure Boot on")
 	}
 	log.Print("the installer finished and rebooted")
-	return nil
+	return a.Account.Username, nil
 }
 
 // The names the harness serves the run's files under.
