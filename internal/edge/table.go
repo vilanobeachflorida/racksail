@@ -143,8 +143,16 @@ var (
 	certPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 )
 
+// cleanURLPath reports whether p is a clean path starting with /. Braces
+// are refused because Caddy would read them as placeholders.
 func cleanURLPath(p string) bool {
-	return strings.HasPrefix(p, "/") && path.Clean(p) == p && !strings.ContainsAny(p, "\x00\r\n")
+	return strings.HasPrefix(p, "/") && path.Clean(p) == p && !strings.ContainsAny(p, "\x00\r\n{}")
+}
+
+// cleanFSPath reports whether p is an absolute, clean filesystem path
+// without the braces of Caddy's placeholders.
+func cleanFSPath(p string) bool {
+	return path.IsAbs(p) && path.Clean(p) == p && !strings.ContainsAny(p, "\x00\r\n{}")
 }
 
 // Validate checks a route.
@@ -197,17 +205,17 @@ func (r Route) Validate() error {
 	h := r.Handler
 	switch h.Type {
 	case HandleStatic:
-		if !path.IsAbs(h.Root) || path.Clean(h.Root) != h.Root {
+		if !cleanFSPath(h.Root) {
 			return fmt.Errorf("route %s: static files need an absolute root", r.ID)
 		}
 		if h.Fallback != "" && !cleanURLPath(h.Fallback) {
 			return fmt.Errorf("route %s: fallback %q must be a path starting with /", r.ID, h.Fallback)
 		}
 	case HandleFastCGI:
-		if !path.IsAbs(h.Root) || path.Clean(h.Root) != h.Root || len(h.Upstreams) == 0 {
+		if !cleanFSPath(h.Root) || len(h.Upstreams) == 0 {
 			return fmt.Errorf("route %s: FastCGI needs an absolute root and an upstream", r.ID)
 		}
-		if h.Index != "" && (strings.ContainsAny(h.Index, "/\x00") || h.Index == "." || h.Index == "..") {
+		if h.Index != "" && (strings.ContainsAny(h.Index, "/\x00\r\n{}") || h.Index == "." || h.Index == "..") {
 			return fmt.Errorf("route %s: index %q must be a file name", r.ID, h.Index)
 		}
 		for _, s := range h.SplitPath {
@@ -258,12 +266,12 @@ func (r Route) Validate() error {
 		}
 		switch u.Network {
 		case "unix":
-			if !path.IsAbs(u.Address) || path.Clean(u.Address) != u.Address {
+			if !cleanFSPath(u.Address) {
 				return fmt.Errorf("route %s: socket %q must be absolute", r.ID, u.Address)
 			}
 		case "tcp":
 			host, port, err := net.SplitHostPort(u.Address)
-			if err != nil || host == "" || port == "" || strings.ContainsAny(u.Address, "/\x00 ") {
+			if err != nil || host == "" || port == "" || strings.ContainsAny(u.Address, "/\x00 {}") {
 				return fmt.Errorf("route %s: upstream %q isn't host:port", r.ID, u.Address)
 			}
 			if u.TLS && !loopbackHost(host) {
@@ -303,6 +311,31 @@ type Table struct {
 	active  int
 	version uint64
 	watch   []chan struct{}
+	// check refuses routes for reasons only the edge serving the table
+	// knows, such as where its own files are.
+	check func(Route) error
+}
+
+// checkWith has the table refuse the routes check refuses, besides those
+// Route.Validate refuses.
+func (t *Table) checkWith(check func(Route) error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.check = check
+}
+
+// validate checks a route with Validate and the table's own check.
+func (t *Table) validate(r Route) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	t.mu.RLock()
+	check := t.check
+	t.mu.RUnlock()
+	if check != nil {
+		return check(r)
+	}
+	return nil
 }
 
 // NewTable returns an empty table.
@@ -322,7 +355,7 @@ func (t *Table) SetRoutes(ctx context.Context, owner store.ID, routes []Route) e
 		if routes[i].Owner != owner {
 			return fmt.Errorf("route %s belongs to %s, not %s", routes[i].ID, routes[i].Owner, owner)
 		}
-		if err := routes[i].Validate(); err != nil {
+		if err := t.validate(routes[i]); err != nil {
 			return err
 		}
 		if seen[routes[i].ID] {
@@ -454,6 +487,36 @@ func (t *Table) Match(host, reqPath string) (Route, bool) {
 	return Route{}, false
 }
 
+// MatchHost finds the route that decides a host's certificate. TLS is
+// chosen per name, before any path is known, so every route of the host
+// counts: exact names win over wildcards and wildcards over a catch-all
+// route, as in Match, and among the routes of the same host the one for
+// the whole site wins over those for a path below it.
+func (t *Table) MatchHost(host string) (Route, bool) {
+	host = NormalizeHost(host)
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, pass := range []int{0, 1, 2} {
+		var found *Route
+		for i := range t.sorted {
+			r := &t.sorted[i]
+			for _, h := range r.Hosts {
+				hit := (pass == 0 && h == host) || (pass == 1 && wildcardMatches(h, host)) || (pass == 2 && h == CatchAll)
+				if !hit {
+					continue
+				}
+				if found == nil || (r.Path == "" || r.Path == "/") && found.Path != "" && found.Path != "/" {
+					found = r
+				}
+			}
+		}
+		if found != nil {
+			return *found, true
+		}
+	}
+	return Route{}, false
+}
+
 // wildcardMatches reports whether a pattern such as *.example.com covers
 // host, one label deep.
 func wildcardMatches(pattern, host string) bool {
@@ -492,7 +555,7 @@ func (t *Table) load(r io.Reader) ([]error, error) {
 	byOwner := map[store.ID][]Route{}
 	var dropped []error
 	for _, rt := range routes {
-		if err := rt.Validate(); err != nil {
+		if err := t.validate(rt); err != nil {
 			dropped = append(dropped, err)
 			continue
 		}

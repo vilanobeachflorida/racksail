@@ -114,7 +114,7 @@ func (p *caddyPermission) CertificateAllowed(ctx context.Context, name string) e
 }
 
 func (e *Edge) allowCertificate(ctx context.Context, name string) error {
-	route, ok := e.table.Match(name, "/")
+	route, ok := e.table.MatchHost(name)
 	if !ok {
 		return fmt.Errorf("%w: no route serves %s", caddytls.ErrPermissionDenied, name)
 	}
@@ -215,7 +215,7 @@ func (m *caddyCertManager) Provision(ctx caddy.Context) error {
 // GetCertificate implements certmagic.Manager. It answers nil for names
 // that don't use uploaded certificates, so the issued ones are used.
 func (m *caddyCertManager) GetCertificate(ctx context.Context, hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	route, ok := m.edge.table.Match(hello.ServerName, "/")
+	route, ok := m.edge.table.MatchHost(hello.ServerName)
 	if !ok || route.tlsMode() != TLSCertificate {
 		return nil, nil
 	}
@@ -695,7 +695,7 @@ func (e *Edge) Certificates(ctx context.Context) []Certificate {
 		states[s] = st
 		if _, ok := owners[s]; !ok {
 			// Obtained on demand.
-			if r, ok := e.table.Match(s, "/"); ok {
+			if r, ok := e.table.MatchHost(s); ok {
 				owners[s] = appendOwner(owners[s], r.Owner)
 			}
 		}

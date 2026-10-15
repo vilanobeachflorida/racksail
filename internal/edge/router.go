@@ -170,7 +170,7 @@ func (h *caddyRouter) compiled(r Route) (*compiledRoute, error) {
 	fsName := ""
 	if root := h.edge.staticRoot(r); root != "" {
 		fsName = fsKey(r, hash)
-		ctx.FileSystems().Register(fsName, rootFS{dir: root})
+		ctx.FileSystems().Register(fsName, rootFS{dir: root, protected: h.edge.protectedDirs()})
 	}
 	cleanup := func() {
 		cancel()

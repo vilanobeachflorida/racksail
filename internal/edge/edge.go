@@ -178,7 +178,52 @@ func New(opts Options) (*Edge, error) {
 		settings: opts.Settings, settingsC: make(chan struct{}, 1),
 	}
 	e.keeper = newKeeper(e)
+	opts.Table.checkWith(e.checkRoute)
 	return e, nil
+}
+
+// protectedDirs are the edge's own files, which no route serves: its state,
+// where Caddy keeps certificates, keys and ACME accounts, and the uploaded
+// certificates it reads. Each is given as written and as it resolves.
+func (e *Edge) protectedDirs() []string {
+	var dirs []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return
+		}
+		dirs = append(dirs, filepath.ToSlash(abs))
+		if real, err := filepath.EvalSymlinks(abs); err == nil && real != abs {
+			dirs = append(dirs, filepath.ToSlash(real))
+		}
+	}
+	add(e.opts.StateDir)
+	if fc, ok := e.opts.Certs.(FileCerts); ok {
+		add(fc.Dir)
+	}
+	return dirs
+}
+
+// checkRoute refuses static and FastCGI roots that are, hold or lie in the
+// edge's own files: serving them would hand out every site's keys.
+func (e *Edge) checkRoute(r Route) error {
+	if r.Handler.Type != HandleStatic && r.Handler.Type != HandleFastCGI {
+		return nil
+	}
+	root, err := filepath.Abs(e.mapPath(r.Handler.Root))
+	if err != nil {
+		return fmt.Errorf("route %s: root %s: %w", r.ID, r.Handler.Root, err)
+	}
+	root = filepath.ToSlash(root)
+	for _, d := range e.protectedDirs() {
+		if within(root, d) || within(d, root) {
+			return fmt.Errorf("route %s: the root %s would serve the edge's own files", r.ID, r.Handler.Root)
+		}
+	}
+	return nil
 }
 
 // Table returns the routing table the edge serves.

@@ -38,13 +38,45 @@ func routeHash(r Route) string {
 // rootFS serves files inside a directory without following links out of
 // it. Each call opens the directory anew, so a site whose root is a link
 // to its current release sees the new release as soon as the link moves.
-type rootFS struct{ dir string }
+// The directory itself may be such a link, which its account controls, so
+// what was opened is checked against the edge's own files, which are
+// never served: its certificates and keys, and the uploaded certificates
+// it reads.
+type rootFS struct {
+	dir       string
+	protected []string
+}
 
 func (r rootFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
-	return os.OpenInRoot(r.dir, name)
+	f, err := os.OpenInRoot(r.dir, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(r.protected) > 0 {
+		real, err := openedPath(f)
+		if err != nil || insideAny(real, r.protected) {
+			f.Close()
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+		}
+	}
+	return f, nil
+}
+
+// insideAny reports whether p is one of dirs or below one.
+func insideAny(p string, dirs []string) bool {
+	for _, d := range dirs {
+		if within(p, d) {
+			return true
+		}
+	}
+	return false
+}
+
+func within(p, dir string) bool {
+	return dir == "/" || p == dir || strings.HasPrefix(p, dir+"/")
 }
 
 // Stat implements fs.StatFS.
@@ -90,14 +122,18 @@ func matchers(sets ...obj) []caddy.ModuleMap {
 
 func seconds(d time.Duration) string { return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + "s" }
 
+// escapePlaceholders keeps Caddy from expanding placeholders in a value
+// that comes from a route, such as a header value: they would read files
+// ({file.*}), the environment ({env.*}) and the request. Caddy reads \{ and
+// \} as plain braces and leaves every other backslash alone.
+func escapePlaceholders(v string) string {
+	return strings.NewReplacer("{", `\{`, "}", `\}`).Replace(v)
+}
+
 // replaceURI turns the {uri} of a redirect target into Caddy's
-// placeholder; other braces are escaped so a target can't read Caddy's
-// placeholders.
+// placeholder; every other brace is escaped.
 func replaceURI(to string) string {
-	to = strings.ReplaceAll(to, `\`, `\\`)
-	to = strings.ReplaceAll(to, "{", `\{`)
-	to = strings.ReplaceAll(to, "}", `\}`)
-	return strings.ReplaceAll(to, `\{uri\}`, "{http.request.uri}")
+	return strings.ReplaceAll(escapePlaceholders(to), `\{uri\}`, "{http.request.uri}")
 }
 
 // upstreamDial is the address Caddy dials.
@@ -162,7 +198,7 @@ func (e *Edge) compile(r Route, fsName string) (caddyhttp.RouteList, error) {
 	if len(r.Headers) > 0 {
 		set := http.Header{}
 		for _, hd := range r.Headers {
-			set.Add(hd.Name, hd.Value)
+			set.Add(hd.Name, escapePlaceholders(hd.Value))
 		}
 		handlers = append(handlers, module("headers", obj{"response": obj{"set": set, "deferred": true}}))
 	}
@@ -225,7 +261,7 @@ func (e *Edge) compile(r Route, fsName string) (caddyhttp.RouteList, error) {
 		handlers = append(handlers, module("static_response", obj{
 			"status_code": strconv.Itoa(code),
 			"headers":     http.Header{"Content-Type": {"text/plain; charset=utf-8"}},
-			"body":        strings.ReplaceAll(h.Body, "{", `\{`),
+			"body":        escapePlaceholders(h.Body),
 		}))
 	default:
 		return nil, errors.New("unknown handler type " + string(h.Type))
@@ -250,7 +286,11 @@ func (e *Edge) fastCGI(h Handler, fsName string) []json.RawMessage {
 		"dial_timeout": "5s", "read_timeout": "300s", "write_timeout": "300s",
 	}
 	if len(h.Env) > 0 {
-		transport["env"] = h.Env
+		env := make(map[string]string, len(h.Env))
+		for k, v := range h.Env {
+			env[k] = escapePlaceholders(v)
+		}
+		transport["env"] = env
 	}
 	var scripts []string
 	for _, ext := range split {

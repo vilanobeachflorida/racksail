@@ -77,6 +77,20 @@ func TestTableMatching(t *testing.T) {
 			t.Errorf("Match(%s, %s) = %q, want %q", tt.host, tt.path, got, tt.want)
 		}
 	}
+	// Certificates are decided per host: a host whose only route is for a
+	// path still has one, and the route for the whole site decides.
+	api := store.NewID("site")
+	if err := table.SetRoutes(ctx, api, []Route{{ID: "docs", Hosts: []string{"docs.test"}, Path: "/v1", TLS: TLS{Mode: TLSCertificate, Certificate: "docs"}, Handler: Handler{Type: HandleRespond}}}); err != nil {
+		t.Fatal(err)
+	}
+	for host, want := range map[string]string{"docs.test": "docs", "example.com": "main", "shop.example.com": "wild", "other.test": "any"} {
+		if r, ok := table.MatchHost(host); !ok || r.ID != want {
+			t.Errorf("MatchHost(%s) = %q, %v; want %q", host, r.ID, ok, want)
+		}
+	}
+	if err := table.DeleteRoutes(ctx, api); err != nil {
+		t.Fatal(err)
+	}
 	changed := table.Changed()
 	if err := table.DeleteRoutes(ctx, wild); err != nil {
 		t.Fatal(err)
@@ -432,6 +446,100 @@ func TestFastCGI(t *testing.T) {
 	}
 }
 
+// Routes come from the panel, built from what customers enter, such as
+// custom headers and their applications' environment. Nothing in them may
+// read the edge's files or the environment through Caddy's placeholders,
+// and no root may serve the edge's own state, which holds every site's
+// keys.
+func TestRoutesCantReadTheEdgesFiles(t *testing.T) {
+	ctx := context.Background()
+	dir := shortTemp(t)
+	secret := filepath.Join(dir, "secret.txt")
+	os.WriteFile(secret, []byte("top secret"), 0o600)
+	certs := filepath.Join(dir, "certs")
+	os.MkdirAll(filepath.Join(certs, "uploaded"), 0o755)
+	os.WriteFile(filepath.Join(certs, "uploaded", "privkey.pem"), []byte("uploaded key"), 0o600)
+	www := filepath.Join(dir, "www")
+	os.MkdirAll(www, 0o755)
+	os.WriteFile(filepath.Join(www, "index.html"), []byte("home"), 0o644)
+	app := filepath.Join(dir, "app")
+	os.MkdirAll(app, 0o755)
+	os.WriteFile(filepath.Join(app, "index.php"), []byte("<?php"), 0o644)
+	sock := filepath.Join(dir, "php.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go fcgi.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, fcgi.ProcessEnv(r)["LEAK"])
+	}))
+
+	te := startEdge(t, Options{Dev: true, Certs: FileCerts{Dir: certs}})
+	state := te.opts.StateDir
+	os.MkdirAll(state, 0o750)
+	os.WriteFile(filepath.Join(state, "account.key"), []byte("acme account key"), 0o600)
+	// An account controls its own directories, so it can make a site's root
+	// a link to wherever it likes.
+	os.Symlink(state, filepath.Join(dir, "linked-state"))
+	os.Symlink(certs, filepath.Join(dir, "linked-certs"))
+
+	leak := "{file." + secret + "}"
+	owner := store.NewID("site")
+	routes := []Route{
+		{ID: "headers", Hosts: []string{"headers.test"}, Handler: Handler{Type: HandleStatic, Root: www},
+			Headers: []Header{{Name: "X-Leak", Value: leak}, {Name: "X-Env", Value: "{env.HOME}"}}},
+		{ID: "body", Hosts: []string{"body.test"}, Handler: Handler{Type: HandleRespond, Body: leak}},
+		{ID: "redirect", Hosts: []string{"redirect.test"}, Handler: Handler{Type: HandleRedirect, To: "https://elsewhere.test/" + leak + "{uri}"}},
+		{ID: "php", Hosts: []string{"php.test"}, Handler: Handler{Type: HandleFastCGI, Root: app, Env: map[string]string{"LEAK": leak}, Upstreams: []Upstream{{Network: "unix", Address: sock}}}},
+		{ID: "state", Hosts: []string{"state.test"}, Handler: Handler{Type: HandleStatic, Root: filepath.Join(dir, "linked-state")}},
+		{ID: "certs", Hosts: []string{"certs.test"}, Handler: Handler{Type: HandleStatic, Root: filepath.Join(dir, "linked-certs")}},
+	}
+	if err := te.admin.SetRoutes(ctx, owner, routes); err != nil {
+		t.Fatal(err)
+	}
+	te.waitRunning(t, true)
+	c := te.client(t)
+	if r, b := get(t, c, "https://headers.test/"); b != "home" || r.Header.Get("X-Leak") != leak || r.Header.Get("X-Env") != "{env.HOME}" {
+		t.Errorf("headers = %q, %q (%q)", r.Header.Get("X-Leak"), r.Header.Get("X-Env"), b)
+	}
+	if _, b := get(t, c, "https://body.test/"); b != leak {
+		t.Errorf("body = %q", b)
+	}
+	if r, _ := get(t, c, "https://redirect.test/a"); r.Header.Get("Location") != "https://elsewhere.test/"+leak+"/a" {
+		t.Errorf("redirect = %q", r.Header.Get("Location"))
+	}
+	if _, b := get(t, c, "https://php.test/index.php"); b != leak {
+		t.Errorf("FastCGI parameter = %q", b)
+	}
+	for _, u := range []string{"https://state.test/account.key", "https://certs.test/uploaded/privkey.pem"} {
+		if r, b := get(t, c, u); r.StatusCode == http.StatusOK || strings.Contains(b, "key") {
+			t.Errorf("%s = %d %q", u, r.StatusCode, b)
+		}
+	}
+
+	// Roots that are, hold or lie in the edge's files are refused outright.
+	for _, root := range []string{state, filepath.Join(state, "caddy"), dir, "/", certs, filepath.Join(certs, "uploaded")} {
+		bad := []Route{{ID: "bad", Hosts: []string{"bad.test"}, Handler: Handler{Type: HandleStatic, Root: root}}}
+		if err := te.admin.SetRoutes(ctx, store.NewID("site"), bad); err == nil {
+			t.Errorf("a root at %s was accepted", root)
+		}
+	}
+	for _, bad := range []Route{
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Path: "/{file./etc/passwd}", Handler: Handler{Type: HandleRespond}},
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Handler: Handler{Type: HandleStatic, Root: "/srv/{env.HOME}"}},
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Handler: Handler{Type: HandleStatic, Root: "/srv/www", Fallback: "/{file./etc/passwd}"}},
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Handler: Handler{Type: HandleFastCGI, Root: "/srv/app", Index: "{env.X}.php", Upstreams: []Upstream{{Network: "unix", Address: "/run/php.sock"}}}},
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Handler: Handler{Type: HandleProxy, HealthPath: "/{env.X}", Upstreams: []Upstream{{Network: "tcp", Address: "127.0.0.1:80"}}}},
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Handler: Handler{Type: HandleProxy, Upstreams: []Upstream{{Network: "tcp", Address: "{env.HOST}:80"}}}},
+		{ID: "x", Owner: owner, Hosts: []string{"a.test"}, Handler: Handler{Type: HandleProxy, Upstreams: []Upstream{{Network: "unix", Address: "/run/{env.X}.sock"}}}},
+	} {
+		if err := bad.Validate(); err == nil {
+			t.Errorf("Validate(%+v) should refuse the placeholder", bad)
+		}
+	}
+}
+
 func TestEdgeStartsWithTheFirstRouteAndStopsWithTheLast(t *testing.T) {
 	ctx := context.Background()
 	te := startEdge(t, Options{Dev: true})
@@ -611,9 +719,10 @@ func TestOnDemandPermission(t *testing.T) {
 		{ID: "demand", Hosts: []string{"demand.test"}, TLS: TLS{Mode: TLSOnDemand}, Handler: Handler{Type: HandleRespond}},
 		{ID: "saas", Hosts: []string{CatchAll}, TLS: TLS{Mode: TLSOnDemand, Ask: true}, Handler: Handler{Type: HandleRespond}},
 		{ID: "custom", Hosts: []string{"custom.test"}, TLS: TLS{Mode: TLSCertificate, Certificate: "custom"}, Handler: Handler{Type: HandleRespond}},
+		{ID: "api", Hosts: []string{"api.test"}, Path: "/v1", TLS: TLS{Mode: TLSOnDemand}, Handler: Handler{Type: HandleRespond}},
 	})
 	for name, allowed := range map[string]bool{
-		"site.test": true, "shop.site.test": true, "demand.test": true,
+		"site.test": true, "shop.site.test": true, "demand.test": true, "api.test": true,
 		"customer.example": true, "stranger.example": false, "custom.test": false,
 	} {
 		err := e.allowCertificate(ctx, name)
