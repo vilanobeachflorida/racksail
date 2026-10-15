@@ -335,14 +335,22 @@ func (in InstallArchiveInput) Validate() error {
 	if !under(in.Archive.Dest, []string{system.RuntimesDir, system.ModulesDir}) || in.Archive.Dest == system.RuntimesDir || in.Archive.Dest == system.ModulesDir {
 		return fmt.Errorf("archives unpack into a versioned directory under %s or %s", system.RuntimesDir, system.ModulesDir)
 	}
+	if s := in.Archive.Signature; s != nil {
+		if _, ok := signingKey(s.Key); !ok {
+			return fmt.Errorf("signing key %s isn't one Racksail knows", s.Key)
+		}
+	}
 	return nil
 }
 
-// InstallArchive downloads a vendor archive, checks its checksum and unpacks
-// it into a new versioned directory. Existing directories are never touched.
+// InstallArchive downloads a vendor archive, checks its checksum or the
+// vendor's signature and unpacks it into a new versioned directory.
+// Existing directories are never touched.
 var InstallArchive = Register(Def[InstallArchiveInput, Result]{
 	Name:    "InstallArchive",
 	Summary: "Install a vendor archive",
+	Description: "Downloads an archive over https, checks it against its SHA-256 or a detached signature by a vendor key built into Racksail, " +
+		"directly or through a signed checksums list, and unpacks it into a new versioned directory under /opt/racksail.",
 	Effects: func(in InstallArchiveInput) []system.Effect {
 		return archiveEffects(in.Archive)
 	},
@@ -354,7 +362,13 @@ var InstallArchive = Register(Def[InstallArchiveInput, Result]{
 		if env.Check {
 			return Changed(effects...), nil
 		}
-		return Changed(effects...), env.System.Packages.InstallArchive(ctx, in.Archive)
+		archive := in.Archive
+		if s := archive.Signature; s != nil {
+			resolved := *s
+			resolved.PublicKey, _ = signingKey(s.Key)
+			archive.Signature = &resolved
+		}
+		return Changed(effects...), env.System.Packages.InstallArchive(ctx, archive)
 	},
 })
 

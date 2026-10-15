@@ -3,19 +3,21 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/netip"
 	"regexp"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 // lastRuleset is where the agent keeps the ruleset it applied, so applying
 // the same one again changes nothing.
-const lastRuleset = system.StateDir + "/agent/firewall.nft"
+const lastRuleset = system.AgentStateDir + "/firewall.nft"
 
 // ApplyFirewallInput is a complete nftables ruleset for Racksail's tables.
 type ApplyFirewallInput struct {
@@ -66,9 +68,16 @@ var ApplyFirewall = Register(Def[ApplyFirewallInput, Result]{
 	},
 })
 
+// ensureStateDir creates the agent's state directory, root's alone.
 func ensureStateDir(ctx context.Context, env *Env) error {
-	_, err := EnsureDir.def.Run(ctx, &Env{System: env.System, Log: env.Log}, EnsureDirInput{Path: system.StateDir + "/agent", Mode: 0o700, Parents: true})
-	return err
+	f := env.System.Files
+	if _, err := f.Stat(ctx, system.AgentStateDir); err == nil {
+		return nil
+	}
+	if err := f.Mkdir(ctx, system.AgentStateDir, 0o700, system.Owner{}); err != nil && !errors.Is(err, system.ErrExists) {
+		return err
+	}
+	return nil
 }
 
 // SetElementsInput adds or removes set elements, such as bans.
@@ -168,6 +177,10 @@ var networkdNamePattern = regexp.MustCompile(`^50-racksail[A-Za-z0-9._-]*\.(netw
 // NetworkConfigInput is the complete set of networkd files Racksail manages.
 type NetworkConfigInput struct {
 	Files map[string]string `json:"files" doc:"File name to contents; names start with 50-racksail"`
+	// ConfirmWithin applies the change on probation: unless
+	// ConfirmNetworkConfig is called within this many seconds, the agent
+	// puts the previous files back by itself. Zero applies it for good.
+	ConfirmWithin int `json:"confirmWithin,omitempty" doc:"Seconds to wait for confirmation before rolling back; zero keeps the change without asking"`
 }
 
 // Validate implements Input.
@@ -180,35 +193,115 @@ func (in NetworkConfigInput) Validate() error {
 			return fmt.Errorf("networkd file %s is too large", name)
 		}
 	}
+	if in.ConfirmWithin < 0 || in.ConfirmWithin > 3600 {
+		return fmt.Errorf("confirmWithin must be between 0 and 3600 seconds")
+	}
 	return nil
 }
 
+// NetworkApplyResult is what applying network configuration did.
+type NetworkApplyResult struct {
+	Result
+	// Pending is set when the change must be confirmed.
+	Pending *NetworkChange `json:"pending,omitempty"`
+}
+
 // ApplyNetworkConfig replaces Racksail's systemd-networkd files and reloads
-// networkd. The network module keeps the previous files to roll back when
-// the browser doesn't confirm the change.
-var ApplyNetworkConfig = Register(Def[NetworkConfigInput, Result]{
+// networkd. With confirmWithin the change is safe to try: a change that cuts
+// the panel off is rolled back by the agent on its own.
+var ApplyNetworkConfig = Register(Def[NetworkConfigInput, NetworkApplyResult]{
 	Name:    "ApplyNetworkConfig",
 	Summary: "Apply network configuration",
+	Description: "Replaces the systemd-networkd files Racksail manages and reloads networkd. With confirmWithin, the previous " +
+		"files come back automatically unless ConfirmNetworkConfig is called in time, so a change that cuts the server off undoes itself.",
 	Effects: func(in NetworkConfigInput) []system.Effect {
 		return networkEffects(in.Files)
 	},
-	Run: func(ctx context.Context, env *Env, in NetworkConfigInput) (Result, error) {
+	Run: func(ctx context.Context, env *Env, in NetworkConfigInput) (NetworkApplyResult, error) {
 		current, err := env.System.Network.Config(ctx)
 		if err != nil {
-			return Result{}, err
+			return NetworkApplyResult{}, err
 		}
-		want := map[string][]byte{}
-		for name, content := range in.Files {
-			want[name] = []byte(content)
-		}
+		want := networkFiles(in.Files)
 		if maps.EqualFunc(current, want, bytes.Equal) {
-			return Unchanged(), nil
+			return NetworkApplyResult{}, nil
 		}
 		effects := networkEffects(in.Files)
 		if env.Check {
-			return Changed(effects...), nil
+			return NetworkApplyResult{Result: Changed(effects...)}, nil
 		}
-		return Changed(effects...), env.System.Network.ApplyConfig(ctx, want)
+		if in.ConfirmWithin == 0 {
+			return NetworkApplyResult{Result: Changed(effects...)}, env.System.Network.ApplyConfig(ctx, want)
+		}
+		if env.Runtime == nil {
+			return NetworkApplyResult{}, errNoRuntime
+		}
+		change, err := env.Runtime.applyNetwork(ctx, want, time.Duration(in.ConfirmWithin)*time.Second)
+		if err != nil {
+			return NetworkApplyResult{}, err
+		}
+		return NetworkApplyResult{Result: Changed(effects...), Pending: &change}, nil
+	},
+})
+
+// ConfirmNetworkInput keeps a network change applied on probation.
+type ConfirmNetworkInput struct {
+	Token string `json:"token" doc:"The token ApplyNetworkConfig returned"`
+}
+
+var tokenPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// Validate implements Input.
+func (in ConfirmNetworkInput) Validate() error {
+	if !tokenPattern.MatchString(in.Token) {
+		return fmt.Errorf("the token isn't one ApplyNetworkConfig returns")
+	}
+	return nil
+}
+
+// ConfirmNetworkConfig keeps a network change, cancelling its rollback.
+var ConfirmNetworkConfig = Register(Def[ConfirmNetworkInput, Result]{
+	Name:        "ConfirmNetworkConfig",
+	Summary:     "Keep a network change",
+	Description: "Confirms a network change applied with confirmWithin, so it isn't rolled back. The browser confirms through the panel once it can still reach it.",
+	Effects: func(in ConfirmNetworkInput) []system.Effect {
+		return []system.Effect{{Type: system.EffectNetwork, Action: "confirm", Target: "systemd-networkd"}}
+	},
+	Run: func(ctx context.Context, env *Env, in ConfirmNetworkInput) (Result, error) {
+		if env.Runtime == nil {
+			return Result{}, errNoRuntime
+		}
+		if env.Check {
+			st, err := env.Runtime.networkStatus(ctx)
+			if err != nil || st == nil {
+				return Unchanged(), err
+			}
+			return Changed(system.Effect{Type: system.EffectNetwork, Action: "confirm", Target: "systemd-networkd"}), nil
+		}
+		confirmed, err := env.Runtime.confirmNetwork(ctx, in.Token)
+		if err != nil || !confirmed {
+			return Unchanged(), err
+		}
+		return Changed(system.Effect{Type: system.EffectNetwork, Action: "confirm", Target: "systemd-networkd"}), nil
+	},
+})
+
+// NetworkStatus reports a network change waiting for confirmation.
+type NetworkStatus struct {
+	Pending *NetworkChange `json:"pending,omitempty"`
+}
+
+// GetNetworkChange reports whether a network change waits for confirmation.
+var GetNetworkChange = Register(Def[Empty, NetworkStatus]{
+	Name:     "GetNetworkChange",
+	Summary:  "Report a network change waiting for confirmation",
+	ReadOnly: true,
+	Run: func(ctx context.Context, env *Env, _ Empty) (NetworkStatus, error) {
+		if env.Runtime == nil {
+			return NetworkStatus{}, errNoRuntime
+		}
+		st, err := env.Runtime.networkStatus(ctx)
+		return NetworkStatus{Pending: st}, err
 	},
 })
 

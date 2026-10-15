@@ -34,6 +34,7 @@ var EnsureUnit = Register(Def[EnsureUnitInput, Result]{
 		units := env.System.Units
 		current, err := units.ReadUnit(ctx, in.Name)
 		if err == nil && bytes.Equal(current, in.Content) {
+			env.remember(ctx, ledgerUnit, in.Name, in.Content)
 			return Unchanged(), nil
 		}
 		if err != nil && !errors.Is(err, system.ErrNotFound) {
@@ -46,6 +47,7 @@ var EnsureUnit = Register(Def[EnsureUnitInput, Result]{
 		if err := units.WriteUnit(ctx, in.Name, in.Content); err != nil {
 			return Result{}, err
 		}
+		env.remember(ctx, ledgerUnit, in.Name, in.Content)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })
@@ -71,6 +73,7 @@ var RemoveUnit = Register(Def[UnitInput, Result]{
 		}
 		units := env.System.Units
 		if _, err := units.ReadUnit(ctx, in.Name); errors.Is(err, system.ErrNotFound) {
+			env.forget(ctx, in.Name)
 			return Unchanged(), nil
 		} else if err != nil {
 			return Result{}, err
@@ -96,6 +99,7 @@ var RemoveUnit = Register(Def[UnitInput, Result]{
 		if err := units.RemoveUnit(ctx, in.Name); err != nil {
 			return Result{}, err
 		}
+		env.forget(ctx, in.Name)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })
@@ -144,6 +148,7 @@ var EnsureDropIn = Register(Def[DropInInput, Result]{
 		units := env.System.Units
 		target := system.UnitDir + "/" + in.Unit + ".d/" + in.Name + ".conf"
 		if current, err := env.System.Files.ReadFile(ctx, target, 64<<10); err == nil && bytes.Equal(current, in.Content) {
+			env.remember(ctx, ledgerDropIn, target, in.Content)
 			return Unchanged(), nil
 		}
 		effect := system.Effect{Type: system.EffectFile, Action: "write", Target: target}
@@ -153,6 +158,7 @@ var EnsureDropIn = Register(Def[DropInInput, Result]{
 		if err := units.WriteDropIn(ctx, in.Unit, in.Name, in.Content); err != nil {
 			return Result{}, err
 		}
+		env.remember(ctx, ledgerDropIn, target, in.Content)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })
@@ -168,6 +174,7 @@ var RemoveDropIn = Register(Def[DropInInput, Result]{
 		units := env.System.Units
 		target := system.UnitDir + "/" + in.Unit + ".d/" + in.Name + ".conf"
 		if _, err := env.System.Files.Stat(ctx, target); errors.Is(err, system.ErrNotFound) {
+			env.forget(ctx, target)
 			return Unchanged(), nil
 		}
 		effect := system.Effect{Type: system.EffectFile, Action: "delete", Target: target}
@@ -177,6 +184,7 @@ var RemoveDropIn = Register(Def[DropInInput, Result]{
 		if err := units.RemoveDropIn(ctx, in.Unit, in.Name); err != nil {
 			return Result{}, err
 		}
+		env.forget(ctx, target)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })

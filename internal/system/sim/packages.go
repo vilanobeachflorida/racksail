@@ -56,7 +56,7 @@ var (
 		"base-files":             {version: "13.8", download: 70 << 10, installed: 400 << 10},
 		"linux-image-amd64":      {version: "6.12.48-1", download: 1 << 20, installed: 4 << 20},
 		"linux-image-arm64":      {version: "6.12.48-1", download: 1 << 20, installed: 4 << 20},
-		"systemd-zram-generator": {version: "1.2.1-2", download: 400 << 10, installed: 1 << 20},
+		"systemd-zram-generator": {version: "1.2.1-2", download: 400 << 10, installed: 1 << 20, units: []string{"systemd-zram-setup@zram0.service"}},
 		"unattended-upgrades":    {version: "2.12", download: 80 << 10, installed: 400 << 10, units: []string{"unattended-upgrades.service"}},
 		"systemd-timesyncd":      {version: "257.8-1", download: 60 << 10, installed: 200 << 10, units: []string{"systemd-timesyncd.service"}},
 		"systemd":                {version: "257.8-1", download: 3 << 20, installed: 11 << 20},

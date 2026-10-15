@@ -57,6 +57,7 @@ var WriteFile = Register(Def[WriteFileInput, Result]{
 		case err == nil && !info.IsSymlink() && info.Perm() == in.Mode.FileMode().Perm() && ownedBy(info, in.Owner):
 			current, err := f.ReadFile(ctx, in.Path, maxFileContent)
 			if err == nil && bytes.Equal(current, in.Content) {
+				env.remember(ctx, ledgerFile, in.Path, in.Content)
 				return Unchanged(), nil
 			}
 		case err != nil && !errors.Is(err, system.ErrNotFound):
@@ -68,6 +69,7 @@ var WriteFile = Register(Def[WriteFileInput, Result]{
 		if err := f.WriteFile(ctx, in.Path, in.Content, in.Mode.FileMode(), in.Owner); err != nil {
 			return Result{}, err
 		}
+		env.remember(ctx, ledgerFile, in.Path, in.Content)
 		return Changed(effect), nil
 	},
 })
@@ -205,6 +207,7 @@ var RemovePath = Register(Def[RemovePathInput, Result]{
 			return Result{}, err
 		}
 		if _, err := f.Stat(ctx, in.Path); errors.Is(err, system.ErrNotFound) {
+			env.forget(ctx, in.Path)
 			return Unchanged(), nil
 		} else if err != nil {
 			return Result{}, err
@@ -222,6 +225,7 @@ var RemovePath = Register(Def[RemovePathInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
+		env.forget(ctx, in.Path)
 		return Changed(effect), nil
 	},
 })

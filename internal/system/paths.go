@@ -9,9 +9,14 @@ const (
 	GeneratedDir = "/etc/racksail/generated"
 	CertsDir     = "/etc/racksail/certs"
 	StateDir     = "/var/lib/racksail"
-	// AgentStateDir is the agent's own state: its audit log, what it
-	// applied and what it is about to roll back. Only root reads it.
+	// AgentStateDir is the agent's own state: what it applied, what it is
+	// about to roll back and the certificate it joined a cluster with. Only
+	// root reads it.
 	AgentStateDir = "/var/lib/racksail-agent"
+	// AgentClusterFile holds the hub and certificate of a joined server.
+	AgentClusterFile = "/var/lib/racksail-agent/cluster.json"
+	// AgentAuditLog is the agent's audit trail, rotated to .1 when large.
+	AgentAuditLog = "/var/log/racksail/agent-audit.jsonl"
 	// EdgeStateDir holds the edge's certificates and ACME accounts.
 	EdgeStateDir = "/var/lib/racksail-edge"
 	// CredstoreDir is where systemd looks for encrypted credentials that

@@ -19,6 +19,15 @@ var (
 	ErrUnreachable      = i18n.Define("agent.unreachable", http.StatusServiceUnavailable, "The agent isn't reachable: {reason}.")
 )
 
+// errorCode returns the code an error carries, or "".
+func errorCode(err error) string {
+	var coded *i18n.Error
+	if errors.As(err, &coded) {
+		return string(coded.Code)
+	}
+	return ""
+}
+
 // failed wraps an adapter error with the operation's name and a code that
 // matches what went wrong. Errors that already carry a code keep it.
 func failed(op string, err error) error {

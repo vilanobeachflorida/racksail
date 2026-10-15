@@ -170,7 +170,13 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 			if env.Check {
 				return Changed(effect), nil
 			}
-			return Changed(effect), u.CreateUser(ctx, want)
+			if err := u.CreateUser(ctx, want); err != nil {
+				return Result{}, err
+			}
+			if env.Runtime != nil && in.UID != 0 {
+				env.Runtime.release(in.UID)
+			}
+			return Changed(effect), nil
 		}
 		if err != nil {
 			return Result{}, err
@@ -294,5 +300,52 @@ var LookupUser = Register(Def[NameInput, UserLookup]{
 			return UserLookup{}, nil
 		}
 		return UserLookup{Exists: err == nil, User: u}, err
+	},
+})
+
+// AllocateAccountIDInput asks for a free account ID.
+type AllocateAccountIDInput struct {
+	// Exclude lists IDs the panel has given to accounts elsewhere, such as
+	// on other servers of a cluster, so an account keeps its ID when it
+	// moves.
+	Exclude []int `json:"exclude,omitempty" doc:"IDs already given to accounts elsewhere"`
+}
+
+// Validate implements Input.
+func (in AllocateAccountIDInput) Validate() error {
+	if len(in.Exclude) > system.AccountUIDMax-system.AccountUIDMin+1 {
+		return fmt.Errorf("too many excluded ids")
+	}
+	for _, id := range in.Exclude {
+		if id < system.AccountUIDMin || id > system.AccountUIDMax {
+			return fmt.Errorf("id %d is outside the account range", id)
+		}
+	}
+	return nil
+}
+
+// AccountID is an allocated account ID with its subordinate ID range.
+type AccountID struct {
+	UID    int            `json:"uid" doc:"User and group ID for the account"`
+	SubIDs system.IDRange `json:"subIds" doc:"Subordinate IDs for the account's rootless containers"`
+}
+
+// AllocateAccountID picks the lowest account ID no user or group has, and
+// holds it for ten minutes so the next allocation doesn't pick it too.
+// EnsureUser with that UID uses it up.
+var AllocateAccountID = Register(Def[AllocateAccountIDInput, AccountID]{
+	Name:        "AllocateAccountID",
+	Summary:     "Pick a free account ID",
+	Description: "Returns the lowest ID in the account range that no user or group on this server has and the panel didn't exclude, with its subordinate ID range. The ID is held for ten minutes so concurrent allocations don't collide.",
+	ReadOnly:    true,
+	Run: func(ctx context.Context, env *Env, in AllocateAccountIDInput) (AccountID, error) {
+		if env.Runtime == nil {
+			return AccountID{}, errNoRuntime
+		}
+		uid, err := env.Runtime.reserve(ctx, in.Exclude)
+		if err != nil {
+			return AccountID{}, err
+		}
+		return AccountID{UID: uid, SubIDs: system.AccountSubIDs(uid)}, nil
 	},
 })

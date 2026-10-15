@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -25,6 +28,8 @@ var policy = struct {
 	units      []string
 	rootUnits  []string
 	aptSources map[string]system.AptSource
+	// signingKeys are vendors' armored OpenPGP keys by name.
+	signingKeys map[string][]byte
 }{
 	writeRoots: []string{
 		system.ConfigDir, system.StateDir, "/var/lib/racksail-db", "/srv/racksail", "/opt/racksail",
@@ -32,8 +37,9 @@ var policy = struct {
 	},
 	units: []string{"racksail*", "systemd-networkd.service", "systemd-timesyncd.service", "nftables.service"},
 	// Platform units run as root or as their own users by design.
-	rootUnits:  []string{"racksail-panel.service", "racksail-agent.service", "racksail-edge.service", "racksail-addon@.service"},
-	aptSources: map[string]system.AptSource{},
+	rootUnits:   []string{"racksail-panel.service", "racksail-agent.service", "racksail-edge.service", "racksail-addon@.service"},
+	aptSources:  map[string]system.AptSource{},
+	signingKeys: map[string][]byte{},
 }
 
 // AllowWrite lets file operations write below root, such as /etc/knot for
@@ -64,6 +70,35 @@ func RegisterAptSource(src system.AptSource) {
 		return
 	}
 	policy.aptSources[src.Name] = src
+}
+
+// RegisterSigningKey adds a vendor's armored OpenPGP public key that
+// archive signatures may be checked against. Like apt sources, the panel
+// names keys and never supplies them.
+func RegisterSigningKey(name string, armored []byte) {
+	policy.Lock()
+	defer policy.Unlock()
+	_, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(armored))
+	if err == nil && !signingKeyPattern.MatchString(name) {
+		err = fmt.Errorf("the name must be lowercase letters, digits, dots and dashes")
+	}
+	if err != nil {
+		registry.Lock()
+		registry.errs = append(registry.errs, fmt.Errorf("agent: signing key %s: %w", name, err))
+		registry.Unlock()
+		return
+	}
+	policy.signingKeys[name] = bytes.Clone(armored)
+}
+
+var signingKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`)
+
+// signingKey returns a registered key.
+func signingKey(name string) ([]byte, bool) {
+	policy.RLock()
+	defer policy.RUnlock()
+	key, ok := policy.signingKeys[name]
+	return key, ok
 }
 
 func allow(list *[]string, entry string) {
