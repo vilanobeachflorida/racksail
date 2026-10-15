@@ -27,8 +27,16 @@ import (
 // ProtocolVersion is the version of the agent protocol.
 const ProtocolVersion = "1.0.0"
 
-// maxBody bounds requests and responses on the agent socket.
-const maxBody = 64 << 20
+// maxBody bounds requests and responses on the agent socket. The largest are
+// files written or read whole, whose contents travel base64-encoded in JSON,
+// so it leaves room for the largest file in that encoding plus the rest of
+// the request.
+const maxBody = (maxFileContent+2)/3*4 + 1<<20
+
+// bodyReadTimeout bounds reading one request. Panels on other servers reach
+// the agent over mutual TLS, where a request close to maxBody takes longer
+// than Huma's default of five seconds.
+const bodyReadTimeout = 2 * time.Minute
 
 // Server serves the operation allowlist over HTTP+JSON.
 type Server struct {
@@ -222,9 +230,12 @@ func (c *HTTPClient) do(req *http.Request) (json.RawMessage, error) {
 		return nil, ErrUnreachable.Wrap(err, "reason", err.Error())
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, ErrUnreachable.Wrap(err, "reason", err.Error())
+	}
+	if len(body) > maxBody {
+		return nil, ErrFailed.New("op", req.URL.Path, "reason", fmt.Sprintf("the answer is larger than %d bytes", maxBody))
 	}
 	if resp.StatusCode < 300 {
 		return body, nil

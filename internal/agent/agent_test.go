@@ -1,10 +1,14 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -388,6 +392,57 @@ func TestHTTPServerRoundTrip(t *testing.T) {
 	unreachable := NewHTTPClient("http://127.0.0.1:1", nil)
 	if _, err := unreachable.Health(ctx); !errors.Is(err, ErrUnreachable) {
 		t.Errorf("unreachable agent: %v", err)
+	}
+}
+
+// Files are written and read whole, so the agent's socket must carry the
+// largest file WriteFile accepts, base64-encoded in JSON.
+func TestBodyLimitFitsTheLargestFile(t *testing.T) {
+	if need := base64.StdEncoding.EncodedLen(maxFileContent) + 64<<10; maxBody < need {
+		t.Errorf("maxBody is %d bytes, a full-size WriteFile needs %d", maxBody, need)
+	}
+}
+
+// Calls through the socket go through Huma's request handling, which the
+// in-process client skips, so large requests are tried over a real socket.
+func TestLargeFilesOverTheSocket(t *testing.T) {
+	// Unix socket paths are limited to about 100 bytes, which the test's own
+	// temporary directory can exceed.
+	dir, err := os.MkdirTemp("", "ag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "agent.sock")
+	ln, err := ListenUnix(sock, 0o600, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- NewServer(sim.New(sim.Options{}).Backend(), "test", nil).Serve(ctx, ln) }()
+	defer func() {
+		cancel()
+		if err := <-served; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	}()
+	client := DialUnix(sock)
+
+	content := bytes.Repeat([]byte("server {\n  listen 443;\n}\n"), (3<<20)/27)
+	in := WriteFileInput{Path: "/etc/racksail/generated/firewall.nft", Content: content, Mode: 0o640}
+	res, err := WriteFile.Call(ctx, client, in, CallOptions{})
+	if err != nil || !res.Changed {
+		t.Fatalf("writing %d bytes over the socket = %+v, %v", len(content), res, err)
+	}
+	got, err := ReadFile.Call(ctx, client, ReadFileInput{Path: in.Path, MaxBytes: 4 << 20}, CallOptions{})
+	if err != nil || !bytes.Equal(got.Content, content) {
+		t.Errorf("reading it back = %d bytes, %v", len(got.Content), err)
+	}
+	_, err = client.Call(ctx, "WriteFile", bytes.Repeat([]byte(" "), maxBody+1), CallOptions{})
+	var coded *i18n.Error
+	if !errors.As(err, &coded) || coded.Code != i18n.ErrTooLarge.Code {
+		t.Errorf("a request over the limit: %v", err)
 	}
 }
 

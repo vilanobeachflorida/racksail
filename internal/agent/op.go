@@ -271,7 +271,10 @@ func (o *Op[In, Out]) register(api huma.API, srv *Server) {
 		Summary:     o.def.Summary,
 		Description: o.def.Description,
 		Tags:        []string{tag},
-		Errors:      []int{400, 404, 409, 422, 500},
+		Errors:      []int{400, 404, 409, 413, 422, 500},
+		// Huma would cap bodies at 1 MiB; the socket's own limit applies.
+		MaxBodyBytes:    maxBody,
+		BodyReadTimeout: bodyReadTimeout,
 	}, func(ctx context.Context, req *opRequest[In]) (*opResponse[Out], error) {
 		if err := req.Body.Validate(); err != nil {
 			return nil, ErrInvalidInput.Wrap(err, "op", o.def.Name, "reason", err.Error())

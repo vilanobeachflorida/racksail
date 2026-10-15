@@ -253,6 +253,7 @@ var ReloadZones = agent.Register(agent.Def[ReloadZonesInput, agent.Result]{
 - `Validate` checks every field before anything runs: paths absolute, clean and inside allowed roots, names matching strict patterns, sizes bounded.
 - `Run` works through `env.System`, never through `os` or `exec` directly, so it runs the same against the simulated machine. External programs get a fixed path and an argument vector; there is no shell and no operation that runs an arbitrary command.
 - In check mode (`env.Check`) an operation reports what it would change without changing it. `Effects` describes a step without asking the machine, for previews where check mode can't run; `ReadOnly` marks operations that never change anything.
+- Inputs and outputs travel as JSON, up to about 86 MiB on the socket: enough for the largest file `WriteFile` writes, base64-encoded. Keep bulk data such as archives out of inputs; operations download it themselves.
 - What file, unit and package operations may touch is fixed when the binary starts. Modules extend it from `init` functions: `agent.AllowWrite("/etc/knot")`, `agent.AllowRead(...)`, `agent.AllowUnit("knot.service")`, `agent.AllowRootUnit(...)` for platform services only, and `agent.RegisterAptSource(...)` for vendor repositories, which the panel can then only name.
 
 Operations registered anywhere in the binary are in the agent's allowlist, because `cmd/racksail` imports every module through `modules/all`. After adding or changing one, run `make gen` to update `spec/agent-protocol.json`; a test fails until you do.
