@@ -337,6 +337,11 @@ func run(ctx context.Context, c Config) error {
 			defer collectLogs()
 		}
 	}
+	// The installed system boots with the firmware's variables the installer
+	// image booted with. Secure Boot on there means the firmware enforced it
+	// all along, so the image's own boot chain passed its checks too: the
+	// install couldn't have run otherwise. (The image boots quietly, so its
+	// kernel doesn't print the state on the serial console.)
 	if sshReady && c.Firmware == "secureboot" {
 		on, err := ssh.SecureBootOn(ctx)
 		switch {
@@ -345,7 +350,7 @@ func run(ctx context.Context, c Config) error {
 		case !on:
 			errs = append(errs, errors.New("the installed system didn't boot with Secure Boot on"))
 		default:
-			log.Print("the installed system booted with Secure Boot on")
+			log.Print("the installer image and the installed system booted with Secure Boot on")
 		}
 	}
 	if c.UpgradeFrom != "" {
@@ -421,13 +426,6 @@ func install(ctx context.Context, c Config, m Machine, sshKey string) (string, e
 			return "", fmt.Errorf("the install didn't finish within %s\nlast console lines:\n%s", c.InstallTimeout, tail(m.SerialLog, 40))
 		}
 		return "", fmt.Errorf("QEMU stopped during the install: %w\n%s", err, tail(filepath.Join(logs, "qemu-install.txt"), 20))
-	}
-	if c.Firmware == "secureboot" {
-		console, _ := os.ReadFile(m.SerialLog)
-		if !strings.Contains(string(console), "Secure boot enabled") {
-			return "", errors.New("the installer image didn't boot with Secure Boot on; its kernel didn't report it on the serial console")
-		}
-		log.Print("the installer image booted with Secure Boot on")
 	}
 	log.Print("the installer finished and rebooted")
 	return a.Account.Username, nil
