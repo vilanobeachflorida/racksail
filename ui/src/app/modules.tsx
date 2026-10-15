@@ -1,10 +1,10 @@
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import type { IntlShape, MessageDescriptor } from "react-intl";
+import type { ModuleState } from "@/lib/api/session";
 import type { ModuleId } from "@/modules/registry";
 import type { CommandAction, HomeCard, ModuleUI, NavEntry } from "@/modules/types";
 
-/** Where a module is in its life, as the module manager reports it. */
-export type ModuleState = "off" | "on" | "active" | "stopping" | "removing";
+export type { ModuleState };
 
 interface ModulesValue {
   modules: readonly ModuleUI[];

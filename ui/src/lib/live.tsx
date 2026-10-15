@@ -25,10 +25,20 @@ export type LiveStatus = "connecting" | "open" | "retrying";
 
 type EventSourceFactory = (url: string) => EventSource;
 
-interface Subscriber {
-  types: ReadonlySet<string>;
+/** What a subscriber hears from a stream. */
+export interface LiveHandlers {
   onEvent: (event: LiveEvent) => void;
   onStatus?: (status: LiveStatus) => void;
+  /**
+   * Events may have been missed: the stream connected again after a break,
+   * or the server said the client fell behind. Data kept current by the
+   * stream should be read again.
+   */
+  onReset?: () => void;
+}
+
+interface Subscriber extends LiveHandlers {
+  types: ReadonlySet<string>;
 }
 
 interface Stream {
@@ -36,18 +46,23 @@ interface Stream {
   subscribers: Set<Subscriber>;
   /** Event types the stream listens for. */
   types: Set<string>;
-  lastId: string;
+  /** Whether the stream has been open before, so opening now is a reconnect. */
+  opened: boolean;
   attempt: number;
   status: LiveStatus;
   retry: ReturnType<typeof setTimeout> | null;
 }
 
+/** The event the panel sends when a client fell behind and missed events. */
+export const resyncEvent = "resync";
+
 /**
  * Live data from the panel over server-sent events. Every URL gets one
  * connection however many components listen to it, and the connection
  * comes back by itself: the browser retries dropped connections, and when
- * the server refuses one, the client tries again with growing pauses and
- * the id of the last event it saw, so nothing is missed.
+ * the server refuses one, the client tries again with growing pauses. What
+ * happened while it was away may be lost, so every reconnect, and every
+ * resync event from the server, tells subscribers to read their data again.
  */
 export class LiveClient {
   private streams = new Map<string, Stream>();
@@ -63,26 +78,22 @@ export class LiveClient {
    * Listens for events of the given types at a URL until the returned
    * function is called.
    */
-  subscribe(
-    url: string,
-    types: readonly string[],
-    onEvent: (event: LiveEvent) => void,
-    onStatus?: (status: LiveStatus) => void,
-  ): () => void {
+  subscribe(url: string, types: readonly string[], handlers: LiveHandlers): () => void {
     let stream = this.streams.get(url);
     if (!stream) {
       stream = {
         source: null,
         subscribers: new Set(),
-        types: new Set(),
-        lastId: "",
+        types: new Set([resyncEvent]),
+        opened: false,
         attempt: 0,
         status: "connecting",
         retry: null,
       };
       this.streams.set(url, stream);
     }
-    const subscriber: Subscriber = { types: new Set(types), onEvent, onStatus };
+    const subscriber: Subscriber = { ...handlers, types: new Set(types) };
+    const { onStatus } = handlers;
     stream.subscribers.add(subscriber);
     for (const t of types) {
       if (!stream.types.has(t)) {
@@ -130,15 +141,25 @@ export class LiveClient {
     }
   }
 
+  private reset(stream: Stream) {
+    for (const s of stream.subscribers) {
+      s.onReset?.();
+    }
+  }
+
   private connect(url: string, stream: Stream) {
     stream.source?.close();
-    const target = stream.lastId ? withParam(url, "lastEventId", stream.lastId) : url;
-    const source = this.open(target);
+    // A new connection can't send Last-Event-ID, so it starts from now.
+    const source = this.open(url);
     stream.source = source;
     this.setStatus(stream, "connecting");
     source.addEventListener("open", () => {
       stream.attempt = 0;
       this.setStatus(stream, "open");
+      if (stream.opened) {
+        this.reset(stream);
+      }
+      stream.opened = true;
     });
     source.addEventListener("error", () => {
       if (source.readyState === closed) {
@@ -163,10 +184,11 @@ export class LiveClient {
 
   private listen(stream: Stream, source: EventSource, type: string) {
     source.addEventListener(type, (raw) => {
-      const message = raw as MessageEvent<string>;
-      if (message.lastEventId) {
-        stream.lastId = message.lastEventId;
+      if (type === resyncEvent) {
+        this.reset(stream);
+        return;
       }
+      const message = raw as MessageEvent<string>;
       let data: unknown = message.data;
       try {
         data = JSON.parse(message.data);
@@ -185,10 +207,6 @@ export class LiveClient {
 
 // EventSource.CLOSED, written out so the client also runs where there is no EventSource.
 const closed = 2;
-
-function withParam(url: string, name: string, value: string): string {
-  return `${url}${url.includes("?") ? "&" : "?"}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
-}
 
 const LiveContext = createContext<LiveClient | null>(null);
 
@@ -210,31 +228,31 @@ export function useLiveClient(): LiveClient {
 
 /**
  * Calls onEvent for every event of the given types from a stream while the
- * component is mounted, and returns the connection's status. A null URL
- * listens to nothing.
+ * component is mounted, and onReset when events may have been missed, and
+ * returns the connection's status. A null URL listens to nothing.
  */
 export function useLiveEvents<T = unknown>(
   url: string | null,
   types: readonly string[],
   onEvent: (event: LiveEvent<T>) => void,
+  onReset?: () => void,
 ): LiveStatus {
   const client = useLiveClient();
   const [status, setStatus] = useState<LiveStatus>("connecting");
-  const handler = useRef(onEvent);
+  const handlers = useRef({ onEvent, onReset });
   useEffect(() => {
-    handler.current = onEvent;
+    handlers.current = { onEvent, onReset };
   });
   const typeKey = types.join("\n");
   useEffect(() => {
     if (url === null) {
       return;
     }
-    return client.subscribe(
-      url,
-      typeKey.split("\n"),
-      (event) => handler.current(event as LiveEvent<T>),
-      setStatus,
-    );
+    return client.subscribe(url, typeKey.split("\n"), {
+      onEvent: (event) => handlers.current.onEvent(event as LiveEvent<T>),
+      onStatus: setStatus,
+      onReset: () => handlers.current.onReset?.(),
+    });
   }, [client, url, typeKey]);
   return status;
 }
@@ -255,7 +273,8 @@ export interface LiveQueryOptions<TData, TEvent> {
 
 /**
  * A query kept current by server-sent events instead of polling: the data
- * loads once, then each event updates the cache in place.
+ * loads once, then each event updates the cache in place. When events may
+ * have been missed, after a reconnect or a resync, it loads again.
  */
 export function useLiveQuery<TData, TEvent = unknown>({
   queryKey,
@@ -284,6 +303,7 @@ export function useLiveQuery<TData, TEvent = unknown>({
         queryClient.setQueryData<TData>(keyRef.current, next);
       }
     },
+    () => void queryClient.invalidateQueries({ queryKey: keyRef.current }),
   );
   return useMemo(() => ({ ...query, liveStatus: status }), [query, status]);
 }

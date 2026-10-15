@@ -1,5 +1,5 @@
 import { ListChecks, RotateCcw, Square } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 import { type Job, type JobState, jobDone, type LogLine } from "@/lib/changes";
 import { useFormat } from "@/lib/format";
@@ -37,7 +37,8 @@ export function JobLog({ lines, loading, label }: JobLogProps) {
   const f = useFormat();
   const [follow, setFollow] = useState(true);
   const box = useRef<HTMLDivElement>(null);
-  const switchId = `follow-${label.replace(/\W+/g, "-")}`;
+  // Two jobs can have the same title, so the switch's id can't come from it.
+  const switchId = useId();
   useEffect(() => {
     const el = box.current;
     if (follow && el && lines.length > 0) {
@@ -86,7 +87,7 @@ export function JobLog({ lines, loading, label }: JobLogProps) {
                       : "text-muted-foreground",
                 )}
               >
-                {line.level}
+                {intl.formatMessage(m.jobsLevel, { level: line.level })}
               </span>
               <span>{line.message}</span>
             </p>
@@ -97,14 +98,25 @@ export function JobLog({ lines, loading, label }: JobLogProps) {
   );
 }
 
+/** What can be done to a job from the drawer. */
+export type JobAction = "cancel" | "retry";
+
+/** A job's cancel or retry while it's under way, or why the last one failed. */
+export interface JobActionState {
+  pending?: JobAction;
+  error?: { action: JobAction; message: string };
+}
+
 function JobItem({
   job,
   renderLog,
+  action,
   onCancel,
   onRetry,
 }: {
   job: Job;
   renderLog: (job: Job) => ReactNode;
+  action?: JobActionState;
   onCancel?: (job: Job) => void;
   onRetry?: (job: Job) => void;
 }) {
@@ -134,19 +146,39 @@ function JobItem({
         </div>
         <div className="flex shrink-0 gap-1">
           {!jobDone(job.state) && onCancel ? (
-            <Button variant="ghost" size="sm" onClick={() => onCancel(job)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              busy={action?.pending === "cancel"}
+              disabled={action?.pending !== undefined}
+              onClick={() => onCancel(job)}
+            >
               <Square aria-hidden="true" />
               {intl.formatMessage(m.jobsCancel)}
             </Button>
           ) : null}
           {(job.state === "failed" || job.state === "canceled") && onRetry ? (
-            <Button variant="ghost" size="sm" onClick={() => onRetry(job)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              busy={action?.pending === "retry"}
+              disabled={action?.pending !== undefined}
+              onClick={() => onRetry(job)}
+            >
               <RotateCcw aria-hidden="true" />
               {intl.formatMessage(m.jobsRetry)}
             </Button>
           ) : null}
         </div>
       </div>
+      {action?.error ? (
+        <p className="text-danger text-sm" role="alert">
+          {intl.formatMessage(m.jobsActionFailed, {
+            action: action.error.action,
+            reason: action.error.message,
+          })}
+        </p>
+      ) : null}
       {!jobDone(job.state) ? (
         <div className="flex flex-col gap-1">
           <Progress
@@ -179,6 +211,8 @@ export interface JobsDrawerProps {
   onRetryLoad?: () => void;
   /** The live log of a job, usually a JobLog fed by the job's event stream. */
   renderLog: (job: Job) => ReactNode;
+  /** Cancels and retries under way, and why ones failed, by job id. */
+  actions?: Readonly<Record<string, JobActionState>>;
   onCancel?: (job: Job) => void;
   onRetry?: (job: Job) => void;
 }
@@ -192,6 +226,7 @@ export function JobsDrawer({
   error,
   onRetryLoad,
   renderLog,
+  actions,
   onCancel,
   onRetry,
 }: JobsDrawerProps) {
@@ -205,6 +240,7 @@ export function JobsDrawer({
           key={job.id}
           job={job}
           renderLog={renderLog}
+          action={actions?.[job.id]}
           onCancel={onCancel}
           onRetry={onRetry}
         />

@@ -203,24 +203,65 @@ describe("live data", () => {
     );
   });
 
-  it("shares one connection per stream and reconnects after the last event", async () => {
+  it("shares one connection per stream and reconnects when the server refuses it", async () => {
     const { live, sources } = fakeLive();
     const seen: string[] = [];
-    const off1 = live.subscribe("/s", ["a"], (e) => seen.push(`1:${e.type}:${String(e.data)}`));
-    const off2 = live.subscribe("/s", ["a", "b"], (e) =>
-      seen.push(`2:${e.type}:${String(e.data)}`),
-    );
+    const resets: number[] = [];
+    const off1 = live.subscribe("/s", ["a"], {
+      onEvent: (e) => seen.push(`1:${e.type}:${String(e.data)}`),
+      onReset: () => resets.push(1),
+    });
+    const off2 = live.subscribe("/s", ["a", "b"], {
+      onEvent: (e) => seen.push(`2:${e.type}:${String(e.data)}`),
+    });
     expect(sources).toHaveLength(1);
+    sources[0]?.open();
     sources[0]?.emit("a", "x", "41");
     sources[0]?.emit("b", "y", "42");
     expect(seen).toEqual(["1:a:x", "2:a:x", "2:b:y"]);
-    // The server refused the stream: the client tries again from event 42.
+    expect(resets).toEqual([]);
+    // The server refused the stream. A new connection can't say where it
+    // left off, so once it's open, subscribers read their data again.
     sources[0]?.fail(true);
     await waitFor(() => expect(sources).toHaveLength(2));
-    expect(sources[1]?.url).toBe("/s?lastEventId=42");
+    expect(sources[1]?.url).toBe("/s");
+    sources[1]?.open();
+    expect(resets).toEqual([1]);
+    // The server says the client fell behind.
+    sources[1]?.emit("resync", { reason: "lagging" });
+    expect(resets).toEqual([1, 1]);
+    expect(seen).toHaveLength(3);
     off1();
     off2();
     expect(sources[1]?.closed).toBe(true);
+  });
+
+  it("reads a live query again after a reconnect", async () => {
+    const { Wrapper, sources } = wrapper();
+    let calls = 0;
+    const { result } = renderHook(
+      () =>
+        useLiveQuery<string[], string>({
+          queryKey: ["names"],
+          queryFn: async () => {
+            calls++;
+            return [`load ${calls}`];
+          },
+          stream: { url: "/api/v1/events/stream", types: ["event"] },
+          apply: (names, event) => [...(names ?? []), event.data],
+        }),
+      { wrapper: Wrapper },
+    );
+    await waitFor(() => expect(result.current.data).toEqual(["load 1"]));
+    act(() => sources[0]?.open());
+    act(() => sources[0]?.emit("event", "a"));
+    await waitFor(() => expect(result.current.data).toEqual(["load 1", "a"]));
+    // The connection dropped and the browser reconnected by itself; what
+    // happened in between may be lost.
+    act(() => sources[0]?.fail(false));
+    act(() => sources[0]?.open());
+    await waitFor(() => expect(result.current.data).toEqual(["load 2"]));
+    expect(calls).toBe(2);
   });
 });
 

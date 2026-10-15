@@ -96,7 +96,8 @@ describe("the jobs drawer", () => {
     expect(follow).not.toBeChecked();
     rerender(<JobLog lines={[line("one"), line("two", "ERROR")]} label="Log" />);
     expect(screen.getByRole("log")).toHaveTextContent("two");
-    expect(screen.getByText("ERROR")).toHaveClass("text-danger");
+    // The level is in the person's language; capitals come from the style.
+    expect(screen.getByText("Error")).toHaveClass("text-danger", "uppercase");
   });
 
   it("loads jobs from the panel and keeps them and their logs current", async () => {
@@ -153,5 +154,57 @@ describe("the jobs drawer", () => {
       }),
     );
     expect(await screen.findByText("Apply job_10")).toBeInTheDocument();
+  });
+
+  it("says why a cancel or retry failed, and what to do", async () => {
+    let answer: () => Response | Promise<Response> = () =>
+      json(
+        {
+          type: "about:blank",
+          status: 403,
+          code: "core.forbidden",
+          params: { action: "cancel jobs" },
+        },
+        403,
+      );
+    const cancel = vi.fn(() => answer());
+    const api = fakeApi({
+      "GET /api/v1/jobs": () => json({ jobs: [job("job_9", "running")] }),
+      "POST /api/v1/jobs/job_9/cancel": cancel,
+    });
+    renderWithProviders(<Jobs open onOpenChange={() => {}} />, { api });
+    const button = await screen.findByRole("button", { name: "Cancel" });
+    await userEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The job wasn't canceled: You don't have permission to cancel jobs.",
+    );
+    // The button works again, and a second try clears the message.
+    let release = () => {};
+    answer = () =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(json(job("job_9", "canceled")));
+      });
+    await userEvent.click(button);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    act(() => release());
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Finished" })).toHaveTextContent("Apply job_9"),
+    );
+    expect(cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives every log's switch its own label, even for jobs with the same title", async () => {
+    renderWithProviders(
+      <>
+        <JobLog lines={[]} label="Apply changes" />
+        <JobLog lines={[]} label="Apply changes" />
+      </>,
+    );
+    const [first, second] = screen.getAllByRole("switch", { name: "Follow new lines" });
+    expect(first?.id).not.toBe(second?.id);
+    await userEvent.click(screen.getAllByText("Follow new lines")[1] as HTMLElement);
+    expect(first).toBeChecked();
+    expect(second).not.toBeChecked();
   });
 });

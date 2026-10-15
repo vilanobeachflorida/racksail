@@ -5,15 +5,26 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { type RouterHistory, RouterProvider } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import type { IntlConfig } from "react-intl";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { type IntlConfig, useIntl } from "react-intl";
 import { TooltipProvider } from "@/design/components/ui/overlay";
+import { toast } from "@/design/components/ui/toaster";
 import type { ThemeFileURL } from "@/design/theme/files";
 import type { ThemeLayers } from "@/design/theme/layers";
 import type { Preferences } from "@/design/theme/prefs";
 import { ThemeProvider } from "@/design/theme/provider";
-import type { ApiClient } from "@/lib/api/client";
+import { type ApiClient, ApiError } from "@/lib/api/client";
 import { ApiProvider } from "@/lib/api/context";
+import { getSession, savePreferences } from "@/lib/api/operations";
+import { type PanelSession, permits, sessionModuleStates, themeFileURL } from "@/lib/api/session";
+import { errorMessage } from "@/lib/errors";
 import {
   applyLocale,
   defaultLocale,
@@ -31,6 +42,7 @@ import { createQueryClient } from "@/lib/query";
 import { loadModules, type ModuleId } from "@/modules/registry";
 import type { ModuleUI } from "@/modules/types";
 import { BootError } from "./errors";
+import { messages } from "./messages";
 import { type ModuleState, ModulesProvider } from "./modules";
 import { createAppRouter } from "./router";
 import { ShellSkeleton } from "./shell";
@@ -45,40 +57,19 @@ export interface AppProps {
   history?: RouterHistory;
   /** Called for message formatting problems, such as a missing message. */
   onIntlError?: IntlConfig["onError"];
-  /** The server and reseller themes on top of the default one. */
-  themeLayers?: ThemeLayers;
-  /** Where the files of the server's and reseller's theme packages are served: fonts, logos and the favicon. */
-  themeFileURL?: ThemeFileURL;
-  /** The name the server's or reseller's logo stands for, such as a hosting company's. */
-  brandName?: string;
-  /** Where the server's custom CSS is served, when an admin has turned it on. */
-  customCSSURL?: string;
-  /** Which modules are on; every module counts as on without it. */
-  moduleStates?: Partial<Record<ModuleId, ModuleState>> | null;
-  /** Whether the signed-in person has a permission. */
-  can?: (permission: string) => boolean;
-  /** Keeps personal preferences with the account as well as in the browser. */
-  onPreferencesChange?: (preferences: Preferences) => void;
+  /**
+   * Who is signed in, what they may do, which modules are on and how the
+   * panel looks for them. Read from the panel when left out; null runs
+   * without a session, as with a panel that doesn't serve one, where every
+   * module counts as on and nothing is hidden for lack of a permission.
+   */
+  session?: PanelSession | null;
   /** Live data connections; tests give one with fake event sources. */
   live?: LiveClient;
 }
 
-/** The web UI: providers, then the shell once modules and messages have loaded. */
-export function App({
-  api,
-  queryClient,
-  locale,
-  history,
-  onIntlError,
-  themeLayers,
-  themeFileURL,
-  brandName,
-  customCSSURL,
-  moduleStates,
-  can,
-  onPreferencesChange,
-  live,
-}: AppProps) {
+/** The web UI: providers, then the shell once the session, modules and messages have loaded. */
+export function App({ api, queryClient, locale, history, onIntlError, session, live }: AppProps) {
   const [client] = useState(() => queryClient ?? createQueryClient());
   const [choice, setChoice] = useState<string | null>(() => (locale ? null : storedLocale()));
   const shown = locale ?? choice ?? initialLocale();
@@ -104,26 +95,139 @@ export function App({
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>
         <LiveProvider {...(live ? { client: live } : {})}>
-          <ThemeProvider
-            {...(themeLayers ? { layers: themeLayers } : {})}
-            {...(themeFileURL ? { fileURL: themeFileURL } : {})}
-            {...(brandName ? { brandName } : {})}
-            {...(customCSSURL ? { customCSSURL } : {})}
-            {...(onPreferencesChange ? { onPreferencesChange } : {})}
-          >
-            <LocaleChoiceProvider value={localeChoice}>
-              <Panel
-                locale={shown}
-                history={history}
-                onIntlError={onIntlError}
-                moduleStates={moduleStates ?? null}
-                can={can}
-              />
-            </LocaleChoiceProvider>
-          </ThemeProvider>
+          <SessionPanel
+            api={api}
+            given={session}
+            locale={shown}
+            history={history}
+            onIntlError={onIntlError}
+            localeChoice={localeChoice}
+          />
         </LiveProvider>
       </QueryClientProvider>
     </ApiProvider>
+  );
+}
+
+/**
+ * Reads the session before the shell, unless it was given. A panel that
+ * doesn't serve sessions answers 404, and the UI runs without one.
+ */
+function SessionPanel({
+  api,
+  given,
+  locale,
+  history,
+  onIntlError,
+  localeChoice,
+}: {
+  api: ApiClient;
+  given: PanelSession | null | undefined;
+  locale: string;
+  history: RouterHistory | undefined;
+  onIntlError: IntlConfig["onError"] | undefined;
+  localeChoice: ComponentProps<typeof LocaleChoiceProvider>["value"];
+}) {
+  const loaded = useQuery({
+    queryKey: ["session"],
+    queryFn: async () => {
+      try {
+        return await getSession(api);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return null;
+        }
+        throw error;
+      }
+    },
+    enabled: given === undefined,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+  const ready = given !== undefined || loaded.isSuccess;
+  const session = given !== undefined ? given : (loaded.data ?? null);
+  const states = useMemo(() => (session ? sessionModuleStates(session) : null), [session]);
+  const can = useMemo(
+    () => (session ? (permission: string) => permits(session.permissions, permission) : undefined),
+    [session],
+  );
+  return (
+    <SessionTheme api={api} session={session}>
+      {ready ? (
+        <LocaleChoiceProvider value={localeChoice}>
+          <Panel
+            locale={locale}
+            history={history}
+            onIntlError={onIntlError}
+            moduleStates={states}
+            can={can}
+          />
+        </LocaleChoiceProvider>
+      ) : (
+        <I18nProvider locale={defaultLocale} messages={shellMessages} onError={onIntlError}>
+          {loaded.isError ? <BootError error={loaded.error} /> : <ShellSkeleton />}
+        </I18nProvider>
+      )}
+    </SessionTheme>
+  );
+}
+
+/** Tells the person their preferences only apply in this browser for now. */
+function PreferencesNotKept({ error }: { error: unknown }) {
+  const intl = useIntl();
+  return (
+    <>{intl.formatMessage(messages.preferencesNotKept, { reason: errorMessage(intl, error) })}</>
+  );
+}
+
+/** Applies the themes and preferences the session brings. */
+function SessionTheme({
+  api,
+  session,
+  children,
+}: {
+  api: ApiClient;
+  session: PanelSession | null;
+  children: ReactNode;
+}) {
+  const theme = session?.theme;
+  const server = theme?.server ?? null;
+  const reseller = theme?.reseller ?? null;
+  const layers = useMemo<ThemeLayers>(() => ({ server, reseller }), [server, reseller]);
+  const serverFiles = theme?.files?.server;
+  const resellerFiles = theme?.files?.reseller;
+  // A layer whose files the session doesn't say where to find has none to
+  // show; an empty URL counts as no file.
+  const fileURL = useCallback<ThemeFileURL>(
+    (layer, path) => {
+      const base = layer === "server" ? serverFiles : resellerFiles;
+      return base ? themeFileURL(base, path) : "";
+    },
+    [serverFiles, resellerFiles],
+  );
+  const signedIn = session !== null;
+  const keep = useCallback(
+    (preferences: Preferences) => {
+      if (!signedIn) {
+        return;
+      }
+      savePreferences(api, preferences).catch((error: unknown) => {
+        toast.error(<PreferencesNotKept error={error} />);
+      });
+    },
+    [api, signedIn],
+  );
+  return (
+    <ThemeProvider
+      layers={layers}
+      fileURL={fileURL}
+      {...(theme?.brandName ? { brandName: theme.brandName } : {})}
+      {...(theme?.customCSS ? { customCSSURL: theme.customCSS } : {})}
+      preferences={session?.preferences ?? null}
+      onPreferencesChange={keep}
+    >
+      {children}
+    </ThemeProvider>
   );
 }
 

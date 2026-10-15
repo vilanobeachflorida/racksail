@@ -13,9 +13,9 @@ import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/design/components/ui/states";
-import { requestJSON } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
-import { eventText, type Severity, type TimelineEvent, type TimelineEventList } from "@/lib/events";
+import { listEvents, streams } from "@/lib/api/operations";
+import { eventText, type Severity, type TimelineEvent } from "@/lib/events";
 import { useFormat } from "@/lib/format";
 import { useLiveQuery } from "@/lib/live";
 import { cn } from "@/lib/utils";
@@ -23,12 +23,6 @@ import { messages } from "./messages";
 import { moduleCommands, useActiveModules, usePermission } from "./modules";
 import { useShell } from "./shell-state";
 import { ariaKeyShortcuts } from "./shortcuts";
-
-/** Where the event timeline lives. */
-export const timeline = {
-  list: (limit: number) => `/api/v1/events?limit=${limit}`,
-  stream: "/api/v1/events/stream",
-};
 
 const shown = 8;
 
@@ -47,9 +41,8 @@ export function RecentActivity() {
   const api = useApi();
   const events = useLiveQuery<TimelineEvent[], TimelineEvent>({
     queryKey: ["events", "recent"],
-    queryFn: async () =>
-      (await requestJSON<TimelineEventList>(api, "GET", timeline.list(shown))).events ?? [],
-    stream: { url: timeline.stream, types: ["event"] },
+    queryFn: async () => (await listEvents(api, { limit: shown })).events ?? [],
+    stream: { url: streams.events, types: ["event"] },
     apply: (list, event) =>
       [event.data, ...(list ?? []).filter((e) => e.id !== event.data.id)].slice(0, shown),
   });
