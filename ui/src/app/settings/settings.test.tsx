@@ -11,7 +11,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const api = fakeApi({ "GET /api/v1/jobs": () => json({ items: [] }) });
+const api = fakeApi({
+  "GET /api/v1/jobs": () => json({ jobs: [] }),
+  "GET /api/v1/events": () => json({ events: [] }),
+});
 
 async function editor() {
   const result = renderShell({

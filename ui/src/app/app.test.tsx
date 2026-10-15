@@ -19,6 +19,8 @@ function panel(health: () => Response | Promise<Response>) {
   return fakeApi({
     "GET /api/v1/health": health,
     "GET /api/v1/version": () => json(version),
+    "GET /api/v1/jobs": () => json({ jobs: [] }),
+    "GET /api/v1/events": () => json({ events: [] }),
   });
 }
 

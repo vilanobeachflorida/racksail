@@ -71,7 +71,7 @@ export function JobLog({ lines, loading, label }: JobLogProps) {
         ) : lines.length === 0 ? (
           <p className="text-muted-foreground">{intl.formatMessage(m.jobsNoLog)}</p>
         ) : (
-          withKeys(lines, (line) => `${line.time}:${line.message}`).map(([key, line]) => (
+          withKeys(lines, (line) => String(line.seq)).map(([key, line]) => (
             <p key={key} className="flex gap-2 whitespace-pre-wrap break-all">
               <time dateTime={line.time} className="shrink-0 text-muted-foreground">
                 {f.time(new Date(line.time))}
@@ -79,9 +79,9 @@ export function JobLog({ lines, loading, label }: JobLogProps) {
               <span
                 className={cn(
                   "shrink-0 uppercase",
-                  line.level === "error"
+                  line.level === "ERROR"
                     ? "text-danger"
-                    : line.level === "warn"
+                    : line.level === "WARN"
                       ? "text-warning"
                       : "text-muted-foreground",
                 )}

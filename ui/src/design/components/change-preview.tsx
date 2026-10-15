@@ -265,9 +265,11 @@ export function ChangePreview({
   const [confirming, setConfirming] = useState(false);
   const conflicts = cs.conflicts ?? [];
   const contributions = cs.contributions ?? [];
-  const destructive = cs.effects.filter((e) => e.destructive);
+  const changes = cs.changes ?? [];
+  const effects = cs.effects ?? [];
+  const destructive = effects.filter((e) => e.destructive);
   const grouped = effectOrder
-    .map((type) => ({ type, effects: cs.effects.filter((e) => e.type === type) }))
+    .map((type) => ({ type, effects: effects.filter((e) => e.type === type) }))
     .filter((g) => g.effects.length > 0);
   const est = cs.estimate;
   const apply = async () => {
@@ -292,8 +294,8 @@ export function ChangePreview({
         </div>
         <p className="text-muted-foreground text-sm">
           {intl.formatMessage(m.previewSummary, {
-            changes: cs.changes.length,
-            effects: cs.effects.length,
+            changes: changes.length,
+            effects: effects.length,
           })}
         </p>
         {est.downloadBytes || est.diskBytes || est.memoryBytes ? (
@@ -339,7 +341,7 @@ export function ChangePreview({
               {conflicts.map((c) => (
                 <li key={`${c.resource}:${c.path}`}>
                   <code className="font-mono text-xs">{c.path}</code> · {c.message} ·{" "}
-                  {c.sources.map(sourceName).join(", ")}
+                  {(c.sources ?? []).map(sourceName).join(", ")}
                 </li>
               ))}
             </ul>
@@ -362,7 +364,7 @@ export function ChangePreview({
         <section className="flex flex-col gap-2">
           <h3 className="font-semibold text-sm">{intl.formatMessage(m.previewResources)}</h3>
           <ul className="flex flex-col gap-2">
-            {withKeys(cs.changes, (c) => `${c.op}:${c.id}:${c.action ?? ""}`).map(([key, c]) => (
+            {withKeys(changes, (c) => `${c.op}:${c.id}:${c.action ?? ""}`).map(([key, c]) => (
               <ChangeItem key={key} change={c} kindLabel={kindLabel} />
             ))}
           </ul>

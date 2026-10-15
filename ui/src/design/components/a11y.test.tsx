@@ -274,7 +274,7 @@ describe("the components' accessibility", () => {
         <CodeEditor label="nginx.conf" value="server {}" />
         <JobLog
           label="Apply chg_1"
-          lines={[{ time: "2026-10-15T12:00:01Z", level: "info", message: "ok" }]}
+          lines={[{ seq: 1, time: "2026-10-15T12:00:01Z", level: "INFO", message: "ok" }]}
         />
       </main>,
     );

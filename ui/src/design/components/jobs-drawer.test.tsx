@@ -17,7 +17,9 @@ const job = (id: string, state: Job["state"], extra: Partial<Job> = {}): Job => 
   ...extra,
 });
 
-const line = (message: string, level = "info"): LogLine => ({
+let seq = 0;
+const line = (message: string, level: LogLine["level"] = "INFO"): LogLine => ({
+  seq: ++seq,
   time: "2026-10-15T12:00:01Z",
   level,
   message,
@@ -92,31 +94,64 @@ describe("the jobs drawer", () => {
     expect(follow).toBeChecked();
     await userEvent.click(follow);
     expect(follow).not.toBeChecked();
-    rerender(<JobLog lines={[line("one"), line("two", "error")]} label="Log" />);
+    rerender(<JobLog lines={[line("one"), line("two", "ERROR")]} label="Log" />);
     expect(screen.getByRole("log")).toHaveTextContent("two");
-    expect(screen.getByText("error")).toHaveClass("text-danger");
+    expect(screen.getByText("ERROR")).toHaveClass("text-danger");
   });
 
   it("loads jobs from the panel and keeps them and their logs current", async () => {
     const { live, sources } = fakeLive();
     const cancel = vi.fn(() => json(job("job_9", "canceled")));
+    const list = vi.fn(() =>
+      json({ jobs: [job("job_9", "running"), job("job_8", "failed", { attempt: 2 })] }),
+    );
     const api = fakeApi({
-      "GET /api/v1/jobs": () => json({ items: [job("job_9", "running")] }),
-      "POST /api/v1/jobs/job_9/actions/cancel": cancel,
+      "GET /api/v1/jobs": list,
+      "GET /api/v1/jobs/job_8/logs": () => json({ lines: [line("apt failed", "ERROR")] }),
+      "POST /api/v1/jobs/job_9/cancel": cancel,
     });
     renderWithProviders(<Jobs open onOpenChange={() => {}} />, { api, live });
     expect(await screen.findByText("Apply job_9")).toBeInTheDocument();
-    const jobsStream = sources.find((s) => s.url === "/api/v1/jobs/events");
-    const logStream = sources.find((s) => s.url === "/api/v1/jobs/job_9/events");
-    expect(jobsStream).toBeDefined();
-    expect(logStream).toBeDefined();
-    act(() => logStream?.emit("log", line("Unpacking")));
-    expect(await screen.findByText("Unpacking")).toBeInTheDocument();
+    const timeline = sources.find((s) => s.url === "/api/v1/events/stream");
+    const jobStream = sources.find((s) => s.url === "/api/v1/jobs/job_9/stream");
+    expect(timeline).toBeDefined();
+    expect(jobStream).toBeDefined();
+    // The finished job's log is read once, not streamed.
+    expect(sources.find((s) => s.url === "/api/v1/jobs/job_8/stream")).toBeUndefined();
+
+    // A stream that starts over sends lines already shown; they show once.
+    const first = line("Unpacking");
+    act(() => jobStream?.emit("log", first, String(first.seq)));
+    act(() => jobStream?.emit("log", first, String(first.seq)));
+    expect(await screen.findAllByText("Unpacking")).toHaveLength(1);
+    act(() => jobStream?.emit("job", job("job_9", "running", { progress: { done: 4, total: 5 } })));
+    expect(
+      await screen.findByRole("progressbar", { name: "Progress of Apply job_9" }),
+    ).toHaveAttribute("aria-valuenow", "80");
+
+    const finished = screen.getByRole("region", { name: "Finished" });
+    await userEvent.click(within(finished).getByRole("button", { name: "Log" }));
+    expect(await within(finished).findByText("apt failed")).toBeInTheDocument();
+
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(cancel).toHaveBeenCalled();
-    act(() => jobsStream?.emit("job", job("job_9", "canceled")));
     await waitFor(() =>
       expect(screen.getByRole("region", { name: "Finished" })).toHaveTextContent("Apply job_9"),
     );
+
+    // Work starting or ending elsewhere shows up through the timeline.
+    list.mockImplementation(() => json({ jobs: [job("job_10", "running")] }));
+    act(() =>
+      timeline?.emit("event", {
+        id: "evt_1",
+        type: "core.changeset.applied",
+        time: "2026-10-15T12:01:00Z",
+        severity: "info",
+        scope: { level: "server" },
+        message: "Applied Create example.com",
+        job: "job_10",
+      }),
+    );
+    expect(await screen.findByText("Apply job_10")).toBeInTheDocument();
   });
 });

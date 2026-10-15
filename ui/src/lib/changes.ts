@@ -2,7 +2,7 @@
  * Change sets and jobs as the panel's API returns them: the JSON forms of
  * internal/changeset and internal/jobs. Every change, whatever started it,
  * becomes a change set that is previewed, applied as a job and can be
- * undone.
+ * undone. Lists the API sends as null when they're empty are typed so.
  */
 
 export type Risk = "read" | "low" | "medium" | "high" | "critical";
@@ -38,7 +38,7 @@ export interface ResourceChange {
   id: string;
   scope: Scope;
   server?: string;
-  diff?: FieldDiff[];
+  diff?: FieldDiff[] | null;
   source: ChangeSource;
 }
 
@@ -79,15 +79,15 @@ export interface Contribution {
   source: ChangeSource;
   summary: string;
   /** Indexes into the change set's changes and effects. */
-  changes?: number[];
-  effects?: number[];
+  changes?: number[] | null;
+  effects?: number[] | null;
 }
 
 /** Two contributors changing the same field; the change set can't be applied until it's resolved. */
 export interface Conflict {
   resource: string;
   path: string;
-  sources: ChangeSource[];
+  sources: ChangeSource[] | null;
   message: string;
 }
 
@@ -110,10 +110,10 @@ export interface ChangeSet {
   id: string;
   title: string;
   actor?: Actor;
-  changes: ResourceChange[];
-  effects: Effect[];
-  contributions?: Contribution[];
-  conflicts?: Conflict[];
+  changes: ResourceChange[] | null;
+  effects: Effect[] | null;
+  contributions?: Contribution[] | null;
+  conflicts?: Conflict[] | null;
   risk: Risk;
   estimate: Estimate;
   /** Applying it takes snapshots first, because it removes data. */
@@ -140,16 +140,47 @@ export interface Job {
   resource?: string;
   attempt: number;
   error?: { code: string; message: string };
+  /** Who owns the work; jobs show to the people who can see their scope. */
+  scope?: Scope;
+  /** The job this one retries. */
+  retryOf?: string;
+  /** When a queued job may start, for retries that wait. */
+  runAfter?: string;
+  /** What the job returned. */
+  result?: unknown;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
 }
 
+/** A page of jobs, newest first. */
+export interface JobList {
+  jobs: Job[] | null;
+  /** The cursor of the next page; empty on the last one. */
+  next?: string;
+}
+
+/** One line of a job's log. */
 export interface LogLine {
+  /** The line's number, from 1. */
+  seq: number;
   time: string;
-  level: string;
+  level: "DEBUG" | "INFO" | "WARN" | "ERROR";
   message: string;
   attrs?: Record<string, unknown>;
+}
+
+/**
+ * Adds a log line unless it's one already there, as when a stream starts
+ * over, keeping the last limit lines.
+ */
+export function appendLogLine(lines: readonly LogLine[], line: LogLine, limit = 2000): LogLine[] {
+  const last = lines.at(-1);
+  if (last && line.seq <= last.seq) {
+    return lines as LogLine[];
+  }
+  const next = [...lines, line];
+  return next.length > limit ? next.slice(next.length - limit) : next;
 }
 
 /** Whether a job has finished, one way or another. */
@@ -159,7 +190,9 @@ export function jobDone(state: JobState): boolean {
 
 /** Whether a change set removes data or is risky enough to ask before applying. */
 export function needsConfirmation(cs: ChangeSet): boolean {
-  return cs.risk === "high" || cs.risk === "critical" || cs.effects.some((e) => e.destructive);
+  return (
+    cs.risk === "high" || cs.risk === "critical" || (cs.effects ?? []).some((e) => e.destructive)
+  );
 }
 
 /** A contributor's label, as the preview shows it: "addon:cdn 1.2" or the hook point. */

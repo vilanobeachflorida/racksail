@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { createIntl } from "react-intl";
 import { describe, expect, it } from "vitest";
 import { fakeLive, testQueryClient } from "@/test/render";
+import { appendLogLine, type LogLine } from "./changes";
+import { eventText, messageArguments, type TimelineEvent } from "./events";
 import { createFormatters, scaleBytes } from "./format";
 import { shellMessages } from "./i18n";
 import { LiveProvider, upsertById, useLiveQuery } from "./live";
@@ -44,6 +46,54 @@ describe("formatters", () => {
     expect(en.relative(now - 2 * 3600_000, now)).toBe("2 hours ago");
     expect(en.date(now)).toMatch(/2026/);
     expect(en.dateTime(now)).toMatch(/2026/);
+  });
+});
+
+describe("events", () => {
+  const intl = createIntl({ locale: "en", messages: shellMessages });
+  const event: TimelineEvent = {
+    id: "evt_1",
+    type: "core.changeset.applied",
+    time: "2026-10-15T12:00:00Z",
+    severity: "info",
+    scope: { level: "server" },
+    message: "Applied the change set",
+  };
+
+  it("show in the user's language when the catalogs have their type", () => {
+    expect(eventText(intl, { ...event, data: { title: "Create example.com" } })).toBe(
+      "Applied: Create example.com",
+    );
+  });
+
+  it("fall back to the panel's words when the type or its data is unknown", () => {
+    expect(eventText(intl, event)).toBe("Applied the change set");
+    expect(eventText(intl, { ...event, type: "web.site.created" })).toBe("Applied the change set");
+  });
+
+  it("know which values a message needs", () => {
+    expect(
+      messageArguments("{n, plural, one {# site of {owner}} other {# sites}} on {when, date}"),
+    ).toEqual(["n", "owner", "when"]);
+    expect(messageArguments("No values")).toEqual([]);
+  });
+});
+
+describe("job logs", () => {
+  const line = (seq: number): LogLine => ({
+    seq,
+    time: "2026-10-15T12:00:00Z",
+    level: "INFO",
+    message: `line ${seq}`,
+  });
+
+  it("keep each line once and only the latest", () => {
+    let lines: LogLine[] = [];
+    for (const seq of [1, 2, 2, 1, 3]) {
+      lines = appendLogLine(lines, line(seq));
+    }
+    expect(lines.map((l) => l.seq)).toEqual([1, 2, 3]);
+    expect(appendLogLine(lines, line(4), 2).map((l) => l.seq)).toEqual([3, 4]);
   });
 });
 
