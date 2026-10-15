@@ -70,6 +70,7 @@ help:
 	@echo "make iso         build the installer ISO in a Debian container; ISO_ARCH, ISO_VARIANT"
 	@echo "make e2e         install the ISO on a QEMU machine and run the end-to-end suites; ISO, E2E_FLAGS"
 	@echo "make e2e-local   run the end-to-end suites against racksail dev on $(E2E_ADDR)"
+	@echo "make cloud-image download Debian's cloud image for the end-to-end tests; CLOUD_ARCH"
 	@echo "make catalog     check the catalog and build its index into $(CATALOG_OUT)"
 	@echo "make licenses    check that every dependency's license is allowed"
 	@echo "make vulncheck   scan the Go code and every lockfile for known vulnerabilities"
@@ -202,6 +203,13 @@ E2E_ADDR  ?= 127.0.0.1:7170
 E2E_DATA  ?= .dev-e2e
 E2E_FLAGS ?=
 E2E_DEPS  := test/e2e/node_modules/.package-lock.json
+
+# Debian's cloud image, which the end-to-end tests convert or install the
+# Debian package on, checked against the checksums Debian publishes beside it.
+CLOUD_ARCH  ?= amd64
+CLOUD_URL   ?= https://cloud.debian.org/images/cloud/trixie/latest
+CLOUD_IMAGE := build/cloud/debian-13-genericcloud-$(CLOUD_ARCH).qcow2
+SHA512SUM   := $(if $(shell command -v sha512sum),sha512sum,shasum -a 512)
 SDK_TS_DEPS := sdk/ts/node_modules/.package-lock.json
 
 CATALOG_OUT ?= $(BIN)/catalog
@@ -209,7 +217,7 @@ CATALOG_OUT ?= $(BIN)/catalog
 # to catalog/keys/official.pub.
 CATALOG_SIGN = $(if $(CATALOG_SIGNING_KEY),-key-env CATALOG_SIGNING_KEY -public catalog/keys/official.pub)
 
-.PHONY: release deb sbom notices iso e2e e2e-local catalog catalog-check catalog-publish \
+.PHONY: release deb sbom notices iso e2e e2e-local cloud-image catalog catalog-check catalog-publish \
 	licenses vulncheck gen-check sdk-check ci-lint
 
 check: sdk-check
@@ -285,6 +293,12 @@ e2e: $(E2E_DEPS)
 
 e2e-local: build $(E2E_DEPS)
 	E2E_ADDR=$(E2E_ADDR) E2E_DATA=$(E2E_DATA) test/e2e/local.sh $(BIN)/racksail
+
+cloud-image:
+	mkdir -p $(dir $(CLOUD_IMAGE))
+	curl --fail --silent --show-error --location --output $(dir $(CLOUD_IMAGE))SHA512SUMS $(CLOUD_URL)/SHA512SUMS
+	curl --fail --silent --show-error --location --output $(CLOUD_IMAGE) $(CLOUD_URL)/$(notdir $(CLOUD_IMAGE))
+	cd $(dir $(CLOUD_IMAGE)) && grep ' $(notdir $(CLOUD_IMAGE))$$' SHA512SUMS | $(SHA512SUM) --check
 
 catalog-check:
 	$(GO) run ./catalog/tool validate -dir catalog

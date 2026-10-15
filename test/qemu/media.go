@@ -54,8 +54,9 @@ func RenderAnswers(template []byte, sshKey string, devices []string) ([]byte, er
 type UserData struct {
 	Hostname string
 	SSHKey   string
-	// BinaryURL is where the guest downloads racksail from: the harness,
-	// at QEMU's address for the host.
+	// BinaryURL is where the guest downloads racksail from to convert
+	// itself: the harness, at QEMU's address for the host. Without it the
+	// server boots as plain Debian, for the harness to install the package.
 	BinaryURL string
 	// Answers is the convert answers file the server is set up with.
 	Answers string
@@ -71,6 +72,7 @@ users:
     lock_passwd: true
     ssh_authorized_keys:
       - {{.SSHKey}}
+{{- if .BinaryURL}}
 write_files:
   - path: /root/racksail-answers.yaml
     permissions: "0600"
@@ -80,16 +82,19 @@ runcmd:
   - [curl, --fail, --silent, --show-error, --retry, "5", --output, /usr/local/bin/racksail, "{{.BinaryURL}}"]
   - [chmod, "0755", /usr/local/bin/racksail]
   - [/usr/local/bin/racksail, install, --convert, --answers, /root/racksail-answers.yaml]
+{{- end}}
 `))
 
 // RenderUserData writes the cloud-init user data of the cloud scenario: an
-// admin who signs in with the harness's key, and the conversion.
+// admin who signs in with the harness's key and, with a binary to download,
+// the conversion.
 func RenderUserData(u UserData) ([]byte, error) {
-	if _, err := installer.ParseAnswers([]byte(u.Answers)); err != nil {
-		return nil, fmt.Errorf("the convert answers: %w", err)
+	if u.BinaryURL != "" {
+		if _, err := installer.ParseAnswers([]byte(u.Answers)); err != nil {
+			return nil, fmt.Errorf("the convert answers: %w", err)
+		}
+		u.Answers = "      " + strings.ReplaceAll(strings.TrimRight(u.Answers, "\n"), "\n", "\n      ")
 	}
-	indented := "      " + strings.ReplaceAll(strings.TrimRight(u.Answers, "\n"), "\n", "\n      ")
-	u.Answers = indented
 	u.SSHKey = strings.TrimSpace(u.SSHKey)
 	var b bytes.Buffer
 	if err := userDataTemplate.Execute(&b, u); err != nil {

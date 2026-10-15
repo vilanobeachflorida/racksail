@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -31,11 +30,10 @@ func FreePort() (int, error) {
 // WaitForPanel polls the panel's health endpoint until it answers 200 or the
 // context ends. The panel's certificate is its own, so it isn't verified.
 func WaitForPanel(ctx context.Context, url string, every time.Duration) error {
-	client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
 	var last string
 	for {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/api/v1/health", nil)
-		resp, err := client.Do(req)
+		resp, err := panelClient.Do(req)
 		if err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
@@ -117,6 +115,8 @@ var diagnostics = map[string]string{
 	"units.txt":        "systemctl list-units --all --no-pager 'racksail*'",
 	"failed-units.txt": "systemctl --failed --no-pager",
 	"version.txt":      "/usr/local/bin/racksail version || /usr/bin/racksail version",
+	"package.txt":      "dpkg-query --show --showformat='${Package} ${Version} ${Status}\\n' racksail 2>&1 || true",
+	"apt-history.txt":  "cat /var/log/apt/history.log 2>&1 || true",
 	"disks.txt":        "lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS && findmnt --real",
 	"network.txt":      "ip -br address && ip route",
 	"os-release.txt":   "cat /etc/os-release",

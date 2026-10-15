@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -242,8 +250,106 @@ func TestRenderUserData(t *testing.T) {
 		t.Errorf("runcmd = %v", cfg.Runcmd)
 	}
 	golden(t, "user-data", string(out))
-	if _, err := RenderUserData(UserData{Answers: "mode: nonsense"}); err == nil {
+	if _, err := RenderUserData(UserData{BinaryURL: "http://10.0.2.2:8080/racksail", Answers: "mode: nonsense"}); err == nil {
 		t.Error("invalid answers must be refused")
+	}
+
+	// Without a binary, the server boots as plain Debian for the harness
+	// to install the package on.
+	out, err = RenderUserData(UserData{Hostname: "racksail-cloud", SSHKey: harnessKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plain map[string]any
+	if err := yaml.Unmarshal(out, &plain); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := plain["runcmd"]; ok || plain["write_files"] != nil || plain["users"] == nil {
+		t.Errorf("plain user data = %v", plain)
+	}
+	golden(t, "user-data-plain", string(out))
+}
+
+func TestCheckInputs(t *testing.T) {
+	dir := t.TempDir()
+	image := filepath.Join(dir, "debian.qcow2")
+	os.WriteFile(image, []byte("x"), 0o644)
+	if err := checkInputs(Config{CloudImage: image}); err != nil {
+		t.Error(err)
+	}
+	err := checkInputs(Config{CloudImage: image, Deb: filepath.Join(dir, "missing.deb"), UpgradeFrom: dir})
+	if err == nil || !strings.Contains(err.Error(), "-deb:") || !strings.Contains(err.Error(), "-upgrade-from: "+dir+" isn't a file") {
+		t.Errorf("missing inputs must be named by their flags: %v", err)
+	}
+}
+
+func TestPackageScript(t *testing.T) {
+	script := packageScript("http://10.0.2.2:8080/racksail-earlier.deb")
+	for _, want := range []string{
+		"curl --fail --silent --show-error --retry 5 --output /tmp/racksail-earlier.deb http://10.0.2.2:8080/racksail-earlier.deb\n",
+		"apt-get install --yes --no-install-recommends -o DPkg::Lock::Timeout=600 /tmp/racksail-earlier.deb\n",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the script lacks %q:\n%s", want, script)
+		}
+	}
+	if out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput(); err != nil {
+		t.Errorf("the script doesn't parse: %v\n%s", err, out)
+	}
+}
+
+// panelStub answers like a panel: its version, which upgradeAfter calls
+// change, over TLS with its own certificate.
+func panelStub(t *testing.T, upgradeAfter int32) *httptest.Server {
+	t.Helper()
+	var calls atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path != "/api/v1/version":
+			http.NotFound(w, r)
+		case calls.Add(1) > upgradeAfter:
+			w.Write([]byte(`{"version":"1.3.0","channel":"stable"}`))
+		default:
+			w.Write([]byte(`{"version":"1.2.4","channel":"stable"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestPanelChecks(t *testing.T) {
+	ctx := context.Background()
+	srv := panelStub(t, 2)
+	if v, err := PanelVersion(ctx, srv.URL); err != nil || v != "1.2.4" {
+		t.Errorf("PanelVersion = %q, %v", v, err)
+	}
+	if err := WaitForVersion(ctx, srv.URL, "1.3.0", time.Millisecond); err != nil {
+		t.Error(err)
+	}
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	if got, err := PanelFingerprint(ctx, srv.URL); err != nil || got != hex.EncodeToString(sum[:]) {
+		t.Errorf("PanelFingerprint = %s, %v", got, err)
+	}
+
+	stuck := panelStub(t, 1000)
+	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	if err := WaitForVersion(waitCtx, stuck.URL, "1.3.0", time.Millisecond); err == nil || !strings.Contains(err.Error(), "last answer: version 1.2.4") {
+		t.Errorf("a panel that stays on the old version must fail with what it answered: %v", err)
+	}
+	if _, err := PanelVersion(ctx, stuck.URL+"/nothing"); err == nil {
+		t.Error("an answer other than 200 must fail")
+	}
+}
+
+func TestCheckOlder(t *testing.T) {
+	if err := checkOlder("1.2.4", "1.3.0-nightly.20261015.42"); err != nil {
+		t.Error(err)
+	}
+	for _, versions := range [][2]string{{"1.3.0", "1.3.0"}, {"1.3.0", "1.3.0-rc.1"}, {"0.0.0-dev", "next"}, {"dev", "1.3.0"}} {
+		if err := checkOlder(versions[0], versions[1]); err == nil {
+			t.Errorf("checkOlder(%s, %s) should fail", versions[0], versions[1])
+		}
 	}
 }
 
@@ -274,7 +380,21 @@ func TestFlags(t *testing.T) {
 	if err != nil || c.Arch != "arm64" || c.Accel != "tcg" || len(c.Suites) != 1 {
 		t.Errorf("config = %+v, %v", c, err)
 	}
-	for _, args := range [][]string{nil, {"-iso", "a.iso", "-cloud-image", "b.qcow2"}, {"-cloud-image", "b.qcow2"}} {
+	c, err = parseFlags([]string{"-cloud-image", "debian-13-genericcloud-amd64.qcow2", "-deb", "new.deb", "-upgrade-from", "old.deb", "-version", "1.3.0"})
+	if err != nil || c.Arch != "amd64" || c.Deb != "new.deb" || c.UpgradeFrom != "old.deb" {
+		t.Errorf("upgrade config = %+v, %v", c, err)
+	}
+	bad := [][]string{
+		nil,
+		{"-iso", "a.iso", "-cloud-image", "b.qcow2"},
+		{"-cloud-image", "b.qcow2"},
+		{"-cloud-image", "b.qcow2", "-binary", "racksail", "-deb", "new.deb"},
+		{"-iso", "a.iso", "-deb", "new.deb"},
+		{"-iso", "a.iso", "-binary", "racksail"},
+		{"-cloud-image", "b.qcow2", "-binary", "racksail", "-upgrade-from", "old.deb"},
+		{"-cloud-image", "b.qcow2", "-deb", "new.deb", "-upgrade-from", "old.deb"},
+	}
+	for _, args := range bad {
 		if _, err := parseFlags(args); err == nil {
 			t.Errorf("parseFlags(%v) should fail", args)
 		}

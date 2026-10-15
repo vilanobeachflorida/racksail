@@ -5,13 +5,20 @@
 // stick, lets the unattended install run until the installer reboots, boots
 // the installed system, waits for the panel and runs the API and browser
 // suites against it. With -cloud-image it boots one of Debian's cloud images
-// with a cloud-init seed that converts the server, and tests it the same
-// way. The consoles, the server's journal and the suites' output are saved
-// in the work directory's logs, whatever happens.
+// and sets it up the way people set up a server they already have: with
+// -binary, a cloud-init seed converts it with racksail install --convert;
+// with -deb, the harness installs the Debian package with apt. With
+// -upgrade-from it installs an earlier release's package first, checks it,
+// upgrades it to -deb and checks that the server came back on the new
+// version with its state. Then it tests the server the same way. The
+// consoles, the server's journal and the suites' output are saved in the
+// work directory's logs, whatever happens.
 //
 //	go run ./test/qemu -iso dist/racksail-1.2.3-amd64.iso -firmware secureboot
 //	go run ./test/qemu -iso dist/racksail-1.2.3-amd64.iso -disks 2 -answers test/fixtures/answers/install-mirror.yaml
 //	go run ./test/qemu -cloud-image debian-13-genericcloud-amd64.qcow2 -binary bin/racksail-linux-amd64
+//	go run ./test/qemu -cloud-image debian-13-genericcloud-amd64.qcow2 -deb dist/racksail_1.3.0_amd64.deb \
+//		-upgrade-from racksail_1.2.4_amd64.deb -version 1.3.0
 //
 // It needs QEMU, qemu-img, the UEFI firmware (ovmf, qemu-efi-aarch64),
 // dosfstools, mtools and OpenSSH, and runs fastest on Linux with KVM.
@@ -56,6 +63,10 @@ type Config struct {
 	Suites     []string
 	Version    string
 
+	// Deb is the Debian package the cloud image is set up with, and
+	// UpgradeFrom an earlier release's package installed before it.
+	Deb, UpgradeFrom string
+
 	InstallTimeout, BootTimeout time.Duration
 	Keep                        bool
 }
@@ -87,6 +98,8 @@ func parseFlags(args []string) (Config, error) {
 	flags.StringVar(&c.ISO, "iso", "", "installer image to install from")
 	flags.StringVar(&c.CloudImage, "cloud-image", "", "Debian 13 cloud image (qcow2) to convert, instead of -iso")
 	flags.StringVar(&c.Binary, "binary", "", "racksail binary the cloud image is converted with")
+	flags.StringVar(&c.Deb, "deb", "", "Debian package to install on the cloud image with apt, instead of -binary")
+	flags.StringVar(&c.UpgradeFrom, "upgrade-from", "", "an earlier release's Debian package to install first and upgrade to -deb")
 	flags.StringVar(&c.Answers, "answers", "test/fixtures/answers/install-single.yaml", "answers file for the ISO; the harness puts in its own SSH key and the machine's disks")
 	flags.StringVar(&c.Convert, "convert-answers", "test/fixtures/answers/convert.yaml", "convert answers file for the cloud image")
 	flags.StringVar(&c.Arch, "arch", "", "amd64 or arm64; taken from the image's name by default")
@@ -102,7 +115,7 @@ func parseFlags(args []string) (Config, error) {
 	flags.StringVar(&c.Work, "work", "build/e2e", "work directory for disks, keys and logs")
 	flags.StringVar(&c.Repo, "repo", ".", "the repository, for the suites")
 	flags.StringVar(&suites, "suites", "api,ui", "suites to run against the panel: api, ui, or none")
-	flags.StringVar(&c.Version, "version", "", "version the panel must report")
+	flags.StringVar(&c.Version, "version", "", "version the panel must report; with -upgrade-from, the version -deb holds")
 	flags.DurationVar(&c.InstallTimeout, "install-timeout", time.Hour, "how long the install may take")
 	flags.DurationVar(&c.BootTimeout, "boot-timeout", 20*time.Minute, "how long the installed system may take to serve the panel")
 	flags.BoolVar(&c.Keep, "keep", false, "keep the machine running after the suites, until interrupted")
@@ -114,8 +127,14 @@ func parseFlags(args []string) (Config, error) {
 		return c, errors.New("give -iso or -cloud-image")
 	case c.ISO != "" && c.CloudImage != "":
 		return c, errors.New("give -iso or -cloud-image, not both")
-	case c.CloudImage != "" && c.Binary == "":
-		return c, errors.New("-cloud-image needs -binary, the racksail binary to convert the server with")
+	case c.ISO != "" && (c.Binary != "" || c.Deb != "" || c.UpgradeFrom != ""):
+		return c, errors.New("-binary, -deb and -upgrade-from set up a cloud image; the ISO brings its own racksail")
+	case c.CloudImage != "" && (c.Binary == "") == (c.Deb == ""):
+		return c, errors.New("-cloud-image needs -binary, to convert the server with, or -deb, the Debian package to install")
+	case c.UpgradeFrom != "" && c.Deb == "":
+		return c, errors.New("-upgrade-from needs -deb, the package to upgrade to")
+	case c.UpgradeFrom != "" && c.Version == "":
+		return c, errors.New("-upgrade-from needs -version, the version -deb holds, which the panel must report after the upgrade")
 	}
 	if c.Arch == "" {
 		c.Arch = ArchOf(filepath.Base(c.ISO + c.CloudImage))
@@ -169,7 +188,30 @@ func prepareWork(dir string) error {
 	return os.WriteFile(filepath.Join(dir, workMarker), nil, 0o644)
 }
 
+// checkInputs checks that the files the run starts from exist, before it
+// spends minutes booting a machine that can't get them.
+func checkInputs(c Config) error {
+	inputs := []struct{ flag, file string }{
+		{"-iso", c.ISO}, {"-cloud-image", c.CloudImage}, {"-binary", c.Binary}, {"-deb", c.Deb}, {"-upgrade-from", c.UpgradeFrom},
+	}
+	var errs []error
+	for _, in := range inputs {
+		if in.file == "" {
+			continue
+		}
+		if info, err := os.Stat(in.file); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", in.flag, err))
+		} else if !info.Mode().IsRegular() {
+			errs = append(errs, fmt.Errorf("%s: %s isn't a file", in.flag, in.file))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func run(ctx context.Context, c Config) error {
+	if err := checkInputs(c); err != nil {
+		return err
+	}
 	if err := prepareWork(c.Work); err != nil {
 		return err
 	}
@@ -210,6 +252,7 @@ func run(ctx context.Context, c Config) error {
 	log.Printf("%s machine, %s firmware, %s, %d %s disks", m.Arch, m.Firmware, m.Accel, len(m.Disks), m.DiskBus)
 
 	var media Media
+	var files string
 	if c.ISO != "" {
 		if err := install(ctx, c, m, pub); err != nil {
 			return err
@@ -224,12 +267,12 @@ func run(ctx context.Context, c Config) error {
 				return err
 			}
 		}
-		seed, stopServer, err := cloudSeed(ctx, c, pub)
+		seed, server, stopServer, err := cloudSeed(ctx, c, pub)
 		if err != nil {
 			return err
 		}
 		defer stopServer()
-		media.Seed = seed
+		media.Seed, files = seed, server
 	}
 
 	m.SerialLog = filepath.Join(logs, "boot-serial.log")
@@ -242,25 +285,46 @@ func run(ctx context.Context, c Config) error {
 
 	panel := fmt.Sprintf("https://127.0.0.1:%d", m.PanelPort)
 	ssh := SSH{Key: key, Port: m.SSHPort, User: "admin"}
+	collectLogs := func() {
+		if err := ssh.CollectLogs(context.WithoutCancel(ctx), logs); err != nil {
+			log.Printf("collecting logs: %v", err)
+		}
+	}
 	bootCtx, cancel := context.WithTimeout(ctx, c.BootTimeout)
 	defer cancel()
+	sshReady := false
+	if c.Deb != "" {
+		// Debian boots as it comes, and the package sets it up: the
+		// earlier release's first when the run tests an upgrade.
+		if err := ssh.Wait(bootCtx, 5*time.Second); err != nil {
+			return fmt.Errorf("%w\nlast console lines:\n%s", err, tail(m.SerialLog, 30))
+		}
+		sshReady = true
+		defer collectLogs()
+		first, name := c.Deb, packageName
+		if c.UpgradeFrom != "" {
+			first, name = c.UpgradeFrom, earlierName
+		}
+		log.Printf("installing %s", filepath.Base(first))
+		if err := InstallPackage(bootCtx, ssh, files+"/"+name, filepath.Join(logs, "apt-install.txt")); err != nil {
+			return err
+		}
+	}
 	if err := WaitForPanel(bootCtx, panel, 5*time.Second); err != nil {
 		return fmt.Errorf("%w\nlast console lines:\n%s", err, tail(m.SerialLog, 30))
 	}
 	log.Printf("the panel answers at %s", panel)
-	sshReady := ssh.Wait(bootCtx, 5*time.Second)
-	if sshReady == nil {
-		defer func() {
-			if err := ssh.CollectLogs(context.WithoutCancel(ctx), logs); err != nil {
-				log.Printf("collecting logs: %v", err)
-			}
-		}()
-	}
 
 	var errs []error
-	if sshReady != nil {
-		errs = append(errs, sshReady)
-	} else if c.Firmware == "secureboot" {
+	if !sshReady {
+		if err := ssh.Wait(bootCtx, 5*time.Second); err != nil {
+			errs = append(errs, err)
+		} else {
+			sshReady = true
+			defer collectLogs()
+		}
+	}
+	if sshReady && c.Firmware == "secureboot" {
 		on, err := ssh.SecureBootOn(ctx)
 		switch {
 		case err != nil:
@@ -269,6 +333,12 @@ func run(ctx context.Context, c Config) error {
 			errs = append(errs, errors.New("the installed system didn't boot with Secure Boot on"))
 		default:
 			log.Print("the installed system booted with Secure Boot on")
+		}
+	}
+	if c.UpgradeFrom != "" {
+		if err := upgrade(ctx, ssh, panel, files+"/"+packageName, c.Version, c.BootTimeout, logs); err != nil {
+			// The suites would only test the earlier release.
+			return errors.Join(append(errs, err)...)
 		}
 	}
 	if len(c.Suites) > 0 {
@@ -339,49 +409,63 @@ func install(ctx context.Context, c Config, m Machine, sshKey string) error {
 	return nil
 }
 
-// cloudSeed serves the racksail binary to the guest and builds the
-// cloud-init seed that downloads it and converts the server. QEMU's user
-// network shows the host's loopback interface to the guest as 10.0.2.2.
-func cloudSeed(ctx context.Context, c Config, sshKey string) (string, func(), error) {
-	answers, err := os.ReadFile(c.Convert)
-	if err != nil {
-		return "", nil, err
-	}
+// The names the harness serves the run's files under.
+const (
+	binaryName  = "racksail"
+	packageName = "racksail.deb"
+	earlierName = "racksail-earlier.deb"
+)
+
+// cloudSeed serves the run's racksail binary or Debian packages to the guest
+// and builds the cloud-init seed: an admin who signs in with the harness's
+// key and, with -binary, the conversion of the server. QEMU's user network
+// shows the host's loopback interface to the guest as 10.0.2.2. It returns
+// the seed and the address the guest downloads the files from.
+func cloudSeed(ctx context.Context, c Config, sshKey string) (string, string, func(), error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /racksail", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, c.Binary)
-	})
+	for name, file := range map[string]string{binaryName: c.Binary, packageName: c.Deb, earlierName: c.UpgradeFrom} {
+		if file == "" {
+			continue
+		}
+		mux.HandleFunc("GET /"+name, func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, file)
+		})
+	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(l)
 	stopServer := func() { srv.Close() }
-
-	port := l.Addr().(*net.TCPAddr).Port
-	userData, err := RenderUserData(UserData{
-		Hostname:  "racksail-cloud",
-		SSHKey:    sshKey,
-		BinaryURL: fmt.Sprintf("http://10.0.2.2:%d/racksail", port),
-		Answers:   string(answers),
-	})
-	if err != nil {
+	fail := func(err error) (string, string, func(), error) {
 		stopServer()
-		return "", nil, err
+		return "", "", nil, err
+	}
+
+	server := fmt.Sprintf("http://10.0.2.2:%d", l.Addr().(*net.TCPAddr).Port)
+	u := UserData{Hostname: "racksail-cloud", SSHKey: sshKey}
+	if c.Binary != "" {
+		answers, err := os.ReadFile(c.Convert)
+		if err != nil {
+			return fail(err)
+		}
+		u.BinaryURL, u.Answers = server+"/"+binaryName, string(answers)
+	}
+	userData, err := RenderUserData(u)
+	if err != nil {
+		return fail(err)
 	}
 	logs := filepath.Join(c.Work, "logs")
 	if err := os.WriteFile(filepath.Join(logs, "user-data.yaml"), userData, 0o644); err != nil {
-		stopServer()
-		return "", nil, err
+		return fail(err)
 	}
 	seed := filepath.Join(c.Work, "seed.img")
 	files := map[string][]byte{"user-data": userData, "meta-data": MetaData("racksail-cloud")}
 	if err := FATImage(ctx, seed, "CIDATA", files); err != nil {
-		stopServer()
-		return "", nil, err
+		return fail(err)
 	}
-	return seed, stopServer, nil
+	return seed, server, stopServer, nil
 }
 
 // vm is a running QEMU.
