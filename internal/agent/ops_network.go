@@ -261,9 +261,10 @@ func (in ConfirmNetworkInput) Validate() error {
 
 // ConfirmNetworkConfig keeps a network change, cancelling its rollback.
 var ConfirmNetworkConfig = Register(Def[ConfirmNetworkInput, Result]{
-	Name:        "ConfirmNetworkConfig",
-	Summary:     "Keep a network change",
-	Description: "Confirms a network change applied with confirmWithin, so it isn't rolled back. The browser confirms through the panel once it can still reach it.",
+	Name:    "ConfirmNetworkConfig",
+	Summary: "Keep a network change",
+	Description: "Confirms a network change applied with confirmWithin, so it isn't rolled back. The browser confirms through the panel once it can still reach it. " +
+		"Confirming the same change again changes nothing; a change that was already rolled back, or a token when no change is waiting, is a conflict.",
 	Effects: func(in ConfirmNetworkInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectNetwork, Action: "confirm", Target: "systemd-networkd"}}
 	},
@@ -271,14 +272,7 @@ var ConfirmNetworkConfig = Register(Def[ConfirmNetworkInput, Result]{
 		if env.Runtime == nil {
 			return Result{}, errNoRuntime
 		}
-		if env.Check {
-			st, err := env.Runtime.networkStatus(ctx)
-			if err != nil || st == nil {
-				return Unchanged(), err
-			}
-			return Changed(system.Effect{Type: system.EffectNetwork, Action: "confirm", Target: "systemd-networkd"}), nil
-		}
-		confirmed, err := env.Runtime.confirmNetwork(ctx, in.Token)
+		confirmed, err := env.Runtime.confirmNetwork(ctx, in.Token, env.Check)
 		if err != nil || !confirmed {
 			return Unchanged(), err
 		}

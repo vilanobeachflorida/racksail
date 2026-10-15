@@ -13,6 +13,29 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/system/linux"
 )
 
+// idleSystemd is a systemd with no units loaded, for tests of the real
+// adapters that never start anything.
+type idleSystemd struct{}
+
+func (idleSystemd) DaemonReload(context.Context) error               { return nil }
+func (idleSystemd) Start(context.Context, string) error              { return nil }
+func (idleSystemd) Stop(context.Context, string) error               { return nil }
+func (idleSystemd) Restart(context.Context, string) error            { return nil }
+func (idleSystemd) Reload(context.Context, string) error             { return nil }
+func (idleSystemd) Enable(context.Context, []string) error           { return nil }
+func (idleSystemd) Disable(context.Context, []string) error          { return nil }
+func (idleSystemd) Kill(context.Context, string, int32) error        { return nil }
+func (idleSystemd) ResetFailed(context.Context, string) error        { return nil }
+func (idleSystemd) List(context.Context, []string) ([]string, error) { return nil, nil }
+func (idleSystemd) Properties(context.Context, string) (map[string]any, error) {
+	return map[string]any{"LoadState": "not-found", "ActiveState": "inactive", "SubState": "dead"}, nil
+}
+
+// linuxBackend returns the real adapters for a machine root.
+func linuxBackend(root string) *system.Backend {
+	return linux.NewWith(linux.Options{Root: root, Systemd: idleSystemd{}})
+}
+
 // linuxRoot builds a machine root for the real adapters in a temporary
 // directory, with root mapped to the user running the tests so ownership
 // changes need no privileges.
@@ -46,7 +69,7 @@ func TestOperationsNeverFollowAnAccountsLinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "etc/outside"), filepath.Join(root, "srv/racksail/accounts/a/out")); err != nil {
 		t.Fatal(err)
 	}
-	c := NewLocal(linux.NewWith(linux.Options{Root: root}), nil)
+	c := NewLocal(linuxBackend(root), nil)
 	through := "/srv/racksail/accounts/a/out/secret.txt"
 
 	if out, err := ReadFile.Call(ctx, c, ReadFileInput{Path: through}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {

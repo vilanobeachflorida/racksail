@@ -320,20 +320,35 @@ func (c Credentials) NeedsRenewal(now time.Time) bool {
 	return err != nil || now.Add(RenewBefore).After(cert.Leaf.NotAfter)
 }
 
+// refusedPeer is a peer whose certificate a handshake refused, as opposed
+// to one that couldn't be reached.
+type refusedPeer struct {
+	// peer is who the certificate says it is, when that can be told.
+	peer string
+	err  error
+}
+
+func (r *refusedPeer) Error() string { return r.err.Error() }
+func (r *refusedPeer) Unwrap() error { return r.err }
+
 // verifyPeer returns a VerifyConnection function that accepts only a peer
 // whose certificate chains to pool and holds the wanted role, and, when
 // server isn't empty, names that server.
 func verifyPeer(pool *x509.CertPool, role, server string) func(tls.ConnectionState) error {
 	return func(cs tls.ConnectionState) error {
 		if len(cs.PeerCertificates) == 0 {
-			return errors.New("the peer presented no certificate")
+			return &refusedPeer{peer: "unknown", err: errors.New("the peer presented no certificate")}
 		}
 		id, err := verifyIdentity(pool, cs.PeerCertificates[0], cs.PeerCertificates[1:], time.Now())
 		if err != nil {
-			return err
+			peer := "an unrecognized certificate"
+			if claimed, err := IdentityOf(cs.PeerCertificates[0]); err == nil {
+				peer = claimed.String()
+			}
+			return &refusedPeer{peer: peer, err: err}
 		}
 		if id.Role != role || (server != "" && id.Server != server) {
-			return fmt.Errorf("the peer is %s, not the expected %s", id, Identity{Role: role, Server: server})
+			return &refusedPeer{peer: id.String(), err: fmt.Errorf("the peer is %s, not the expected %s", id, Identity{Role: role, Server: server})}
 		}
 		return nil
 	}

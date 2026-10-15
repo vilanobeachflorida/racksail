@@ -13,7 +13,44 @@ import (
 // previous files are kept in the agent's state, so a restart in between
 // still rolls back.
 
-const networkPendingFile = "network-pending.json"
+const (
+	networkPendingFile = "network-pending.json"
+	networkLastFile    = "network-last.json"
+)
+
+// lastNetwork is how the last change waiting for confirmation ended, so a
+// confirmation sent twice is told apart from one that came too late.
+type lastNetwork struct {
+	Token   string    `json:"token"`
+	Outcome string    `json:"outcome" enum:"confirmed,rolled_back"`
+	Time    time.Time `json:"time"`
+}
+
+// Outcomes of a change waiting for confirmation.
+const (
+	networkConfirmed  = "confirmed"
+	networkRolledBack = "rolled_back"
+)
+
+func (rt *Runtime) loadLast(ctx context.Context) (*lastNetwork, error) {
+	data, err := rt.readState(ctx, networkLastFile)
+	if err != nil || data == nil {
+		return nil, err
+	}
+	var l lastNetwork
+	if err := json.Unmarshal(data, &l); err != nil {
+		return nil, fmt.Errorf("reading the last network change: %w", err)
+	}
+	return &l, nil
+}
+
+func (rt *Runtime) saveLast(ctx context.Context, token, outcome string) error {
+	data, err := json.Marshal(lastNetwork{Token: token, Outcome: outcome, Time: rt.now().UTC()})
+	if err != nil {
+		return err
+	}
+	return rt.writeState(ctx, networkLastFile, data)
+}
 
 // pendingNetwork is a network change waiting for confirmation.
 type pendingNetwork struct {
@@ -92,8 +129,12 @@ func (rt *Runtime) armRollback(deadline time.Time) {
 	})
 }
 
-// confirmNetwork keeps a pending change.
-func (rt *Runtime) confirmNetwork(ctx context.Context, token string) (bool, error) {
+// confirmNetwork keeps a pending change, reporting whether it was still
+// waiting. Confirming a change that was already kept changes nothing; one
+// that was rolled back, or anything without a change waiting, is a
+// conflict, so a confirmation that came too late is never taken for one
+// that worked. In check mode nothing changes.
+func (rt *Runtime) confirmNetwork(ctx context.Context, token string, check bool) (bool, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	pending, err := rt.loadPending(ctx)
@@ -101,14 +142,30 @@ func (rt *Runtime) confirmNetwork(ctx context.Context, token string) (bool, erro
 		return false, err
 	}
 	if pending == nil {
-		return false, nil
+		last, err := rt.loadLast(ctx)
+		switch {
+		case err != nil:
+			return false, err
+		case last != nil && last.Token == token && last.Outcome == networkConfirmed:
+			return false, nil
+		case last != nil && last.Token == token && last.Outcome == networkRolledBack:
+			return false, ErrConflict.New("op", "ConfirmNetworkConfig", "reason",
+				"the change wasn't confirmed in time and was rolled back at "+last.Time.Format(time.RFC3339))
+		}
+		return false, ErrConflict.New("op", "ConfirmNetworkConfig", "reason", "no network change is waiting to be confirmed")
 	}
 	if pending.Token != token {
 		return false, ErrConflict.New("op", "ConfirmNetworkConfig", "reason", "the token is for another network change")
 	}
+	if check {
+		return true, nil
+	}
 	if rt.rollback != nil {
 		rt.rollback.Stop()
 		rt.rollback = nil
+	}
+	if err := rt.saveLast(ctx, token, networkConfirmed); err != nil {
+		return false, err
 	}
 	if err := rt.removeState(ctx, networkPendingFile); err != nil {
 		return false, err
@@ -133,6 +190,9 @@ func (rt *Runtime) rollbackNetwork(ctx context.Context) error {
 		return err
 	}
 	rt.rollback = nil
+	if err := rt.saveLast(ctx, pending.Token, networkRolledBack); err != nil {
+		return err
+	}
 	if err := rt.removeState(ctx, networkPendingFile); err != nil {
 		return err
 	}

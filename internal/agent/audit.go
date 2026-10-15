@@ -35,6 +35,8 @@ type AuditRecord struct {
 	Duration    time.Duration `json:"duration"`
 	Code        string        `json:"code,omitempty" doc:"Error code when the operation failed"`
 	Error       string        `json:"error,omitempty"`
+	// Remote is where a caller the agent refused connected from.
+	Remote string `json:"remote,omitempty" doc:"Where a refused caller connected from"`
 }
 
 // Failed reports whether the operation failed.

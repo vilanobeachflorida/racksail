@@ -185,7 +185,7 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 				return Result{}, err
 			}
 			if env.Runtime != nil && in.UID != 0 {
-				env.Runtime.release(in.UID)
+				env.Runtime.release(ctx, in.UID)
 			}
 			return Changed(effect), nil
 		}

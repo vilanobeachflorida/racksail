@@ -1,23 +1,20 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
@@ -38,12 +35,69 @@ type Runtime struct {
 
 	mu       sync.Mutex
 	reserved map[int]time.Time
-	ledger   map[string]ledgerEntry
-	loaded   bool
+	// reservedLoaded says whether the reservations were read from the
+	// state directory.
+	reservedLoaded bool
+	ledger         map[string]ledgerEntry
+	loaded         bool
+	// verified is when each file in the ledger was last compared in full.
+	verified map[string]time.Time
 	rollback *time.Timer
 	started  bool
 
-	events *eventHub
+	events   *eventHub
+	refusals refusalLog
+
+	// driftMu guards drift, what the last periodic check found.
+	driftMu sync.Mutex
+	drift   map[string]Drift
+}
+
+// refusalEvery is how often a refused caller from one address is recorded;
+// the refusals in between are counted into the next record, so a flood of
+// them can't push the real records out of the trail.
+const refusalEvery = 10 * time.Second
+
+type refusalLog struct {
+	mu   sync.Mutex
+	seen map[string]refusalCount
+}
+
+type refusalCount struct {
+	last    time.Time
+	skipped int
+}
+
+// refuse records a caller the agent turned away before any operation ran,
+// during the TLS handshake or because what it holds may not call the agent.
+func (rt *Runtime) refuse(op, caller, remote string, reason error) {
+	host := remote
+	if h, _, err := net.SplitHostPort(remote); err == nil {
+		host = h
+	}
+	now := rt.now()
+	rt.refusals.mu.Lock()
+	if rt.refusals.seen == nil || len(rt.refusals.seen) >= 4096 {
+		rt.refusals.seen = map[string]refusalCount{}
+	}
+	c := rt.refusals.seen[host]
+	if !c.last.IsZero() && now.Sub(c.last) < refusalEvery {
+		c.skipped++
+		rt.refusals.seen[host] = c
+		rt.refusals.mu.Unlock()
+		return
+	}
+	rt.refusals.seen[host] = refusalCount{last: now}
+	rt.refusals.mu.Unlock()
+	msg := reason.Error()
+	if c.skipped > 0 {
+		msg += fmt.Sprintf(" (%d more refused from %s since the last record)", c.skipped, host)
+	}
+	r := AuditRecord{Time: now.UTC(), Op: op, Caller: caller, Remote: remote, Code: string(ErrNotAllowed.Code), Error: msg}
+	if err := rt.audit.Record(r); err != nil {
+		rt.log.Error("writing the audit record", "op", op, "error", err)
+	}
+	rt.log.Warn("refused a caller", "op", op, "caller", caller, "remote", remote, "error", reason)
 }
 
 // RuntimeOptions configure a Runtime.
@@ -80,7 +134,8 @@ func NewRuntime(backend *system.Backend, opts RuntimeOptions) *Runtime {
 	}
 	return &Runtime{
 		backend: backend, audit: opts.Audit, log: opts.Log, now: opts.Clock, dir: opts.StateDir, driftEvery: opts.DriftInterval,
-		reserved: map[int]time.Time{}, ledger: map[string]ledgerEntry{}, events: newEventHub(),
+		reserved: map[int]time.Time{}, ledger: map[string]ledgerEntry{}, verified: map[string]time.Time{}, events: newEventHub(),
+		drift: map[string]Drift{},
 	}
 }
 
@@ -115,9 +170,7 @@ func (rt *Runtime) Start(ctx context.Context) error {
 					rt.log.Warn("checking for drift", "error", err)
 					continue
 				}
-				for _, d := range drift {
-					rt.events.publish(Event{Type: EventDrift, Time: rt.now().UTC(), Drift: &d})
-				}
+				rt.publishDrift(drift)
 			}
 		}
 	}()
@@ -125,17 +178,41 @@ func (rt *Runtime) Start(ctx context.Context) error {
 }
 
 // Subscribe returns events as they happen: drift found by the periodic
-// check and network changes rolled back. Call cancel when done.
+// check, once per change, and network changes confirmed or rolled back.
+// Call cancel when done.
 func (rt *Runtime) Subscribe() (<-chan Event, func()) { return rt.events.subscribe() }
+
+// Events calls fn with the drift the last check found, then with every
+// event as it happens, until ctx is done.
+func (rt *Runtime) Events(ctx context.Context, fn func(Event)) error {
+	events, cancel := rt.Subscribe()
+	defer cancel()
+	for _, d := range rt.CurrentDrift() {
+		fn(Event{Type: EventDrift, Time: rt.now().UTC(), Drift: &d})
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e, ok := <-events:
+			if !ok {
+				return nil
+			}
+			fn(e)
+		}
+	}
+}
 
 // statePath is a file in the agent's state directory.
 func (rt *Runtime) statePath(name string) string { return path.Join(rt.dir, name) }
 
-// writeState keeps data in the state directory, creating it.
+// writeState keeps data in the state directory, creating the directories
+// it needs: the state directory and those in it only root can enter.
 func (rt *Runtime) writeState(ctx context.Context, name string, data []byte) error {
 	f := rt.backend.Files
+	target := rt.statePath(name)
 	var missing []string
-	for d := rt.dir; d != "/"; d = path.Dir(d) {
+	for d := path.Dir(target); d != "/"; d = path.Dir(d) {
 		if _, err := f.Stat(ctx, d); err == nil {
 			break
 		} else if !errors.Is(err, system.ErrNotFound) {
@@ -145,14 +222,14 @@ func (rt *Runtime) writeState(ctx context.Context, name string, data []byte) err
 	}
 	for _, d := range missing {
 		perm := fs.FileMode(0o755)
-		if d == rt.dir {
+		if d == rt.dir || strings.HasPrefix(d, rt.dir+"/") {
 			perm = 0o700
 		}
 		if err := f.Mkdir(ctx, d, perm, system.Owner{}); err != nil && !errors.Is(err, system.ErrExists) {
 			return err
 		}
 	}
-	return f.WriteFile(ctx, rt.statePath(name), data, 0o600, system.Owner{})
+	return f.WriteFile(ctx, target, data, 0o600, system.Owner{})
 }
 
 // readState reads a state file, returning nil when there is none.
@@ -172,8 +249,48 @@ func (rt *Runtime) removeState(ctx context.Context, name string) error {
 	return err
 }
 
+// accountIDsName keeps the account IDs handed out but not used yet.
+const accountIDsName = "account-ids.json"
+
+// reservationTime is how long an allocated account ID is held for the
+// account that will use it.
+const reservationTime = 10 * time.Minute
+
+// loadReserved reads the reservations an earlier run left, once. The caller
+// holds rt.mu.
+func (rt *Runtime) loadReserved(ctx context.Context) error {
+	if rt.reservedLoaded {
+		return nil
+	}
+	data, err := rt.readState(ctx, accountIDsName)
+	if err != nil {
+		return err
+	}
+	if data != nil {
+		saved := map[int]time.Time{}
+		if err := json.Unmarshal(data, &saved); err != nil {
+			rt.log.Warn("the agent's account ID reservations can't be read; starting over", "error", err)
+		}
+		for id, until := range saved {
+			rt.reserved[id] = until
+		}
+	}
+	rt.reservedLoaded = true
+	return nil
+}
+
+// saveReserved keeps the reservations. The caller holds rt.mu.
+func (rt *Runtime) saveReserved(ctx context.Context) error {
+	data, err := json.Marshal(rt.reserved)
+	if err != nil {
+		return err
+	}
+	return rt.writeState(ctx, accountIDsName, data)
+}
+
 // reserve hands out an account ID until it is used or the reservation
-// lapses, so two allocations in a row never get the same ID.
+// lapses, so two allocations in a row never get the same ID, even when the
+// agent restarts in between.
 func (rt *Runtime) reserve(ctx context.Context, exclude []int) (int, error) {
 	users, err := rt.backend.Users.ListUsers(ctx)
 	if err != nil {
@@ -185,6 +302,9 @@ func (rt *Runtime) reserve(ctx context.Context, exclude []int) (int, error) {
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if err := rt.loadReserved(ctx); err != nil {
+		return 0, err
+	}
 	now := rt.now()
 	held := append([]int(nil), exclude...)
 	for id, until := range rt.reserved {
@@ -198,168 +318,29 @@ func (rt *Runtime) reserve(ctx context.Context, exclude []int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	rt.reserved[id] = now.Add(10 * time.Minute)
+	rt.reserved[id] = now.Add(reservationTime).UTC()
+	if err := rt.saveReserved(ctx); err != nil {
+		delete(rt.reserved, id)
+		return 0, err
+	}
 	return id, nil
 }
 
 // release drops a reservation once the ID is in use.
-func (rt *Runtime) release(id int) {
+func (rt *Runtime) release(ctx context.Context, id int) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if err := rt.loadReserved(ctx); err != nil {
+		rt.log.Warn("reading the account ID reservations", "error", err)
+		return
+	}
+	if _, ok := rt.reserved[id]; !ok {
+		return
+	}
 	delete(rt.reserved, id)
-}
-
-// Ledger kinds.
-const (
-	ledgerFile   = "file"
-	ledgerUnit   = "unit"
-	ledgerDropIn = "dropin"
-)
-
-// ledgerEntry is something an operation put on the machine for a resource.
-type ledgerEntry struct {
-	Owner    store.ID  `json:"owner"`
-	Kind     string    `json:"kind"`
-	SHA256   string    `json:"sha256"`
-	Recorded time.Time `json:"recorded"`
-}
-
-const ledgerFileName = "ledger.json"
-
-func (rt *Runtime) loadLedger(ctx context.Context) error {
-	if rt.loaded {
-		return nil
+	if err := rt.saveReserved(ctx); err != nil {
+		rt.log.Warn("keeping the account ID reservations", "error", err)
 	}
-	data, err := rt.readState(ctx, ledgerFileName)
-	if err != nil {
-		return err
-	}
-	if data != nil {
-		if err := json.Unmarshal(data, &rt.ledger); err != nil {
-			rt.log.Warn("the agent's ledger can't be read; starting a new one", "error", err)
-			rt.ledger = map[string]ledgerEntry{}
-		}
-	}
-	rt.loaded = true
-	return nil
-}
-
-func sum(data []byte) string {
-	s := sha256.Sum256(data)
-	return hex.EncodeToString(s[:])
-}
-
-// remember records that target now holds content written for owner, so a
-// later change by hand is reported as drift.
-func (rt *Runtime) remember(ctx context.Context, kind, target string, owner store.ID, content []byte) error {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	if err := rt.loadLedger(ctx); err != nil {
-		return err
-	}
-	e := ledgerEntry{Owner: owner, Kind: kind, SHA256: sum(content), Recorded: rt.now().UTC()}
-	if old, ok := rt.ledger[target]; ok && old.Owner == e.Owner && old.Kind == e.Kind && old.SHA256 == e.SHA256 {
-		return nil
-	}
-	rt.ledger[target] = e
-	return rt.saveLedger(ctx)
-}
-
-// forget drops what an operation removed from the ledger.
-func (rt *Runtime) forget(ctx context.Context, targets ...string) error {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	if err := rt.loadLedger(ctx); err != nil {
-		return err
-	}
-	changed := false
-	for _, t := range targets {
-		for key := range rt.ledger {
-			if key == t || strings.HasPrefix(key, strings.TrimSuffix(t, "/")+"/") {
-				delete(rt.ledger, key)
-				changed = true
-			}
-		}
-	}
-	if !changed {
-		return nil
-	}
-	return rt.saveLedger(ctx)
-}
-
-func (rt *Runtime) saveLedger(ctx context.Context) error {
-	data, err := json.Marshal(rt.ledger)
-	if err != nil {
-		return err
-	}
-	return rt.writeState(ctx, ledgerFileName, data)
-}
-
-// Drift is something on the machine that no longer matches what Racksail
-// put there.
-type Drift struct {
-	Owner store.ID `json:"owner,omitempty" doc:"The resource it was written for"`
-	// Kind is file, unit or dropin.
-	Kind   string `json:"kind" enum:"file,unit,dropin"`
-	Target string `json:"target" doc:"The path or unit"`
-	// Reason is changed, missing or failed.
-	Reason string `json:"reason" enum:"changed,missing,failed"`
-}
-
-// CheckDrift compares the machine with the ledger and reports what was
-// changed or removed by hand, and Racksail's units that failed.
-func (rt *Runtime) CheckDrift(ctx context.Context) ([]Drift, error) {
-	rt.mu.Lock()
-	if err := rt.loadLedger(ctx); err != nil {
-		rt.mu.Unlock()
-		return nil, err
-	}
-	entries := make(map[string]ledgerEntry, len(rt.ledger))
-	for k, v := range rt.ledger {
-		entries[k] = v
-	}
-	rt.mu.Unlock()
-
-	out := []Drift{}
-	for target, e := range entries {
-		var content []byte
-		var err error
-		switch e.Kind {
-		case ledgerUnit:
-			content, err = rt.backend.Units.ReadUnit(ctx, target)
-		default:
-			content, err = rt.backend.Files.ReadFile(ctx, target, maxFileContent)
-		}
-		switch {
-		case errors.Is(err, system.ErrNotFound):
-			out = append(out, Drift{Owner: e.Owner, Kind: e.Kind, Target: target, Reason: "missing"})
-		case err != nil:
-			return nil, err
-		case sum(content) != e.SHA256:
-			out = append(out, Drift{Owner: e.Owner, Kind: e.Kind, Target: target, Reason: "changed"})
-		}
-	}
-	units, err := rt.backend.Units.List(ctx, "racksail-*")
-	if err != nil {
-		return nil, err
-	}
-	for _, u := range units {
-		if u.Failed() {
-			owner := store.ID("")
-			if e, ok := entries[u.Name]; ok {
-				owner = e.Owner
-			}
-			out = append(out, Drift{Owner: owner, Kind: ledgerUnit, Target: u.Name, Reason: "failed"})
-		}
-	}
-	sortDrift(out)
-	return out, nil
-}
-
-func sortDrift(d []Drift) {
-	slices.SortFunc(d, func(a, b Drift) int {
-		return cmp.Or(cmp.Compare(a.Target, b.Target), cmp.Compare(a.Reason, b.Reason))
-	})
 }
 
 // Event types.

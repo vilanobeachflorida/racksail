@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -445,5 +446,23 @@ func TestRealisticTimings(t *testing.T) {
 	slow.Packages.UpdateIndex(canceled)
 	if time.Since(start) > 100*time.Millisecond {
 		t.Error("a canceled context cuts the delay short")
+	}
+}
+
+func TestCallsAreBounded(t *testing.T) {
+	ctx := context.Background()
+	m := New(Options{})
+	f := m.Backend().Files
+	for i := range maxCalls + maxCalls/5 {
+		if err := f.WriteFile(ctx, fmt.Sprintf("/srv/racksail/f%d", i), nil, 0o644, system.Owner{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := m.Calls()
+	if len(calls) > maxCalls+maxCalls/10 || len(calls) < maxCalls {
+		t.Errorf("%d calls kept", len(calls))
+	}
+	if last := calls[len(calls)-1]; last.Target != fmt.Sprintf("/srv/racksail/f%d", maxCalls+maxCalls/5-1) {
+		t.Errorf("the latest call = %+v", last)
 	}
 }

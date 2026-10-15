@@ -122,6 +122,12 @@ func (c *Connector) dial(ctx context.Context) (net.Conn, string, error) {
 	}
 	d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}, Config: cfg}
 	conn, err := d.DialContext(ctx, "tcp", c.Addr)
+	var refused *refusedPeer
+	if errors.As(err, &refused) && c.Server.runtime != nil {
+		// Something answered at the hub's address without the panel's
+		// certificate.
+		c.Server.runtime.refuse("connect", refused.peer, c.Addr, err)
+	}
 	if err != nil {
 		return nil, "", err
 	}

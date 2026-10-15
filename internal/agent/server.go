@@ -13,6 +13,8 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coreos/go-systemd/v22/daemon"
@@ -188,9 +190,33 @@ func identify(r *http.Request) (string, error) {
 		return "", err
 	}
 	if id.Role != RolePanel {
-		return "", fmt.Errorf("a %s certificate can't call the agent", id.Role)
+		return "", fmt.Errorf("only the panel may call the agent, not %s", id)
 	}
 	return id.String(), nil
+}
+
+// presented names whoever a refused request came from, as far as its
+// certificate tells.
+func presented(r *http.Request) string {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return "unknown"
+	}
+	if id, err := IdentityOf(r.TLS.PeerCertificates[0]); err == nil {
+		return id.String()
+	}
+	return "an unrecognized certificate"
+}
+
+// requestedOp names what a request asked for, as the audit trail names
+// operations and streams.
+func requestedOp(p string) string {
+	if op, ok := strings.CutPrefix(p, "/v1/ops/"); ok {
+		return op
+	}
+	if stream, ok := strings.CutPrefix(p, "/v1/streams/"); ok {
+		return "streams/" + stream
+	}
+	return p
 }
 
 // Handler returns the HTTP handler.
@@ -199,8 +225,12 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		caller, err := identify(r)
 		if err != nil {
+			if s.runtime != nil {
+				s.runtime.refuse(requestedOp(r.URL.Path), presented(r), r.RemoteAddr, err)
+			} else {
+				s.log.Warn("refused a caller", "remote", r.RemoteAddr, "error", err)
+			}
 			writeProblem(w, ErrNotAllowed.New("op", r.URL.Path, "target", "this agent"))
-			s.log.Warn("refused a caller", "remote", r.RemoteAddr, "error", err)
 			return
 		}
 		st := &auditState{}
@@ -241,11 +271,116 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 // ServeTLS answers requests from remote panels on ln with mutual TLS: it
 // presents cert and accepts only clients holding a panel certificate the
-// CA issued.
+// CA issued. Peers refused during the handshake are recorded in the audit
+// trail.
 func (s *Server) ServeTLS(ctx context.Context, ln net.Listener, cfg *tls.Config) error {
 	srv := s.httpServer()
 	srv.TLSConfig = cfg
-	return s.serve(ctx, tls.NewListener(ln, cfg), srv)
+	refuse := func(remote, peer string, err error) {
+		if s.runtime != nil {
+			s.runtime.refuse("connect", peer, remote, err)
+		}
+	}
+	return s.serve(ctx, newHandshakeListener(ln, cfg, refuse), srv)
+}
+
+// handshakeListener completes the TLS handshake of each connection before
+// handing it to the HTTP server, so a peer refused there can be recorded:
+// the HTTP server would only log it.
+type handshakeListener struct {
+	net.Listener
+	cfg    *tls.Config
+	refuse func(remote, peer string, err error)
+	conns  chan net.Conn
+	errs   chan error
+	closed chan struct{}
+	once   sync.Once
+	// slots bounds the handshakes in progress.
+	slots chan struct{}
+}
+
+func newHandshakeListener(ln net.Listener, cfg *tls.Config, refuse func(remote, peer string, err error)) *handshakeListener {
+	l := &handshakeListener{
+		Listener: ln, cfg: cfg, refuse: refuse,
+		conns: make(chan net.Conn), errs: make(chan error, 1), closed: make(chan struct{}), slots: make(chan struct{}, 64),
+	}
+	go l.accept()
+	return l
+}
+
+func (l *handshakeListener) accept() {
+	backoff := 5 * time.Millisecond
+	for {
+		raw, err := l.Listener.Accept()
+		if err != nil {
+			// Running out of descriptors or a connection reset before it was
+			// accepted passes; anything else ends the listener.
+			if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.ECONNRESET) {
+				select {
+				case <-time.After(backoff):
+				case <-l.closed:
+					return
+				}
+				backoff = min(backoff*2, time.Second)
+				continue
+			}
+			select {
+			case l.errs <- err:
+			case <-l.closed:
+			}
+			return
+		}
+		backoff = 5 * time.Millisecond
+		select {
+		case l.slots <- struct{}{}:
+		case <-l.closed:
+			raw.Close()
+			return
+		}
+		go l.handshake(raw)
+	}
+}
+
+func (l *handshakeListener) handshake(raw net.Conn) {
+	defer func() { <-l.slots }()
+	conn := tls.Server(raw, l.cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := conn.HandshakeContext(ctx); err != nil {
+		peer := "unknown"
+		if certs := conn.ConnectionState().PeerCertificates; len(certs) > 0 {
+			peer = "an unrecognized certificate"
+			if id, err := IdentityOf(certs[0]); err == nil {
+				peer = id.String()
+			}
+		}
+		l.refuse(raw.RemoteAddr().String(), peer, err)
+		conn.Close()
+		return
+	}
+	select {
+	case l.conns <- conn:
+	case <-l.closed:
+		conn.Close()
+	}
+}
+
+// Accept implements net.Listener.
+func (l *handshakeListener) Accept() (net.Conn, error) {
+	select {
+	case c := <-l.conns:
+		return c, nil
+	case err := <-l.errs:
+		return nil, err
+	case <-l.closed:
+		return nil, net.ErrClosed
+	}
+}
+
+// Close implements net.Listener.
+func (l *handshakeListener) Close() error {
+	l.once.Do(func() { close(l.closed) })
+	return l.Listener.Close()
 }
 
 func (s *Server) httpServer() *http.Server {
@@ -334,8 +469,9 @@ func (s *Server) registerEvents() {
 		Method:      http.MethodGet,
 		Path:        "/v1/events",
 		Summary:     "Stream events",
-		Description: "Streams what the agent notices on its own, one JSON object per line: drift from what Racksail put on the machine, and network changes confirmed or rolled back.",
-		Tags:        []string{"core"},
+		Description: "Streams what the agent notices on its own, one JSON object per line: drift from what Racksail put on the machine, " +
+			"once per change, starting with the drift the last check found, and network changes confirmed or rolled back.",
+		Tags: []string{"core"},
 		Responses: map[string]*huma.Response{"200": {
 			Description: "Events as JSON lines",
 			Content:     map[string]*huma.MediaType{"application/jsonl": {Schema: s.api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[Event](), true, "")}},
@@ -352,8 +488,14 @@ func (s *Server) registerEvents() {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		rc := http.NewResponseController(w)
-		rc.Flush()
 		enc := json.NewEncoder(w)
+		// A panel that connects late still learns about drift found before.
+		for _, d := range s.runtime.CurrentDrift() {
+			if err := enc.Encode(Event{Type: EventDrift, Time: time.Now().UTC(), Drift: &d}); err != nil {
+				return
+			}
+		}
+		rc.Flush()
 		keepalive := time.NewTicker(30 * time.Second)
 		defer keepalive.Stop()
 		for {

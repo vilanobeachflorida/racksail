@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -233,6 +234,128 @@ func TestDriftEvents(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no drift event")
 	}
+	// The same drift is reported once, however many checks find it.
+	select {
+	case e := <-events:
+		t.Errorf("drift reported again: %+v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+	// A panel that listens later still learns about it.
+	if current := rt.CurrentDrift(); len(current) != 1 || current[0].Target != path {
+		t.Errorf("current drift = %+v", current)
+	}
+	late := make(chan Event, 4)
+	lateCtx, stopLate := context.WithCancel(ctx)
+	go c.Events(lateCtx, func(e Event) { late <- e })
+	select {
+	case e := <-late:
+		if e.Drift == nil || e.Drift.Target != path {
+			t.Errorf("late event = %+v", e)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a late listener didn't hear about the drift")
+	}
+	stopLate()
+	// Put right and drifting again, it is reported again.
+	if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: path, Content: []byte("a"), Mode: 0o644}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(rt.CurrentDrift()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the drift never cleared")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := m.Backend().Files.Remove(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case e := <-events:
+		if e.Drift == nil || e.Drift.Reason != "missing" {
+			t.Errorf("event = %+v", e)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the new drift wasn't reported")
+	}
+}
+
+// Files are only read when their size or time changed, but a rolling full
+// comparison catches edits that kept both, and a file whose time alone
+// changed isn't drift.
+func TestDriftComparesContentsInTurn(t *testing.T) {
+	ctx := context.Background()
+	root := linuxRoot(t)
+	c := NewLocal(linuxBackend(root), nil)
+	rt := c.Runtime()
+	conf := "/srv/racksail/accounts/a/www/site.conf"
+	if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: conf, Content: []byte("listen 80;\n"), Mode: 0o644}, CallOptions{Owner: store.NewID("site")}); err != nil {
+		t.Fatal(err)
+	}
+	host := filepath.Join(root, conf)
+	info, err := os.Stat(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the time changes: not drift.
+	later := info.ModTime().Add(time.Hour)
+	if err := os.Chtimes(host, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if drift, err := rt.CheckDrift(ctx); err != nil || len(drift) != 0 {
+		t.Fatalf("a touched file = %+v, %v", drift, err)
+	}
+	// Same size, same time, other contents.
+	if err := os.WriteFile(host, []byte("listen 81;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(host, later, later); err != nil {
+		t.Fatal(err)
+	}
+	drift, err := rt.CheckDrift(ctx)
+	if err != nil || len(drift) != 1 || drift[0].Reason != "changed" {
+		t.Errorf("an edit that kept the size and time = %+v, %v", drift, err)
+	}
+	// The ledger keeps one file per target.
+	entries, err := os.ReadDir(filepath.Join(root, system.AgentStateDir, ledgerDir))
+	if err != nil || len(entries) != 1 {
+		t.Errorf("ledger files = %v, %v", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, system.AgentStateDir, "ledger.json")); err == nil {
+		t.Error("the ledger isn't kept as one file")
+	}
+}
+
+// eventsOnce is an event source whose stream ends after one event.
+type eventsOnce struct{ calls atomic.Int32 }
+
+func (e *eventsOnce) Events(ctx context.Context, fn func(Event)) error {
+	e.calls.Add(1)
+	fn(Event{Type: EventNetworkConfirmed})
+	return errors.New("the agent went away")
+}
+
+func TestFollowEventsReconnects(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	src := &eventsOnce{}
+	got := make(chan Event, 8)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		FollowEvents(ctx, src, func(e Event) { got <- e }, nil)
+	}()
+	for range 2 {
+		select {
+		case <-got:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the stream wasn't followed again")
+		}
+	}
+	cancel()
+	<-done
+	if src.calls.Load() < 2 {
+		t.Errorf("calls = %d", src.calls.Load())
+	}
 }
 
 func TestNetworkChangesRollBackUnlessConfirmed(t *testing.T) {
@@ -272,6 +395,16 @@ func TestNetworkChangesRollBackUnlessConfirmed(t *testing.T) {
 	}
 	if status, _ := GetNetworkChange.Call(ctx, c, Empty{}, CallOptions{}); status.Pending != nil {
 		t.Errorf("still pending: %+v", status)
+	}
+	// A confirmation that comes after the rollback isn't taken for one that
+	// worked, in check mode either.
+	for _, check := range []bool{true, false} {
+		if _, err := ConfirmNetworkConfig.Call(ctx, c, ConfirmNetworkInput{Token: res.Pending.Token}, CallOptions{Check: check}); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "rolled back") {
+			t.Errorf("confirming too late (check %v): %v", check, err)
+		}
+	}
+	if _, err := ConfirmNetworkConfig.Call(ctx, c, ConfirmNetworkInput{Token: strings.Repeat("a", 32)}, CallOptions{}); !errors.Is(err, ErrConflict) {
+		t.Errorf("confirming with nothing waiting: %v", err)
 	}
 
 	good := NetworkConfigInput{Files: map[string]string{"50-racksail-enp1s0.network": "[Match]\nName=enp1s0\n[Network]\nDHCP=yes\n"}, ConfirmWithin: 60}
@@ -366,6 +499,20 @@ func TestAccountIDsAreReserved(t *testing.T) {
 	next, _ := AllocateAccountID.Call(ctx, c, AllocateAccountIDInput{}, CallOptions{})
 	if next.UID == a.UID || next.UID == b.UID {
 		t.Errorf("an ID in use or reserved was handed out again: %d", next.UID)
+	}
+	// Reservations outlive the agent: a new run doesn't hand them out.
+	again := NewLocal(c.Runtime().backend, nil)
+	fresh, err := AllocateAccountID.Call(ctx, again, AllocateAccountIDInput{}, CallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.UID == b.UID || fresh.UID == next.UID {
+		t.Errorf("a restarted agent handed out a reserved ID again: %d", fresh.UID)
+	}
+	// They lapse after a while.
+	later := NewLocalRuntime(NewRuntime(c.Runtime().backend, RuntimeOptions{Clock: func() time.Time { return time.Now().Add(reservationTime + time.Minute) }}))
+	if lapsed, _ := AllocateAccountID.Call(ctx, later, AllocateAccountIDInput{}, CallOptions{}); lapsed.UID != b.UID && lapsed.UID != next.UID && lapsed.UID != fresh.UID {
+		t.Errorf("a lapsed reservation should be free again, got %d", lapsed.UID)
 	}
 }
 

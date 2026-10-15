@@ -138,8 +138,12 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 	hookRunner.Notify(ctx, hooks.CoreBoot, auth.System("core"), nil)
 	// The resync puts back what drifts on the machine and carries out
-	// changes whose apply job never ran.
+	// changes whose apply job never ran; drift the agent reports is put back
+	// as soon as it is found.
 	go runner.Resync(ctx, reconcile.ResyncInterval)
+	if src, ok := agentClient.(agent.EventSource); ok {
+		go followAgent(ctx, src, st, runner, bus, log)
+	}
 	return c, nil
 }
 

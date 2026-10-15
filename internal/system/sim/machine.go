@@ -163,7 +163,11 @@ func (m *Machine) Backend() *system.Backend {
 	}
 }
 
-// Calls returns the adapter calls made so far.
+// maxCalls is how many of the latest adapter calls a machine keeps, so a
+// long racksail dev session doesn't grow without end.
+const maxCalls = 10000
+
+// Calls returns the latest adapter calls, up to maxCalls of them.
 func (m *Machine) Calls() []Call {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -192,6 +196,9 @@ func (m *Machine) FailNext(op, target string, err error) {
 // on disk is saved. The caller must hold m.mu.
 func (m *Machine) record(area, op, target string) error {
 	m.calls = append(m.calls, Call{Area: area, Op: op, Target: target})
+	if len(m.calls) > maxCalls+maxCalls/10 {
+		m.calls = slices.Clone(m.calls[len(m.calls)-maxCalls:])
+	}
 	m.changed()
 	key := area + "." + op + " " + target
 	if errs := m.failures[key]; len(errs) > 0 {

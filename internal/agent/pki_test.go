@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -95,10 +96,13 @@ func TestCertificateAuthority(t *testing.T) {
 }
 
 // serveTLS runs an agent with mutual TLS on a loopback port.
-func serveTLS(t *testing.T, creds Credentials) (addr string, srv *Server) {
+// serveTLSWith serves with a runtime on the given clock, or the real one
+// when it is nil.
+func serveTLSWith(t *testing.T, creds Credentials, clock func() time.Time) (addr string, srv *Server) {
 	t.Helper()
 	m := sim.New(sim.Options{Hostname: "remote"})
-	srv = NewServer(m.Backend(), "test", nil)
+	b := m.Backend()
+	srv = NewServerWith(ServerOptions{Backend: b, Runtime: NewRuntime(b, RuntimeOptions{Clock: clock}), Version: "test"})
 	cfg, err := ServerTLSConfig(creds)
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +136,16 @@ func TestMutualTLS(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCluster(t)
 	agentCreds := issue(t, c.ca, Identity{Role: RoleAgent, Server: "web-1"})
-	addr, srv := serveTLS(t, agentCreds)
+	// Each refusal is recorded when they're far enough apart.
+	var clockMu sync.Mutex
+	now := time.Now()
+	clock := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		now = now.Add(time.Minute)
+		return now
+	}
+	addr, srv := serveTLSWith(t, agentCreds, clock)
 
 	panel := tlsClient(t, c.panel, "web-1", addr)
 	facts, err := GetFacts.Call(ctx, panel, Empty{}, CallOptions{})
@@ -164,6 +177,70 @@ func TestMutualTLS(t *testing.T) {
 	plain := NewHTTPClient("https://"+addr, &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}})
 	if _, err := plain.Health(ctx); err == nil {
 		t.Error("a client without a certificate must be refused")
+	}
+	// Every peer refused during the handshake is in the audit trail.
+	callers := map[string]bool{}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(callers) < 3 && time.Now().Before(deadline) {
+		records, _ := srv.Runtime().Audit().Recent(AuditFilter{Op: "connect"})
+		for _, r := range records {
+			if r.Code != string(ErrNotAllowed.Code) || r.Remote == "" {
+				t.Errorf("refusal = %+v", r)
+			}
+			callers[r.Caller] = true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, want := range []string{"racksail://agent/web-3", "racksail://panel", "unknown"} {
+		if !callers[want] {
+			t.Errorf("no refusal recorded for %s: %v", want, callers)
+		}
+	}
+}
+
+// A request whose certificate may not call the agent is refused and
+// recorded, even where the TLS configuration lets the certificate through.
+func TestRefusedCallersAreAudited(t *testing.T) {
+	c := newTestCluster(t)
+	m := sim.New(sim.Options{Hostname: "remote"})
+	b := m.Backend()
+	now := time.Now()
+	srv := NewServerWith(ServerOptions{Backend: b, Runtime: NewRuntime(b, RuntimeOptions{Clock: func() time.Time { return now }}), Version: "test"})
+	ts := httptest.NewUnstartedServer(srv.Handler())
+	ts.TLS = &tls.Config{ClientAuth: tls.RequireAnyClientCert}
+	ts.StartTLS()
+	defer ts.Close()
+	peer := issue(t, c.ca, Identity{Role: RoleAgent, Server: "web-3"})
+	cert, _ := peer.TLSCertificate()
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, Certificates: []tls.Certificate{cert}}}}
+	for range 3 {
+		resp, err := client.Post(ts.URL+"/v1/ops/GetFacts", "application/json", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("status = %d", resp.StatusCode)
+		}
+	}
+	records, _ := srv.Runtime().Audit().Recent(AuditFilter{})
+	if len(records) != 1 {
+		t.Fatalf("records = %+v", records)
+	}
+	r := records[0]
+	if r.Op != "GetFacts" || r.Caller != "racksail://agent/web-3" || r.Code != string(ErrNotAllowed.Code) || r.Remote == "" || !strings.Contains(r.Error, "only the panel") {
+		t.Errorf("record = %+v", r)
+	}
+	// Refusals in quick succession are counted into the next record.
+	now = now.Add(refusalEvery)
+	resp, err := client.Post(ts.URL+"/v1/streams/Download", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	records, _ = srv.Runtime().Audit().Recent(AuditFilter{})
+	if len(records) != 2 || records[0].Op != "streams/Download" || !strings.Contains(records[0].Error, "2 more refused") {
+		t.Errorf("records = %+v", records)
 	}
 }
 
