@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
-	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 	"github.com/vilanobeachflorida/racksail/internal/system/sim"
@@ -84,7 +83,7 @@ func newDevCommand() *cobra.Command {
 				}
 			}()
 
-			apiServer, err := c.apiServer(auth.DevAuthenticator{})
+			apiServer, err := c.apiServer(nil, true)
 			if err != nil {
 				return err
 			}

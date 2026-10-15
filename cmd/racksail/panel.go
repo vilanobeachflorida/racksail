@@ -15,7 +15,6 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api"
-	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 )
 
@@ -34,13 +33,15 @@ func newPanelCommand() *cobra.Command {
 			}
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
-			log.Warn("this build keeps the panel's resources, change sets and secrets in memory, so they are lost when the panel stops")
+			log.Warn("this build keeps secret values in memory, so settings that hold secrets need them entered again after the panel restarts")
 			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edge.DialAdmin(cfg.Edge.Socket))
 			if err != nil {
 				return err
 			}
 			defer c.stop(context.WithoutCancel(ctx))
-			apiServer, err := c.apiServer(auth.NoAuthenticator{})
+			// No authenticator yet: the API refuses what needs a signed-in
+			// user rather than serving it to anyone.
+			apiServer, err := c.apiServer(nil, false)
 			if err != nil {
 				return err
 			}
