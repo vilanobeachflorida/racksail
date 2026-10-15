@@ -1,5 +1,14 @@
 import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
-import { type FormEvent, type ReactNode, useId, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type IntlShape, useIntl } from "react-intl";
 import type { Problem } from "@/lib/api/client";
 import { errorMessageId } from "@/lib/errors";
@@ -293,6 +302,12 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
       <fieldset className="flex flex-col gap-4 rounded-md border border-border p-4">
         <legend className="px-1 font-medium text-sm">{label}</legend>
         {description ? <p className="-mt-2 text-muted-foreground text-xs">{description}</p> : null}
+        {error ? (
+          // Focus can land here after a submit, as there's no control of its own.
+          <p className="text-danger text-xs" role="alert" tabIndex={-1} data-field-error="">
+            {error}
+          </p>
+        ) : null}
         {field.children.map((child) => (
           <FieldView key={child.path} field={child} ctx={ctx} />
         ))}
@@ -361,7 +376,7 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
           {intl.formatMessage(m.formAdd, { item: label })}
         </Button>
         {error ? (
-          <p className="text-danger text-xs" role="alert">
+          <p className="text-danger text-xs" role="alert" tabIndex={-1} data-field-error="">
             {error}
           </p>
         ) : null}
@@ -370,6 +385,10 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
   }
 
   if (field.kind === "boolean" || field.hint.widget === "toggle") {
+    const describedBy = [
+      description ? `f-${field.path}-d` : null,
+      error ? `f-${field.path}-e` : null,
+    ].filter(Boolean);
     return (
       <div className="flex items-start gap-3">
         <Switch
@@ -377,7 +396,8 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
           checked={value === true}
           onCheckedChange={(on) => set(on)}
           disabled={locked}
-          aria-describedby={description ? `f-${field.path}-d` : undefined}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy.length > 0 ? describedBy.join(" ") : undefined}
         />
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`f-${field.path}`} className="font-medium text-sm leading-5">
@@ -388,7 +408,11 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
               {description}
             </p>
           ) : null}
-          {error ? <p className="text-danger text-xs">{error}</p> : null}
+          {error ? (
+            <p id={`f-${field.path}-e`} className="text-danger text-xs">
+              {error}
+            </p>
+          ) : null}
         </div>
       </div>
     );
@@ -595,9 +619,14 @@ export function SchemaForm(props: SchemaFormProps) {
   const [value, setValue] = useState<unknown>(
     () => props.initialValue ?? defaultValue(schema, root) ?? {},
   );
+  // The value as last set, for changes made before React renders again.
+  const latest = useRef(value);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
   const [submitted, setSubmitted] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Bumped to move focus to the first problem once it has rendered.
+  const [focusRequest, setFocusRequest] = useState(0);
 
   const sensitive = useMemo(() => {
     const paths: FieldNode[] = [];
@@ -656,14 +685,68 @@ export function SchemaForm(props: SchemaFormProps) {
     props.problemPrefix,
   ]);
 
+  const advancedPaths = useMemo(
+    () => groups.filter((g) => g.advanced).flatMap((g) => g.fields.map((f) => f.path)),
+    [groups],
+  );
+  // Whether a field, or a field nested in one, is in the Advanced section.
+  const inAdvanced = useCallback(
+    (path: string) =>
+      advancedPaths.some((p) => path === p || path.startsWith(`${p}.`) || path.startsWith(`${p}[`)),
+    [advancedPaths],
+  );
+  // Take people to a problem: open Advanced when it's in there, then focus
+  // it once it's on screen.
+  const showProblems = useCallback(
+    (paths: readonly string[]) => {
+      if (paths.some(inAdvanced)) {
+        setAdvancedOpen(true);
+      }
+      setFocusRequest((n) => n + 1);
+    },
+    [inAdvanced],
+  );
+  useEffect(() => {
+    if (focusRequest === 0) {
+      return;
+    }
+    document
+      .getElementById(formId)
+      ?.querySelector<HTMLElement>('[aria-invalid="true"], [data-field-error]')
+      ?.focus();
+  }, [focusRequest, formId]);
+
+  // The server's reasons arrive after a submit; they show under their
+  // fields, Advanced ones included.
+  const problemPrefix = props.problemPrefix ? `${props.problemPrefix}.` : "";
+  const problemKey = JSON.stringify(
+    (props.problems ?? []).map((p) => {
+      const loc = p.location ?? "";
+      return problemPrefix && loc.startsWith(problemPrefix) ? loc.slice(problemPrefix.length) : loc;
+    }),
+  );
+  // Only new problems move focus, not a parent rendering again with new
+  // hints while someone types.
+  const showLatest = useRef(showProblems);
+  useEffect(() => {
+    showLatest.current = showProblems;
+  });
+  useEffect(() => {
+    const paths = JSON.parse(problemKey) as string[];
+    if (paths.length > 0) {
+      showLatest.current(paths);
+    }
+  }, [problemKey]);
+
   const ctx: Context = {
     value,
+    // onChange runs here rather than in a state updater, which React may
+    // call twice.
     set: (path, next) => {
-      setValue((v: unknown) => {
-        const updated = setAt(v, path, next);
-        props.onChange?.(updated);
-        return updated;
-      });
+      const updated = setAt(latest.current, path, next);
+      latest.current = updated;
+      setValue(updated);
+      props.onChange?.(updated);
     },
     errors,
     touch: (path) => setTouched((t) => new Set(t).add(path)),
@@ -676,19 +759,16 @@ export function SchemaForm(props: SchemaFormProps) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setSubmitted(true);
-    const issues = validate(schema, value, root).filter(
+    const current = latest.current;
+    const issues = validate(schema, current, root).filter(
       (i) => !sensitive.some((f) => f.path === i.path),
     );
-    const missingSecret =
-      mode === "create" && sensitive.some((f) => f.required && !isFilled(secrets[f.path]));
-    if (issues.length > 0 || missingSecret) {
-      // Take people to the first problem.
-      requestAnimationFrame(() => {
-        const first = document.querySelector<HTMLElement>(
-          `#${CSS.escape(formId)} [aria-invalid="true"]`,
-        );
-        first?.focus();
-      });
+    const missingSecrets =
+      mode === "create"
+        ? sensitive.filter((f) => f.required && !isFilled(secrets[f.path])).map((f) => f.path)
+        : [];
+    if (issues.length > 0 || missingSecrets.length > 0) {
+      showProblems([...issues.map((i) => i.path), ...missingSecrets]);
       return;
     }
     const filled: Record<string, string> = {};
@@ -697,7 +777,7 @@ export function SchemaForm(props: SchemaFormProps) {
         filled[k] = v;
       }
     }
-    props.onSubmit({ spec: value, secrets: filled });
+    props.onSubmit({ spec: current, secrets: filled });
   };
 
   const basic = groups.filter((g) => !g.advanced);
@@ -738,7 +818,7 @@ export function SchemaForm(props: SchemaFormProps) {
       ) : null}
       {basic.map(renderGroup)}
       {advanced.length > 0 ? (
-        <Collapsible defaultOpen={advanced.some((g) => g.fields.some((f) => errors[f.path]))}>
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
           <CollapsibleTrigger>{intl.formatMessage(m.formAdvanced)}</CollapsibleTrigger>
           <CollapsibleContent className="mt-4 flex flex-col gap-6">
             {advanced.map(renderGroup)}

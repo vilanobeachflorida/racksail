@@ -6,6 +6,7 @@ import {
   useEffect,
   useInsertionEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { fontLayer, layerAssetURLs, type ThemeAssetURLs, type ThemeFileURL } from "./files";
@@ -13,6 +14,7 @@ import type { ThemeLayers } from "./layers";
 import {
   applyPreferences,
   loadPreferences,
+  normalizePreferences,
   type Preferences,
   preferencesKey,
   savePreferences,
@@ -129,9 +131,15 @@ export interface ThemeProviderProps {
   /**
    * Where the server's custom CSS is served, when an admin has turned it on.
    * The panel checks it and wraps it in its cascade layer, below personal
-   * preferences and the protected palette (internal/theme.WrapCustomCSS).
+   * preferences and the protected palette, and in a scope that stops at
+   * safety-critical areas (internal/theme.WrapCustomCSS).
    */
   customCSSURL?: string;
+  /**
+   * The preferences kept with the person's account. They replace the ones
+   * this browser remembered once they arrive, so every device looks the same.
+   */
+  preferences?: Partial<Preferences> | null;
   /** Called when the person changes a preference, to keep it with their account too. */
   onPreferencesChange?: (preferences: Preferences) => void;
   children: ReactNode;
@@ -148,10 +156,21 @@ export function ThemeProvider({
   fileURL,
   brandName,
   customCSSURL,
+  preferences: accountPreferences,
   onPreferencesChange,
   children,
 }: ThemeProviderProps) {
   const [preferences, setPrefs] = useState<Preferences>(() => loadPreferences());
+  // The preferences as last set, for changes made before React renders again.
+  const current = useRef(preferences);
+  const onChange = useRef(onPreferencesChange);
+  useEffect(() => {
+    onChange.current = onPreferencesChange;
+  });
+  const adopt = useCallback((next: Preferences) => {
+    current.current = next;
+    setPrefs(next);
+  }, []);
   const [preview, setPreview] = useState<Theme | null>(null);
   const [css, setCSS] = useState("");
   const systemIsDark = useSystemDark();
@@ -170,7 +189,7 @@ export function ThemeProvider({
       fileURL && !preview
         ? (path: string, font: "sans" | "mono") => {
             const layer = fontLayer({ server, reseller }, font);
-            return layer ? fileURL(layer, path) : path;
+            return layer ? fileURL(layer, path) : "";
           }
         : undefined;
     Promise.all([import("./css"), import("./layers")]).then(
@@ -211,27 +230,38 @@ export function ThemeProvider({
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === preferencesKey) {
-        setPrefs(loadPreferences());
+        adopt(loadPreferences());
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [adopt]);
+
+  // The account's preferences arrived or changed on another device.
+  const accountKey = accountPreferences ? JSON.stringify(accountPreferences) : "";
+  useEffect(() => {
+    if (accountKey === "") {
+      return;
+    }
+    const next = normalizePreferences(JSON.parse(accountKey));
+    adopt(next);
+    savePreferences(next);
+  }, [accountKey, adopt]);
 
   const mode: "light" | "dark" =
     preferences.mode === "system" ? (systemIsDark ? "dark" : "light") : preferences.mode;
   const tokensKey = `${mode}:${preferences.contrast}:${hash(css)}`;
 
+  // Saving and telling the account happen here, not in a state updater,
+  // which React may call twice.
   const setPreferences = useCallback(
     (change: Partial<Preferences>) => {
-      setPrefs((current) => {
-        const next = { ...current, ...change };
-        savePreferences(next);
-        onPreferencesChange?.(next);
-        return next;
-      });
+      const next = { ...current.current, ...change };
+      adopt(next);
+      savePreferences(next);
+      onChange.current?.(next);
     },
-    [onPreferencesChange],
+    [adopt],
   );
 
   const value = useMemo<ThemeContextValue>(

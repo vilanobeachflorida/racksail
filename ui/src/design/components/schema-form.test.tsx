@@ -1,5 +1,6 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { buildForm, defaultValue, getAt, humanize, parsePath, setAt } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
@@ -181,5 +182,130 @@ describe("the schema form", () => {
       "placeholder",
       "Leave empty to keep the current value",
     );
+  });
+
+  it("opens Advanced and goes to a problem in it on submit", async () => {
+    const small: JSONSchema = {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        workers: { type: "integer", maximum: 16 },
+      },
+    };
+    const onSubmit = vi.fn();
+    renderWithProviders(
+      <SchemaForm
+        schema={small}
+        hints={{ fields: { workers: { advanced: true } } }}
+        initialValue={{ name: "shop", workers: 99 }}
+        submitLabel="Save"
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.queryByRole("spinbutton", { name: "Workers" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("One field needs attention.")).toBeInTheDocument();
+    const workers = await screen.findByRole("spinbutton", { name: "Workers" });
+    expect(screen.getByRole("button", { name: "Advanced" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(workers).toHaveAccessibleDescription("Use 16 or less.");
+    await waitFor(() => expect(workers).toHaveFocus());
+  });
+
+  it("finds problems in fields nested in an Advanced group", async () => {
+    renderWithProviders(
+      <SchemaForm
+        schema={schema}
+        hints={hints}
+        initialValue={{ domain: "example.com", runtime: "php", limits: { memory: -1 } }}
+        submitLabel="Save"
+        onSubmit={() => {}}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText(/Password/), "s3cret-pass");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    const limits = await screen.findByRole("group", { name: "Limits" });
+    const memory = within(limits).getByRole("spinbutton", { name: "Memory" });
+    await waitFor(() => expect(memory).toHaveFocus());
+    expect(memory).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("shows the server's reasons for Advanced fields that arrive after a submit", async () => {
+    const props = {
+      schema,
+      hints,
+      mode: "update" as const,
+      initialValue: { domain: "example.com", runtime: "php", workers: 4 },
+      problemPrefix: "body.spec",
+      submitLabel: "Save",
+      onSubmit: () => {},
+    };
+    const { rerender } = renderWithProviders(<SchemaForm {...props} />);
+    expect(screen.queryByRole("spinbutton", { name: "Workers" })).not.toBeInTheDocument();
+    rerender(
+      <SchemaForm
+        {...props}
+        problems={[
+          {
+            code: "web.too_many_workers",
+            message: "This plan allows 2 workers.",
+            location: "body.spec.workers",
+          },
+        ]}
+      />,
+    );
+    const workers = await screen.findByRole("spinbutton", { name: "Workers" });
+    expect(workers).toHaveAccessibleDescription("This plan allows 2 workers.");
+    await waitFor(() => expect(workers).toHaveFocus());
+  });
+
+  it("moves focus for new problems only, not when its parent renders again", async () => {
+    const problems = [
+      { code: "web.domain_taken", message: "Taken.", location: "body.spec.runtime" },
+    ];
+    function Parent() {
+      const [, setCount] = useState(0);
+      return (
+        <SchemaForm
+          // New hints and problems objects on every render, as callers write them.
+          schema={schema}
+          hints={{ ...hints }}
+          problems={[...problems]}
+          problemPrefix="body.spec"
+          initialValue={{ domain: "example.com", runtime: "php" }}
+          submitLabel="Save"
+          onSubmit={() => {}}
+          onChange={() => setCount((n) => n + 1)}
+        />
+      );
+    }
+    renderWithProviders(<Parent />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: /Runtime/ })).toHaveFocus());
+    const domain = screen.getByRole("textbox", { name: /Domain/ });
+    await userEvent.click(domain);
+    await userEvent.type(domain, "x");
+    expect(domain).toHaveFocus();
+    expect(domain).toHaveValue("example.comx");
+  });
+
+  it("reports each change once, even when React renders twice", async () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <StrictMode>
+        <SchemaForm
+          schema={schema}
+          hints={hints}
+          submitLabel="Save"
+          onSubmit={() => {}}
+          onChange={onChange}
+        />
+      </StrictMode>,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: /Domain/ }), "abc");
+    expect(onChange).toHaveBeenCalledTimes(3);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ domain: "abc" }));
   });
 });
