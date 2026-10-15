@@ -46,7 +46,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	kinds := store.Kinds()
 	st := store.NewMemory(kinds)
 	bus := events.NewMemory(10000)
-	queue := jobs.NewMemory(ctx, 4, log)
+	queue := jobs.NewMemory(ctx, jobs.MemoryOptions{Workers: 4, Log: log})
 	reg := modules.Default()
 
 	hookReg := hooks.NewRegistry()

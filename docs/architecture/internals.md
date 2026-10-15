@@ -39,6 +39,7 @@ Everything the panel holds lives in memory for now, in `racksail panel` as much 
 - Resources and their history live in `store.Memory`. The production store is SQLite (decision T3) behind the same `store.Store` interface.
 - Secrets live in `secrets.Memory`, encrypted with a key made at every start. On a server the key will be sealed with systemd-creds (decision T12) and kept.
 - Change sets live in the change pipeline's engine, within its `Retention`: dry runs for an hour, at most 200, and finished change sets for seven days, at most 1000. `Get` and `Undo` only reach those, and none survive a restart.
+- Jobs and their logs live in `jobs.Memory`, within its `Retention`: finished jobs for seven days, at most 2000.
 - Module states live in the module manager.
 
 Code written against the interfaces won't change when these are kept on disk, so don't add another way to keep something in the meantime.

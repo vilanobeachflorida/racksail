@@ -7,6 +7,6 @@
 // installing software are all jobs. The API answers 202 with the job's ID
 // and clients follow its progress and logs over Server-Sent Events.
 //
-// Memory is a queue that keeps jobs in memory; it backs development mode and
-// tests.
+// Memory is a queue that keeps jobs and their logs in memory, dropping
+// finished ones once they outlive its Retention.
 package jobs

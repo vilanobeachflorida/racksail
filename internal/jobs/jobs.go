@@ -177,13 +177,47 @@ type Queue interface {
 	Wait(ctx context.Context, id store.ID) (*Job, error)
 }
 
+// Retention bounds the finished jobs a Memory queue keeps, with their logs.
+// Jobs live in the queue's memory, so Get, Logs and Retry reach only the ones
+// kept here.
+type Retention struct {
+	// Finished is how long succeeded, failed and canceled jobs stay
+	// available. The default is seven days, as long as the change pipeline
+	// keeps finished change sets, so a change set's job can be looked up.
+	Finished time.Duration
+	// MaxFinished caps the number of finished jobs kept. The default is 2000,
+	// twice the change sets the pipeline keeps, because other work runs as
+	// jobs too.
+	MaxFinished int
+}
+
+func (r Retention) withDefaults() Retention {
+	if r.Finished <= 0 {
+		r.Finished = 7 * 24 * time.Hour
+	}
+	if r.MaxFinished <= 0 {
+		r.MaxFinished = 2000
+	}
+	return r
+}
+
+// MemoryOptions configure a Memory queue.
+type MemoryOptions struct {
+	// Workers is how many jobs run at once; the default is four.
+	Workers   int
+	Retention Retention
+	Log       *slog.Logger
+	Now       func() time.Time
+}
+
 // Memory is an in-memory Queue that runs up to a fixed number of jobs at
-// once.
+// once and keeps finished jobs within its retention.
 type Memory struct {
-	log  *slog.Logger
-	now  func() time.Time
-	sem  chan struct{}
-	base context.Context
+	log       *slog.Logger
+	now       func() time.Time
+	sem       chan struct{}
+	base      context.Context
+	retention Retention
 
 	mu       sync.Mutex
 	jobs     map[store.ID]*entry
@@ -198,17 +232,19 @@ type entry struct {
 	done   chan struct{}
 }
 
-// NewMemory returns a queue running up to workers jobs at once. Jobs stop
-// when ctx is done.
-func NewMemory(ctx context.Context, workers int, log *slog.Logger) *Memory {
-	if workers <= 0 {
-		workers = 4
+// NewMemory returns an in-memory queue. Jobs stop when ctx is done.
+func NewMemory(ctx context.Context, opts MemoryOptions) *Memory {
+	if opts.Workers <= 0 {
+		opts.Workers = 4
 	}
-	if log == nil {
-		log = slog.Default()
+	if opts.Log == nil {
+		opts.Log = slog.Default()
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	return &Memory{
-		log: log, now: time.Now, sem: make(chan struct{}, workers), base: ctx,
+		log: opts.Log, now: opts.Now, sem: make(chan struct{}, opts.Workers), base: ctx, retention: opts.Retention.withDefaults(),
 		jobs: map[store.ID]*entry{}, watchers: map[store.ID]map[chan Update]bool{}, handlers: map[string]Type{},
 	}
 }
@@ -256,11 +292,37 @@ func (m *Memory) Enqueue(ctx context.Context, typ string, args any, opts Options
 		ChangeSet: opts.ChangeSet, Resource: opts.Resource, Attempt: 1, Args: raw, CreatedAt: m.now().UTC(),
 	}, done: make(chan struct{})}
 	m.mu.Lock()
+	m.prune(e.job.CreatedAt)
 	m.jobs[e.job.ID] = e
 	snapshot := e.job
 	m.mu.Unlock()
 	m.start(e)
 	return &snapshot, nil
+}
+
+// prune drops finished jobs and their logs once they are older than the
+// retention or over its cap, oldest first. Queued and running jobs are
+// always kept. m.mu must be held.
+func (m *Memory) prune(now time.Time) {
+	var done []*entry
+	for _, e := range m.jobs {
+		if e.job.State.Done() && e.job.FinishedAt != nil {
+			done = append(done, e)
+		}
+	}
+	// IDs sort by creation time.
+	sort.Slice(done, func(i, j int) bool { return done[i].job.ID < done[j].job.ID })
+	var kept []*entry
+	for _, e := range done {
+		if now.Sub(*e.job.FinishedAt) > m.retention.Finished {
+			delete(m.jobs, e.job.ID)
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	for i := 0; i < len(kept)-m.retention.MaxFinished; i++ {
+		delete(m.jobs, kept[i].job.ID)
+	}
 }
 
 func (m *Memory) start(e *entry) {
@@ -535,5 +597,10 @@ func (m *Memory) Wait(ctx context.Context, id store.ID) (*Job, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	return m.Get(ctx, id)
+	// The entry, not the map, so a job dropped by the retention in the
+	// meantime is still reported.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	job := e.job
+	return &job, nil
 }

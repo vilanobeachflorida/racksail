@@ -251,7 +251,7 @@ func newEnv(t *testing.T, retention Retention, now func() time.Time) *env {
 	box, _ := secrets.NewBox(key)
 	vault := secrets.NewMemory(box)
 	bus := events.NewMemory(100)
-	q := jobs.NewMemory(ctx, 2, nil)
+	q := jobs.NewMemory(ctx, jobs.MemoryOptions{Workers: 2})
 	hooks := &fakeHooks{}
 	engine, err := NewEngine(Options{
 		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: bus, Hooks: hooks, Secrets: vault,
