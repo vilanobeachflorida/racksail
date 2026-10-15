@@ -15,11 +15,13 @@
 // it connects with Open; extend hooks register what an add-on adds to the
 // UI and the API. Hooks run in a deterministic order: priority, then owner.
 //
-// Runner implements changeset.Hooks: it enforces deadlines and failure
-// modes, labels what modify hooks contribute, reports two hooks changing the
-// same field as a conflict, and switches off hooks that keep failing. Its
-// Check and Notify methods run validate and observe hooks at points outside
-// the change pipeline.
+// Runner implements changeset.Hooks: it gives every hook its own copy of
+// what it works on, enforces deadlines and failure modes, holds modify hooks
+// to rewriting the specs of their changes and adding changes and effects,
+// labels what they contribute, reports two hooks changing the same field as
+// a conflict, and switches off hooks that keep failing. Its Check and Notify
+// methods run validate and observe hooks at points outside the change
+// pipeline.
 //
 // The add-on manifest, its permissions and the spec of CEL rules
 // (core.policy) are defined here too; the add-on runtime and the rule engine

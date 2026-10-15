@@ -138,6 +138,24 @@ func (a *Actor) String() string {
 	return s
 }
 
+// Clone returns a copy of the actor whose grants can be changed without
+// affecting a, for code that hands the actor to something it doesn't trust
+// to leave it alone, such as hooks.
+func (a *Actor) Clone() *Actor {
+	if a == nil {
+		return nil
+	}
+	c := *a
+	if a.Grants != nil {
+		c.Grants = make([]Grant, len(a.Grants))
+		for i, g := range a.Grants {
+			g.Permissions = slices.Clone(g.Permissions)
+			c.Grants[i] = g
+		}
+	}
+	return &c
+}
+
 // SteppedUpWithin reports whether the actor confirmed their identity again
 // within d, as sensitive actions require.
 func (a *Actor) SteppedUpWithin(d time.Duration, now time.Time) bool {

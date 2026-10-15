@@ -37,7 +37,7 @@ type HookCall struct {
 type HookReply struct {
 	Deny      bool                 `json:"deny,omitempty" doc:"Validate hooks: refuse the change"`
 	Reason    string               `json:"reason,omitempty" doc:"Why the change is refused, shown to the person making it"`
-	ChangeSet *changeset.ChangeSet `json:"changeSet,omitempty" doc:"Modify hooks: the change set with the hook's changes"`
+	ChangeSet *changeset.ChangeSet `json:"changeSet,omitempty" doc:"Modify hooks: the change set with the hook's changes, which may be new specs for the changes the point is about, added changes and added effects. A reply that changes anything else counts as a failure of the hook"`
 	Config    map[string]any       `json:"config,omitempty" doc:"System hooks: the patched configuration"`
 }
 

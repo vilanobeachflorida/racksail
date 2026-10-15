@@ -444,7 +444,7 @@
         "properties": {
           "changeSet": {
             "$ref": "#/components/schemas/ChangeSet",
-            "description": "Modify hooks: the change set with the hook's changes"
+            "description": "Modify hooks: the change set with the hook's changes, which may be new specs for the changes the point is about, added changes and added effects. A reply that changes anything else counts as a failure of the hook"
           },
           "config": {
             "additionalProperties": {},

@@ -185,6 +185,9 @@ type fakeHooks struct {
 	validate []string
 	modify   map[string][]int
 	applied  map[string][]int
+	// rewrite, when set, is what a modify hook does instead of adding an
+	// effect: anything, as a misbehaving Hooks implementation might.
+	rewrite func(cs *ChangeSet, changes []int)
 }
 
 func (f *fakeHooks) Validate(ctx context.Context, point string, cs *ChangeSet, change *ResourceChange) error {
@@ -204,6 +207,10 @@ func (f *fakeHooks) Modify(ctx context.Context, point string, cs *ChangeSet, cha
 		f.modify = map[string][]int{}
 	}
 	f.modify[point] = changes
+	if f.rewrite != nil {
+		f.rewrite(cs, changes)
+		return nil
+	}
 	cs.Effects = append(cs.Effects, system.Effect{Type: system.EffectFile, Action: "write", Target: "/etc/racksail/generated/cdn.conf", Contributor: "addon:cdn"})
 	cs.Contributions = append(cs.Contributions, Contribution{Source: Source{Type: "addon", Name: "cdn", Hook: point}, Summary: "Purge the CDN", Effects: []int{len(cs.Effects) - 1}})
 	return nil
@@ -751,4 +758,124 @@ func TestRetention(t *testing.T) {
 	if got := kept(); got != "four" {
 		t.Errorf("secret versions kept = %s", got)
 	}
+}
+
+func TestHooksCantChangeWhatWasAsked(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	page := e.submit(t, false, e.createPage(pageSpec{Path: "keep.html", Content: "keep"}))
+	id := page.Changes[0].ID
+	raw, _ := json.Marshal(pageSpec{Path: "keep.html", Content: "new"})
+	for what, rewrite := range map[string]func(cs *ChangeSet, changes []int){
+		"operation": func(cs *ChangeSet, _ []int) { cs.Changes[0].Op = OpDelete },
+		"resource":  func(cs *ChangeSet, _ []int) { cs.Changes[0].ID = store.NewID("page") },
+		"scope":     func(cs *ChangeSet, _ []int) { cs.Changes[0].Scope = store.AccountScope(store.NewID("acct")) },
+		"revision":  func(cs *ChangeSet, _ []int) { cs.Changes[0].Revision = 99 },
+		"changes":   func(cs *ChangeSet, _ []int) { cs.Changes = cs.Changes[:0] },
+		"effects":   func(cs *ChangeSet, _ []int) { cs.Effects = cs.Effects[:0] },
+	} {
+		e.hooks.rewrite = rewrite
+		_, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw}}})
+		if !errors.Is(err, ErrHookTampered) {
+			t.Errorf("a hook changing the %s: %v", what, err)
+		}
+	}
+	if got, err := e.store.Get(ctx, id); err != nil || got.Deleted() || strings.Contains(string(got.Spec), "new") {
+		t.Errorf("nothing was written: %+v, %v", got, err)
+	}
+}
+
+func TestHookContributionsAreChecked(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	theirs := e.createPage(pageSpec{Path: "theirs.html", Content: "theirs"})
+	theirs.Scope = store.AccountScope(store.NewID("acct"))
+	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	other, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{theirs}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.wait(t, other)
+	theirID := other.Changes[0].ID
+	mirror := Source{Type: "addon", Name: "mirror", Hook: "test.page.create.plan"}
+	add := func(c ResourceChange) func(cs *ChangeSet, _ []int) {
+		return func(cs *ChangeSet, _ []int) {
+			c.Source = mirror
+			cs.Changes = append(cs.Changes, c)
+		}
+	}
+	request := func() Request {
+		return Request{Actor: e.owner, Changes: []Change{e.createPage(pageSpec{Path: "home.html", Content: "home"})}}
+	}
+
+	e.hooks.rewrite = add(ResourceChange{Op: OpCreate, Kind: "test.page", Scope: store.AccountScope(e.acct), After: json.RawMessage(`{"path":"home.html.bak","content":"home"}`)})
+	req := request()
+	req.DryRun = true
+	preview, err := e.engine.Submit(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Changes) != 2 || preview.Changes[1].Source != mirror || preview.Changes[1].ID.Prefix() != "page" || len(preview.Changes[1].Diff) == 0 {
+		t.Fatalf("the added change is in the preview, labelled and diffed: %+v", preview.Changes)
+	}
+	var planned bool
+	for _, eff := range preview.Effects {
+		planned = planned || (eff.Contributor == "addon:mirror" && eff.Target == pagesDir+"/home.html.bak")
+	}
+	if !planned {
+		t.Errorf("what the added change does to the machine is in the preview: %+v", preview.Effects)
+	}
+	applied := e.wait(t, mustSubmit(t, e.engine, request()))
+	if applied.State != StateApplied || e.file(pagesDir+"/home.html.bak") != "home" {
+		t.Errorf("the added change is applied with the rest: %+v", applied)
+	}
+
+	e.hooks.rewrite = add(ResourceChange{Op: OpDelete, Kind: "test.page", ID: theirID})
+	if _, err := e.engine.Submit(ctx, request()); !errors.Is(err, ErrContributionDenied) || !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("a hook can't make a change the actor may not: %v", err)
+	}
+	records, _, _ := e.bus.QueryAudit(ctx, events.Query{Subject: theirID})
+	if len(records) == 0 || records[0].Outcome != events.OutcomeDenied {
+		t.Errorf("the attempt is audited: %+v", records)
+	}
+	if got, err := e.store.Get(ctx, theirID); err != nil || got.Deleted() {
+		t.Errorf("the other account's page is still there: %v", err)
+	}
+
+	e.hooks.rewrite = add(ResourceChange{Op: OpAction, Action: "publish", Kind: "test.page", ID: theirID, Input: json.RawMessage(`{"message":"x"}`)})
+	if _, err := e.engine.Submit(ctx, request()); !errors.Is(err, ErrBadContribution) {
+		t.Errorf("hooks can't add actions: %v", err)
+	}
+	e.hooks.rewrite = add(ResourceChange{Op: OpCreate, Kind: "test.page", Scope: store.AccountScope(e.acct), After: json.RawMessage(`{"content":"no path"}`)})
+	if _, err := e.engine.Submit(ctx, request()); !errors.Is(err, i18n.ErrInvalid) {
+		t.Errorf("added changes are validated: %v", err)
+	}
+
+	// A rewritten spec goes through validation and the validate hooks again.
+	e.hooks.rewrite = func(cs *ChangeSet, changes []int) {
+		cs.Changes[changes[0]].After = json.RawMessage(`{"content":"lost its path"}`)
+	}
+	if _, err := e.engine.Submit(ctx, request()); !errors.Is(err, i18n.ErrInvalid) {
+		t.Errorf("rewritten specs are validated: %v", err)
+	}
+	e.hooks.validate = nil
+	e.hooks.rewrite = func(cs *ChangeSet, changes []int) {
+		cs.Changes[changes[0]].After = json.RawMessage(`{"path":"draft.html","content":"rewritten"}`)
+	}
+	rewritten, err := e.engine.Submit(ctx, Request{Actor: e.owner, DryRun: true, Changes: []Change{e.createPage(pageSpec{Path: "draft.html", Content: "draft"})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.hooks.validate) != 2 || !strings.Contains(string(rewritten.Changes[0].After), "rewritten") || rewritten.Changes[0].Diff[0].After == nil {
+		t.Errorf("validate hooks ran %d times; change = %+v", len(e.hooks.validate), rewritten.Changes[0])
+	}
+}
+
+func mustSubmit(t *testing.T, engine *Engine, req Request) *ChangeSet {
+	t.Helper()
+	cs, err := engine.Submit(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cs
 }

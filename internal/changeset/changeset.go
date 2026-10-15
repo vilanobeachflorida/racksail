@@ -106,7 +106,9 @@ type ResourceChange struct {
 	Steps []agent.Step `json:"steps,omitempty"`
 }
 
-func (rc ResourceChange) clone() ResourceChange {
+// Clone returns a copy of rc whose maps, documents and lists can be changed
+// without affecting rc. Action steps keep sharing their inputs.
+func (rc ResourceChange) Clone() ResourceChange {
 	c := rc
 	c.Labels = maps.Clone(rc.Labels)
 	c.LabelsBefore = maps.Clone(rc.LabelsBefore)
@@ -184,17 +186,18 @@ type ChangeSet struct {
 	AppliedAt *time.Time `json:"appliedAt,omitempty"`
 }
 
-// Clone returns a copy of cs whose lists, maps and documents can be
+// Clone returns a copy of cs whose actor, lists, maps and documents can be
 // changed without affecting cs. Action steps keep sharing their inputs.
 func (cs *ChangeSet) Clone() *ChangeSet {
 	if cs == nil {
 		return nil
 	}
 	c := *cs
+	c.Actor = cs.Actor.Clone()
 	if cs.Changes != nil {
 		c.Changes = make([]ResourceChange, len(cs.Changes))
 		for i, rc := range cs.Changes {
-			c.Changes[i] = rc.clone()
+			c.Changes[i] = rc.Clone()
 		}
 	}
 	c.Effects = slices.Clone(cs.Effects)
@@ -301,9 +304,10 @@ type Hooks interface {
 	// Validate runs validate hooks for one change. An error denies it.
 	Validate(ctx context.Context, point string, cs *ChangeSet, change *ResourceChange) error
 	// Modify runs the modify hooks of a plan point. changes are the indexes
-	// in cs.Changes of the changes the point is about. Hooks may change
-	// those, add changes and add effects; each contribution is recorded and
-	// conflicts are reported in cs.
+	// in cs.Changes of the changes the point is about. Hooks may change the
+	// specs of those, add changes and add effects, and nothing else; each
+	// contribution is recorded and conflicts are reported in cs. The engine
+	// authorizes, validates and diffs whatever they changed or added again.
 	Modify(ctx context.Context, point string, cs *ChangeSet, changes []int) error
 	// Applied runs observe hooks after a change set has been applied, for
 	// the changes at the given indexes.

@@ -164,7 +164,7 @@ cs, err := svc.Pipeline.Submit(ctx, changeset.Request{
 })
 ```
 
-For each change in turn, `Engine.Submit` fills in the kind's defaults, asks the authorizer, takes the change's secret values, runs the kind's validation and the validate hooks, then asks the resource's reconciler for a plan and runs its steps in the agent's check mode, so the preview lists the exact downloads, packages, files and ports. Reconcilers plan against the overlay too, so the site's reconciler can read the database it uses before either exists. Modify hooks then run once per plan point, with the indexes of the changes the point is about. What they add is labelled with its source, two of them changing the same field is reported as a conflict, and whatever they changed is validated again.
+For each change in turn, `Engine.Submit` fills in the kind's defaults, asks the authorizer, takes the change's secret values, runs the kind's validation and the validate hooks, then asks the resource's reconciler for a plan and runs its steps in the agent's check mode, so the preview lists the exact downloads, packages, files and ports. Reconcilers plan against the overlay too, so the site's reconciler can read the database it uses before either exists. Modify hooks then run once per plan point, with the indexes of the changes the point is about. They may rewrite the specs of those changes and add changes and effects, and nothing else: no hook can turn an update into a delete, move a change to another resource or scope, or drop one. What they add is labelled with its source, and two of them changing the same field is reported as a conflict. Every change a hook rewrote or added is authorized for the actor, validated and run past the validate hooks again, and added changes, which can only be creates, updates and deletes, are planned too, so the preview shows what they do to the machine. Added changes don't go through modify hooks themselves.
 
 A dry run then makes the store writes in a transaction it throws away, so the preview also reports a name that's already taken, and returns the change set. Otherwise every change is written in one store transaction and a `changeset.apply` job runs the plans with live progress. Events and audit records follow, including for denied attempts. When a request has several changes, field errors say which change they belong to: `changes[1].spec.domains`.
 
@@ -356,7 +356,9 @@ var examples = []hooks.Registration{{
 	},
 }, {
 	// Change the plan before the preview. c.Changes are the changes the
-	// point is about; what the hook changes is labelled as its own.
+	// point is about. The hook may rewrite their specs and add changes and
+	// effects; what it does is labelled as its own, and changing anything
+	// else counts as a failure.
 	Point: hooks.KindPoint("backups.policy", "create", changeset.StagePlan),
 	Kind:  hooks.Modify, Owner: "module:cluster",
 	Priority: 10, Failure: hooks.Allow, Deadline: time.Second,
@@ -390,6 +392,7 @@ var examples = []hooks.Registration{{
 ```
 
 - Hooks run in a fixed order, by priority and then owner. Synchronous hooks get `Deadline` (two seconds by default, ten at most). When one fails or times out, its `Failure` mode decides: `hooks.Allow` lets the change through and is the default, `hooks.Block` stops it and is the default for `Security` validate hooks. A hook that fails five times in a row is switched off and `core.hook.disabled` is published.
+- Every hook works on its own copy of what it's given, the actor included. Validate and observe hooks can't change anything; a modify hook's copy is checked against the original, and if it changed more than it may, the hook has failed (`hooks.overstep`) and its work is thrown away. System hooks patch a copy of the configuration, which only replaces it when the hook succeeds in time. An add-on's modify hook answers with `HookReply.ChangeSet`, which takes the place of its copy, so it goes through the same checks.
 - Points outside the change pipeline are run by the code that reaches them: `svc.Hooks.Check(ctx, point, actor, data)` runs validate hooks, as for `auth.login.validate`, and `svc.Hooks.Notify(ctx, point, actor, data)` runs observe hooks, as for `backups.run.after`. Hooks find what happened in `c.Data`. The core notifies `core.boot`, and the module manager `modules.<id>.on` and `.off`.
 
 ### Providers

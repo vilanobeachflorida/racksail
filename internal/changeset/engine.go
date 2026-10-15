@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -156,17 +157,17 @@ func (e *Engine) plan(ctx context.Context, req Request) (*draft, error) {
 	}
 	cs := p.cs
 	if e.opts.Hooks != nil {
-		planned := len(cs.Changes)
-		before := make([]json.RawMessage, planned)
+		requested := make([]ResourceChange, len(cs.Changes))
 		for i, c := range cs.Changes {
-			before[i] = c.After
+			requested[i] = c.Clone()
 		}
-		for _, pc := range pointsOf(cs.Changes[:planned], StagePlan) {
+		effects := slices.Clone(cs.Effects)
+		for _, pc := range pointsOf(requested, StagePlan) {
 			if err := e.opts.Hooks.Modify(ctx, pc.point, cs, pc.changes); err != nil {
 				return nil, err
 			}
 		}
-		if err := e.recheck(ctx, p, before); err != nil {
+		if err := e.recheck(ctx, p, req.Actor, requested, effects); err != nil {
 			return nil, err
 		}
 	}
@@ -373,52 +374,6 @@ func validate(ctx context.Context, kind store.Kind, next, old *store.Resource) e
 		return err
 	}
 	return checkSecretRefs(kind.Info(), next)
-}
-
-// recheck validates the changes modify hooks added or changed, so a hook
-// can't write a spec its kind would refuse, and brings their diffs up to
-// date.
-func (e *Engine) recheck(ctx context.Context, p *draft, before []json.RawMessage) error {
-	cs := p.cs
-	for i := range cs.Changes {
-		c := &cs.Changes[i]
-		if i < len(before) && bytes.Equal(before[i], c.After) {
-			continue
-		}
-		kind, ok := e.opts.Kinds.Get(c.Kind)
-		if !ok {
-			return i18n.ErrUnknownName.New("what", "kind", "name", c.Kind)
-		}
-		info := kind.Info()
-		if c.Op == OpCreate && c.ID == "" {
-			c.ID = store.NewID(info.Prefix)
-		}
-		if c.Op == OpDelete {
-			continue
-		}
-		old, err := e.opts.Store.Get(ctx, c.ID)
-		switch {
-		case err == nil:
-		case store.ErrNotFound.Is(err):
-			old = nil
-		default:
-			return err
-		}
-		next := &store.Resource{Meta: store.Meta{ID: c.ID, Kind: info.Name, Scope: c.Scope, Server: c.Server, Labels: c.Labels}}
-		if old != nil {
-			next = old.Clone()
-		}
-		next.Spec = c.After
-		if err := validate(ctx, kind, next, old); err != nil {
-			return err
-		}
-		diff, err := Diff(c.Before, c.After)
-		if err != nil {
-			return err
-		}
-		c.Diff = Redact(diff, store.SensitiveFields(info))
-	}
-	return nil
 }
 
 // pointChanges is a hook point and the changes it is about.

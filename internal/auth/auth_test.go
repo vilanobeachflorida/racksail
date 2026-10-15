@@ -133,6 +133,13 @@ func TestActor(t *testing.T) {
 	if System("reconciler").String() != "system:reconciler" {
 		t.Errorf("system actor = %q", System("reconciler"))
 	}
+	a.Grants = []Grant{{Role: RoleCollaborator, Scope: store.ServerScope(), Permissions: []Permission{"web.site.read"}}}
+	c := a.Clone()
+	c.Grants[0].Permissions[0] = "web.site.delete"
+	c.Grants = append(c.Grants, Grant{Role: RoleAdmin, Scope: store.ServerScope()})
+	if len(a.Grants) != 1 || a.Grants[0].Permissions[0] != "web.site.read" || c.ID != a.ID {
+		t.Errorf("changing a copy changed the actor: %+v", a.Grants)
+	}
 }
 
 func TestAuthenticators(t *testing.T) {

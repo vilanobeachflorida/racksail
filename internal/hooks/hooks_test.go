@@ -10,9 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/agent"
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -169,6 +172,179 @@ func TestModifyContributionsAndConflicts(t *testing.T) {
 	}
 }
 
+// A modify hook may rewrite the specs of the changes its point is about and
+// add changes and effects. Anything else makes it fail, and its failure mode
+// decides what happens; either way none of its work stays.
+func TestModifyHooksCantOverstep(t *testing.T) {
+	ctx := context.Background()
+	twoChanges := func() *changeset.ChangeSet {
+		cs := testChangeSet()
+		cs.Changes = append(cs.Changes, changeset.ResourceChange{
+			Op: changeset.OpUpdate, Kind: "dns.zone", ID: store.NewID("zone"), Before: json.RawMessage(`{"name":"a.test"}`),
+			After: json.RawMessage(`{"name":"a.test"}`), Source: changeset.RequestSource,
+		})
+		cs.Effects = append(cs.Effects, system.Effect{Type: system.EffectFile, Action: "write", Target: "/etc/racksail/generated/a.conf"})
+		cs.Risk = store.RiskLow
+		return cs
+	}
+	for name, edit := range map[string]func(c *Context){
+		"operation":      func(c *Context) { c.ChangeSet.Changes[0].Op = changeset.OpDelete },
+		"resource":       func(c *Context) { c.ChangeSet.Changes[0].ID = store.NewID("site") },
+		"scope":          func(c *Context) { c.ChangeSet.Changes[0].Scope = store.AccountScope(store.NewID("acct")) },
+		"labels":         func(c *Context) { c.ChangeSet.Changes[0].Labels = map[string]string{"env": "prod"} },
+		"previous spec":  func(c *Context) { c.ChangeSet.Changes[0].Before = json.RawMessage(`{"domains":[]}`) },
+		"source":         func(c *Context) { c.ChangeSet.Changes[0].Source = changeset.Source{Type: "module", Name: "web"} },
+		"other change":   func(c *Context) { c.ChangeSet.Changes[1].After = json.RawMessage(`{"name":"b.test"}`) },
+		"removed change": func(c *Context) { c.ChangeSet.Changes = c.ChangeSet.Changes[:1] },
+		"planned effect": func(c *Context) { c.ChangeSet.Effects[0].Target = "/etc/racksail/generated/b.conf" },
+		"risk":           func(c *Context) { c.ChangeSet.Risk = store.RiskRead },
+		"contribution": func(c *Context) {
+			c.ChangeSet.Contributions = append(c.ChangeSet.Contributions, changeset.Contribution{Summary: "nothing to see"})
+		},
+		"title":          func(c *Context) { c.ChangeSet.Title = "Something else" },
+		"spec, not JSON": func(c *Context) { c.ChangeSet.Changes[0].After = json.RawMessage(`{"domains":`) },
+		"action steps": func(c *Context) {
+			c.ChangeSet.Changes[0].Steps = []agent.Step{agent.RemovePath.Step(agent.RemovePathInput{Path: "/srv/racksail/accounts", Recursive: true})}
+		},
+		"previous labels": func(c *Context) { c.ChangeSet.Changes[0].LabelsBefore = map[string]string{"a": "b"} },
+	} {
+		for _, mode := range []FailureMode{Allow, Block} {
+			r := newRegistry()
+			if err := r.Register(Registration{Point: "web.site.create.plan", Kind: Modify, Owner: "addon:sneaky", Failure: mode,
+				OnModify: func(ctx context.Context, c *Context) error {
+					c.ChangeSet.Changes[0].After = json.RawMessage(`{"domains":["a.test"],"cdn":"on"}`)
+					edit(c)
+					return nil
+				}}); err != nil {
+				t.Fatal(err)
+			}
+			cs := twoChanges()
+			want, _ := json.Marshal(cs)
+			err := (&Runner{Registry: r}).Modify(ctx, "web.site.create.plan", cs, []int{0})
+			if mode == Block && (!errors.Is(err, ErrHookFailed) || !errors.Is(err, ErrOverstep)) {
+				t.Errorf("%s, blocking: %v", name, err)
+			}
+			if mode == Allow && err != nil {
+				t.Errorf("%s, allowing: %v", name, err)
+			}
+			if got, _ := json.Marshal(cs); string(got) != string(want) {
+				t.Errorf("%s, %s: the hook's work was kept: %s", name, mode, got)
+			}
+		}
+	}
+}
+
+func TestModifyHooksAreLabelled(t *testing.T) {
+	ctx := context.Background()
+	r := newRegistry()
+	zone := store.NewID("zone")
+	if err := r.Register(Registration{Point: "web.site.create.plan", Kind: Modify, Owner: "addon:dns-helper",
+		OnModify: func(ctx context.Context, c *Context) error {
+			c.ChangeSet.Changes = append(c.ChangeSet.Changes, changeset.ResourceChange{
+				Op: changeset.OpCreate, Kind: "dns.zone", ID: zone, After: json.RawMessage(`{"name":"a.test"}`),
+				// Claiming to be the request doesn't make it so.
+				Source: changeset.RequestSource,
+			})
+			c.ChangeSet.Effects = append(c.ChangeSet.Effects, system.Effect{Type: system.EffectService, Action: "reload", Target: "knot.service", Contributor: "module:dns"})
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	cs := testChangeSet()
+	if err := (&Runner{Registry: r}).Modify(ctx, "web.site.create.plan", cs, []int{0}); err != nil {
+		t.Fatal(err)
+	}
+	if len(cs.Changes) != 2 || cs.Changes[1].Source != (changeset.Source{Type: "addon", Name: "dns-helper", Hook: "web.site.create.plan"}) {
+		t.Errorf("added change = %+v", cs.Changes[1:])
+	}
+	if len(cs.Effects) != 1 || cs.Effects[0].Contributor != "addon:dns-helper" {
+		t.Errorf("added effect = %+v", cs.Effects)
+	}
+	if len(cs.Contributions) != 1 || cs.Contributions[0].Changes[0] != 1 || cs.Contributions[0].Effects[0] != 0 {
+		t.Errorf("contributions = %+v", cs.Contributions)
+	}
+}
+
+// The case that matters: a modify hook can't turn an update the actor may
+// make into a delete they may not.
+func TestModifyHooksCantChangeWhatIsAuthorized(t *testing.T) {
+	ctx := context.Background()
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(siteKind); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewMemory(kinds)
+	acct := store.NewID("acct")
+	site := &store.Resource{Meta: store.Meta{Kind: "web.site", Scope: store.AccountScope(acct)}, Spec: json.RawMessage(`{"domains":["a.test"]}`)}
+	if err := st.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, site) }); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []FailureMode{Allow, Block} {
+		r := newRegistry()
+		if err := r.Register(Registration{Point: "web.site.update.plan", Kind: Modify, Owner: "addon:wrecker", Failure: mode,
+			OnModify: func(ctx context.Context, c *Context) error {
+				c.ChangeSet.Changes[0].Op = changeset.OpDelete
+				return nil
+			}}); err != nil {
+			t.Fatal(err)
+		}
+		queue := jobs.NewMemory(ctx, jobs.MemoryOptions{})
+		engine, err := changeset.NewEngine(changeset.Options{Store: st, Kinds: kinds, Jobs: queue, Hooks: &Runner{Registry: r}, Authorizer: auth.NewRoleAuthorizer(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		editor := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{
+			Role: auth.RoleCollaborator, Scope: store.AccountScope(acct), Permissions: []auth.Permission{"web.site.update", "web.site.read"},
+		}}}
+		cs, err := engine.Submit(ctx, changeset.Request{Actor: editor, Changes: []changeset.Change{{
+			Op: changeset.OpUpdate, Kind: "web.site", ID: site.ID, Spec: json.RawMessage(`{"domains":["a.test","b.test"]}`),
+		}}})
+		if mode == Block {
+			if !errors.Is(err, ErrHookFailed) {
+				t.Errorf("a blocking hook that oversteps stops the change: %v", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := queue.Wait(ctx, cs.Job); err != nil {
+			t.Fatal(err)
+		}
+		if cs.Changes[0].Op != changeset.OpUpdate || len(cs.Contributions) != 0 {
+			t.Errorf("the change set is still the update that was asked for: %+v", cs.Changes[0])
+		}
+		if got, err := st.Get(ctx, site.ID); err != nil || got.Deleted() || !strings.Contains(string(got.Spec), "b.test") {
+			t.Errorf("the site was updated, not deleted: %+v, %v", got, err)
+		}
+	}
+}
+
+func TestValidateHooksGetCopies(t *testing.T) {
+	ctx := context.Background()
+	r := newRegistry()
+	if err := r.Register(Registration{Point: "web.site.create.validate", Kind: Validate, Owner: "addon:meddler",
+		OnValidate: func(ctx context.Context, c *Context) error {
+			c.Change.After = json.RawMessage(`{"domains":["evil.test"]}`)
+			c.ChangeSet.Risk = store.RiskRead
+			c.ChangeSet.Effects = append(c.ChangeSet.Effects, system.Effect{Type: system.EffectFile})
+			c.Actor.Grants = append(c.Actor.Grants, auth.Grant{Role: auth.RoleAdmin, Scope: store.ServerScope()})
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	cs := testChangeSet()
+	cs.Risk = store.RiskHigh
+	cs.Actor = &auth.Actor{Type: auth.ActorUser}
+	want, _ := json.Marshal(cs)
+	if err := (&Runner{Registry: r}).Validate(ctx, "web.site.create.validate", cs, &cs.Changes[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := json.Marshal(cs); string(got) != string(want) || len(cs.Actor.Grants) != 0 {
+		t.Errorf("a validate hook changed the change set: %s", got)
+	}
+}
+
 func TestCircuitBreaker(t *testing.T) {
 	ctx := context.Background()
 	r := newRegistry()
@@ -225,6 +401,29 @@ func TestAppliedAndConfigPatches(t *testing.T) {
 	cfg, err := runner.PatchConfig(ctx, "caddy", "config", map[string]any{"listen": 443})
 	if err != nil || cfg["cdn"] != true || cfg["listen"] != 443 {
 		t.Errorf("patched config = %v, %v", cfg, err)
+	}
+
+	// A hook that runs out of time leaves nothing behind, even though it
+	// goes on changing its copy.
+	slow := newRegistry()
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	if err := slow.Register(Registration{Point: "system.caddy.config", Kind: System, Owner: "addon:slow", Deadline: 20 * time.Millisecond,
+		OnConfig: func(ctx context.Context, p *ConfigPatch) error {
+			defer close(finished)
+			<-release
+			p.Config["late"] = true
+			p.Config["routes"].([]any)[0] = "changed"
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	original := map[string]any{"routes": []any{"site"}}
+	cfg, err = (&Runner{Registry: slow}).PatchConfig(ctx, "caddy", "config", original)
+	close(release)
+	<-finished
+	if err != nil || cfg["late"] != nil || cfg["routes"].([]any)[0] != "site" || original["routes"].([]any)[0] != "site" {
+		t.Errorf("after a hook timed out = %v, %v (original %v)", cfg, err, original)
 	}
 }
 

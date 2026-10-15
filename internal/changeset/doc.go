@@ -15,6 +15,11 @@
 // returns the change set without applying it; that is the preview the UI,
 // the CLI and the assistant show.
 //
+// Modify hooks may rewrite the specs of the changes they're given and add
+// changes and effects. Whatever they rewrote or added is authorized for the
+// actor, validated and run past the validate hooks again, and they can't
+// change anything else.
+//
 // Applying writes every resource change in one store transaction and then
 // runs the reconcilers as a job with live progress. Undo is a new change set
 // built from the recorded previous specs, labels and placement, planned and

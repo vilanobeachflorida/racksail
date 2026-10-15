@@ -1,12 +1,14 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -65,6 +67,10 @@ var (
 	ErrDenied      = i18n.Define("hooks.denied", http.StatusForbidden, "{hook} stopped this change: {reason}")
 	ErrHookFailed  = i18n.Define("hooks.failed", http.StatusServiceUnavailable, "{hook} didn't answer in time or failed, and it blocks changes when that happens.")
 	ErrUnknownHook = i18n.Define("hooks.unknown_point", http.StatusUnprocessableEntity, "There is no hook point called {point}.")
+	// ErrOverstep is how a modify hook fails when it changed more than the
+	// specs of the changes its point is about, the changes it added and the
+	// effects it added.
+	ErrOverstep = i18n.Define("hooks.overstep", http.StatusUnprocessableEntity, "The hook changed {what}, which hooks can't change.")
 )
 
 // KindPoint returns the hook point of an operation on a kind at a stage.
@@ -144,13 +150,18 @@ func ModulePoints(id string) []Point {
 
 var configPointPattern = regexp.MustCompile(`^system\.[a-z0-9-]+\.[a-z0-9-]+$`)
 
-// Context is what validate, modify and observe hooks see.
+// Context is what validate, modify and observe hooks see. Each hook gets
+// its own copy of the change set and the actor.
 type Context struct {
 	Point Point
 	Actor *auth.Actor
-	// ChangeSet is the change set at the points of the change pipeline.
+	// ChangeSet is the change set at the points of the change pipeline. A
+	// modify hook may change the specs (After) of the changes in Changes, add
+	// changes and add effects. Anything else it changes makes the hook fail,
+	// and its work is thrown away. Validate and observe hooks can't change
+	// anything.
 	ChangeSet *changeset.ChangeSet
-	// Change is the change a validate hook decides on.
+	// Change is the change a validate hook decides on, in ChangeSet.
 	Change *changeset.ResourceChange
 	// Changes are the indexes in ChangeSet.Changes of the changes a modify
 	// or observe hook's point is about. Other changes of the same change set
@@ -447,20 +458,40 @@ func (r *Runner) settle(ctx context.Context, reg Registration, err error, denial
 	return nil
 }
 
-// Validate implements changeset.Hooks.
+// Validate implements changeset.Hooks. Each hook decides on its own copy of
+// the change set, so none of them can change it.
 func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.ChangeSet, change *changeset.ResourceChange) error {
-	return r.validate(ctx, &Context{Point: Point(point), ChangeSet: cs, Change: change, Actor: cs.Actor})
+	at := -1
+	for i := range cs.Changes {
+		if &cs.Changes[i] == change {
+			at = i
+		}
+	}
+	return r.validate(ctx, Point(point), func() *Context {
+		c := &Context{Point: Point(point), ChangeSet: cs.Clone(), Actor: cs.Actor.Clone()}
+		switch {
+		case at >= 0:
+			c.Change = &c.ChangeSet.Changes[at]
+		case change != nil:
+			copied := change.Clone()
+			c.Change = &copied
+		}
+		return c
+	})
 }
 
 // Check runs the validate hooks of a point outside the change pipeline, such
 // as login policies at auth.login.validate. data is what the hooks decide
 // on. An error means a hook refused, or failed and blocks when it fails.
 func (r *Runner) Check(ctx context.Context, point Point, actor *auth.Actor, data any) error {
-	return r.validate(ctx, &Context{Point: point, Actor: actor, Data: data})
+	return r.validate(ctx, point, func() *Context { return &Context{Point: point, Actor: actor.Clone(), Data: data} })
 }
 
-func (r *Runner) validate(ctx context.Context, hc *Context) error {
-	for _, reg := range r.Registry.For(hc.Point, Validate) {
+// validate runs the validate hooks of a point, giving each a context of its
+// own from newContext.
+func (r *Runner) validate(ctx context.Context, point Point, newContext func() *Context) error {
+	for _, reg := range r.Registry.For(point, Validate) {
+		hc := newContext()
 		err := call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnValidate(ctx, hc) })
 		var denial *i18n.Error
 		isDenial := err != nil && errors.As(err, &denial) && ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded)
@@ -474,18 +505,29 @@ func (r *Runner) validate(ctx context.Context, hc *Context) error {
 	return nil
 }
 
-// Modify implements changeset.Hooks. Each hook works on a copy; what it
-// changed is labelled with its source, and two hooks changing the same field
-// of the same resource are recorded as a conflict.
+// Modify implements changeset.Hooks. Each hook works on its own copy of the
+// change set and may change the specs of the changes its point is about, add
+// changes and add effects. A hook that changed anything else has failed, as
+// if it had returned an error: its work is thrown away and its failure mode
+// decides whether the change goes ahead. What a hook did is labelled with
+// its source, and two hooks changing the same field of the same resource are
+// recorded as a conflict.
 func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeSet, changes []int) error {
 	touched := map[string][]changeset.Source{}
 	for _, reg := range r.Registry.For(Point(point), Modify) {
+		orig, err := clone(cs)
+		if err != nil {
+			return err
+		}
 		work, err := clone(cs)
 		if err != nil {
 			return err
 		}
-		hc := &Context{Point: Point(point), ChangeSet: work, Changes: slices.Clone(changes), Actor: cs.Actor}
+		hc := &Context{Point: Point(point), ChangeSet: work, Changes: slices.Clone(changes), Actor: cs.Actor.Clone()}
 		err = call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnModify(ctx, hc) })
+		if err == nil {
+			err = overstep(orig, work, changes)
+		}
 		if err := r.settle(ctx, reg, err, false); err != nil {
 			return err
 		}
@@ -495,34 +537,36 @@ func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeS
 		ownerType, ownerName, _ := strings.Cut(reg.Owner, ":")
 		source := changeset.Source{Type: ownerType, Name: ownerName, Hook: point}
 		contribution := changeset.Contribution{Source: source, Summary: reg.Owner + " changed the plan"}
-		for i := range work.Changes {
-			if i >= len(cs.Changes) {
-				work.Changes[i].Source = source
-				contribution.Changes = append(contribution.Changes, i)
-				continue
-			}
+		for _, i := range changes {
 			diffs, err := changeset.Diff(cs.Changes[i].After, work.Changes[i].After)
 			if err != nil {
 				return err
 			}
+			if len(diffs) == 0 {
+				continue
+			}
 			for _, d := range diffs {
-				key := string(work.Changes[i].ID) + "\x00" + d.Path
+				key := string(cs.Changes[i].ID) + "\x00" + d.Path
 				touched[key] = append(touched[key], source)
 			}
-			if len(diffs) > 0 {
-				contribution.Changes = append(contribution.Changes, i)
-			}
+			cs.Changes[i].After = work.Changes[i].After
+			contribution.Changes = append(contribution.Changes, i)
 		}
-		for i := len(cs.Effects); i < len(work.Effects); i++ {
-			if work.Effects[i].Contributor == "" {
-				work.Effects[i].Contributor = reg.Owner
-			}
-			contribution.Effects = append(contribution.Effects, i)
+		for _, added := range work.Changes[len(cs.Changes):] {
+			// The label says where the change came from, whatever the hook
+			// wrote there.
+			added.Source = source
+			contribution.Changes = append(contribution.Changes, len(cs.Changes))
+			cs.Changes = append(cs.Changes, added)
+		}
+		for _, eff := range work.Effects[len(cs.Effects):] {
+			eff.Contributor = reg.Owner
+			contribution.Effects = append(contribution.Effects, len(cs.Effects))
+			cs.Effects = append(cs.Effects, eff)
 		}
 		if len(contribution.Changes) > 0 || len(contribution.Effects) > 0 {
-			work.Contributions = append(work.Contributions, contribution)
+			cs.Contributions = append(cs.Contributions, contribution)
 		}
-		*cs = *work
 	}
 	keys := make([]string, 0, len(touched))
 	for k := range touched {
@@ -539,6 +583,45 @@ func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeS
 			Resource: store.ID(id), Path: path, Sources: sources,
 			Message: fmt.Sprintf("%d hooks changed %s", len(sources), path),
 		})
+	}
+	return nil
+}
+
+// overstep reports what a modify hook changed that it may not: anything but
+// the specs of the changes its point is about (mine) and what it appended to
+// the changes and effects. orig and work are copies of the change set made
+// the same way, so they compare field by field.
+func overstep(orig, work *changeset.ChangeSet, mine []int) error {
+	refuse := func(what string) error { return ErrOverstep.New("what", what) }
+	if len(work.Changes) < len(orig.Changes) {
+		return refuse("the list of changes, by taking changes out")
+	}
+	if len(work.Effects) < len(orig.Effects) || !slices.Equal(work.Effects[:len(orig.Effects)], orig.Effects) {
+		return refuse("the effects planned before it ran")
+	}
+	for i, before := range orig.Changes {
+		after := work.Changes[i]
+		if !bytes.Equal(after.After, before.After) {
+			if !slices.Contains(mine, i) {
+				return refuse(fmt.Sprintf("the spec of change %d, which its point isn't about", i))
+			}
+			if !json.Valid(after.After) {
+				return refuse(fmt.Sprintf("the spec of change %d into something that isn't JSON", i))
+			}
+		}
+		if part := changeset.ChangedPart(before, after); part != "" {
+			return refuse(fmt.Sprintf("the %s of change %d", part, i))
+		}
+	}
+	rest := func(cs *changeset.ChangeSet) ([]byte, error) {
+		c := *cs
+		c.Changes, c.Effects = nil, nil
+		return json.Marshal(c)
+	}
+	a, errA := rest(orig)
+	b, errB := rest(work)
+	if errA != nil || errB != nil || !bytes.Equal(a, b) {
+		return refuse("the change set itself, such as its risk, contributions or conflicts")
 	}
 	return nil
 }
@@ -560,7 +643,7 @@ func (r *Runner) observe(ctx context.Context, hc *Context) {
 	for _, reg := range r.Registry.For(hc.Point, Observe) {
 		// Observers run side by side, so each gets its own copy.
 		c := *hc
-		c.ChangeSet, c.Changes = hc.ChangeSet.Clone(), slices.Clone(hc.Changes)
+		c.ChangeSet, c.Changes, c.Actor = hc.ChangeSet.Clone(), slices.Clone(hc.Changes), hc.Actor.Clone()
 		go func(reg Registration) {
 			err := call(ctx, reg.Deadline, func(ctx context.Context) error {
 				reg.OnObserve(ctx, &c)
@@ -574,19 +657,67 @@ func (r *Runner) observe(ctx context.Context, hc *Context) {
 }
 
 // PatchConfig offers a configuration document to the system hooks of a
-// service, in order. Each patch is applied on top of the previous one.
+// service, in order. Each hook patches its own copy of the result of the one
+// before, so a hook that fails or runs out of time leaves nothing behind,
+// even if it goes on running.
 func (r *Runner) PatchConfig(ctx context.Context, service, part string, config map[string]any) (map[string]any, error) {
 	point := Point("system." + service + "." + part)
-	patch := &ConfigPatch{Service: service, Config: config}
 	for _, reg := range r.Registry.For(point, System) {
+		patch := &ConfigPatch{Service: service, Config: copyConfig(config)}
 		err := call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnConfig(ctx, patch) })
 		if err := r.settle(ctx, reg, err, false); err != nil {
 			return nil, err
 		}
+		if err == nil && patch.Config != nil {
+			config = patch.Config
+		}
 	}
-	return patch.Config, nil
+	return config, nil
 }
 
+// copyConfig copies a configuration document, its nested maps and lists
+// included, keeping the types of its values.
+func copyConfig(config map[string]any) map[string]any {
+	if config == nil {
+		return map[string]any{}
+	}
+	return copyValue(reflect.ValueOf(config)).Interface().(map[string]any)
+}
+
+func copyValue(v reflect.Value) reflect.Value {
+	switch v.Kind() {
+	case reflect.Interface:
+		if v.IsNil() {
+			return v
+		}
+		c := reflect.New(v.Type()).Elem()
+		c.Set(copyValue(v.Elem()))
+		return c
+	case reflect.Map:
+		if v.IsNil() {
+			return v
+		}
+		c := reflect.MakeMapWithSize(v.Type(), v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			c.SetMapIndex(iter.Key(), copyValue(iter.Value()))
+		}
+		return c
+	case reflect.Slice:
+		if v.IsNil() {
+			return v
+		}
+		c := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := range v.Len() {
+			c.Index(i).Set(copyValue(v.Index(i)))
+		}
+		return c
+	}
+	return v
+}
+
+// clone copies a change set for a modify hook, through JSON, so that nothing
+// in the copy, not even the inputs of action steps, is shared with cs.
 func clone(cs *changeset.ChangeSet) (*changeset.ChangeSet, error) {
 	raw, err := json.Marshal(cs)
 	if err != nil {
@@ -596,7 +727,7 @@ func clone(cs *changeset.ChangeSet) (*changeset.ChangeSet, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return nil, err
 	}
-	// Grants aren't serialized, so the actor is carried over as it is.
-	c.Actor = cs.Actor
+	// Grants aren't serialized, so the actor is copied as it is.
+	c.Actor = cs.Actor.Clone()
 	return &c, nil
 }
