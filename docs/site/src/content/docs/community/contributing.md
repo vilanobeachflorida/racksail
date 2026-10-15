@@ -39,7 +39,7 @@ The conventions are in [conventions.md](https://github.com/vilanobeachflorida/ra
 ## Commits
 
 - Write the subject in the imperative, under 72 characters: "Add DNS zone import". Add a body when the reason isn't obvious.
-- Sign off every commit to certify the [Developer Certificate of Origin](https://developercertificate.org/): that you wrote the change or have the right to submit it under the project's licenses. `git commit -s` adds the `Signed-off-by:` line, the only trailer we use.
+- Sign off every commit to certify the [Developer Certificate of Origin](https://developercertificate.org/): that you wrote the change or have the right to submit it under the project's licenses. `git commit -s` adds the `Signed-off-by:` line, the only trailer we use. CI checks that every commit of a pull request has one for its author, and tells you how to add the ones you forgot: `git rebase --signoff` from where your branch started, then push again.
 
 We use the DCO instead of a contributor license agreement, so no single party can relicense the project.
 
