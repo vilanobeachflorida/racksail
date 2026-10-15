@@ -1,0 +1,16 @@
+# Dependencies the license check needs to be told about. Each entry names a
+# dependency, its license as an SPDX expression and why it is here. Without
+# allow, the entry states the license of a dependency whose license files
+# the check can't read, and that license is then checked like any other.
+# With allow: true, it accepts a license outside the allowlist, which needs
+# a reason a reviewer agreed to.
+#
+# Entries nothing needs any more are reported, so this list stays short.
+go: []
+npm:
+  - package: mdn-data
+    license: CC0-1.0
+    allow: true
+    reason: >-
+      CSS reference data from MDN, dedicated to the public domain. Only the
+      UI's and the docs site's build tools read it, and none of it ships.
