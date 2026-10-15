@@ -122,6 +122,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		return nil, err
 	}
 	vault := secrets.NewMemory(box)
+	log.Warn("this build keeps secret values in memory, so settings that hold secrets need them entered again after a restart")
 	dispatcher, err := webhook.NewSQL(ctx, db, webhook.Options{
 		Store: st, Log: timeline, Secrets: vault, Version: updates.Build().Version,
 		Retention: time.Duration(keep.Deliveries), Logger: log,

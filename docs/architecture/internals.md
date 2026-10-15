@@ -40,7 +40,7 @@ Each part that keeps state brings its own tables as embedded migrations named `N
 
 | Owner | What | Kept |
 |---|---|---|
-| `core` | Resources, their index entries and every version of their specs (`store.NewSQLite`) | Until the resource is purged |
+| `core` | Resources and their index entries (`store.NewSQLite`), and every version of their specs | Until the resource is purged; its spec versions stay for undo |
 | `core.events` | The timeline and the audit log (`events.NewSQL`) | `retention.events`, 90 days, and `retention.audit`, 400 days |
 | `core.jobs` | Jobs and their logs (`jobs.NewSQL`) | `retention.jobs`, 30 days once finished |
 | `core.changesets` | Change sets, previews and idempotency keys (`changeset.NewSQLStorage`) | `retention.change_sets`, 30 days once finished; previews for an hour |
@@ -49,7 +49,7 @@ Each part that keeps state brings its own tables as embedded migrations named `N
 
 Each also caps how many it keeps. A migration that has run must never change: `Migrate` refuses to go on when one did, and when the database has migrations the binary doesn't know, as after going back to an older release. Add a new migration instead. Every durable implementation has an in-memory twin (`store.NewMemory`, `events.NewMemory`, `jobs.NewMemory`, `changeset.NewMemoryStorage`, `webhook.NewMemory`) that passes the same tests, for tests and tools.
 
-Two things still live in memory, and the panel logs a warning about the first when it starts:
+Two things still live in memory, and `panel` and `dev` log a warning about the first when they start:
 
 - Secrets live in `secrets.Memory`, encrypted with a key made at every start, so the values behind secret references are gone after a restart. On a server the key will be sealed with systemd-creds (decision T12) and kept.
 - Module states live in the module manager.

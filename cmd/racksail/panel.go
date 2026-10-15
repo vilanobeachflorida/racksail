@@ -33,7 +33,6 @@ func newPanelCommand() *cobra.Command {
 			}
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
-			log.Warn("this build keeps secret values in memory, so settings that hold secrets need them entered again after the panel restarts")
 			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edge.DialAdmin(cfg.Edge.Socket))
 			if err != nil {
 				return err
