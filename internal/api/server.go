@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -109,13 +110,46 @@ func New(opts Options) *Server {
 		}
 	}
 	mux.HandleFunc("GET "+Prefix+"/openapi.json", s.serveOpenAPI)
-	mux.HandleFunc(Prefix+"/", func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, i18n.ErrNotFound.New("what", "The API path "+r.URL.Path))
-	})
+	// Everything under /api is the API's, so paths no operation matches get
+	// a problem rather than the UI's page.
+	mux.HandleFunc(apiRoot, s.unmatched)
+	mux.HandleFunc(apiRoot+"/", s.unmatched)
 	if opts.UI != nil {
 		mux.Handle("/", opts.UI)
 	}
 	return s
+}
+
+const apiRoot = "/api"
+
+// methods are the methods operations use, in the order Allow lists them.
+var methods = []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
+
+// unmatched answers requests under /api that no operation matches: 405 with
+// an Allow header when the path has operations for other methods, and 404
+// otherwise.
+func (s *Server) unmatched(w http.ResponseWriter, r *http.Request) {
+	var allowed []string
+	for _, m := range methods {
+		if m == r.Method {
+			continue
+		}
+		probe := &http.Request{Method: m, URL: r.URL, Host: r.Host, Header: http.Header{}}
+		if _, pattern := s.mux.Handler(probe); pattern != "" && pattern != apiRoot && pattern != apiRoot+"/" {
+			allowed = append(allowed, m)
+		}
+	}
+	if len(allowed) == 0 {
+		writeProblem(w, i18n.ErrNotFound.New("what", "The API path "+r.URL.Path))
+		return
+	}
+	w.Header().Set("Allow", strings.Join(allowed, ", "))
+	choices := strings.Join(allowed[:len(allowed)-1], ", ")
+	if choices != "" {
+		choices += " or "
+	}
+	choices += allowed[len(allowed)-1]
+	writeProblem(w, i18n.ErrMethodNotAllowed.New("path", r.URL.Path, "method", r.Method, "allowed", choices))
 }
 
 // API returns the Huma API, for registering operations.
@@ -262,7 +296,7 @@ func (s *Server) Handler() http.Handler {
 		if actor != nil {
 			ctx = auth.WithActor(ctx, actor)
 		}
-		if len(r.URL.Path) >= len(Prefix) && r.URL.Path[:len(Prefix)] == Prefix {
+		if r.URL.Path == apiRoot || strings.HasPrefix(r.URL.Path, apiRoot+"/") {
 			rec.Header().Set("Cache-Control", "no-store")
 			rec.Header().Set("X-Content-Type-Options", "nosniff")
 		}

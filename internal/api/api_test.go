@@ -20,7 +20,9 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
 func do(t *testing.T, h http.Handler, method, path string, header map[string]string) (*http.Response, string) {
@@ -155,5 +157,125 @@ func TestPanelCertificate(t *testing.T) {
 	}
 	if fi, _ := os.Stat(filepath.Join(dir, "panel.key")); fi.Mode().Perm() != 0o600 {
 		t.Errorf("key mode = %v", fi.Mode().Perm())
+	}
+}
+
+func TestUnmatchedPaths(t *testing.T) {
+	s := newServer()
+	for _, tc := range []struct {
+		method, path string
+		status       int
+		code         i18n.Code
+		allow        string
+	}{
+		{"POST", "/api/v1/health", 405, i18n.ErrMethodNotAllowed.Code, "GET, HEAD"},
+		{"DELETE", "/api/v1/openapi.json", 405, i18n.ErrMethodNotAllowed.Code, "GET, HEAD"},
+		{"GET", "/api/v1/nope", 404, i18n.ErrNotFound.Code, ""},
+		{"GET", "/api/v2/health", 404, i18n.ErrNotFound.Code, ""},
+		{"GET", "/api", 404, i18n.ErrNotFound.Code, ""},
+		{"POST", "/api/", 404, i18n.ErrNotFound.Code, ""},
+	} {
+		resp, body := do(t, s.Handler(), tc.method, tc.path, nil)
+		var p httpapi.Problem
+		json.Unmarshal([]byte(body), &p)
+		if resp.StatusCode != tc.status || p.Code != tc.code || resp.Header.Get("Allow") != tc.allow || resp.Header.Get("Content-Type") != "application/problem+json" {
+			t.Errorf("%s %s = %d %s (Allow %q)", tc.method, tc.path, resp.StatusCode, body, resp.Header.Get("Allow"))
+		}
+	}
+	if _, body := do(t, s.Handler(), "POST", "/api/v1/health", nil); !strings.Contains(body, "/api/v1/health doesn't accept POST; use GET or HEAD.") {
+		t.Errorf("405 detail = %s", body)
+	}
+	if resp, body := do(t, s.Handler(), "HEAD", "/api/v1/health", nil); resp.StatusCode != 200 {
+		t.Errorf("HEAD on a GET operation = %d %s", resp.StatusCode, body)
+	}
+}
+
+func TestAuthorizingReads(t *testing.T) {
+	acct := store.NewID("acct")
+	mine := &store.Resource{Meta: store.Meta{ID: store.NewID("site"), Kind: "web.site", Scope: store.AccountScope(acct)}}
+	theirs := &store.Resource{Meta: store.Meta{ID: store.NewID("site"), Kind: "web.site", Scope: store.AccountScope(store.NewID("acct"))}}
+	owner := auth.WithActor(context.Background(), &auth.Actor{Type: auth.ActorUser, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}})
+	authz := auth.NewRoleAuthorizer(nil)
+
+	if err := AuthorizeRead(owner, authz, mine.Meta); err != nil {
+		t.Errorf("reading your own site: %v", err)
+	}
+	if err := AuthorizeRead(owner, authz, theirs.Meta); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("another account's site doesn't exist for you: %v", err)
+	}
+	if err := AuthorizeRead(context.Background(), authz, mine.Meta); !errors.Is(err, i18n.ErrUnauthenticated) {
+		t.Errorf("reading without signing in: %v", err)
+	}
+	if err := Authorize(owner, nil, ReadPermission("web.site"), auth.Target{Scope: mine.Scope}); !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("without an authorizer nothing is allowed: %v", err)
+	}
+	items, err := Readable(owner, authz, []*store.Resource{theirs, mine})
+	if err != nil || len(items) != 1 || items[0] != mine {
+		t.Errorf("readable = %v, %v", items, err)
+	}
+}
+
+// pipelineFunc is a changeset.Pipeline whose Submit is a function.
+type pipelineFunc func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error)
+
+func (f pipelineFunc) Submit(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {
+	return f(ctx, req)
+}
+
+func (f pipelineFunc) Get(ctx context.Context, id store.ID) (*changeset.ChangeSet, error) {
+	return nil, i18n.ErrNotFound.New("what", string(id))
+}
+
+func (f pipelineFunc) Undo(ctx context.Context, req changeset.UndoRequest) (*changeset.ChangeSet, error) {
+	return nil, changeset.ErrNotApplied.New()
+}
+
+func TestChangeOperations(t *testing.T) {
+	var got changeset.Request
+	pipeline := pipelineFunc(func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {
+		got = req
+		return &changeset.ChangeSet{ID: store.NewID(store.PrefixChangeSet), Title: "Rename site", DryRun: req.DryRun, State: changeset.StatePlanned}, nil
+	})
+	s := New(Options{Auth: auth.DevAuthenticator{}, Log: slog.New(slog.DiscardHandler)})
+	type renameInput struct {
+		ChangeParams
+		ID   string `path:"id"`
+		Body struct {
+			Name string `json:"name" maxLength:"64"`
+		}
+	}
+	huma.Register(s.API(), huma.Operation{
+		OperationID: "renameSite", Method: http.MethodPost, Path: Prefix + "/web/sites/{id}/actions/rename",
+		Summary: "Rename a site", Security: Protected,
+	}, func(ctx context.Context, in *renameInput) (*ChangeSetOutput, error) {
+		input, _ := json.Marshal(in.Body)
+		return Submit(ctx, pipeline, in.ChangeParams, changeset.Request{Changes: []changeset.Change{{
+			Op: changeset.OpAction, Kind: "web.site", ID: store.ID(in.ID), Action: "rename", Input: input,
+		}}})
+	})
+
+	doc, err := s.OpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doc), `"name": "dryRun"`) || !strings.Contains(string(doc), `"name": "Idempotency-Key"`) || !strings.Contains(string(doc), `"ChangeSet"`) {
+		t.Errorf("the change parameters and the change set are documented: %s", doc)
+	}
+
+	call := func(query string, header map[string]string) *http.Response {
+		req := httptest.NewRequest("POST", "/api/v1/web/sites/site_01/actions/rename"+query, strings.NewReader(`{"name":"blog"}`))
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range header {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec.Result()
+	}
+	if resp := call("?dryRun=true", nil); resp.StatusCode != 200 || !got.DryRun || got.Actor == nil {
+		t.Errorf("a dry run answers 200 with the preview: %d, %+v", resp.StatusCode, got)
+	}
+	if resp := call("", map[string]string{"Idempotency-Key": "k-1"}); resp.StatusCode != 202 || got.DryRun || got.IdempotencyKey != "k-1" {
+		t.Errorf("an applied change answers 202: %d, %+v", resp.StatusCode, got)
 	}
 }

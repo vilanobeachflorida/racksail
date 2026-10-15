@@ -32,6 +32,7 @@
   "error.core.immutable": "This field can't be changed after it's created.",
   "error.core.internal": "Something went wrong on the server. The details are in the server log.",
   "error.core.invalid": "Some values aren't valid. Fix the highlighted fields and try again.",
+  "error.core.method_not_allowed": "{path} doesn't accept {method}; use {allowed}.",
   "error.core.not_found": "{what} doesn't exist or was deleted.",
   "error.core.out_of_range": "Use a value from {min} to {max}.",
   "error.core.rate_limited": "Too many requests. Wait {retryAfter} seconds and try again.",
