@@ -29,6 +29,7 @@ recommends:
 contents:
   - src: ${BINARY}
     dst: /usr/bin/racksail
+    expand: true
     file_info:
       mode: 0755
   - src: build/deb/units/*
@@ -61,6 +62,7 @@ contents:
       mode: 0644
   - src: ${NOTICES}
     dst: /usr/share/doc/racksail/third-party-licenses.txt
+    expand: true
     file_info:
       mode: 0644
   - src: packaging/apt/*.in
