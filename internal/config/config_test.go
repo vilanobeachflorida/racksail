@@ -59,14 +59,21 @@ mirrors = ["https://mirror.example.test/racksail"]
 
 func TestDev(t *testing.T) {
 	dir := t.TempDir()
-	c, err := Dev(dir, "127.0.0.1:7070")
+	c, err := Dev(dir, DevAddresses{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Panel.Insecure || c.Panel.Listen != "127.0.0.1:7070" || !strings.HasPrefix(c.Paths.State, dir) || !strings.HasPrefix(c.Agent.Socket, dir) {
+	if !c.Panel.Insecure || c.Panel.Listen != "127.0.0.1:7070" || c.Edge.HTTP != "127.0.0.1:7080" || !strings.HasPrefix(c.Paths.State, dir) || !strings.HasPrefix(c.Agent.Socket, dir) {
 		t.Errorf("dev = %+v", c)
 	}
-	rel, err := Dev(".dev", "127.0.0.1:7070")
+	other, err := Dev(dir, DevAddresses{Panel: "127.0.0.1:7170", EdgeHTTP: "127.0.0.1:7180", EdgeHTTPS: "127.0.0.1:0"})
+	if err != nil || other.Panel.Listen != "127.0.0.1:7170" || other.Edge.HTTP != "127.0.0.1:7180" || other.Edge.HTTPS != "127.0.0.1:0" {
+		t.Errorf("addresses can be chosen: %+v, %v", other, err)
+	}
+	if _, err := Dev(dir, DevAddresses{EdgeHTTP: "7080"}); err == nil {
+		t.Error("addresses are checked")
+	}
+	rel, err := Dev(".dev", DevAddresses{})
 	if err != nil || !filepath.IsAbs(rel.Paths.State) {
 		t.Errorf("relative data directories become absolute: %+v, %v", rel.Paths, err)
 	}

@@ -6,10 +6,14 @@
 
 GO          ?= go
 NPM         ?= npm
-DEV_ADDR    ?= 127.0.0.1:7070
-DEV_DATA    ?= .dev
 BIN         := bin
-TOOLS       := $(CURDIR)/.tools
+
+# Where `make dev` listens and keeps its state. Give each checkout its own
+# when running several at once.
+DEV_ADDR       ?= 127.0.0.1:7070
+DEV_EDGE_HTTP  ?= 127.0.0.1:7080
+DEV_EDGE_HTTPS ?= 127.0.0.1:7443
+DEV_DATA       ?= .dev
 
 # Release builds set these, for example `make cross VERSION=1.2.0 CHANNEL=stable`.
 # Without them the binary reports 0.0.0-dev on the dev channel; the commit
@@ -17,8 +21,10 @@ TOOLS       := $(CURDIR)/.tools
 VERSION     ?=
 CHANNEL     ?=
 
+# go run builds the pinned version with the current toolchain and caches the
+# build, so a Go upgrade never leaves a stale binary behind.
 STATICCHECK_VERSION := v0.8.2
-STATICCHECK := $(TOOLS)/staticcheck-$(STATICCHECK_VERSION)/staticcheck
+STATICCHECK := honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
 # The product is pure Go, so it cross-compiles anywhere.
 export CGO_ENABLED := 0
@@ -47,7 +53,8 @@ help:
 	@echo "make test-race   Go tests with the race detector (needs a C compiler)"
 	@echo "make gen         regenerate spec/openapi.json, spec/agent-protocol.json and the UI's generated files"
 	@echo "make fmt         format Go and UI code"
-	@echo "make dev         run racksail dev on $(DEV_ADDR) and the UI dev server with hot reload"
+	@echo "make dev         run racksail dev on $(DEV_ADDR) and the UI dev server with hot reload;"
+	@echo "                 DEV_ADDR, DEV_EDGE_HTTP, DEV_EDGE_HTTPS and DEV_DATA choose where"
 	@echo "make docs        build the documentation site"
 	@echo "make clean       remove build output"
 
@@ -58,9 +65,6 @@ $(UI_DEPS): ui/package.json ui/package-lock.json
 $(DOCS_DEPS): docs/site/package.json docs/site/package-lock.json
 	cd docs/site && $(NPM) ci --no-audit --no-fund
 	@touch $@
-
-$(STATICCHECK):
-	GOBIN=$(dir $@) $(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
 ui: $(UI_DEPS)
 	cd ui && $(NPM) run build
@@ -88,10 +92,11 @@ vet:
 	$(GO) vet ./...
 	GOOS=linux $(GO) vet ./...
 
-# The host binary analyzes Linux code too when GOOS says so.
-staticcheck: $(STATICCHECK)
-	$(STATICCHECK) ./...
-	GOOS=linux $(STATICCHECK) ./...
+# staticcheck is built for this machine either way; for the Linux pass,
+# -exec runs it with GOOS=linux so it analyzes the Linux side.
+staticcheck:
+	$(GO) run $(STATICCHECK) ./...
+	$(GO) run -exec 'env GOOS=linux' $(STATICCHECK) ./...
 
 build-check:
 	GOOS=darwin $(GO) build ./...
@@ -132,7 +137,7 @@ fmt: $(UI_DEPS)
 # Stopping make stops both servers.
 dev: $(UI_DEPS)
 	@trap 'kill 0' EXIT INT TERM; \
-	$(GO) run ./cmd/racksail dev --addr $(DEV_ADDR) --data $(DEV_DATA) & \
+	$(GO) run ./cmd/racksail dev --addr $(DEV_ADDR) --edge-http $(DEV_EDGE_HTTP) --edge-https $(DEV_EDGE_HTTPS) --data $(DEV_DATA) & \
 	RACKSAIL_DEV_ADDR=$(DEV_ADDR) $(NPM) --prefix ui run dev & \
 	wait
 

@@ -19,24 +19,25 @@ import (
 )
 
 func newDevCommand() *cobra.Command {
-	var addr, dataDir string
+	var addrs config.DevAddresses
+	var dataDir string
 	cmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Run the panel, agent and edge in one process against a simulated server",
 		Long: "Runs everything in one process with the simulated backend and a data directory inside the " +
 			"repository, so the whole product works on macOS or Linux without root. Everyone who reaches it " +
-			"is signed in as the admin, so it only listens on a loopback address. `make dev` also starts the " +
-			"UI dev server with hot reload.",
-		Args: cobra.NoArgs,
+			"is signed in as the admin, so it only listens on loopback addresses. Give each instance its own " +
+			"addresses and data directory to run several side by side. `make dev` also starts the UI dev server " +
+			"with hot reload.",
+		Example: "  racksail dev\n  racksail dev --addr 127.0.0.1:7170 --edge-http 127.0.0.1:0 --edge-https 127.0.0.1:0 --data .dev-2",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			host, _, err := net.SplitHostPort(addr)
-			if err != nil {
-				return fmt.Errorf("--addr %q: %w", addr, err)
+			for _, a := range [][2]string{{"--addr", addrs.Panel}, {"--edge-http", addrs.EdgeHTTP}, {"--edge-https", addrs.EdgeHTTPS}} {
+				if err := loopback(a[0], a[1]); err != nil {
+					return err
+				}
 			}
-			if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-				return fmt.Errorf("--addr %s isn't a loopback address; racksail dev signs everyone in as the admin, so it only listens on 127.0.0.1, ::1 or localhost", addr)
-			}
-			cfg, err := config.Dev(dataDir, addr)
+			cfg, err := config.Dev(dataDir, addrs)
 			if err != nil {
 				return err
 			}
@@ -88,7 +89,22 @@ func newDevCommand() *cobra.Command {
 			return serveUntilDone(ctx, srv, false)
 		},
 	}
-	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:7070", "address the panel listens on")
+	cmd.Flags().StringVar(&addrs.Panel, "addr", config.DevPanel, "address the panel listens on")
+	cmd.Flags().StringVar(&addrs.EdgeHTTP, "edge-http", config.DevEdgeHTTP, "address the edge serves HTTP on once a module adds a route; port 0 picks a free one")
+	cmd.Flags().StringVar(&addrs.EdgeHTTPS, "edge-https", config.DevEdgeHTTPS, "address the edge serves HTTPS on once a module adds a route; port 0 picks a free one")
 	cmd.Flags().StringVar(&dataDir, "data", "./.dev", "directory for the development state")
 	return cmd
+}
+
+// loopback refuses addresses other machines could reach, because racksail
+// dev signs everyone in as the admin and serves simulated sites.
+func loopback(flag, addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%s %q: %w", flag, addr, err)
+	}
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("%s %s isn't a loopback address; racksail dev signs everyone in as the admin, so it only listens on 127.0.0.1, ::1 or localhost", flag, addr)
+	}
+	return nil
 }

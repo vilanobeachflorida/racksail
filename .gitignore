@@ -1,12 +1,13 @@
 # Build output
 /bin/
+/racksail
 /internal/webui/dist/app/
 /docs/site/dist/
 /docs/site/.astro/
 
-# Development data and tools
+# Development data, one directory per instance of racksail dev
 /.dev/
-/.tools/
+/.dev-*/
 *.tmp
 
 # Go

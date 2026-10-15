@@ -157,6 +157,11 @@ const sidebar = [
 ];
 
 export default defineConfig({
+  // Published on GitHub Pages as a project site, so every page lives under
+  // /racksail/. Links between pages are relative, so they work wherever the
+  // site is served from.
+  site: "https://vilanobeachflorida.github.io",
+  base: "/racksail",
   integrations: [
     starlight({
       title: "Racksail",

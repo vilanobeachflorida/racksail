@@ -34,6 +34,20 @@ type ClientOptions struct {
 // next to the hand-written ones; each gets the shared client flags.
 var clientCommands = []func(opts *ClientOptions) *cobra.Command{newStatusCommand}
 
+// mutatingAnnotation marks client commands that change something. Only they
+// get --dry-run; generated commands set it for every operation that isn't a
+// GET.
+const mutatingAnnotation = "racksail:mutating"
+
+// mutating marks a client command as one that changes something.
+func mutating(cmd *cobra.Command) *cobra.Command {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[mutatingAnnotation] = "true"
+	return cmd
+}
+
 func addClientFlags(cmd *cobra.Command, opts *ClientOptions) {
 	server := os.Getenv("RACKSAIL_SERVER")
 	if server == "" {
@@ -43,7 +57,9 @@ func addClientFlags(cmd *cobra.Command, opts *ClientOptions) {
 	f.StringVar(&opts.Server, "server", server, "panel address; RACKSAIL_SERVER sets the default")
 	f.StringVar(&opts.CAFile, "ca-file", "", "certificate authority to trust for the panel, such as its self-signed certificate")
 	f.StringVarP(&opts.Output, "output", "o", "table", "output format: table or json")
-	f.BoolVar(&opts.DryRun, "dry-run", false, "show the change set without applying it")
+	if cmd.Annotations[mutatingAnnotation] == "true" {
+		f.BoolVar(&opts.DryRun, "dry-run", false, "show the change set without applying it")
+	}
 }
 
 // Client calls a server's API.

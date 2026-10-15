@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -106,17 +107,36 @@ func Default() Config {
 	}
 }
 
-// Dev returns the configuration of `racksail dev`: plain HTTP on addr and
-// every path under dataDir.
-func Dev(dataDir, addr string) (Config, error) {
+// DevAddresses are where `racksail dev` listens. Empty fields get the
+// defaults: the panel on 127.0.0.1:7070, and the edge on 127.0.0.1:7080 for
+// HTTP and 127.0.0.1:7443 for HTTPS.
+type DevAddresses struct {
+	Panel     string
+	EdgeHTTP  string
+	EdgeHTTPS string
+}
+
+// Default addresses of `racksail dev`.
+const (
+	DevPanel     = "127.0.0.1:7070"
+	DevEdgeHTTP  = "127.0.0.1:7080"
+	DevEdgeHTTPS = "127.0.0.1:7443"
+)
+
+// Dev returns the configuration of `racksail dev`: plain HTTP on the given
+// addresses and every path under dataDir.
+func Dev(dataDir string, addrs DevAddresses) (Config, error) {
 	abs, err := filepath.Abs(dataDir)
 	if err != nil {
 		return Config{}, err
 	}
+	addrs.Panel = cmp.Or(addrs.Panel, DevPanel)
+	addrs.EdgeHTTP = cmp.Or(addrs.EdgeHTTP, DevEdgeHTTP)
+	addrs.EdgeHTTPS = cmp.Or(addrs.EdgeHTTPS, DevEdgeHTTPS)
 	c := Default()
-	c.Panel = Panel{Listen: addr, Hostname: "localhost", Insecure: true}
+	c.Panel = Panel{Listen: addrs.Panel, Hostname: "localhost", Insecure: true}
 	c.Agent = Agent{Socket: filepath.Join(abs, "run", "agent.sock")}
-	c.Edge = Edge{HTTP: "127.0.0.1:7080", HTTPS: "127.0.0.1:7443", Socket: filepath.Join(abs, "run", "edge.sock")}
+	c.Edge = Edge{HTTP: addrs.EdgeHTTP, HTTPS: addrs.EdgeHTTPS, Socket: filepath.Join(abs, "run", "edge.sock")}
 	c.Paths = Paths{
 		Config: filepath.Join(abs, "etc"), Generated: filepath.Join(abs, "etc", "generated"), State: filepath.Join(abs, "state"),
 		Accounts: filepath.Join(abs, "srv", "accounts"), Runtimes: filepath.Join(abs, "opt", "runtimes"),

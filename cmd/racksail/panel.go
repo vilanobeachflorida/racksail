@@ -34,6 +34,7 @@ func newPanelCommand() *cobra.Command {
 			}
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
+			log.Warn("this build keeps the panel's resources, change sets and secrets in memory, so they are lost when the panel stops")
 			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edge.DialAdmin(cfg.Edge.Socket))
 			if err != nil {
 				return err

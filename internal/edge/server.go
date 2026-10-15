@@ -358,12 +358,22 @@ func (s *Server) Run(ctx context.Context, admin net.Listener, httpAddr, httpsAdd
 		case <-s.Table.Changed():
 		}
 	}
-	s.Log.Info("edge starting", "http", httpAddr, "https", httpsAddr, "routes", s.Table.Len())
-	plain := &http.Server{Addr: httpAddr, Handler: s, ReadHeaderTimeout: 10 * time.Second}
-	secure := &http.Server{Addr: httpsAddr, Handler: s, ReadHeaderTimeout: 10 * time.Second, TLSConfig: s.TLSConfig()}
+	plainLn, err := net.Listen("tcp", httpAddr)
+	if err != nil {
+		return fmt.Errorf("edge: %w", err)
+	}
+	secureLn, err := net.Listen("tcp", httpsAddr)
+	if err != nil {
+		plainLn.Close()
+		return fmt.Errorf("edge: %w", err)
+	}
+	// The listeners' own addresses, so a port 0 shows the port it got.
+	s.Log.Info("edge listening", "http", plainLn.Addr().String(), "https", secureLn.Addr().String(), "routes", s.Table.Len())
+	plain := &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second}
+	secure := &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, TLSConfig: s.TLSConfig()}
 	servers = append(servers, plain, secure)
-	go func() { errs <- serveAddr(plain, false) }()
-	go func() { errs <- serveAddr(secure, true) }()
+	go func() { errs <- serve(plain, plainLn) }()
+	go func() { errs <- serveTLS(secure, secureLn) }()
 	select {
 	case <-ctx.Done():
 		return nil
@@ -379,15 +389,11 @@ func serve(srv *http.Server, ln net.Listener) error {
 	return nil
 }
 
-func serveAddr(srv *http.Server, secure bool) error {
-	var err error
-	if secure {
-		err = srv.ListenAndServeTLS("", "")
-	} else {
-		err = srv.ListenAndServe()
+// serveTLS serves HTTPS with the certificates of srv.TLSConfig. Unlike a TLS
+// listener passed to Serve, it also offers HTTP/2.
+func serveTLS(srv *http.Server, ln net.Listener) error {
+	if err := srv.ServeTLS(ln, "", ""); !errors.Is(err, http.ErrServerClosed) {
+		return err
 	}
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
+	return nil
 }

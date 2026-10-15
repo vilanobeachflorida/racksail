@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +12,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 	"github.com/vilanobeachflorida/racksail/modules/all"
 )
 
@@ -102,8 +109,67 @@ func TestInstallDryRun(t *testing.T) {
 }
 
 func TestDevRefusesRemoteAddresses(t *testing.T) {
-	if _, err := run(t, "dev", "--addr", "0.0.0.0:7070", "--data", t.TempDir()); err == nil || !strings.Contains(err.Error(), "loopback") {
-		t.Errorf("err = %v", err)
+	for _, args := range [][]string{
+		{"--addr", "0.0.0.0:7070"},
+		{"--edge-http", "192.0.2.1:80"},
+		{"--edge-https", "[::]:443"},
+	} {
+		if _, err := run(t, append([]string{"dev", "--data", t.TempDir()}, args...)...); err == nil || !strings.Contains(err.Error(), "loopback") {
+			t.Errorf("%v: err = %v", args, err)
+		}
+	}
+}
+
+func TestSimulatedAgent(t *testing.T) {
+	dir, err := os.MkdirTemp("", "rs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "agent.sock")
+	root := newRootCommand()
+	root.SetArgs([]string{"agent", "--sim", "--socket", sock, "--config", filepath.Join(dir, "missing.toml")})
+	root.SetOut(io.Discard)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- root.ExecuteContext(ctx) }()
+	client := agent.DialUnix(sock)
+	var facts system.MachineFacts
+	for range 100 {
+		if facts, err = agent.GetFacts.Call(ctx, client, agent.Empty{}, agent.CallOptions{}); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil || facts.Hostname == "" {
+		t.Errorf("the simulated agent answers on its socket: %+v, %v", facts, err)
+	}
+	if fi, err := os.Stat(sock); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("only its user reaches a simulated agent: %v, %v", fi, err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("agent = %v", err)
+	}
+
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	path, err := simSocket()
+	if err != nil || path != filepath.Join(dir, "racksail", "agent.sock") {
+		t.Errorf("default socket = %s, %v", path, err)
+	}
+	if fi, err := os.Stat(filepath.Dir(path)); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("socket directory = %v, %v", fi, err)
+	}
+}
+
+func TestDryRunOnlyForChanges(t *testing.T) {
+	if _, err := run(t, "status", "--dry-run"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("status changes nothing, so it has no --dry-run: %v", err)
+	}
+	cmd := mutating(&cobra.Command{Use: "restart", RunE: func(*cobra.Command, []string) error { return nil }})
+	addClientFlags(cmd, &ClientOptions{})
+	if cmd.Flags().Lookup("dry-run") == nil || cmd.Flags().Lookup("server") == nil {
+		t.Error("commands that change something get --dry-run")
 	}
 }
 
