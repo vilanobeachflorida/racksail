@@ -13,6 +13,7 @@
       "*.json",
       "!src/lib/api/schema.d.ts",
       "!src/design/theme.css",
+      "!src/design/brand.ts",
       "!package-lock.json"
     ]
   },

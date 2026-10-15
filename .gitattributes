@@ -3,6 +3,7 @@
 *.png binary
 *.webp binary
 *.woff2 binary
+*.ico binary
 
 # Generated from the code by `make gen`; tests fail when they drift.
 spec/openapi.json linguist-generated=true
@@ -10,6 +11,10 @@ spec/agent-protocol.json linguist-generated=true
 spec/addon-protocol.json linguist-generated=true
 ui/src/lib/api/schema.d.ts linguist-generated=true
 ui/src/design/theme.css linguist-generated=true
+
+# Generated from the artwork in brand/gen by `go run ./brand/gen`.
+ui/src/design/brand.ts linguist-generated=true
+internal/theme/mark_grid.go linguist-generated=true
 
 # Lockfiles change with package.json and go.mod, which are what to review.
 go.sum linguist-generated=true
