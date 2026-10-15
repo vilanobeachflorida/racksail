@@ -377,12 +377,17 @@ func (e *Edge) Run(ctx context.Context, admin net.Listener) error {
 		}
 	}()
 
+	// The keeper stops with the edge, whichever way Run returns.
+	keeperCtx, stopKeeper := context.WithCancel(ctx)
 	keeperDone := make(chan struct{})
 	go func() {
 		defer close(keeperDone)
-		e.keeper.run(ctx)
+		e.keeper.run(keeperCtx)
 	}()
-	defer func() { <-keeperDone }()
+	defer func() {
+		stopKeeper()
+		<-keeperDone
+	}()
 
 	var retry, persist, purge *time.Timer
 	var retryC, persistC, purgeC <-chan time.Time
