@@ -13,6 +13,9 @@ const (
 	AgentUnit = "racksail-agent.service"
 	PanelUnit = "racksail-panel.service"
 	EdgeUnit  = "racksail-edge.service"
+	// EdgeSocket is the edge's admin socket, which systemd holds so that the
+	// edge starts the first time the panel sends it routes.
+	EdgeSocket = "racksail-edge.socket"
 )
 
 // hardening is applied to the unprivileged platform services.
@@ -83,10 +86,24 @@ func Units(binary string) (map[string][]byte, error) {
 	panel.Section("Install").Add("WantedBy", "multi-user.target")
 	files[PanelUnit] = panel
 
+	// systemd creates the edge's admin socket and hands it to the edge, so
+	// the socket can belong to the panel's group without the edge joining
+	// that group, which would let it reach the agent's socket too. The edge
+	// itself can't write to /run/racksail.
+	var edgeSocket system.UnitFile
+	edgeSocket.Section("Unit").Add("Description", "Racksail edge admin socket").
+		Add("Documentation", "https://github.com/vilanobeachflorida/racksail")
+	edgeSocket.Section("Socket").
+		Add("ListenStream", system.EdgeSocket).
+		Add("SocketUser", "root").Add("SocketGroup", "racksail").Add("SocketMode", "0660")
+	edgeSocket.Section("Install").Add("WantedBy", "sockets.target")
+	files[EdgeSocket] = edgeSocket
+
 	var edge system.UnitFile
 	edge.Section("Unit").Add("Description", "Racksail edge").
 		Add("Documentation", "https://github.com/vilanobeachflorida/racksail").
-		Add("After", "network-online.target").Add("Wants", "network-online.target")
+		Add("Requires", EdgeSocket).
+		Add("After", "network-online.target "+EdgeSocket).Add("Wants", "network-online.target")
 	edge.Section("Service").
 		Add("ExecStart", binary+" edge").
 		Add("User", "racksail-edge").Add("Group", "racksail-edge").
@@ -96,7 +113,9 @@ func Units(binary string) (map[string][]byte, error) {
 		Add("CapabilityBoundingSet", "CAP_NET_BIND_SERVICE").
 		Add("StateDirectory", "racksail-edge").Add("StateDirectoryMode", "0750").
 		AddEntries(hardening...)
-	edge.Section("Install").Add("WantedBy", "multi-user.target")
+	// The edge isn't started at boot: its socket is, and the first request
+	// to it starts the edge.
+	edge.Section("Install").Add("Also", EdgeSocket)
 	files[EdgeUnit] = edge
 
 	out := make(map[string][]byte, len(files))
@@ -111,9 +130,10 @@ func Units(binary string) (map[string][]byte, error) {
 }
 
 // UnitNames returns the names of Racksail's own units in install order:
-// slices before the services that use them.
+// slices before the services that use them, and the edge's socket before the
+// edge.
 func UnitNames() []string {
-	names := []string{system.PlatformSlice, system.AccountsSlice, AgentUnit, PanelUnit, EdgeUnit}
+	names := []string{system.PlatformSlice, system.AccountsSlice, AgentUnit, PanelUnit, EdgeSocket, EdgeUnit}
 	sort.SliceStable(names, func(i, j int) bool { return path.Ext(names[i]) == ".slice" && path.Ext(names[j]) != ".slice" })
 	return names
 }

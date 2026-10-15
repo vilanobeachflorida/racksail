@@ -4,7 +4,7 @@ This directory is for what turns a `racksail` binary into something people insta
 
 ## systemd units
 
-Racksail runs as three services in `racksail.slice`, `racksail-panel.service`, `racksail-agent.service` and `racksail-edge.service`, with account workloads in `racksail-accounts.slice`. Their unit files aren't kept here by hand: `internal/installer` renders them (`installer.Units`, checked against `internal/installer/testdata/units.golden`), and `racksail install` writes them, so a fresh install, a converted server and an upgrade always get the same units.
+Racksail runs as three services in `racksail.slice`, `racksail-panel.service`, `racksail-agent.service` and `racksail-edge.service`, with account workloads in `racksail-accounts.slice`. The edge sits behind `racksail-edge.socket`: systemd holds its admin socket for the panel and starts the edge the first time the panel sends it routes. Their unit files aren't kept here by hand: `internal/installer` renders them (`installer.Units`, checked against `internal/installer/testdata/units.golden`), and `racksail install` writes them, so a fresh install, a converted server and an upgrade always get the same units.
 
 ## Install script
 

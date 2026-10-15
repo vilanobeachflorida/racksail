@@ -41,7 +41,8 @@ var directories = []agent.EnsureDirInput{
 
 // ConvertSteps plans turning a running Debian 13 system into a Racksail
 // server: system users, directories, Racksail's own units, and starting the
-// agent and the panel. The edge starts later, when a module first needs it.
+// agent, the panel and the edge's socket. The edge itself starts later, when
+// the panel first sends it routes.
 func ConvertSteps(a *Answers, binary string) ([]Step, error) {
 	if a.Mode != ModeConvert {
 		return nil, fmt.Errorf("ConvertSteps plans the convert mode, not %s", a.Mode)
@@ -69,10 +70,11 @@ func ConvertSteps(a *Answers, binary string) ([]Step, error) {
 		unitOps = append(unitOps, agent.EnsureUnit.Step(agent.EnsureUnitInput{Name: name, Content: units[name]}))
 	}
 	steps = append(steps, Step{Title: "Install Racksail's services", Ops: unitOps})
-	steps = append(steps, Step{Title: "Start the agent and the panel", Ops: []agent.Step{
-		agent.EnableUnits.Step(agent.UnitsInput{Names: []string{AgentUnit, PanelUnit}}),
+	steps = append(steps, Step{Title: "Start the agent, the panel and the edge's socket", Ops: []agent.Step{
+		agent.EnableUnits.Step(agent.UnitsInput{Names: []string{AgentUnit, PanelUnit, EdgeSocket}}),
 		agent.StartUnit.Step(agent.UnitInput{Name: AgentUnit}),
 		agent.StartUnit.Step(agent.UnitInput{Name: PanelUnit}),
+		agent.StartUnit.Step(agent.UnitInput{Name: EdgeSocket}),
 	}})
 	return steps, nil
 }

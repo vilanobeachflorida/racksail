@@ -77,13 +77,30 @@ SystemCallFilter=@system-service
 [Install]
 WantedBy=multi-user.target
 
+### racksail-edge.socket
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail edge admin socket
+Documentation=https://github.com/vilanobeachflorida/racksail
+
+[Socket]
+ListenStream=/run/racksail/edge.sock
+SocketUser=root
+SocketGroup=racksail
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target
+
 ### racksail-edge.service
 # Managed by Racksail. Changes made here are overwritten.
 
 [Unit]
 Description=Racksail edge
 Documentation=https://github.com/vilanobeachflorida/racksail
-After=network-online.target
+Requires=racksail-edge.socket
+After=network-online.target racksail-edge.socket
 Wants=network-online.target
 
 [Service]
@@ -116,5 +133,5 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 
 [Install]
-WantedBy=multi-user.target
+Also=racksail-edge.socket
 

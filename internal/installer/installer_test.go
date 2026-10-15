@@ -108,6 +108,12 @@ func TestConvertOnTheSimulatedServer(t *testing.T) {
 	if !st.Active() || st.UnitFileState != "enabled" {
 		t.Errorf("panel = %+v", st)
 	}
+	if st, _ := b.Units.Status(ctx, EdgeSocket); !st.Active() || st.SubState != "listening" || st.UnitFileState != "enabled" {
+		t.Errorf("the edge's socket waits for the panel: %+v", st)
+	}
+	if st, _ := b.Units.Status(ctx, EdgeUnit); st.Active() {
+		t.Errorf("the edge itself only starts when it gets routes: %+v", st)
+	}
 	if _, err := b.Files.Stat(ctx, "/opt/racksail/runtimes"); err != nil {
 		t.Errorf("directories: %v", err)
 	}

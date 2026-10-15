@@ -99,7 +99,7 @@ func TestInstallDryRun(t *testing.T) {
 		t.Errorf("plan = %s", out)
 	}
 	out, err = run(t, "install", "--answers", answers, "--sim", "--binary", "/usr/local/bin/racksail")
-	if err != nil || !strings.Contains(out, "[5/5] Start the agent and the panel") {
+	if err != nil || !strings.Contains(out, "[5/5] Start the agent, the panel and the edge's socket") {
 		t.Errorf("simulated conversion = %s, %v", out, err)
 	}
 	wipe := filepath.Join(dir, "wipe.yaml")
