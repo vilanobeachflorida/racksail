@@ -58,16 +58,26 @@ var serviceHardening = []UnitEntry{
 // agentHardening is what the agent can bear. It runs as root and runs
 // apt, dpkg maintainer scripts, mkfs and the rest, so it keeps its
 // capabilities, its devices and can write the system; it is shielded from
-// what none of that needs. ProtectClock is left out because it implies a
-// device allowlist, which would hide the disks.
+// what none of that needs. It must share the host's mount namespace, since
+// the filesystems it mounts are for every service: so nothing here may give
+// it one of its own, which PrivateTmp, ProtectKernelLogs,
+// ProtectControlGroups and the other file system protections all do.
+// ProtectClock is left out too because it implies a device allowlist, which
+// would hide the disks.
 var agentHardening = []UnitEntry{
-	{"PrivateTmp", "yes"},
-	{"ProtectKernelLogs", "yes"},
-	{"ProtectControlGroups", "yes"},
 	{"RestrictRealtime", "yes"},
 	{"LockPersonality", "yes"},
 	{"KeyringMode", "private"},
 	{"UMask", "0022"},
+}
+
+// mountNamespacing are the settings that give a service a mount namespace
+// of its own, which the agent must not have.
+var mountNamespacing = []string{
+	"PrivateTmp", "PrivateDevices", "PrivateMounts", "ProtectSystem", "ProtectHome", "ProtectKernelTunables",
+	"ProtectKernelModules", "ProtectKernelLogs", "ProtectControlGroups", "ProtectProc", "ProcSubset",
+	"ReadWritePaths", "ReadOnlyPaths", "InaccessiblePaths", "TemporaryFileSystem", "BindPaths", "BindReadOnlyPaths",
+	"RootDirectory", "RootImage", "MountAPIVFS", "PrivateNetwork", "NetworkNamespacePath",
 }
 
 // PlatformUnits renders Racksail's own slices and services, with binary as

@@ -116,8 +116,14 @@ func (in EnsureUserInput) Validate() error {
 	default:
 		return fmt.Errorf("uid %d is outside the system (100-999) and account (%d-%d) ranges", in.UID, system.AccountUIDMin, system.AccountUIDMax)
 	}
-	if in.GID < 0 || in.GID > system.AccountUIDMax {
-		return fmt.Errorf("gid %d is out of range", in.GID)
+	// A primary group is the user's own: never one of the system's, such as
+	// disk, which a fixed ID could otherwise name.
+	switch {
+	case in.GID == 0:
+	case in.System && in.GID >= 100 && in.GID <= 999:
+	case !in.System && in.GID >= system.AccountUIDMin && in.GID <= system.AccountUIDMax:
+	default:
+		return fmt.Errorf("gid %d is outside the system (100-999) and account (%d-%d) ranges", in.GID, system.AccountUIDMin, system.AccountUIDMax)
 	}
 	for _, g := range in.Groups {
 		if err := checkAccountName("group", g); err != nil {
@@ -167,6 +173,11 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		cur, err := u.LookupUser(ctx, in.Name)
 		if errors.Is(err, system.ErrNotFound) {
 			effect := system.Effect{Type: system.EffectUser, Action: "create", Target: in.Name}
+			if in.GID != 0 {
+				if err := checkPrimaryGroup(ctx, u, in.GID); err != nil {
+					return Result{}, err
+				}
+			}
 			if env.Check {
 				return Changed(effect), nil
 			}
@@ -196,6 +207,20 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		return Changed(effect), u.UpdateUser(ctx, want)
 	},
 })
+
+// checkPrimaryGroup refuses a fixed primary group that is privileged.
+func checkPrimaryGroup(ctx context.Context, u system.Users, gid int) error {
+	groups, err := u.ListGroups(ctx)
+	if err != nil {
+		return err
+	}
+	for _, g := range groups {
+		if g.GID == gid && slices.Contains(privilegedGroups, g.Name) {
+			return fmt.Errorf("gid %d is the privileged group %s: %w", gid, g.Name, system.ErrInvalid)
+		}
+	}
+	return nil
+}
 
 func sameRange(a, b *system.IDRange) bool {
 	if a == nil || b == nil {

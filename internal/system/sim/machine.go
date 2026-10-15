@@ -306,6 +306,8 @@ func (m *Machine) seed(opts Options) {
 		"PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\nVERSION=\"13 (trixie)\"\nVERSION_CODENAME=trixie\nID=debian\n")}
 	m.files["/etc/hostname"] = &node{mode: 0o644, modTime: now, data: []byte(opts.Hostname + "\n")}
 	m.files["/etc/machine-id"] = &node{mode: 0o444, modTime: now, data: []byte(m.facts.MachineID + "\n")}
+	// The server runs Racksail, installed where its package puts it.
+	m.files["/usr/bin/racksail"] = &node{mode: 0o755, modTime: now, data: []byte("simulated racksail executable\n")}
 
 	m.seedStorage(now)
 	m.seedNetwork()

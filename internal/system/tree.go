@@ -11,10 +11,11 @@ import (
 
 // Tree is a directory that operations can't leave. Names are slash-separated
 // and relative to the tree's directory; "." is the directory itself.
-// Symbolic links are never followed out of the tree, even when its contents
+// Symbolic links in the tree are never followed, even when its contents
 // change while it is in use, so the agent can work inside directories that
-// accounts can write to. Ownership and modes are set on open files, never by
-// name.
+// accounts can write to: a name that passes through a link is refused, and
+// links are read, packed and created as links. Ownership and modes are set
+// on open files, never by name.
 type Tree interface {
 	// Lstat describes a name without following a final symbolic link.
 	Lstat(name string) (FileInfo, error)

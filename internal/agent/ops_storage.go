@@ -51,10 +51,14 @@ var EnsureSubvolume = Register(Def[SubvolumeInput, Result]{
 		return []system.Effect{{Type: system.EffectStorage, Action: "create-subvolume", Target: in.Path}}
 	},
 	Run: func(ctx context.Context, env *Env, in SubvolumeInput) (Result, error) {
-		if err := checkNoSymlinks(ctx, env.System.Files, in.Path); err != nil {
+		files, err := beneath(env, in.Path, false)
+		if err != nil {
 			return Result{}, err
 		}
-		if _, err := env.System.Files.Stat(ctx, in.Path); err == nil {
+		if info, err := files.Stat(ctx, in.Path); err == nil {
+			if !info.IsDir() {
+				return Result{}, fmt.Errorf("%s exists and isn't a subvolume: %w", in.Path, system.ErrExists)
+			}
 			ok, err := isSubvolume(ctx, env.System.Btrfs, in.Path)
 			if err != nil {
 				return Result{}, err
@@ -63,6 +67,8 @@ var EnsureSubvolume = Register(Def[SubvolumeInput, Result]{
 				return Result{}, fmt.Errorf("%s exists and isn't a subvolume: %w", in.Path, system.ErrExists)
 			}
 			return Unchanged(), nil
+		} else if !errors.Is(err, system.ErrNotFound) {
+			return Result{}, err
 		}
 		effect := system.Effect{Type: system.EffectStorage, Action: "create-subvolume", Target: in.Path}
 		if env.Check {
@@ -80,8 +86,18 @@ var DeleteSubvolume = Register(Def[SubvolumeInput, Result]{
 		return []system.Effect{{Type: system.EffectStorage, Action: "delete-subvolume", Target: in.Path, Destructive: true}}
 	},
 	Run: func(ctx context.Context, env *Env, in SubvolumeInput) (Result, error) {
-		if _, err := env.System.Files.Stat(ctx, in.Path); errors.Is(err, system.ErrNotFound) {
+		files, err := beneath(env, in.Path, false)
+		if err != nil {
+			return Result{}, err
+		}
+		info, err := files.Stat(ctx, in.Path)
+		switch {
+		case errors.Is(err, system.ErrNotFound):
 			return Unchanged(), nil
+		case err != nil:
+			return Result{}, err
+		case !info.IsDir():
+			return Result{}, fmt.Errorf("%s isn't a subvolume: %w", in.Path, system.ErrInvalid)
 		}
 		effect := system.Effect{Type: system.EffectStorage, Action: "delete-subvolume", Target: in.Path, Destructive: true}
 		if env.Check {
@@ -100,7 +116,7 @@ type SnapshotInput struct {
 
 // Validate implements Input.
 func (in SnapshotInput) Validate() error {
-	if err := cleanAbs(in.Source); err != nil {
+	if err := checkRead(in.Source); err != nil {
 		return err
 	}
 	return checkWrite(in.Dest)
@@ -115,8 +131,23 @@ var CreateSnapshot = Register(Def[SnapshotInput, Result]{
 		return []system.Effect{{Type: system.EffectStorage, Action: "snapshot", Target: in.Dest, Detail: in.Source}}
 	},
 	Run: func(ctx context.Context, env *Env, in SnapshotInput) (Result, error) {
-		if _, err := env.System.Files.Stat(ctx, in.Dest); err == nil {
+		source, err := beneath(env, in.Source, true)
+		if err != nil {
+			return Result{}, err
+		}
+		if info, err := source.Stat(ctx, in.Source); err != nil {
+			return Result{}, err
+		} else if !info.IsDir() {
+			return Result{}, fmt.Errorf("%s isn't a subvolume: %w", in.Source, system.ErrInvalid)
+		}
+		dest, err := beneath(env, in.Dest, false)
+		if err != nil {
+			return Result{}, err
+		}
+		if _, err := dest.Stat(ctx, in.Dest); err == nil {
 			return Unchanged(), nil
+		} else if !errors.Is(err, system.ErrNotFound) {
+			return Result{}, err
 		}
 		effect := system.Effect{Type: system.EffectStorage, Action: "snapshot", Target: in.Dest, Detail: in.Source}
 		if env.Check {
@@ -226,15 +257,21 @@ var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
 			taken[source] = true
 			dest := path.Join(dir, snapshotName(source))
 			out.Snapshots = append(out.Snapshots, Snapshot{Source: source, Path: dest})
-			if _, err := env.System.Files.Stat(ctx, dest); err == nil {
+			files, err := beneath(env, dest, false)
+			if err != nil {
+				return out, err
+			}
+			if _, err := files.Stat(ctx, dest); err == nil {
 				continue
+			} else if !errors.Is(err, system.ErrNotFound) {
+				return out, err
 			}
 			out.Changed = true
 			out.Effects = append(out.Effects, system.Effect{Type: system.EffectStorage, Action: "snapshot", Target: dest, Detail: source})
 			if env.Check {
 				continue
 			}
-			if err := makeSnapshotDir(ctx, env.System.Files, dir); err != nil {
+			if err := makeSnapshotDir(ctx, files, dir); err != nil {
 				return out, err
 			}
 			if err := env.System.Btrfs.Snapshot(ctx, source, dest, true); err != nil {
@@ -272,11 +309,9 @@ func snapshotName(source string) string {
 }
 
 // makeSnapshotDir creates the directory snapshots go in, readable by root
-// only: a snapshot of the system disk holds a copy of everything on it.
+// only: a snapshot of the system disk holds a copy of everything on it. f
+// is a view below the directory's managed root.
 func makeSnapshotDir(ctx context.Context, f system.Files, dir string) error {
-	if err := checkNoSymlinks(ctx, f, dir); err != nil {
-		return err
-	}
 	var missing []string
 	for d := dir; checkWrite(d) == nil; d = path.Dir(d) {
 		if _, err := f.Stat(ctx, d); err == nil {
@@ -316,6 +351,9 @@ var SetSubvolumeQuota = Register(Def[QuotaInput, Result]{
 		return []system.Effect{{Type: system.EffectStorage, Action: "quota", Target: in.Path, DiskBytes: in.LimitBytes}}
 	},
 	Run: func(ctx context.Context, env *Env, in QuotaInput) (Result, error) {
+		if err := checkNoSymlinks(ctx, env, in.Path); err != nil {
+			return Result{}, err
+		}
 		q, err := env.System.Btrfs.Quota(ctx, in.Path)
 		if err == nil && q.LimitBytes == in.LimitBytes {
 			return Unchanged(), nil
@@ -519,11 +557,21 @@ type MountInput struct {
 
 // Validate implements Input.
 func (in MountInput) Validate() error {
-	if err := checkWrite(in.Mount.Target); err != nil {
+	if err := checkMountPoint(in.Mount.Target); err != nil {
 		return err
 	}
-	if in.Mount.Source == "" || in.Mount.FSType == "" || strings.HasPrefix(in.Mount.Source, "-") {
-		return fmt.Errorf("a mount needs a source and a filesystem type")
+	_, err := system.CheckMount(in.Mount)
+	return err
+}
+
+// checkMountPoint validates where a filesystem is mounted: below the data
+// disks or the accounts' area, never over the platform's state.
+func checkMountPoint(p string) error {
+	if err := cleanAbs(p); err != nil {
+		return err
+	}
+	if !under(p, mountRoots) {
+		return fmt.Errorf("filesystems are mounted under %s, not at %s", strings.Join(mountRoots, " or "), p)
 	}
 	return nil
 }
@@ -533,10 +581,17 @@ func (in MountInput) Validate() error {
 var EnsureMounted = Register(Def[MountInput, Result]{
 	Name:    "EnsureMounted",
 	Summary: "Mount a filesystem",
+	Description: "Mounts a block device below " + system.DataDisksDir + " or the accounts' area, always with nosuid and nodev, " +
+		"so nothing on it runs with privileges it brought along.",
 	Effects: func(in MountInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectStorage, Action: "mount", Target: in.Mount.Target, Detail: in.Mount.Source}}
 	},
 	Run: func(ctx context.Context, env *Env, in MountInput) (Result, error) {
+		mount, err := system.CheckMount(in.Mount)
+		if err != nil {
+			return Result{}, err
+		}
+		in.Mount = mount
 		mounts, err := env.System.Mounts.List(ctx)
 		if err != nil {
 			return Result{}, err
@@ -563,7 +618,7 @@ type UnmountInput struct {
 }
 
 // Validate implements Input.
-func (in UnmountInput) Validate() error { return checkWrite(in.Target) }
+func (in UnmountInput) Validate() error { return checkMountPoint(in.Target) }
 
 // Unmount unmounts a filesystem Racksail mounted.
 var Unmount = Register(Def[UnmountInput, Result]{

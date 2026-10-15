@@ -140,6 +140,14 @@ func TestUsersAndGroups(t *testing.T) {
 	if res, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "webusers", Members: &members}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("group = %+v, %v", res, err)
 	}
+	for _, bad := range []EnsureUserInput{
+		{Name: "diskuser", UID: 20077, GID: 6, Home: "/srv/racksail/accounts/diskuser"},
+		{Name: "paneluser", System: true, GID: 990, Home: "/nonexistent"},
+	} {
+		if _, err := EnsureUser.Call(ctx, c, bad, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("a privileged primary group %d: %v", bad.GID, err)
+		}
+	}
 	if _, err := DeleteUser.Call(ctx, c, DeleteUserInput{Name: "root"}, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
 		t.Errorf("deleting root: %v", err)
 	}
@@ -151,9 +159,21 @@ func TestUsersAndGroups(t *testing.T) {
 	}
 }
 
+// newAccount creates an account user and group with the given ID.
+func newAccount(t *testing.T, c Client, name string, id int) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: name, GID: id}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureUser.Call(ctx, c, EnsureUserInput{Name: name, UID: id, GID: id, Home: system.AccountDir(name)}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestUnitsAndPolicy(t *testing.T) {
 	ctx := context.Background()
-	_, c := newLocal(t)
+	m, c := newLocal(t)
 	root := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nExecStart=/bin/true\n")}
 	if _, err := EnsureUnit.Call(ctx, c, root, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("a service without a user: %v", err)
@@ -162,7 +182,16 @@ func TestUnitsAndPolicy(t *testing.T) {
 	if _, err := EnsureUnit.Call(ctx, c, other, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("a unit not named racksail-*: %v", err)
 	}
-	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=racksail\nExecStart=/usr/bin/sleep infinity\n")}
+	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=blog\nExecStart=/usr/bin/sleep infinity\n")}
+	// A preview can't see the user an earlier step creates, so check mode
+	// lets a missing user through; running it can't.
+	if res, err := EnsureUnit.Call(ctx, c, unit, CallOptions{Check: true}); err != nil || !res.Changed {
+		t.Fatalf("check = %+v, %v", res, err)
+	}
+	if _, err := EnsureUnit.Call(ctx, c, unit, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a service for a user that doesn't exist: %v", err)
+	}
+	newAccount(t, c, "blog", 20001)
 	if res, err := EnsureUnit.Call(ctx, c, unit, CallOptions{}); err != nil || !res.Changed {
 		t.Fatalf("ensure unit = %+v, %v", res, err)
 	}
@@ -178,8 +207,59 @@ func TestUnitsAndPolicy(t *testing.T) {
 	if _, err := StopUnit.Call(ctx, c, UnitInput{Name: "ssh.service"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("stopping a unit Racksail doesn't manage: %v", err)
 	}
-	if _, err := EnsureDropIn.Call(ctx, c, DropInInput{Unit: unit.Name, Name: "racksail-limits", Content: []byte("[Service]\nUser=root\n")}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
-		t.Errorf("a drop-in changing the user: %v", err)
+
+	// Users that reach the agent's socket or other privileges never run a
+	// unit written for the panel.
+	b := m.Backend()
+	if err := b.Users.CreateUser(ctx, system.User{Name: "shady", UID: 20050, GID: 990, Home: "/srv/racksail/accounts/shady"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{
+		"[Service]\nUser=racksail\nExecStart=/bin/true\n",
+		"[Service]\nUser=shady\nExecStart=/bin/true\n",
+		"[Service]\nUser=blog\nGroup=racksail\nExecStart=/bin/true\n",
+		"[Service]\nUser=nobody\nExecStart=/bin/true\n",
+		"[Service]\nUser=blog\nDynamicUser=yes\nExecStart=/bin/true\n",
+		"[Service]\nUser=blog\nExecStart=+/bin/sh -c id\n",
+		"[Service]\nUser=blog\nExecStart=/bin/true\nUser = root\n",
+	} {
+		in := EnsureUnitInput{Name: "racksail-site-x.service", Content: []byte(content)}
+		if _, err := EnsureUnit.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("EnsureUnit(%q) should be refused: %v", content, err)
+		}
+	}
+	dynamic := EnsureUnitInput{Name: "racksail-addon-x.service", Content: []byte("[Service]\nUser=racksail-addon-x\nDynamicUser=yes\nExecStart=/bin/true\n")}
+	if _, err := EnsureUnit.Call(ctx, c, dynamic, CallOptions{}); err != nil {
+		t.Errorf("a dynamic user: %v", err)
+	}
+
+	// Racksail's own units are rendered by the agent, never written.
+	for _, name := range system.PlatformUnitNames() {
+		in := EnsureUnitInput{Name: name, Content: []byte("[Service]\nUser=blog\nExecStart=/bin/true\n")}
+		if _, err := EnsureUnit.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("writing %s: %v", name, err)
+		}
+	}
+	if _, err := RemoveUnit.Call(ctx, c, UnitInput{Name: system.AgentUnit}, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("removing the agent's unit: %v", err)
+	}
+
+	for _, content := range []string{
+		"[Service]\nUser=root\n",
+		"[Service]\nExecStart =/bin/sh\n",
+		"[Service]\nEnvironment=LD_PRELOAD=/srv/racksail/accounts/blog/x.so\n",
+	} {
+		in := DropInInput{Unit: unit.Name, Name: "racksail-limits", Content: []byte(content)}
+		if _, err := EnsureDropIn.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("drop-in %q should be refused: %v", content, err)
+		}
+	}
+	if _, err := EnsureDropIn.Call(ctx, c, DropInInput{Unit: system.AgentUnit, Name: "racksail-limits", Content: []byte("[Service]\nMemoryMax=1G\n")}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a drop-in for the agent: %v", err)
+	}
+	limits := DropInInput{Unit: unit.Name, Name: "racksail-limits", Content: []byte("[Service]\nMemoryMax=1G\nTasksMax=64\n")}
+	if res, err := EnsureDropIn.Call(ctx, c, limits, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("drop-in = %+v, %v", res, err)
 	}
 	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "1G"}}}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("properties = %+v, %v", res, err)
@@ -190,6 +270,46 @@ func TestUnitsAndPolicy(t *testing.T) {
 	st, _ := UnitStatus.Call(ctx, c, UnitStatusInput{Name: unit.Name}, CallOptions{})
 	if st.LoadState != "not-found" {
 		t.Errorf("after removal = %+v", st)
+	}
+}
+
+func TestPlatformUnits(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	in := PlatformUnitsInput{Binary: "/usr/bin/racksail"}
+	res, err := InstallPlatformUnits.Call(ctx, c, in, CallOptions{})
+	if err != nil || !res.Changed || len(res.Effects) != len(system.PlatformUnitNames()) {
+		t.Fatalf("install = %+v, %v", res, err)
+	}
+	want, _ := system.PlatformUnits(in.Binary)
+	b := m.Backend()
+	for _, name := range system.PlatformUnitNames() {
+		got, err := b.Units.ReadUnit(ctx, name)
+		if err != nil || string(got) != string(want[name]) {
+			t.Errorf("%s = %q, %v", name, got, err)
+		}
+	}
+	if res, _ := InstallPlatformUnits.Call(ctx, c, in, CallOptions{}); res.Changed {
+		t.Error("installing the same units again changes nothing")
+	}
+
+	// The executable must be one only root can change.
+	for _, bad := range []string{"/opt/racksail/runtimes/x/racksail", "/srv/racksail/accounts/blog/racksail", "/usr/bin/bash", "racksail", "/usr/bin/racksail old"} {
+		if _, err := InstallPlatformUnits.Call(ctx, c, PlatformUnitsInput{Binary: bad}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("binary %q: %v", bad, err)
+		}
+	}
+	if err := b.Files.Mkdir(ctx, "/home/blog", 0o755, system.Owner{User: "nobody"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Files.WriteFile(ctx, "/home/blog/racksail", []byte("x"), 0o755, system.Owner{User: "nobody"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstallPlatformUnits.Call(ctx, c, PlatformUnitsInput{Binary: "/home/blog/racksail"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a binary another user owns: %v", err)
+	}
+	if _, err := InstallPlatformUnits.Call(ctx, c, PlatformUnitsInput{Binary: "/usr/local/bin/racksail"}, CallOptions{}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a binary that isn't there: %v", err)
 	}
 }
 
@@ -267,9 +387,24 @@ func TestStorageOps(t *testing.T) {
 	if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: "/mnt/racksail/pool", Mode: 0o755}, CallOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	for _, bad := range []system.Mount{
+		{Source: "/srv/racksail/accounts/blog/disk.img", Target: "/mnt/racksail/img", FSType: "ext4", Options: []string{"loop"}},
+		{Source: "/dev/sdb", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"suid"}},
+		{Source: "/dev/sdb", Target: "/var/lib/racksail", FSType: "ext4"},
+	} {
+		if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: bad}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("mount %+v should be refused: %v", bad, err)
+		}
+	}
 	mount := MountInput{Mount: system.Mount{Source: "/dev/sda", Target: "/mnt/racksail/pool", FSType: "btrfs"}}
 	if res, err := EnsureMounted.Call(ctx, c, mount, CallOptions{}); err != nil || !res.Changed {
 		t.Fatalf("mount = %+v, %v", res, err)
+	}
+	mounts, _ := ListMounts.Call(ctx, c, Empty{}, CallOptions{})
+	for _, mt := range mounts.Mounts {
+		if mt.Target == mount.Mount.Target && !(slices.Contains(mt.Options, "nosuid") && slices.Contains(mt.Options, "nodev")) {
+			t.Errorf("data disks are mounted with nosuid and nodev: %+v", mt)
+		}
 	}
 	if _, err := WipeDevice.Call(ctx, c, DeviceInput{Device: "/dev/sdb"}, CallOptions{}); err == nil {
 		t.Error("wiping a member of a mounted pool must fail")

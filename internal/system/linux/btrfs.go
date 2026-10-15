@@ -272,7 +272,8 @@ func (b *btrfs) Receive(ctx context.Context, dir string, r io.Reader) error {
 	if err := checkPath(dir); err != nil {
 		return err
 	}
-	return wrap("receiving into "+dir, b.h.run.Stream(ctx, system.Command{Path: progBtrfs, Args: []string{"receive", "--", dir}}, r, io.Discard))
+	// --chroot confines what the stream does to dir, whatever paths it names.
+	return wrap("receiving into "+dir, b.h.run.Stream(ctx, system.Command{Path: progBtrfs, Args: []string{"receive", "--chroot", "--", dir}}, r, io.Discard))
 }
 
 func (b *btrfs) AddDevice(ctx context.Context, mount, device string) error {

@@ -422,3 +422,65 @@ func newToken() string {
 // errNoRuntime is returned by operations that need state when they're run
 // without a runtime, which only happens in misconfigured tests.
 var errNoRuntime = fmt.Errorf("this operation needs the agent's runtime")
+
+// Snapshot files the agent saved, so a restore only ever reads one of them,
+// as it left it.
+
+const snapshotFilesName = "snapshot-files.json"
+
+// savedSnapshot describes a file SaveSnapshot wrote.
+type savedSnapshot struct {
+	Snapshot string    `json:"snapshot"`
+	SHA256   string    `json:"sha256"`
+	Size     int64     `json:"size"`
+	ModTime  time.Time `json:"modTime"`
+}
+
+func (rt *Runtime) loadSnapshotFiles(ctx context.Context) (map[string]savedSnapshot, error) {
+	data, err := rt.readState(ctx, snapshotFilesName)
+	if err != nil {
+		return nil, err
+	}
+	files := map[string]savedSnapshot{}
+	if data != nil {
+		if err := json.Unmarshal(data, &files); err != nil {
+			return nil, fmt.Errorf("reading the saved snapshot files: %w", err)
+		}
+	}
+	return files, nil
+}
+
+// rememberSnapshot records a file SaveSnapshot wrote.
+func (rt *Runtime) rememberSnapshot(ctx context.Context, p string, s savedSnapshot) error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	files, err := rt.loadSnapshotFiles(ctx)
+	if err != nil {
+		return err
+	}
+	files[p] = s
+	data, err := json.Marshal(files)
+	if err != nil {
+		return err
+	}
+	return rt.writeState(ctx, snapshotFilesName, data)
+}
+
+// savedSnapshot returns the record of a file SaveSnapshot wrote, as long as
+// the file still has the size and modification time it was saved with.
+func (rt *Runtime) savedSnapshot(ctx context.Context, p string, info system.FileInfo) (savedSnapshot, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	files, err := rt.loadSnapshotFiles(ctx)
+	if err != nil {
+		return savedSnapshot{}, err
+	}
+	s, ok := files[p]
+	switch {
+	case !ok:
+		return s, fmt.Errorf("%s wasn't saved by SaveSnapshot", p)
+	case s.Size != info.Size || !s.ModTime.Equal(info.ModTime):
+		return s, fmt.Errorf("%s changed since SaveSnapshot wrote it", p)
+	}
+	return s, nil
+}

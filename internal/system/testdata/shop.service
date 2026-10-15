@@ -17,7 +17,7 @@ WorkingDirectory=/srv/racksail/accounts/blog/sites/shop
 Environment="GREETING=say \"hi\""
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
-EnvironmentFile=/srv/racksail/accounts/blog/sites/shop/.env
+EnvironmentFile=/etc/racksail/generated/sites/blog/shop.env
 Restart=on-failure
 RestartSec=2s
 TimeoutStopSec=1500ms

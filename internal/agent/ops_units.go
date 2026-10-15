@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -19,18 +18,30 @@ type EnsureUnitInput struct {
 }
 
 // Validate implements Input.
-func (in EnsureUnitInput) Validate() error { return checkUnitFile(in.Name, in.Content) }
+func (in EnsureUnitInput) Validate() error {
+	_, err := checkUnitFile(in.Name, in.Content)
+	return err
+}
 
 // EnsureUnit installs or updates a unit file and reloads systemd when it
 // changed. It doesn't start or enable the unit.
 var EnsureUnit = Register(Def[EnsureUnitInput, Result]{
-	Name:        "EnsureUnit",
-	Summary:     "Install a systemd unit",
-	Description: "Writes a racksail-* unit file and reloads systemd when the file changed. Services must run as a user other than root.",
+	Name:    "EnsureUnit",
+	Summary: "Install a systemd unit",
+	Description: "Writes a racksail-* unit file and reloads systemd when the file changed. The file may only use the sections and " +
+		"directives Racksail renders; services run as an account or one of Racksail's service users, never as root, and nothing " +
+		"else runs commands. Racksail's own units are installed with InstallPlatformUnits.",
 	Effects: func(in EnsureUnitInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectFile, Action: "write", Target: system.UnitDir + "/" + in.Name, DiskBytes: int64(len(in.Content))}}
 	},
 	Run: func(ctx context.Context, env *Env, in EnsureUnitInput) (Result, error) {
+		id, err := checkUnitFile(in.Name, in.Content)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := checkServiceUser(ctx, env.System.Users, id, env.Check); err != nil {
+			return Result{}, fmt.Errorf("service %s: %w: %w", in.Name, err, system.ErrInvalid)
+		}
 		units := env.System.Units
 		current, err := units.ReadUnit(ctx, in.Name)
 		if err == nil && bytes.Equal(current, in.Content) {
@@ -70,6 +81,9 @@ var RemoveUnit = Register(Def[UnitInput, Result]{
 	Run: func(ctx context.Context, env *Env, in UnitInput) (Result, error) {
 		if err := checkOwnedUnit(in.Name); err != nil {
 			return Result{}, err
+		}
+		if system.IsPlatformUnit(in.Name) {
+			return Result{}, ErrNotAllowed.New("op", "RemoveUnit", "target", in.Name)
 		}
 		units := env.System.Units
 		if _, err := units.ReadUnit(ctx, in.Name); errors.Is(err, system.ErrNotFound) {
@@ -113,27 +127,23 @@ type DropInInput struct {
 	Content []byte `json:"content,omitempty" doc:"The drop-in file; ignored when removing"`
 }
 
-// Validate implements Input.
+// Validate implements Input. Drop-ins tune resources, restarts and
+// dependencies; they never change what a unit runs, as whom or with which
+// environment. The agent's own unit takes none.
 func (in DropInInput) Validate() error {
 	if err := checkUnit(in.Unit); err != nil {
 		return err
 	}
+	if in.Unit == system.AgentUnit {
+		return fmt.Errorf("the agent's unit takes no drop-ins")
+	}
 	if !dropInNamePattern.MatchString(in.Name) {
 		return fmt.Errorf("drop-in name %q must start with racksail", in.Name)
 	}
-	if len(in.Content) > 64<<10 || slices.Contains(in.Content, 0) {
-		return fmt.Errorf("drop-in is too large or not text")
+	if len(in.Content) > 64<<10 {
+		return fmt.Errorf("drop-in is larger than 64 KiB")
 	}
-	for _, line := range strings.Split(string(in.Content), "\n") {
-		key, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		switch key {
-		case "ExecStart", "ExecStartPre", "ExecStartPost", "ExecStop", "ExecStopPost", "ExecReload", "ExecCondition", "User", "Group":
-			// Drop-ins tune resources and settings; they never change what runs
-			// or as whom.
-			return fmt.Errorf("drop-ins can't set %s", key)
-		}
-	}
-	return nil
+	return system.CheckDropIn(in.Unit, in.Content, unitRules())
 }
 
 // EnsureDropIn installs a drop-in that adjusts a unit, such as resource

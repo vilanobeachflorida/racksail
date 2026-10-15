@@ -135,6 +135,32 @@ func TestSnapshotFiles(t *testing.T) {
 	if err != nil || string(got) != "v1" {
 		t.Errorf("restored = %q, %v", got, err)
 	}
+	// Only files SaveSnapshot wrote, as it left them, are received.
+	forged := WriteFileInput{Path: "/srv/racksail/backups/forged.btrfs", Content: []byte("not a stream"), Mode: 0o600}
+	if _, err := WriteFile.Call(ctx, c, forged, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RestoreSnapshot.Call(ctx, c, RestoreSnapshotInput{File: forged.Path, Dir: restore.Dir}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a file SaveSnapshot didn't write: %v", err)
+	}
+	if _, err := SaveSnapshot.Call(ctx, c, SaveSnapshotInput{Snapshot: snap, Dest: forged.Path}, CallOptions{}); !errors.Is(err, ErrConflict) {
+		t.Errorf("saving over a file the agent didn't save: %v", err)
+	}
+	if err := b.Files.Chmod(ctx, save.Dest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RestoreSnapshot.Call(ctx, c, restore, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a saved file others can read: %v", err)
+	}
+	if err := b.Files.Chmod(ctx, save.Dest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Files.WriteFile(ctx, save.Dest, []byte("{}\n"), 0o600, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RestoreSnapshot.Call(ctx, c, restore, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a saved file changed afterwards: %v", err)
+	}
 	if _, err := SaveSnapshot.Call(ctx, c, SaveSnapshotInput{Snapshot: blog, Dest: "/srv/racksail/backups/rw.btrfs"}, CallOptions{}); err == nil {
 		t.Error("a writable subvolume can't be sent")
 	}

@@ -45,8 +45,8 @@ var WriteFile = Register(Def[WriteFileInput, Result]{
 		return []system.Effect{{Type: system.EffectFile, Action: "write", Target: in.Path, DiskBytes: int64(len(in.Content))}}
 	},
 	Run: func(ctx context.Context, env *Env, in WriteFileInput) (Result, error) {
-		f := env.System.Files
-		if err := checkNoSymlinks(ctx, f, in.Path); err != nil {
+		f, err := beneath(env, in.Path, false)
+		if err != nil {
 			return Result{}, err
 		}
 		effect := system.Effect{Type: system.EffectFile, Action: "write", Target: in.Path, DiskBytes: int64(len(in.Content))}
@@ -119,8 +119,8 @@ var EnsureDir = Register(Def[EnsureDirInput, Result]{
 		return []system.Effect{{Type: system.EffectFile, Action: "mkdir", Target: in.Path}}
 	},
 	Run: func(ctx context.Context, env *Env, in EnsureDirInput) (Result, error) {
-		f := env.System.Files
-		if err := checkNoSymlinks(ctx, f, in.Path); err != nil {
+		f, err := beneath(env, in.Path, false)
+		if err != nil {
 			return Result{}, err
 		}
 		info, err := f.Stat(ctx, in.Path)
@@ -202,8 +202,8 @@ var RemovePath = Register(Def[RemovePathInput, Result]{
 		return []system.Effect{{Type: system.EffectFile, Action: "delete", Target: in.Path, Destructive: true}}
 	},
 	Run: func(ctx context.Context, env *Env, in RemovePathInput) (Result, error) {
-		f := env.System.Files
-		if err := checkNoSymlinks(ctx, f, in.Path); err != nil {
+		f, err := beneath(env, in.Path, false)
+		if err != nil {
 			return Result{}, err
 		}
 		if _, err := f.Stat(ctx, in.Path); errors.Is(err, system.ErrNotFound) {
@@ -216,7 +216,6 @@ var RemovePath = Register(Def[RemovePathInput, Result]{
 		if env.Check {
 			return Changed(effect), nil
 		}
-		var err error
 		if in.Recursive {
 			err = f.RemoveAll(ctx, in.Path)
 		} else {
@@ -258,8 +257,8 @@ var EnsureSymlink = Register(Def[EnsureSymlinkInput, Result]{
 		return []system.Effect{{Type: system.EffectFile, Action: "link", Target: in.Path, Detail: in.Target}}
 	},
 	Run: func(ctx context.Context, env *Env, in EnsureSymlinkInput) (Result, error) {
-		f := env.System.Files
-		if err := checkNoSymlinks(ctx, f, in.Path); err != nil {
+		f, err := beneath(env, in.Path, false)
+		if err != nil {
 			return Result{}, err
 		}
 		effect := system.Effect{Type: system.EffectFile, Action: "link", Target: in.Path, Detail: in.Target}
@@ -316,7 +315,8 @@ type FileContent struct {
 	Content []byte `json:"content"`
 }
 
-// ReadFile returns the contents of a file.
+// ReadFile returns the contents of a regular file, reached without
+// following a symbolic link anywhere below its managed root.
 var ReadFile = Register(Def[ReadFileInput, FileContent]{
 	Name:     "ReadFile",
 	Summary:  "Read a file",
@@ -326,7 +326,11 @@ var ReadFile = Register(Def[ReadFileInput, FileContent]{
 		if limit == 0 {
 			limit = 16 << 20
 		}
-		data, err := env.System.Files.ReadFile(ctx, in.Path, limit)
+		f, err := beneath(env, in.Path, true)
+		if err != nil {
+			return FileContent{}, err
+		}
+		data, err := f.ReadFile(ctx, in.Path, limit)
 		return FileContent{Content: data}, err
 	},
 })
@@ -345,13 +349,18 @@ type PathInfo struct {
 	Info   system.FileInfo `json:"info,omitzero"`
 }
 
-// StatPath describes a path without following a final symbolic link.
+// StatPath describes a path without following a symbolic link anywhere
+// below its managed root.
 var StatPath = Register(Def[PathInput, PathInfo]{
 	Name:     "StatPath",
 	Summary:  "Describe a file or directory",
 	ReadOnly: true,
 	Run: func(ctx context.Context, env *Env, in PathInput) (PathInfo, error) {
-		info, err := env.System.Files.Stat(ctx, in.Path)
+		f, err := beneath(env, in.Path, true)
+		if err != nil {
+			return PathInfo{}, err
+		}
+		info, err := f.Stat(ctx, in.Path)
 		if errors.Is(err, system.ErrNotFound) {
 			return PathInfo{}, nil
 		}
@@ -370,7 +379,11 @@ var ListDir = Register(Def[PathInput, DirListing]{
 	Summary:  "List a directory",
 	ReadOnly: true,
 	Run: func(ctx context.Context, env *Env, in PathInput) (DirListing, error) {
-		entries, err := env.System.Files.ReadDir(ctx, in.Path)
+		f, err := beneath(env, in.Path, true)
+		if err != nil {
+			return DirListing{}, err
+		}
+		entries, err := f.ReadDir(ctx, in.Path)
 		if entries == nil {
 			entries = []system.FileInfo{}
 		}

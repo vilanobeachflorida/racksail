@@ -314,10 +314,34 @@ func TestTreeAndArchives(t *testing.T) {
 	if _, err := tr.Open("site/escape"); !errors.Is(err, system.ErrInvalid) {
 		t.Errorf("a link out of the tree: %v", err)
 	}
-	if r, err := tr.Open("site/home.html"); err != nil {
+	// Links are never followed, not even ones that stay inside.
+	if _, err := tr.Open("site/home.html"); !errors.Is(err, system.ErrInvalid) {
 		t.Errorf("a link inside: %v", err)
-	} else {
-		r.Close()
+	}
+	if info, err := tr.Lstat("site/home.html"); err != nil || !info.IsSymlink() || info.Target != "index.html" {
+		t.Errorf("lstat of the link = %+v, %v", info, err)
+	}
+	f.Mkdir(ctx, "/srv/racksail/accounts/blog/real", 0o755, system.Owner{})
+	f.Symlink(ctx, "real", "/srv/racksail/accounts/blog/linked")
+	if _, err := tr.Create("linked/x.txt", strings.NewReader("x"), 0o644, system.Owner{}); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("writing through a link: %v", err)
+	}
+	if _, err := tr.ReadDir("linked"); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("listing through a link: %v", err)
+	}
+	// A view below a managed root refuses paths through links too.
+	view := f.Beneath("/srv/racksail")
+	if _, err := view.ReadFile(ctx, "/srv/racksail/accounts/blog/linked/x", 0); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("reading through a link: %v", err)
+	}
+	if err := view.WriteFile(ctx, "/srv/racksail/accounts/blog/linked/x", nil, 0o644, system.Owner{}); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("writing through a link: %v", err)
+	}
+	if _, err := view.ReadFile(ctx, "/etc/os-release", 0); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("reading outside the view: %v", err)
+	}
+	if data, err := view.ReadFile(ctx, "/srv/racksail/accounts/blog/site/index.html", 0); err != nil || string(data) != "hi" {
+		t.Errorf("reading inside the view = %q, %v", data, err)
 	}
 	stats, err := system.Pack(ctx, tr, system.PackSpec{Source: "site", Dest: "site.zip", Format: system.FormatZip, Exclude: []string{"escape"}})
 	if err != nil || stats.Files != 1 || stats.Links != 1 {

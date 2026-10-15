@@ -26,9 +26,8 @@ func (f simFiles) OpenRandom(ctx context.Context, p string) (system.RandomReader
 	return bytesRandom{bytes.NewReader(data)}, nil
 }
 
-// OpenTree opens a directory as a Tree. The simulated filesystem never
-// lets a path pass through a symbolic link, and the tree resolves links
-// itself without leaving the directory, as os.Root does on a real server.
+// OpenTree opens a directory as a Tree. Like the tree on a server, it never
+// follows a link: a name that passes through one is refused.
 func (f simFiles) OpenTree(ctx context.Context, dir string) (system.Tree, error) {
 	dir, err := cleanAbs(dir)
 	if err != nil {
@@ -72,24 +71,31 @@ func (t *simTree) rel(full string) string {
 	return full[len(t.dir)+1:]
 }
 
-// resolve follows symbolic links the way os.Root does: relative links are
-// followed as long as they stay in the tree, anything else is refused. The
+// through refuses a name inside the tree that passes through a link. The
 // caller holds m.mu.
-func (t *simTree) resolve(full string) (string, *node, error) {
-	for range 40 {
-		n, ok := t.m.files[full]
-		if !ok {
-			return "", nil, notFound(full)
+func (t *simTree) through(full string) error {
+	for dir := path.Dir(full); dir != t.dir && isUnder(dir, t.dir) && dir != "/"; dir = path.Dir(dir) {
+		if n, ok := t.m.files[dir]; ok && n.mode&fs.ModeSymlink != 0 {
+			return invalid("%s is a symbolic link, which isn't followed here", dir)
 		}
-		if n.mode&fs.ModeSymlink == 0 {
-			return full, n, nil
-		}
-		if !system.LinkStaysInside(t.rel(full), n.target) {
-			return "", nil, invalid("%s links out of %s", full, t.dir)
-		}
-		full = path.Join(path.Dir(full), n.target)
 	}
-	return "", nil, invalid("%s: too many levels of symbolic links", full)
+	return nil
+}
+
+// resolve finds the node a name refers to, refusing links on the way and
+// a link at the end. The caller holds m.mu.
+func (t *simTree) resolve(full string) (string, *node, error) {
+	if err := t.through(full); err != nil {
+		return "", nil, err
+	}
+	n, ok := t.m.files[full]
+	if !ok {
+		return "", nil, notFound(full)
+	}
+	if n.mode&fs.ModeSymlink != 0 {
+		return "", nil, invalid("%s is a symbolic link, which isn't followed here", full)
+	}
+	return full, n, nil
 }
 
 func (t *simTree) info(full string, n *node) system.FileInfo {
@@ -105,6 +111,9 @@ func (t *simTree) Lstat(name string) (system.FileInfo, error) {
 	m := t.m
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := t.through(full); err != nil {
+		return system.FileInfo{}, err
+	}
 	n, ok := m.files[full]
 	if !ok {
 		return system.FileInfo{}, notFound(full)
@@ -181,6 +190,9 @@ func (t *simTree) Mkdir(name string, perm fs.FileMode, owner system.Owner) error
 	m := t.m
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := t.through(full); err != nil {
+		return err
+	}
 	if err := m.record("files", "mkdir", full); err != nil {
 		return err
 	}
@@ -202,6 +214,9 @@ func (t *simTree) Create(name string, r io.Reader, perm fs.FileMode, owner syste
 	m := t.m
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := t.through(full); err != nil {
+		return 0, err
+	}
 	if err := m.record("files", "write", full); err != nil {
 		return 0, err
 	}
@@ -222,6 +237,9 @@ func (t *simTree) Symlink(target, name string, owner system.Owner) error {
 	m := t.m
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := t.through(full); err != nil {
+		return err
+	}
 	if err := m.record("files", "symlink", full); err != nil {
 		return err
 	}
@@ -246,6 +264,12 @@ func (t *simTree) Remove(name string) error {
 	}
 	if full == t.dir {
 		return invalid("refusing to remove the tree itself")
+	}
+	t.m.mu.Lock()
+	err = t.through(full)
+	t.m.mu.Unlock()
+	if err != nil {
+		return err
 	}
 	return simFiles{t.m}.Remove(context.Background(), full)
 }

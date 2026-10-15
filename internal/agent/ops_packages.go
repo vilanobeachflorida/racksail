@@ -355,8 +355,14 @@ var InstallArchive = Register(Def[InstallArchiveInput, Result]{
 		return archiveEffects(in.Archive)
 	},
 	Run: func(ctx context.Context, env *Env, in InstallArchiveInput) (Result, error) {
-		if _, err := env.System.Files.Stat(ctx, in.Archive.Dest); err == nil {
+		files, err := beneath(env, in.Archive.Dest, false)
+		if err != nil {
+			return Result{}, err
+		}
+		if _, err := files.Stat(ctx, in.Archive.Dest); err == nil {
 			return Unchanged(), nil
+		} else if !errors.Is(err, system.ErrNotFound) {
+			return Result{}, err
 		}
 		effects := archiveEffects(in.Archive)
 		if env.Check {

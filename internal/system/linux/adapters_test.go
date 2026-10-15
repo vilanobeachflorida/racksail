@@ -7,10 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"golang.org/x/sys/unix"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -234,17 +236,12 @@ func TestTreeStaysInside(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tr.Close()
-	if r, err := tr.Open("site/inside"); err != nil {
+	// Links are never followed, not even ones that stay inside.
+	if _, err := tr.Open("site/inside"); !errors.Is(err, system.ErrInvalid) {
 		t.Errorf("a link inside the tree: %v", err)
-	} else {
-		data, _ := io.ReadAll(r)
-		r.Close()
-		if string(data) != "hello" {
-			t.Errorf("through the link = %q", data)
-		}
 	}
-	if _, err := tr.Open("site/escape"); err == nil {
-		t.Error("a link out of the tree must not be followed")
+	if _, err := tr.Open("site/escape"); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a link out of the tree: %v", err)
 	}
 	if _, err := tr.Open("../etc/shadow-copy"); !errors.Is(err, system.ErrInvalid) {
 		t.Errorf("a name out of the tree: %v", err)
@@ -287,6 +284,141 @@ func TestTreeStaysInside(t *testing.T) {
 	leftovers, _ := filepath.Glob(filepath.Join(root, "srv/acct/site/uploads", system.TreeTempPrefix+"*"))
 	if len(leftovers) != 0 {
 		t.Errorf("temporary files left: %v", leftovers)
+	}
+}
+
+func TestBeneathNeverFollowsLinks(t *testing.T) {
+	ctx := context.Background()
+	b, _, _, root := newTestBackend(t, nil)
+	me := system.Owner{User: "tester", Group: "testers"}
+	write(t, root, "/srv/racksail/accounts/a/www/index.html", "a")
+	write(t, root, "/srv/racksail/accounts/b/secret.txt", "b's")
+	write(t, root, "/etc/outside/secret.txt", "root's")
+	os.Symlink(filepath.Join(root, "etc/outside"), filepath.Join(root, "srv/racksail/accounts/a/out"))
+	os.Symlink("../b", filepath.Join(root, "srv/racksail/accounts/a/neighbour"))
+	os.Symlink("www/index.html", filepath.Join(root, "srv/racksail/accounts/a/home.html"))
+	view := b.Files.Beneath("/srv/racksail")
+
+	// Nothing reaches past a link, wherever it points.
+	for _, p := range []string{"/srv/racksail/accounts/a/out/secret.txt", "/srv/racksail/accounts/a/neighbour/secret.txt"} {
+		if _, err := view.ReadFile(ctx, p, 0); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("reading %s: %v", p, err)
+		}
+		if _, err := view.Stat(ctx, p); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("stat of %s: %v", p, err)
+		}
+		if err := view.WriteFile(ctx, p, []byte("x"), 0o644, me); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("writing %s: %v", p, err)
+		}
+		if _, err := view.ReadDir(ctx, path.Dir(p)); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("listing %s: %v", path.Dir(p), err)
+		}
+		if _, err := view.OpenTree(ctx, path.Dir(p)); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("a tree at %s: %v", path.Dir(p), err)
+		}
+	}
+	if _, err := view.ReadFile(ctx, "/srv/racksail/accounts/a/home.html", 0); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("reading a link itself: %v", err)
+	}
+	if _, err := view.ReadFile(ctx, "/etc/outside/secret.txt", 0); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a path outside the view: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "etc/outside/secret.txt")); string(data) != "root's" {
+		t.Errorf("the file behind the link changed: %q", data)
+	}
+	if info, err := view.Stat(ctx, "/srv/racksail/accounts/a/out"); err != nil || !info.IsSymlink() || info.Owner != "root" {
+		t.Errorf("stat of the link itself = %+v, %v", info, err)
+	}
+
+	// Everything else works as through the plain files.
+	if data, err := view.ReadFile(ctx, "/srv/racksail/accounts/a/www/index.html", 0); err != nil || string(data) != "a" {
+		t.Errorf("read = %q, %v", data, err)
+	}
+	if _, err := view.ReadFile(ctx, "/srv/racksail/accounts/a/www/index.html", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.Mkdir(ctx, "/srv/racksail/accounts/a/uploads", fs.ModeSticky|0o770, me); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := view.Stat(ctx, "/srv/racksail/accounts/a/uploads"); err != nil || !info.IsDir() || info.Perm() != 0o770 || info.Mode&fs.ModeSticky == 0 {
+		t.Errorf("mkdir = %+v, %v", info, err)
+	}
+	if err := view.WriteFile(ctx, "/srv/racksail/accounts/a/uploads/f.txt", []byte("data"), 0o640, me); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := view.Stat(ctx, "/srv/racksail/accounts/a/uploads/f.txt"); info.Perm() != 0o640 || info.Size != 4 || info.Owner != "root" {
+		t.Errorf("written = %+v", info)
+	}
+	if err := view.Chmod(ctx, "/srv/racksail/accounts/a/uploads/f.txt", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.Chmod(ctx, "/srv/racksail/accounts/a/out", 0o600); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("chmod of a link: %v", err)
+	}
+	if err := view.Chown(ctx, "/srv/racksail/accounts/a/uploads/f.txt", me); err != nil {
+		t.Fatal(err)
+	}
+	// A write replaces a link rather than writing where it points.
+	if err := view.WriteFile(ctx, "/srv/racksail/accounts/a/home.html", []byte("own"), 0o644, me); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(filepath.Join(root, "srv/racksail/accounts/a/home.html")); fi.Mode()&fs.ModeSymlink != 0 {
+		t.Error("the link should have been replaced")
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "srv/racksail/accounts/a/www/index.html")); string(data) != "a" {
+		t.Errorf("the link's target changed: %q", data)
+	}
+	if err := view.Rename(ctx, "/srv/racksail/accounts/a/uploads/f.txt", "/srv/racksail/accounts/a/uploads/g.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.Symlink(ctx, "g.txt", "/srv/racksail/accounts/a/uploads/h.txt"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := view.ReadDir(ctx, "/srv/racksail/accounts/a/uploads")
+	if err != nil || len(entries) != 2 || entries[0].Path != "/srv/racksail/accounts/a/uploads/g.txt" && entries[1].Path != "/srv/racksail/accounts/a/uploads/g.txt" {
+		t.Errorf("readdir = %+v, %v", entries, err)
+	}
+	if err := view.Remove(ctx, "/srv/racksail/accounts/a/uploads"); !errors.Is(err, system.ErrNotEmpty) {
+		t.Errorf("removing a full directory: %v", err)
+	}
+	// Removing a tree removes links in it, not what they point at.
+	os.Symlink(filepath.Join(root, "etc/outside"), filepath.Join(root, "srv/racksail/accounts/a/uploads/out"))
+	if err := view.RemoveAll(ctx, "/srv/racksail/accounts/a/uploads"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/outside/secret.txt")); err != nil {
+		t.Errorf("removing a tree followed a link: %v", err)
+	}
+	if _, err := view.Stat(ctx, "/srv/racksail/accounts/a/uploads"); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("after removing: %v", err)
+	}
+
+	// A FIFO an account planted where a file was expected is refused at
+	// once instead of holding the agent.
+	if err := unix.Mkfifo(filepath.Join(root, "srv/racksail/accounts/a/pipe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := view.ReadFile(ctx, "/srv/racksail/accounts/a/pipe", 0)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("reading a FIFO: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading a FIFO blocked")
+	}
+
+	// A nested view still resolves from the outer root.
+	inner := view.Beneath("/srv/racksail/accounts/a")
+	if _, err := inner.ReadFile(ctx, "/srv/racksail/accounts/b/secret.txt", 0); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a path outside the nested view: %v", err)
+	}
+	if _, err := inner.ReadFile(ctx, "/srv/racksail/accounts/a/out/secret.txt", 0); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a link in the nested view: %v", err)
 	}
 }
 

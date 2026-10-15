@@ -229,10 +229,12 @@ type ServiceSpec struct {
 	// HUP, instead of running ExecReload.
 	ReloadSignal Signal
 	// RuntimeDirectory is created under /run for the service, owned by its
-	// user, such as racksail-sites/blog for a site's socket.
+	// user, such as racksail-sites/blog for a site's socket. Its first part
+	// starts with racksail-.
 	RuntimeDirectory string
 	// Environment is set for the program; EnvironmentFiles are read by
-	// systemd, so secrets stay out of the unit file.
+	// systemd, so secrets stay out of the unit file. They live in
+	// Racksail's configuration, where accounts can't plant links.
 	Environment      map[string]string
 	EnvironmentFiles []string
 	WorkingDirectory string
@@ -253,11 +255,10 @@ type ServiceSpec struct {
 }
 
 var (
-	serviceTypes      = []string{"simple", "exec", "notify", "oneshot", "forking"}
-	restartValues     = []string{"no", "on-failure", "on-abnormal", "always"}
-	identPattern      = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
-	userNamePattern   = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	runtimeDirPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}(/[a-z0-9][a-z0-9_.-]{0,63}){0,3}$`)
+	serviceTypes    = []string{"simple", "exec", "notify", "oneshot", "forking"}
+	restartValues   = []string{"no", "on-failure", "on-abnormal", "always"}
+	identPattern    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	userNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 )
 
 // Render returns the unit file.
@@ -324,8 +325,8 @@ func (s ServiceSpec) Unit() (UnitFile, error) {
 		svc.Add("ExecReload", "/usr/bin/kill -s "+string(s.ReloadSignal)+" $MAINPID")
 	}
 	if s.RuntimeDirectory != "" {
-		if !runtimeDirPattern.MatchString(s.RuntimeDirectory) || strings.Contains(s.RuntimeDirectory, "..") {
-			return u, fmt.Errorf("runtime directory %q: %w", s.RuntimeDirectory, ErrInvalid)
+		if err := CheckServiceDir(s.RuntimeDirectory); err != nil {
+			return u, err
 		}
 		svc.Add("RuntimeDirectory", s.RuntimeDirectory).Add("RuntimeDirectoryMode", "0750")
 	}
@@ -343,8 +344,8 @@ func (s ServiceSpec) Unit() (UnitFile, error) {
 		svc.Add("Environment", line)
 	}
 	for _, f := range s.EnvironmentFiles {
-		if !path.IsAbs(f) || path.Clean(f) != f || strings.ContainsAny(f, " \t\r\n%$") {
-			return u, fmt.Errorf("environment file %q: %w", f, ErrInvalid)
+		if err := CheckEnvironmentFile(f); err != nil {
+			return u, err
 		}
 		svc.Add("EnvironmentFile", f)
 	}
@@ -394,8 +395,9 @@ func (s ServiceSpec) Unit() (UnitFile, error) {
 // sleeping site so the first request wakes it.
 type SocketSpec struct {
 	Description string
-	// ListenStream are Unix socket paths or addresses such as
-	// 127.0.0.1:8080.
+	// ListenStream are Unix socket paths under /run/racksail/sites or
+	// /run/racksail-*, or addresses such as 127.0.0.1:8080 with ports of
+	// 1024 and above.
 	ListenStream []string
 	SocketUser   string
 	SocketGroup  string
@@ -422,11 +424,8 @@ func (s SocketSpec) Render() ([]byte, error) {
 	}
 	sock := u.Section("Socket")
 	for _, l := range s.ListenStream {
-		switch {
-		case path.IsAbs(l) && path.Clean(l) == l && !strings.ContainsAny(l, " \t\r\n%$"):
-		case addressPattern.MatchString(l):
-		default:
-			return nil, fmt.Errorf("listen address %q: %w", l, ErrInvalid)
+		if err := CheckListenAddress(l); err != nil {
+			return nil, err
 		}
 		sock.Add("ListenStream", l)
 	}

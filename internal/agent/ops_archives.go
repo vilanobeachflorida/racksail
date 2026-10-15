@@ -9,9 +9,21 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
-// Archives are packed and unpacked inside a directory opened as a tree, so
-// neither the archive's names nor links in the directory, which an account
-// may control, can make the agent read or write anything outside it.
+// Archives are packed and unpacked inside a directory opened as a tree,
+// reached from its managed root without following links, and links in the
+// tree are never followed either, so neither the archive's names nor links
+// an account plants can make the agent read or write anything elsewhere.
+
+// openTree opens an archive's root as a tree, reached from its managed
+// root without following links, so a link planted in place of the root
+// can't move the whole tree somewhere else.
+func openTree(ctx context.Context, env *Env, root string) (system.Tree, error) {
+	files, err := beneath(env, root, false)
+	if err != nil {
+		return nil, err
+	}
+	return files.OpenTree(ctx, root)
+}
 
 // ArchiveResult is what packing or unpacking did.
 type ArchiveResult struct {
@@ -78,7 +90,7 @@ var CreateArchive = Register(Def[CreateArchiveInput, ArchiveResult]{
 		return []system.Effect{{Type: system.EffectFile, Action: "write", Target: path.Join(in.Root, in.Dest)}}
 	},
 	Run: func(ctx context.Context, env *Env, in CreateArchiveInput) (ArchiveResult, error) {
-		t, err := env.System.Files.OpenTree(ctx, in.Root)
+		t, err := openTree(ctx, env, in.Root)
 		if err != nil {
 			return ArchiveResult{}, err
 		}
@@ -152,7 +164,7 @@ var ExtractArchive = Register(Def[ExtractArchiveInput, ArchiveResult]{
 		return []system.Effect{{Type: system.EffectFile, Action: "unpack", Target: path.Join(in.Root, in.Dest)}}
 	},
 	Run: func(ctx context.Context, env *Env, in ExtractArchiveInput) (ArchiveResult, error) {
-		t, err := env.System.Files.OpenTree(ctx, in.Root)
+		t, err := openTree(ctx, env, in.Root)
 		if err != nil {
 			return ArchiveResult{}, err
 		}

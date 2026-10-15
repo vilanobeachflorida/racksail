@@ -701,3 +701,13 @@ func TestOSRunner(t *testing.T) {
 		t.Errorf("stream = %q, %v", buf.String(), err)
 	}
 }
+
+func TestBtrfsReceiveIsConfined(t *testing.T) {
+	b, runner, _, _ := newTestBackend(t, nil)
+	if err := b.Btrfs.Receive(context.Background(), "/srv/racksail/restore", strings.NewReader("stream")); err != nil {
+		t.Fatal(err)
+	}
+	if got := runner.argv(); len(got) != 1 || got[0] != "/usr/bin/btrfs receive --chroot -- /srv/racksail/restore" {
+		t.Errorf("commands = %q", got)
+	}
+}

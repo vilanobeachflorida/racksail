@@ -48,7 +48,7 @@ func TestServiceGolden(t *testing.T) {
 		ReloadSignal:     SIGHUP,
 		RuntimeDirectory: "racksail-sites/blog",
 		Environment:      map[string]string{"NODE_ENV": "production", "GREETING": `say "hi"`, "PORT": "3000"},
-		EnvironmentFiles: []string{"/srv/racksail/accounts/blog/sites/shop/.env"},
+		EnvironmentFiles: []string{"/etc/racksail/generated/sites/blog/shop.env"},
 		WorkingDirectory: "/srv/racksail/accounts/blog/sites/shop",
 		Slice:            AccountSlice("blog"),
 		Restart:          "on-failure",
@@ -120,6 +120,9 @@ func TestServiceSpecRefusesBadInput(t *testing.T) {
 		func(s *ServiceSpec) { s.ReloadSignal = "STOP" },
 		func(s *ServiceSpec) { s.ReloadSignal, s.ExecReload = SIGHUP, []string{"/bin/true"} },
 		func(s *ServiceSpec) { s.RuntimeDirectory = "../etc" },
+		func(s *ServiceSpec) { s.RuntimeDirectory = "racksail" },
+		func(s *ServiceSpec) { s.RuntimeDirectory = "racksail-agent" },
+		func(s *ServiceSpec) { s.EnvironmentFiles = []string{"/srv/racksail/accounts/blog/.env"} },
 	} {
 		s := base
 		mutate(&s)
@@ -200,6 +203,24 @@ func TestWakeGolden(t *testing.T) {
 	} {
 		if _, err := bad.Units(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("Units(%s) should fail: %v", bad.Name, err)
+		}
+	}
+}
+
+func TestAgentSharesTheHostsMounts(t *testing.T) {
+	units, err := PlatformUnits("/usr/bin/racksail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := ParseUnitFile(units[AgentUnit])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range agent.Sections {
+		for _, e := range s.Entries {
+			if slices.Contains(mountNamespacing, e.Key) {
+				t.Errorf("the agent's unit sets %s=%s, which gives it a mount namespace of its own, so its mounts wouldn't reach other services", e.Key, e.Value)
+			}
 		}
 	}
 }

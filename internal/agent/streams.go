@@ -116,7 +116,11 @@ func streamReceive(ctx context.Context, env *Env, dir string, r io.Reader) error
 
 func streamDownload(ctx context.Context, env *Env, p string, w io.Writer) error {
 	return runStream(ctx, env, "Download", downloadInput{Path: p}, func() (bool, error) {
-		f, err := env.System.Files.Open(ctx, p)
+		files, err := beneath(env, p, true)
+		if err != nil {
+			return false, err
+		}
+		f, err := files.Open(ctx, p)
 		if err != nil {
 			return false, err
 		}
@@ -128,15 +132,16 @@ func streamDownload(ctx context.Context, env *Env, p string, w io.Writer) error 
 
 func streamUpload(ctx context.Context, env *Env, in UploadInput, r io.Reader) error {
 	return runStream(ctx, env, "Upload", in, func() (bool, error) {
-		if err := checkNoSymlinks(ctx, env.System.Files, in.Path); err != nil {
+		files, err := beneath(env, in.Path, false)
+		if err != nil {
 			return false, err
 		}
 		limited := &limitedReader{r: r, left: maxUploadBytes}
-		if err := env.System.Files.WriteFrom(ctx, in.Path, limited, in.Mode.FileMode(), in.Owner); err != nil {
+		if err := files.WriteFrom(ctx, in.Path, limited, in.Mode.FileMode(), in.Owner); err != nil {
 			return false, err
 		}
 		if limited.over {
-			env.System.Files.Remove(ctx, in.Path)
+			files.Remove(ctx, in.Path)
 			return false, fmt.Errorf("the upload is larger than %d bytes: %w", int64(maxUploadBytes), system.ErrTooLarge)
 		}
 		env.forget(ctx, in.Path)
@@ -242,8 +247,12 @@ func (s *Server) registerStreams() {
 		if !decodeStreamInput(w, r, "Download", &in) {
 			return
 		}
-		if info, err := s.backend.Files.Stat(r.Context(), in.Path); err == nil && in.Validate() == nil {
-			w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
+		if in.Validate() == nil {
+			if files, err := beneathRoot(s.backend.Files, in.Path, true); err == nil {
+				if info, err := files.Stat(r.Context(), in.Path); err == nil && info.Mode.IsRegular() {
+					w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
+				}
+			}
 		}
 		s.download(w, r, func(out io.Writer) error {
 			return streamDownload(r.Context(), s.env(r.Context(), false, ""), in.Path, out)

@@ -27,6 +27,13 @@ type Files interface {
 	// OpenTree opens a directory as a Tree, for work inside directories
 	// other users can change.
 	OpenTree(ctx context.Context, dir string) (Tree, error)
+	// Beneath returns a view of the files at and below root. Every path it
+	// is given must lie there, and no symbolic link below root is followed
+	// on the way to it, not even one swapped in while an operation runs;
+	// root itself is resolved as usual. Final links are never followed
+	// either: reads refuse them and writes replace them. The agent reaches
+	// whatever accounts can change only through such views.
+	Beneath(root string) Files
 	// Mkdir creates one directory. The parent must exist; an existing path
 	// fails with ErrExists.
 	Mkdir(ctx context.Context, path string, perm fs.FileMode, owner Owner) error

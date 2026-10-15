@@ -150,6 +150,7 @@ func TestDrift(t *testing.T) {
 	if _, err := WriteFile.Call(ctx, c, conf, CallOptions{Owner: site}); err != nil {
 		t.Fatal(err)
 	}
+	newAccount(t, c, "blog", 20001)
 	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=blog\nExecStart=/bin/true\n")}
 	if _, err := EnsureUnit.Call(ctx, c, unit, CallOptions{Owner: site}); err != nil {
 		t.Fatal(err)

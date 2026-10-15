@@ -101,6 +101,10 @@ func (f simFiles) ReadFile(ctx context.Context, p string, max int64) ([]byte, er
 	if n.mode.IsDir() {
 		return nil, invalid("%s is a directory", p)
 	}
+	// Reads never follow a final link, as O_NOFOLLOW makes them on a server.
+	if n.mode&fs.ModeSymlink != 0 {
+		return nil, invalid("%s is a symbolic link", p)
+	}
 	if max > 0 && int64(len(n.data)) > max {
 		return nil, fmt.Errorf("%s is larger than %d bytes: %w", p, max, system.ErrTooLarge)
 	}
