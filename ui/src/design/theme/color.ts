@@ -12,9 +12,17 @@ export interface RGB {
 
 const hex = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
-/** Whether a string is a color themes accept: #RRGGBB or #RRGGBBAA. */
+/**
+ * Whether a string is written as a color: #RRGGBB, or #RRGGBBAA with an
+ * alpha channel, which only the overlay may have.
+ */
 export function isColor(value: unknown): value is string {
   return typeof value === "string" && hex.test(value);
+}
+
+/** Whether a color is written with an alpha channel, #RRGGBBAA. */
+export function hasAlpha(color: string): boolean {
+  return color.length === 9;
 }
 
 /** Reads #RRGGBB or #RRGGBBAA; null for anything else. */
@@ -49,10 +57,14 @@ export function mix(a: string, b: string, share: number): string | null {
   return toHex({ r: m(ca.r, cb.r), g: m(ca.g, cb.g), b: m(ca.b, cb.b), a: 1 });
 }
 
-/** Relative luminance as WCAG defines it, from 0 for black to 1 for white. */
+/**
+ * Relative luminance as WCAG defines it, from 0 for black to 1 for white;
+ * null for anything that isn't an opaque color, since what shows through a
+ * translucent one decides how it looks.
+ */
 export function luminance(color: string): number | null {
   const c = parseColor(color);
-  if (!c) {
+  if (!c || c.a < 1) {
     return null;
   }
   const lin = (v: number) => {
@@ -62,7 +74,7 @@ export function luminance(color: string): number | null {
   return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
 }
 
-/** The WCAG contrast ratio of two colors, from 1 to 21; null when either isn't a color. */
+/** The WCAG contrast ratio of two opaque colors, from 1 to 21; null otherwise. */
 export function contrast(a: string, b: string): number | null {
   const la = luminance(a);
   const lb = luminance(b);

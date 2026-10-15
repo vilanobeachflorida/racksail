@@ -1,3 +1,4 @@
+import { maxChartColors } from "../tokens";
 import { paletteColors } from "./check";
 import { themeSpec } from "./spec";
 import type { Font, Palette, ProtectedPalette, Theme } from "./types";
@@ -27,11 +28,15 @@ function trim(value: number, decimals: number): string {
   return String(Math.round(value * f) / f);
 }
 
+// Every chart slot is written; those a palette has no color for become
+// initial, so a layer with fewer chart colors than the one below it doesn't
+// inherit colors that were never checked against its surfaces.
 function paletteVars(palette: Palette): Vars {
   const vars: Vars = paletteKeys.map((key) => [key, palette[key] ?? ""]);
-  (palette.chart ?? []).forEach((c, i) => {
-    vars.push([`chart${i + 1}`, c]);
-  });
+  const chart = palette.chart ?? [];
+  for (let i = 0; i < maxChartColors; i++) {
+    vars.push([`chart${i + 1}`, chart[i] ?? "initial"]);
+  }
   const colors = paletteColors(palette);
   for (const d of themeSpec.derivations) {
     vars.push([d.name, colors[d.name] ?? ""]);
@@ -183,11 +188,13 @@ export function renderLayerCSS(
     ];
     for (const [name, font] of fonts) {
       for (const file of font?.files ?? []) {
+        const url = fontURL(file, name);
+        if (url === "") {
+          continue;
+        }
         w.open("@font-face");
         w.line(`font-family: ${JSON.stringify(font?.family ?? "")};`);
-        w.line(
-          `src: url(${JSON.stringify(fontURL(file, name))}) format(${JSON.stringify(fontFormat(file))});`,
-        );
+        w.line(`src: url(${JSON.stringify(url)}) format(${JSON.stringify(fontFormat(file))});`);
         w.line("font-weight: 100 900;");
         w.line("font-display: swap;");
         w.close();

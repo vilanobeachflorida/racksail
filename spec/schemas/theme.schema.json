@@ -92,7 +92,7 @@
       }
     },
     "console": {
-      "description": "Terminal palette for the installer, the console status screen and the CLI.",
+      "description": "Terminal palette for the installer, the console status screen and the CLI. Colors it leaves out are the default theme's, and every color must reach 4.5:1 on the background.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -106,7 +106,16 @@
     }
   },
   "$defs": {
-    "color": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+    "color": {
+      "description": "An opaque color, #RRGGBB. Colors are checked for contrast, which a translucent color doesn't have.",
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "translucentColor": {
+      "description": "A color that may be translucent: #RRGGBB, or #RRGGBBAA with an alpha channel.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
     "length": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(px|rem)$" },
     "duration": { "type": "string", "pattern": "^[0-9]+ms$" },
     "shadow": { "type": "string", "pattern": "^[0-9a-zA-Z#(),.%\\s-]+$" },
@@ -141,8 +150,8 @@
         "infoText": { "$ref": "#/$defs/color" },
         "focus": { "$ref": "#/$defs/color" },
         "overlay": {
-          "description": "Dims the page behind dialogs and sheets; it may be translucent.",
-          "$ref": "#/$defs/color"
+          "description": "Dims the page behind dialogs and sheets. The only color that may be translucent, as #RRGGBBAA.",
+          "$ref": "#/$defs/translucentColor"
         },
         "chart": {
           "description": "Series colors, in order. Each must reach 3:1 against raised surfaces.",
@@ -164,7 +173,7 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,62}$"
         },
         "files": {
-          "description": "Variable font files in WOFF2 or WOFF format, inside the package.",
+          "description": "Variable font files in WOFF2 or WOFF format, inside the package. Required for a family the panel doesn't bundle; it bundles Inter Variable and JetBrains Mono Variable.",
           "type": "array",
           "maxItems": 4,
           "items": { "$ref": "#/$defs/asset" }

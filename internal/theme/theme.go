@@ -165,9 +165,9 @@ type Theme struct {
 // MaxThemeBytes bounds the theme file people upload or import.
 const MaxThemeBytes = 256 << 10
 
-// Parse reads a theme from YAML or JSON, checks it against the schema, for
-// contrast and for status colors that keep their meaning, and returns it.
-// Every problem is reported, not only the first.
+// Parse reads a theme from YAML or JSON, checks it against the schema and
+// its tokens with Check, and returns it. Every problem is reported, not
+// only the first.
 func Parse(data []byte) (*Theme, error) {
 	if len(data) > MaxThemeBytes {
 		return nil, fmt.Errorf("the theme file is larger than %d KiB", MaxThemeBytes>>10)

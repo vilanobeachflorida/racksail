@@ -1,13 +1,15 @@
 package theme
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 )
 
-// Color is a hex color, #RRGGBB or #RRGGBBAA.
+// Color is a hex color: #RRGGBB, or #RRGGBBAA for the overlay, the one
+// token that may be translucent.
 type Color string
 
 // RGB is a color's channels from 0 to 255, and its alpha from 0 to 1.
@@ -35,6 +37,12 @@ func (c Color) Parse() (RGB, error) {
 	return out, nil
 }
 
+// HasAlpha reports whether the color is written with an alpha channel,
+// #RRGGBBAA.
+func (c Color) HasAlpha() bool {
+	return len(c) == 9
+}
+
 // Hex formats a color as #RRGGBB, ignoring alpha.
 func (c RGB) Hex() Color {
 	ch := func(v float64) int { return int(math.Round(math.Max(0, math.Min(255, v)))) }
@@ -55,12 +63,20 @@ func Mix(a, b Color, share float64) (Color, error) {
 	return RGB{R: m(ca.R, cb.R), G: m(ca.G, cb.G), B: m(ca.B, cb.B), A: 1}.Hex(), nil
 }
 
+// ErrTranslucent is returned when the contrast of a translucent color is
+// asked for: it depends on whatever shows through it, so it can't be
+// checked.
+var ErrTranslucent = errors.New("a translucent color has no contrast of its own")
+
 // Luminance is a color's relative luminance as WCAG defines it, from 0 for
-// black to 1 for white. Alpha is ignored.
+// black to 1 for white. Translucent colors have none; see ErrTranslucent.
 func Luminance(c Color) (float64, error) {
 	rgb, err := c.Parse()
 	if err != nil {
 		return 0, err
+	}
+	if rgb.A < 1 {
+		return 0, fmt.Errorf("%s: %w", c, ErrTranslucent)
 	}
 	lin := func(v float64) float64 {
 		x := v / 255
@@ -72,8 +88,8 @@ func Luminance(c Color) (float64, error) {
 	return 0.2126*lin(rgb.R) + 0.7152*lin(rgb.G) + 0.0722*lin(rgb.B), nil
 }
 
-// Contrast returns the WCAG contrast ratio of two colors, from 1 to 21.
-// Alpha is ignored.
+// Contrast returns the WCAG contrast ratio of two opaque colors, from 1 to
+// 21.
 func Contrast(a, b Color) (float64, error) {
 	la, err := Luminance(a)
 	if err != nil {

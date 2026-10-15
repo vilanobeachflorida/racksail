@@ -104,7 +104,14 @@ export function tokenRef(token: Token): string {
  * effect. Canvas code reads it again when the mode changes.
  */
 export function readToken(token: Token, element: Element = document.documentElement): string {
-  return getComputedStyle(element).getPropertyValue(tokenVar(token)).trim();
+  return tokenValue(getComputedStyle(element).getPropertyValue(tokenVar(token)));
+}
+
+// A layer clears a token it has no value for with initial, which browsers
+// report as an empty value and some as the keyword itself.
+function tokenValue(raw: string): string {
+  const value = raw.trim();
+  return value === "initial" ? "" : value;
 }
 
 /** The most chart colors a theme can have. */
@@ -112,13 +119,14 @@ export const maxChartColors = 12;
 
 /**
  * The chart colors of the theme in effect, in series order. Themes have six
- * to twelve; the list ends at the first one not set.
+ * to twelve; the list ends at the first one not set, so a theme with six
+ * never shows the default theme's seventh.
  */
 export function readChartPalette(element: Element = document.documentElement): string[] {
   const style = getComputedStyle(element);
   const colors: string[] = [];
   for (let i = 1; i <= maxChartColors; i++) {
-    const value = style.getPropertyValue(`--rs-chart${i}`).trim();
+    const value = tokenValue(style.getPropertyValue(`--rs-chart${i}`));
     if (value === "") {
       break;
     }

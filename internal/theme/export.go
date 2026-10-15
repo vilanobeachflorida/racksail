@@ -38,11 +38,19 @@ func (t *Theme) JSON() ([]byte, error) {
 // panel's theme editor checks themes as people edit them with the same
 // rules the server applies when they are saved.
 type Spec struct {
-	Themes      []Theme                     `json:"themes"`
-	Pairs       []Pair                      `json:"pairs"`
-	Derivations []Derivation                `json:"derivations"`
-	Meanings    []Meaning                   `json:"meanings"`
-	Protected   map[string]ProtectedPalette `json:"protected"`
+	Themes      []Theme      `json:"themes"`
+	Pairs       []Pair       `json:"pairs"`
+	Derivations []Derivation `json:"derivations"`
+	Meanings    []Meaning    `json:"meanings"`
+	// ConsolePairs are the contrasts of the console palette; colors a theme
+	// leaves out of it are the default theme's.
+	ConsolePairs []Pair `json:"consolePairs"`
+	// TranslucentTokens may have an alpha channel; no other color may.
+	TranslucentTokens []string `json:"translucentTokens"`
+	// BundledFonts are the families the panel serves; any other comes with
+	// its files.
+	BundledFonts []string                    `json:"bundledFonts"`
+	Protected    map[string]ProtectedPalette `json:"protected"`
 	// LayerCSS is each built-in theme rendered by LayerCSS, so the UI's own
 	// renderer can be checked against it.
 	LayerCSS map[string]string `json:"layerCss"`
@@ -55,6 +63,7 @@ type Spec struct {
 func UISpec() Spec {
 	s := Spec{
 		Themes: Builtins(), Pairs: Pairs, Derivations: Derivations, Meanings: Meanings,
+		ConsolePairs: ConsolePairs, TranslucentTokens: TranslucentTokens, BundledFonts: BundledFonts,
 		Protected: map[string]ProtectedPalette{
 			"light": ProtectedLight, "dark": ProtectedDark,
 			"highContrastLight": ProtectedHighContrastLight, "highContrastDark": ProtectedHighContrastDark,

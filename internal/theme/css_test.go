@@ -76,7 +76,7 @@ func TestLayerCSS(t *testing.T) {
 			t.Errorf("a theme's layer can't contain %q", unwanted)
 		}
 	}
-	if strings.Contains(th.LayerCSS(nil), "@font-face") {
+	if strings.Contains(th.LayerCSS(nil), "@font-face") || strings.Contains(th.LayerCSS(func(string) string { return "" }), "@font-face") {
 		t.Error("fonts need a URL")
 	}
 }
@@ -107,5 +107,35 @@ func TestStylesheetIsTheDefaultTheme(t *testing.T) {
 	d := Default()
 	if string(committed) != d.CSS() {
 		t.Error("ui/src/design/theme.css is out of date; run make gen")
+	}
+}
+
+// A layer with fewer chart colors than the one below it clears the rest,
+// so charts never use a color that wasn't checked against its surfaces.
+func TestLayerCSSClearsUnusedChartSlots(t *testing.T) {
+	th := Default()
+	th.Tokens.Light.Chart = th.Tokens.Light.Chart[:6]
+	th.Tokens.Dark.Chart = append(append([]Color{}, th.Tokens.Dark.Chart...), "#7D8CFF", "#D07CE0", "#4FB8B0", "#C9A227")
+	css := th.LayerCSS(nil)
+	light := css[:strings.Index(css, `[data-theme="dark"]`)]
+	for _, want := range []string{"--rs-chart6: #008300;", "--rs-chart7: initial;", "--rs-chart12: initial;"} {
+		if !strings.Contains(light, want) {
+			t.Errorf("light block lacks %q", want)
+		}
+	}
+	dark := css[strings.Index(css, `[data-theme="dark"]`):]
+	if !strings.Contains(dark, "--rs-chart12: #C9A227;") {
+		t.Error("the dark block has all twelve colors")
+	}
+	if strings.Count(css, "--rs-chart13") != 0 {
+		t.Error("there are at most twelve chart colors")
+	}
+	// High contrast has eight, so a theme's ninth and later don't show
+	// with it either.
+	d := Default()
+	full := d.CSS()
+	hc := full[strings.Index(full, `:root[data-contrast="high"]`):]
+	if !strings.Contains(hc, "--rs-chart9: initial;") {
+		t.Error("high contrast clears chart colors past its own")
 	}
 }

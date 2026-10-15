@@ -32,6 +32,10 @@
     --rs-chart6: #008300;
     --rs-chart7: #4A3AA7;
     --rs-chart8: #E34948;
+    --rs-chart9: initial;
+    --rs-chart10: initial;
+    --rs-chart11: initial;
+    --rs-chart12: initial;
     --rs-accent-subtle: #E0ECF9;
     --rs-success-subtle: #E4F0E7;
     --rs-warning-subtle: #F3EDE0;
@@ -112,6 +116,10 @@
     --rs-chart6: #1F9A1F;
     --rs-chart7: #9085E9;
     --rs-chart8: #E66767;
+    --rs-chart9: initial;
+    --rs-chart10: initial;
+    --rs-chart11: initial;
+    --rs-chart12: initial;
     --rs-accent-subtle: #152F4E;
     --rs-success-subtle: #153239;
     --rs-warning-subtle: #262F34;
@@ -150,6 +158,10 @@
       --rs-chart6: #1F9A1F;
       --rs-chart7: #9085E9;
       --rs-chart8: #E66767;
+      --rs-chart9: initial;
+      --rs-chart10: initial;
+      --rs-chart11: initial;
+      --rs-chart12: initial;
       --rs-accent-subtle: #152F4E;
       --rs-success-subtle: #153239;
       --rs-warning-subtle: #262F34;
@@ -228,6 +240,10 @@
     --rs-chart6: #2D6E12;
     --rs-chart7: #4A3AA7;
     --rs-chart8: #C0262B;
+    --rs-chart9: initial;
+    --rs-chart10: initial;
+    --rs-chart11: initial;
+    --rs-chart12: initial;
     --rs-accent-subtle: #E0E9F6;
     --rs-success-subtle: #E2EDE5;
     --rs-warning-subtle: #EFEAE0;
@@ -269,6 +285,10 @@
     --rs-chart6: #1F9A1F;
     --rs-chart7: #9085E9;
     --rs-chart8: #E66767;
+    --rs-chart9: initial;
+    --rs-chart10: initial;
+    --rs-chart11: initial;
+    --rs-chart12: initial;
     --rs-accent-subtle: #1A2228;
     --rs-success-subtle: #17251A;
     --rs-warning-subtle: #282213;
@@ -307,6 +327,10 @@
       --rs-chart6: #1F9A1F;
       --rs-chart7: #9085E9;
       --rs-chart8: #E66767;
+      --rs-chart9: initial;
+      --rs-chart10: initial;
+      --rs-chart11: initial;
+      --rs-chart12: initial;
       --rs-accent-subtle: #1A2228;
       --rs-success-subtle: #17251A;
       --rs-warning-subtle: #282213;
@@ -346,6 +370,10 @@
       --rs-chart6: #2D6E12;
       --rs-chart7: #4A3AA7;
       --rs-chart8: #C0262B;
+      --rs-chart9: initial;
+      --rs-chart10: initial;
+      --rs-chart11: initial;
+      --rs-chart12: initial;
       --rs-accent-subtle: #E0E9F6;
       --rs-success-subtle: #E2EDE5;
       --rs-warning-subtle: #EFEAE0;
@@ -387,6 +415,10 @@
       --rs-chart6: #1F9A1F;
       --rs-chart7: #9085E9;
       --rs-chart8: #E66767;
+      --rs-chart9: initial;
+      --rs-chart10: initial;
+      --rs-chart11: initial;
+      --rs-chart12: initial;
       --rs-accent-subtle: #1A2228;
       --rs-success-subtle: #17251A;
       --rs-warning-subtle: #282213;
@@ -425,6 +457,10 @@
         --rs-chart6: #1F9A1F;
         --rs-chart7: #9085E9;
         --rs-chart8: #E66767;
+        --rs-chart9: initial;
+        --rs-chart10: initial;
+        --rs-chart11: initial;
+        --rs-chart12: initial;
         --rs-accent-subtle: #1A2228;
         --rs-success-subtle: #17251A;
         --rs-warning-subtle: #282213;

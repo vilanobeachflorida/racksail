@@ -36,7 +36,10 @@ func cssVar(name string) string {
 }
 
 // paletteVars lists a palette's custom properties in a fixed order: the
-// tokens themes set, the chart colors, then the derived tokens.
+// tokens themes set, the chart colors, then the derived tokens. Every chart
+// slot is written: the ones a palette has no color for become initial, so a
+// layer with fewer chart colors than the one below it doesn't inherit
+// colors that were never checked against its surfaces.
 func paletteVars(p Palette) [][2]string {
 	vars := [][2]string{
 		{"surface", string(p.Surface)}, {"surfaceRaised", string(p.SurfaceRaised)}, {"surfaceSunken", string(p.SurfaceSunken)},
@@ -46,8 +49,12 @@ func paletteVars(p Palette) [][2]string {
 		{"danger", string(p.Danger)}, {"dangerText", string(p.DangerText)}, {"info", string(p.Info)}, {"infoText", string(p.InfoText)},
 		{"focus", string(p.Focus)}, {"overlay", string(p.Overlay)},
 	}
-	for i, c := range p.Chart {
-		vars = append(vars, [2]string{"chart" + strconv.Itoa(i+1), string(c)})
+	for i := range MaxChartColors {
+		value := "initial"
+		if i < len(p.Chart) {
+			value = string(p.Chart[i])
+		}
+		vars = append(vars, [2]string{"chart" + strconv.Itoa(i+1), value})
 	}
 	colors := p.Colors()
 	for _, d := range Derivations {
@@ -200,15 +207,20 @@ func (w *cssWriter) themeLayer(t *Theme) {
 // LayerCSS renders the theme alone, inside the theme layer, as the panel
 // applies server and reseller themes on top of the default theme's
 // stylesheet. fontURL turns a font file in the theme package into the URL
-// the panel serves it from; fonts are left out when it is nil.
+// the panel serves it from, or "" for one it doesn't serve; fonts are left
+// out when it is nil.
 func (t *Theme) LayerCSS(fontURL func(path string) string) string {
 	var w cssWriter
 	if fontURL != nil {
 		for _, f := range []Font{t.Tokens.Typography.Sans, t.Tokens.Typography.Mono} {
 			for _, file := range f.Files {
+				url := fontURL(file)
+				if url == "" {
+					continue
+				}
 				w.open("@font-face")
 				w.line("font-family: %q;", f.Family)
-				w.line("src: url(%q) format(%q);", fontURL(file), fontFormat(file))
+				w.line("src: url(%q) format(%q);", url, fontFormat(file))
 				w.line("font-weight: 100 900;")
 				w.line("font-display: swap;")
 				w.close()

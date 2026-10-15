@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkTheme, contrastTable, paletteColors } from "./check";
+import { checkTheme, consoleColors, contrastTable, isBundledFont, paletteColors } from "./check";
 import { contrast, hue, isColor, luminance, mix, parseColor } from "./color";
 import { cssVar, renderLayerCSS, renderScopedCSS } from "./css";
 import { fontLayer, layerAssetURLs } from "./files";
@@ -96,12 +96,111 @@ describe("theme checks", () => {
   it("list every pair with its ratio for the contrast checker", () => {
     const rows = contrastTable(defaultTheme);
     const pairs = themeSpec.pairs.length + defaultTheme.tokens.light.chart.length;
-    expect(rows).toHaveLength(pairs * 2);
+    expect(rows).toHaveLength(pairs * 2 + themeSpec.consolePairs.length);
+    expect(rows.filter((r) => r.mode === "console").map((r) => r.foreground)).toEqual([
+      "foreground",
+      "accent",
+      "success",
+      "warning",
+      "danger",
+    ]);
     expect(rows.every((r) => r.pass)).toBe(true);
     const text = rows.find(
       (r) => r.mode === "light" && r.foreground === "text" && r.background === "surface",
     );
     expect(text?.ratio).toBeGreaterThan(15);
+  });
+});
+
+describe("translucent colors", () => {
+  it("have no contrast of their own", () => {
+    expect(contrast("#0B1B3300", "#FFFFFF")).toBeNull();
+    expect(contrast("#000000", "#FFFFFF80")).toBeNull();
+    expect(contrast("#007CFDFF", "#FFFFFF")).toBeCloseTo(3.96, 2);
+  });
+
+  it("are refused everywhere but the overlay", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.light.text = "#0B1B3300";
+    theme.tokens.dark.danger = "#F8514980";
+    theme.tokens.light.overlay = "#01214FCC";
+    const problems = checkTheme(theme);
+    expect(problems).toContainEqual({ mode: "light", kind: "alpha", foreground: "text" });
+    expect(problems).toContainEqual({ mode: "dark", kind: "alpha", foreground: "danger" });
+    expect(problems.some((p) => p.foreground === "overlay")).toBe(false);
+    // Contrast isn't measured for them; the alpha is the problem.
+    expect(problems.some((p) => p.kind === "contrast" && p.foreground === "text")).toBe(false);
+    expect(
+      contrastTable(theme).find(
+        (r) => r.mode === "light" && r.foreground === "text" && r.background === "surface",
+      ),
+    ).toMatchObject({ ratio: null, pass: false });
+    expect(readThemeDocument(theme).issues).toContainEqual(
+      expect.objectContaining({ path: "tokens.light.text", keyword: "pattern" }),
+    );
+  });
+});
+
+describe("the console palette", () => {
+  it("is checked like the panel's, with the default's colors where a theme sets none", () => {
+    const theme = builtinTheme("racksail");
+    theme.console = { background: "#FFFFFF" };
+    expect(consoleColors(theme).foreground).toBe(defaultTheme.console?.foreground);
+    const problems = checkTheme(theme);
+    expect(problems.every((p) => p.mode === "console")).toBe(true);
+    expect(problems.filter((p) => p.kind === "contrast").length).toBeGreaterThanOrEqual(4);
+
+    theme.console = {
+      background: "#FFFFFF",
+      foreground: "#0B1B33",
+      accent: "#0049B8",
+      success: "#0A6B26",
+      warning: "#7A4F00",
+      danger: "#0A6B26",
+    };
+    expect(checkTheme(theme)).toEqual([
+      { mode: "console", kind: "meaning", foreground: "danger", purpose: "red" },
+    ]);
+    theme.console.foreground = "#0B1B3380";
+    expect(checkTheme(theme)).toContainEqual({
+      mode: "console",
+      kind: "alpha",
+      foreground: "foreground",
+    });
+  });
+});
+
+describe("fonts", () => {
+  it("come with their files unless the panel bundles them", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.typography = { ...theme.tokens.typography, sans: { family: "Acme Sans" } };
+    expect(checkTheme(theme)).toEqual([
+      { mode: "typography", kind: "font", foreground: "sans", purpose: "Acme Sans" },
+    ]);
+    theme.tokens.typography.sans = { family: "Acme Sans", files: ["fonts/acme.woff2"] };
+    theme.tokens.typography.mono = { family: "jetbrains mono variable" };
+    expect(checkTheme(theme)).toEqual([]);
+    expect(isBundledFont("Inter Variable")).toBe(true);
+    expect(isBundledFont("Inter")).toBe(false);
+  });
+});
+
+describe("problem order", () => {
+  it("is the server's: sorted colors, then pairs and meanings, palette by palette", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.light.surface = "nope";
+    theme.tokens.light.brand = "blue";
+    theme.tokens.dark.focus = "#0F2036";
+    theme.console = { accent: "#01214F" };
+    theme.tokens.typography = { ...theme.tokens.typography, mono: { family: "Acme Mono" } };
+    const problems = checkTheme(theme);
+    expect(problems.slice(0, 2)).toEqual([
+      { mode: "light", kind: "color", foreground: "brand", purpose: "blue" },
+      { mode: "light", kind: "color", foreground: "surface", purpose: "nope" },
+    ]);
+    const places = problems.map((p) => p.mode).filter((m, i, all) => all[i - 1] !== m);
+    expect(places).toEqual(["light", "dark", "console", "typography"]);
+    expect(checkTheme(theme)).toEqual(problems);
   });
 });
 
@@ -127,6 +226,18 @@ describe("theme CSS", () => {
     const css = renderLayerCSS(theme, (p) => `/themes/acme/${p}`);
     expect(css).toContain('font-family: "Acme Sans";');
     expect(css).toContain('src: url("/themes/acme/fonts/acme.woff2") format("woff2");');
+  });
+
+  it("clears chart colors a layer doesn't have", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.light.chart = theme.tokens.light.chart.slice(0, 6);
+    const css = renderLayerCSS(theme);
+    const light = css.slice(0, css.indexOf('[data-theme="dark"]'));
+    expect(light).toContain("--rs-chart6: #008300;");
+    expect(light).toContain("--rs-chart7: initial;");
+    expect(light).toContain("--rs-chart12: initial;");
+    const scoped = renderScopedCSS(theme, ".preview", "light");
+    expect(scoped).toContain("--rs-chart7: initial;");
   });
 
   it("scopes a preview to one element and one mode", () => {

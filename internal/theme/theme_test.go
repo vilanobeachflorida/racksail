@@ -2,6 +2,7 @@ package theme
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -69,12 +70,19 @@ func TestContrast(t *testing.T) {
 		{"#FFFFFF", "#FFFFFF", 1},
 		{"#777777", "#FFFFFF", 4.48},
 		{"#007CFD", "#FFFFFF", 3.96},
-		{"#007CFD80", "#FFFFFF", 3.96},
+		{"#007CFDFF", "#FFFFFF", 3.96},
 	}
 	for _, tt := range tests {
 		got, err := Contrast(tt.a, tt.b)
 		if err != nil || math.Abs(got-tt.want) > 0.02 {
 			t.Errorf("Contrast(%s, %s) = %.3f, %v; want %.2f", tt.a, tt.b, got, err, tt.want)
+		}
+	}
+	// What shows through a translucent color decides its contrast, so it
+	// has none to check.
+	for _, pair := range [][2]Color{{"#0B1B3300", "#FFFFFF"}, {"#000000", "#FFFFFF80"}} {
+		if _, err := Contrast(pair[0], pair[1]); !errors.Is(err, ErrTranslucent) {
+			t.Errorf("Contrast(%s, %s): %v, want ErrTranslucent", pair[0], pair[1], err)
 		}
 	}
 	for _, bad := range []Color{"blue", "#12345", "#GGGGGG", "007CFD", ""} {
@@ -282,5 +290,124 @@ func TestPaletteColors(t *testing.T) {
 		if c[pr.Foreground] == "" || c[pr.Background] == "" || pr.Purpose == "" {
 			t.Errorf("pair %+v names a token that doesn't exist", pr)
 		}
+	}
+}
+
+// Only the overlay may be translucent: a transparent text or danger color
+// would pass any contrast check that ignores alpha.
+func TestTranslucentColorsAreRefused(t *testing.T) {
+	for name, change := range map[string]func(*Theme){
+		"text":         func(th *Theme) { th.Tokens.Light.Text = "#0B1B3300" },
+		"danger":       func(th *Theme) { th.Tokens.Dark.Danger = "#F8514980" },
+		"chart":        func(th *Theme) { th.Tokens.Light.Chart[1] = "#E2622C10" },
+		"opaque alpha": func(th *Theme) { th.Tokens.Light.Focus = "#007CFDFF" },
+		"console":      func(th *Theme) { th.Console.Foreground = "#E6EDF500" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			th := Default()
+			change(&th)
+			problems := th.Check()
+			found := false
+			for _, p := range problems {
+				found = found || p.Kind == ProblemAlpha
+			}
+			if !found {
+				t.Errorf("problems = %v, want a translucent color reported", problems)
+			}
+			if _, err := Parse(encode(t, th)); err == nil {
+				t.Error("the schema and the checks should refuse it")
+			}
+			raw, _ := json.Marshal(th)
+			if err := spec.ValidateJSON(spec.Theme, raw); err == nil {
+				t.Error("the schema accepts an alpha channel outside the overlay")
+			}
+		})
+	}
+	th := Default()
+	th.Tokens.Light.Overlay = "#01214FCC"
+	if problems := th.Check(); len(problems) != 0 {
+		t.Errorf("a translucent overlay is fine: %v", problems)
+	}
+	err := Problem{Mode: ModeLight, Kind: ProblemAlpha, Foreground: "text"}.Error()
+	if !strings.Contains(err, "only overlay") {
+		t.Errorf("message: %s", err)
+	}
+}
+
+func TestConsolePaletteIsChecked(t *testing.T) {
+	th := Default()
+	th.Console = Console{Background: "#FFFFFF"}
+	problems := th.Check()
+	var contrast []string
+	for _, p := range problems {
+		if p.Mode != ModeConsole {
+			t.Errorf("unexpected %v", p)
+		}
+		if p.Kind == ProblemContrast {
+			contrast = append(contrast, p.Foreground)
+		}
+	}
+	// The default's light colors don't show on a white terminal.
+	if len(contrast) < 4 {
+		t.Errorf("console contrast problems = %v", contrast)
+	}
+	th.Console = Console{Background: "#FFFFFF", Foreground: "#0B1B33", Accent: "#0049B8", Success: "#0A6B26", Warning: "#7A4F00", Danger: "#A3001B"}
+	if problems := th.Check(); len(problems) != 0 {
+		t.Errorf("a dark-on-light console palette is fine: %v", problems)
+	}
+	th.Console.Danger = "#0A6B26"
+	problems = th.Check()
+	if len(problems) != 1 || problems[0].Kind != ProblemMeaning || problems[0].Foreground != "danger" || problems[0].Mode != ModeConsole {
+		t.Errorf("a green danger color in the console: %v", problems)
+	}
+	if !strings.Contains(problems[0].Error(), "console palette: danger must be red") {
+		t.Errorf("message: %s", problems[0].Error())
+	}
+	if _, err := (Layers{Server: &th}).Resolve(); err == nil {
+		t.Error("a layer with an unreadable console palette is refused")
+	}
+}
+
+func TestFontsComeWithFilesUnlessBundled(t *testing.T) {
+	th := Default()
+	th.Tokens.Typography.Sans = Font{Family: "Acme Sans"}
+	problems := th.Check()
+	if len(problems) != 1 || problems[0].Kind != ProblemFont || problems[0].Foreground != "sans" || problems[0].Purpose != "Acme Sans" {
+		t.Fatalf("problems = %v", problems)
+	}
+	if !strings.Contains(problems[0].Error(), `doesn't bundle "Acme Sans"`) {
+		t.Errorf("message: %s", problems[0].Error())
+	}
+	if _, err := Parse(encode(t, th)); err == nil {
+		t.Error("a theme naming a font it doesn't bring is refused")
+	}
+	th.Tokens.Typography.Sans.Files = []string{"fonts/acme.woff2"}
+	th.Tokens.Typography.Mono = Font{Family: "jetbrains mono variable"}
+	if problems := th.Check(); len(problems) != 0 {
+		t.Errorf("a font with files, and a bundled one in any case, are fine: %v", problems)
+	}
+}
+
+// Problems come in the same order every time, so messages and the joined
+// error don't change between runs.
+func TestCheckOrderIsStable(t *testing.T) {
+	th := Default()
+	th.Tokens.Light.Surface, th.Tokens.Light.Text, th.Tokens.Light.Brand = "nope", "#12", "blue"
+	th.Tokens.Dark.Focus = "#0F2036"
+	th.Console.Accent = "#01214F"
+	first := th.Validate().Error()
+	for range 20 {
+		if again := th.Validate().Error(); again != first {
+			t.Fatalf("problems changed order:\n%s\n---\n%s", first, again)
+		}
+	}
+	modes := []string{}
+	for _, p := range th.Check() {
+		if len(modes) == 0 || modes[len(modes)-1] != p.Mode {
+			modes = append(modes, p.Mode)
+		}
+	}
+	if strings.Join(modes, ",") != "light,dark,console" {
+		t.Errorf("modes in order: %v", modes)
 	}
 }

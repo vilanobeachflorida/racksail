@@ -16,7 +16,10 @@ export function hasBrand(theme: Partial<Theme>): boolean {
 /** The layers whose theme packages hold files. */
 export type ThemeLayer = "server" | "reseller";
 
-/** Where the panel serves a file of the server's or the reseller's theme package. */
+/**
+ * Where the panel serves a file of the server's or the reseller's theme
+ * package; an empty URL when it doesn't serve that layer's files.
+ */
 export type ThemeFileURL = (layer: ThemeLayer, path: string) => string;
 
 // Top layer first.
@@ -44,15 +47,17 @@ export function layerAssetURLs(layers: ThemeLayers, fileURL: ThemeFileURL): Them
   if (brand) {
     for (const name of brandAssets) {
       const path = layers[brand]?.assets?.[name];
-      if (path) {
-        urls[name] = fileURL(brand, path);
+      const url = path ? fileURL(brand, path) : "";
+      if (url) {
+        urls[name] = url;
       }
     }
   }
   const background = fromTop.find((layer) => layers[layer]?.assets?.loginBackground);
   const path = background ? layers[background]?.assets?.loginBackground : undefined;
-  if (background && path) {
-    urls.loginBackground = fileURL(background, path);
+  const url = background && path ? fileURL(background, path) : "";
+  if (url) {
+    urls.loginBackground = url;
   }
   return urls;
 }

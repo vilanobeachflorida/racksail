@@ -36,7 +36,8 @@ function terminalTheme(): ITheme {
     brightGreen: t("success"),
     brightYellow: t("warning"),
     brightBlue: t("accent"),
-    brightMagenta: t("chart7"),
+    // Themes may have only six chart colors.
+    brightMagenta: t("chart7") ?? t("chart5"),
     brightCyan: t("chart3"),
     brightWhite: t("text"),
   };
