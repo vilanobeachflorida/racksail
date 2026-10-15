@@ -25,12 +25,19 @@ import {
 } from "@/design/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/design/components/ui/tabs";
 import { toast } from "@/design/components/ui/toaster";
-import { type ContrastRow, checkTheme, contrastTable } from "@/design/theme/check";
+import { type ContrastRow, checkTheme, consoleColors, contrastTable } from "@/design/theme/check";
 import { isColor } from "@/design/theme/color";
 import { resolveLayers } from "@/design/theme/layers";
 import { useTheme } from "@/design/theme/provider";
 import { builtinTheme, builtinThemes } from "@/design/theme/spec";
-import { type PaletteKey, paletteKeys, type Theme, type ThemeProblem } from "@/design/theme/types";
+import {
+  type ConsoleKey,
+  consoleKeys,
+  type PaletteKey,
+  paletteKeys,
+  type Theme,
+  type ThemeProblem,
+} from "@/design/theme/types";
 import {
   readThemeDocument,
   readThemeFile,
@@ -43,10 +50,20 @@ import { ThemePreview } from "./theme-preview";
 
 type Mode = "light" | "dark";
 
-/** Explains a palette problem in the user's language. */
+/** Explains a theme problem in the user's language. */
 export function problemMessage(intl: IntlShape, p: ThemeProblem): string {
-  const token = (name: string) => tokenLabel(intl, name);
+  const token = (name: string) =>
+    p.mode === "console" ? consoleLabel(intl, name) : tokenLabel(intl, name);
   const mode = intl.formatMessage(messages.themeModeName, { mode: p.mode });
+  if (p.kind === "font") {
+    return intl.formatMessage(messages.themeProblemFont, {
+      font: p.purpose ?? "",
+      which: p.foreground,
+    });
+  }
+  if (p.kind === "alpha") {
+    return intl.formatMessage(messages.themeProblemAlpha, { mode, token: token(p.foreground) });
+  }
   if (p.kind === "meaning") {
     return intl.formatMessage(messages.themeProblemMeaning, {
       mode,
@@ -94,6 +111,33 @@ const tokenMessages: Record<string, keyof typeof messages> = {
   dangerSubtle: "tokenDangerSubtle",
   infoSubtle: "tokenInfoSubtle",
 };
+
+const consoleMessages: Record<ConsoleKey, keyof typeof messages> = {
+  background: "consoleBackground",
+  foreground: "consoleForeground",
+  accent: "consoleAccent",
+  success: "consoleSuccess",
+  warning: "consoleWarning",
+  danger: "consoleDanger",
+};
+
+/** A console color's name for people: "Text" for foreground. */
+export function consoleLabel(intl: IntlShape, name: string): string {
+  const key = consoleMessages[name as ConsoleKey];
+  return key ? intl.formatMessage(messages[key]) : name;
+}
+
+const builtinMessages: Record<string, keyof typeof messages> = {
+  racksail: "themeBuiltinRacksail",
+  "high-contrast": "themeBuiltinHighContrast",
+  compact: "themeBuiltinCompact",
+};
+
+/** A built-in theme's name in the person's language; other themes keep their own. */
+export function builtinName(intl: IntlShape, theme: Pick<Theme, "id" | "name">): string {
+  const key = builtinMessages[theme.id];
+  return key ? intl.formatMessage(messages[key]) : theme.name;
+}
 
 /** A token's name for people: "Raised surface" for surfaceRaised, "Chart color 3" for chart3. */
 export function tokenLabel(intl: IntlShape, name: string): string {
@@ -196,10 +240,12 @@ function ColorField({
   );
 }
 
+type CheckedPlace = ContrastRow["mode"];
+
 function ContrastChecker({ theme }: { theme: Theme }) {
   const intl = useIntl();
   const rows = useMemo(() => contrastTable(theme), [theme]);
-  const [mode, setMode] = useState<Mode>("light");
+  const [mode, setMode] = useState<CheckedPlace>("light");
   const [onlyFailing, setOnlyFailing] = useState(false);
   const failing = rows.filter((r) => !r.pass).length;
   const switchId = useId();
@@ -215,15 +261,18 @@ function ContrastChecker({ theme }: { theme: Theme }) {
             : intl.formatMessage(messages.themeContrastFailing, { count: failing })}
         </CardDescription>
       </CardHeader>
-      <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="flex flex-col gap-3">
+      <Tabs
+        value={mode}
+        onValueChange={(v) => setMode(v as CheckedPlace)}
+        className="flex flex-col gap-3"
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
-            <TabsTrigger value="light">
-              {intl.formatMessage(messages.themeModeName, { mode: "light" })}
-            </TabsTrigger>
-            <TabsTrigger value="dark">
-              {intl.formatMessage(messages.themeModeName, { mode: "dark" })}
-            </TabsTrigger>
+            {(["light", "dark", "console"] as const).map((place) => (
+              <TabsTrigger key={place} value={place}>
+                {intl.formatMessage(messages.themeModeName, { mode: place })}
+              </TabsTrigger>
+            ))}
           </TabsList>
           <div className="flex items-center gap-2">
             <Switch id={switchId} checked={onlyFailing} onCheckedChange={setOnlyFailing} />
@@ -232,7 +281,7 @@ function ContrastChecker({ theme }: { theme: Theme }) {
             </Label>
           </div>
         </div>
-        {(["light", "dark"] as const).map((m) => (
+        {(["light", "dark", "console"] as const).map((m) => (
           <TabsContent key={m} value={m} className="max-h-[28rem] overflow-auto">
             <ContrastTable rows={rows.filter((r) => r.mode === m && (!onlyFailing || !r.pass))} />
           </TabsContent>
@@ -264,15 +313,21 @@ function ContrastTable({ rows }: { rows: ContrastRow[] }) {
             <TableCell>
               <p className="font-medium">
                 {intl.formatMessage(messages.themeContrastOn, {
-                  foreground: tokenLabel(intl, r.foreground),
-                  background: tokenLabel(intl, r.background),
+                  foreground: (r.mode === "console" ? consoleLabel : tokenLabel)(
+                    intl,
+                    r.foreground,
+                  ),
+                  background: (r.mode === "console" ? consoleLabel : tokenLabel)(
+                    intl,
+                    r.background,
+                  ),
                 })}
               </p>
               <p className="text-muted-foreground text-xs">{pairPurpose(intl, r)}</p>
             </TableCell>
             <TableCell className="text-end tabular-nums">
               {r.ratio === null
-                ? "–"
+                ? intl.formatMessage(messages.themeContrastNoRatio)
                 : intl.formatMessage(messages.themeRatio, {
                     ratio: intl.formatNumber(r.ratio, { maximumFractionDigits: 2 }),
                   })}
@@ -299,6 +354,147 @@ function ContrastTable({ rows }: { rows: ContrastRow[] }) {
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+/** A console color: its own value, or empty for Racksail's. */
+function ConsoleColorField({
+  label,
+  value,
+  fallback,
+  onChange,
+}: {
+  label: string;
+  value: string | undefined;
+  fallback: string;
+  onChange: (value: string | undefined) => void;
+}) {
+  const intl = useIntl();
+  const [text, setText] = useState(value ?? "");
+  useEffect(() => setText(value ?? ""), [value]);
+  const valid = text === "" || (isColor(text) && text.length === 7);
+  return (
+    <Field
+      label={label}
+      error={valid ? undefined : intl.formatMessage(messages.themeBadColor, { alpha: "no" })}
+    >
+      {(control) => (
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            aria-label={intl.formatMessage(messages.themePickColor, { token: label })}
+            value={(value ?? fallback).slice(0, 7)}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            className="h-control-md w-12 shrink-0 cursor-pointer rounded-md border border-input bg-card p-1"
+          />
+          <Input
+            {...control}
+            value={text}
+            spellCheck={false}
+            placeholder={intl.formatMessage(messages.consoleEmpty, { color: fallback })}
+            className="font-mono uppercase placeholder:normal-case"
+            onChange={(e) => {
+              const next = e.target.value.trim();
+              setText(next);
+              if (next === "") {
+                onChange(undefined);
+              } else if (isColor(next) && next.length === 7) {
+                onChange(next.toUpperCase());
+              }
+            }}
+          />
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/** The console palette's fields and a terminal drawn in its colors. */
+function ConsoleEditor({
+  theme,
+  onChange,
+}: {
+  theme: Theme;
+  onChange: (key: ConsoleKey, value: string | undefined) => void;
+}) {
+  const intl = useIntl();
+  const colors = consoleColors(theme);
+  const fallback = consoleColors({ ...theme, console: {} });
+  const line = (key: ConsoleKey, symbol: string, text: string) => (
+    <p style={{ color: colors[key] }}>
+      <span aria-hidden="true">{symbol} </span>
+      {text}
+    </p>
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-muted-foreground text-sm">
+        {intl.formatMessage(messages.consoleDescription)}
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {consoleKeys.map((key) => (
+          <ConsoleColorField
+            key={key}
+            label={consoleLabel(intl, key)}
+            value={theme.console?.[key]}
+            fallback={fallback[key] ?? ""}
+            onChange={(value) => onChange(key, value)}
+          />
+        ))}
+      </div>
+      <section
+        aria-label={intl.formatMessage(messages.consolePreview)}
+        className="rounded-md p-4 font-mono text-sm"
+        style={{ backgroundColor: colors.background, color: colors.foreground }}
+      >
+        <p style={{ color: colors.accent }}>
+          <span aria-hidden="true">$ </span>
+          {intl.formatMessage(messages.consoleSampleCommand)}
+        </p>
+        {line("foreground", " ", intl.formatMessage(messages.consoleSampleAddress))}
+        {line("success", "✓", intl.formatMessage(messages.consoleSampleOk))}
+        {line("warning", "!", intl.formatMessage(messages.consoleSampleWarning))}
+        {line("danger", "✗", intl.formatMessage(messages.consoleSampleDanger))}
+      </section>
+    </div>
+  );
+}
+
+/** A font's files in the theme package, one path per line. */
+function FontFilesField({
+  which,
+  files,
+  onChange,
+}: {
+  which: "sans" | "mono";
+  files: readonly string[];
+  onChange: (files: string[]) => void;
+}) {
+  const intl = useIntl();
+  const [text, setText] = useState(files.join("\n"));
+  const joined = files.join("\n");
+  useEffect(() => setText(joined), [joined]);
+  return (
+    <Field
+      label={intl.formatMessage(messages.themeFontFiles, { which })}
+      description={intl.formatMessage(messages.themeFontFilesHelp)}
+    >
+      <Textarea
+        value={text}
+        rows={2}
+        spellCheck={false}
+        className="font-mono"
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(
+            e.target.value
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line !== ""),
+          );
+        }}
+      />
+    </Field>
   );
 }
 
@@ -340,12 +536,23 @@ export default function ThemeEditor() {
   const trying = preview !== null;
   const problems = useMemo(() => checkTheme(theme), [theme]);
   const schemaIssues = useMemo(() => readThemeDocument(theme).issues, [theme]);
+  // Free-text lengths and shadows go straight into the page's CSS, so a
+  // theme with problems could make the whole panel unreadable, the button
+  // that stops it included.
+  const blocked = problems.length > 0 || schemaIssues.length > 0;
+  const [stoppedTrying, setStoppedTrying] = useState(false);
 
   useEffect(() => {
-    if (trying) {
-      setPreview(theme);
+    if (!trying) {
+      return;
     }
-  }, [theme, trying, setPreview]);
+    if (blocked) {
+      setPreview(null);
+      setStoppedTrying(true);
+      return;
+    }
+    setPreview(theme);
+  }, [theme, trying, blocked, setPreview]);
   // Leaving the editor stops trying the theme on the whole panel.
   useEffect(() => () => setPreview(null), [setPreview]);
 
@@ -410,7 +617,7 @@ export default function ThemeEditor() {
               <SelectItem value="current">{t(messages.themeCurrent)}</SelectItem>
               {builtinThemes().map((b) => (
                 <SelectItem key={b.id} value={b.id}>
-                  {b.name}
+                  {builtinName(intl, b)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -430,7 +637,7 @@ export default function ThemeEditor() {
           </Button>
           <Button
             variant="outline"
-            disabled={problems.length > 0 || schemaIssues.length > 0}
+            disabled={blocked}
             onClick={async () =>
               download(`${fileName}.yaml`, await themeToYAML(theme), "application/yaml")
             }
@@ -440,7 +647,7 @@ export default function ThemeEditor() {
           </Button>
           <Button
             variant="outline"
-            disabled={problems.length > 0 || schemaIssues.length > 0}
+            disabled={blocked}
             onClick={() => download(`${fileName}.json`, themeToJSON(theme), "application/json")}
           >
             <Download aria-hidden="true" />
@@ -448,7 +655,12 @@ export default function ThemeEditor() {
           </Button>
           <Button
             variant={trying ? "secondary" : "default"}
-            onClick={() => setPreview(trying ? null : theme)}
+            disabled={!trying && blocked}
+            aria-describedby={!trying && blocked ? "theme-try-blocked" : undefined}
+            onClick={() => {
+              setStoppedTrying(false);
+              setPreview(trying ? null : theme);
+            }}
           >
             {trying ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
             {t(trying ? messages.themeStopTrying : messages.themeTry)}
@@ -465,11 +677,14 @@ export default function ThemeEditor() {
           </ul>
         </Alert>
       ) : null}
-      {problems.length > 0 || schemaIssues.length > 0 ? (
+      {blocked ? (
         <Alert
           tone="warning"
           title={t(messages.themeProblems, { count: problems.length + schemaIssues.length })}
         >
+          <p id="theme-try-blocked" className="mb-2">
+            {t(stoppedTrying ? messages.themeTryStopped : messages.themeTryBlocked)}
+          </p>
           <ul className="list-disc ps-5">
             {schemaIssues.map((i) => (
               <li key={`${i.path}-${i.keyword}`}>{`${i.path}: ${issueMessage(intl, i)}`}</li>
@@ -494,6 +709,7 @@ export default function ThemeEditor() {
             <TabsTrigger value="colors">{t(messages.themeTabColors)}</TabsTrigger>
             <TabsTrigger value="type">{t(messages.themeTabType)}</TabsTrigger>
             <TabsTrigger value="shape">{t(messages.themeTabShape)}</TabsTrigger>
+            <TabsTrigger value="console">{t(messages.themeTabConsole)}</TabsTrigger>
             <TabsTrigger value="details">{t(messages.themeTabDetails)}</TabsTrigger>
           </TabsList>
           <TabsContent value="colors">
@@ -605,6 +821,24 @@ export default function ThemeEditor() {
                 }
               />
             </Field>
+            {(["sans", "mono"] as const).map((which) => (
+              <FontFilesField
+                key={which}
+                which={which}
+                files={theme.tokens.typography?.[which]?.files ?? []}
+                onChange={(files) =>
+                  update((d) => {
+                    const font = { family: "", ...d.tokens.typography?.[which] };
+                    if (files.length > 0) {
+                      font.files = files;
+                    } else {
+                      delete font.files;
+                    }
+                    d.tokens.typography = { ...d.tokens.typography, [which]: font };
+                  })
+                }
+              />
+            ))}
             <Field label={t(messages.themeBaseSize)}>
               <Input
                 value={theme.tokens.typography?.baseSize ?? ""}
@@ -738,6 +972,22 @@ export default function ThemeEditor() {
                 }
               />
             </Field>
+          </TabsContent>
+          <TabsContent value="console">
+            <ConsoleEditor
+              theme={theme}
+              onChange={(key, value) =>
+                update((d) => {
+                  const next = { ...d.console };
+                  if (value === undefined) {
+                    delete next[key];
+                  } else {
+                    next[key] = value;
+                  }
+                  d.console = Object.keys(next).length > 0 ? next : undefined;
+                })
+              }
+            />
           </TabsContent>
           <TabsContent value="details" className="grid gap-4 sm:grid-cols-2">
             <Field label={t(messages.themeName)}>

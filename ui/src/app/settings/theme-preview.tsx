@@ -86,9 +86,9 @@ export function ThemePreview({
                 <CardTitle className="text-sm">{t(messages.themePreviewServices)}</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-1.5">
-                <StatusDot status="ok" label="web" />
-                <StatusDot status="warning" label="mail" />
-                <StatusDot status="error" label="backups" />
+                <StatusDot status="ok" label={t(messages.themePreviewServiceWeb)} />
+                <StatusDot status="warning" label={t(messages.themePreviewServiceMail)} />
+                <StatusDot status="error" label={t(messages.themePreviewServiceBackups)} />
               </CardContent>
             </Card>
           </div>

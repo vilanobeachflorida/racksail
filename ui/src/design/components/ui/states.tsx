@@ -1,4 +1,4 @@
-import { CircleAlert, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, type LucideIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { errorMessage } from "@/lib/errors";
@@ -175,7 +175,11 @@ export function StatTile({
       : trend === "up-bad" || trend === "down-bad"
         ? "text-danger"
         : "text-muted-foreground";
-  const arrow = trend.startsWith("up") ? "↑" : trend.startsWith("down") ? "↓" : "→";
+  const Arrow = trend.startsWith("up")
+    ? ArrowUp
+    : trend.startsWith("down")
+      ? ArrowDown
+      : ArrowRight;
   return (
     <div
       data-slot="stat-tile"
@@ -192,7 +196,7 @@ export function StatTile({
       <p className="font-semibold text-2xl tabular-nums leading-tight">{value}</p>
       {delta ? (
         <p className={cn("flex items-center gap-1 text-xs", tone)}>
-          <span aria-hidden="true">{arrow}</span>
+          <Arrow className="size-3 shrink-0 rtl:-scale-x-100" aria-hidden="true" />
           {delta}
         </p>
       ) : null}

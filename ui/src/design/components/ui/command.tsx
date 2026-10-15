@@ -17,17 +17,24 @@ export function Command({ className, ...props }: ComponentProps<typeof CommandPr
   );
 }
 
+/**
+ * The command bar's search field. The focus ring goes around the whole
+ * row, search icon included, inside the bar's edges.
+ */
 export function CommandInput({
   className,
   ...props
 }: ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div className="flex items-center gap-2 border-border border-b px-3" cmdk-input-wrapper="">
+    <div
+      className="flex items-center gap-2 border-border border-b px-3 focus-within:focus-ring-inset"
+      cmdk-input-wrapper=""
+    >
       <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "flex h-12 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-12 w-full bg-transparent py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
           className,
         )}
         {...props}
@@ -90,7 +97,7 @@ export function CommandItem({ className, ...props }: ComponentProps<typeof Comma
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none data-[disabled=true]:pointer-events-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground data-[disabled=true]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
+        "relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none data-[disabled=true]:pointer-events-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground data-[selected=true]:focus-ring-inset data-[disabled=true]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
         className,
       )}
       {...props}

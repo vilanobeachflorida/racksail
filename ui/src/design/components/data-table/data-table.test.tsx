@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/render";
@@ -271,5 +271,49 @@ describe("the data table", () => {
       />,
     );
     expect(screen.getByText("No sites yet")).toBeInTheDocument();
+  });
+
+  it("renders only the rows in view of a long list, and follows the scroll", async () => {
+    const many: Site[] = Array.from({ length: 5000 }, (_, i) => ({
+      id: `s${i}`,
+      domain: `site${String(i).padStart(4, "0")}.example.com`,
+      state: i % 3 === 0 ? "failed" : "running",
+      requests: i,
+      created: new Date(Date.UTC(2026, 0, 1 + (i % 300))),
+    }));
+    renderTable({ rows: many });
+    const table = screen.getByRole("table", { name: "Sites" });
+    expect(table).toHaveAttribute("aria-rowcount", "5001");
+    expect(screen.getByText("5,000 rows")).toBeInTheDocument();
+    const indexes = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((r) => Number(r.getAttribute("aria-rowindex")));
+    const first = indexes();
+    // A screenful and a few more, never all of them.
+    expect(first.length).toBeGreaterThan(5);
+    expect(first.length).toBeLessThan(60);
+    expect(first[0]).toBe(2);
+    expect(within(table).getByText("site0000.example.com")).toBeInTheDocument();
+    expect(within(table).queryByText("site4999.example.com")).not.toBeInTheDocument();
+
+    // Scrolling to the end shows the last rows, numbered for screen readers.
+    act(() => {
+      table.scrollTop = 44 * many.length;
+      table.dispatchEvent(new Event("scroll"));
+    });
+    await waitFor(() =>
+      expect(within(table).getByText("site4999.example.com")).toBeInTheDocument(),
+    );
+    const last = indexes();
+    expect(last.at(-1)).toBe(5001);
+    expect(last.length).toBeLessThan(60);
+    expect(within(table).queryByText("site0000.example.com")).not.toBeInTheDocument();
+
+    // Sorting and filtering work on every row, not only the rendered ones.
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter rows" }), "site4998");
+    await waitFor(() => expect(screen.getByText("1 row")).toBeInTheDocument());
+    expect(within(table).getByText("site4998.example.com")).toBeInTheDocument();
   });
 });

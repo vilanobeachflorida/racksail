@@ -324,7 +324,9 @@ describe("states and display", () => {
     );
     expect(screen.getByText("backups failing")).toBeVisible();
     expect(screen.getByText("web")).toHaveClass("sr-only");
-    expect(screen.getByText("+12%").parentElement).toHaveTextContent("↑");
+    // The trend's arrow is an icon that mirrors right to left, beside the words.
+    const delta = screen.getByText("+12%").parentElement;
+    expect(delta?.querySelector("svg.lucide-arrow-up")).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByRole("alert")).toHaveTextContent("Disk almost full");
     expect(screen.getByRole("progressbar", { name: "Deploy" })).toHaveAttribute(
       "aria-valuenow",

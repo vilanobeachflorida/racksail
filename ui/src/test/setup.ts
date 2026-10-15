@@ -70,17 +70,25 @@ if (typeof window !== "undefined") {
     roundRect() {}
   } as unknown as typeof Path2D;
 
-  // Virtualized tables measure their scrolling area; give it the size of a
-  // laptop screen's table so the first rows render.
-  for (const [prop, size] of [
-    ["offsetHeight", 640],
-    ["offsetWidth", 1024],
+  // Virtualized tables measure their scrolling area and their rows; give
+  // them the size of a laptop screen's table and of comfortable rows, so
+  // the rows in view render as they would in a browser.
+  for (const [prop, table, row] of [
+    ["offsetHeight", 640, 44],
+    ["offsetWidth", 1024, 1024],
   ] as const) {
     const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, prop);
     Object.defineProperty(HTMLElement.prototype, prop, {
       configurable: true,
       get(this: HTMLElement) {
-        return this.getAttribute("role") === "table" ? size : (original?.get?.call(this) ?? 0);
+        switch (this.getAttribute("role")) {
+          case "table":
+            return table;
+          case "row":
+            return row;
+          default:
+            return original?.get?.call(this) ?? 0;
+        }
       },
     });
   }

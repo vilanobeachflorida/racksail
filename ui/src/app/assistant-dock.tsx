@@ -139,7 +139,7 @@ export function AssistantDock() {
           dragging.current = null;
         }}
         onKeyDown={onKeyDown}
-        className="absolute inset-y-0 -start-1 z-10 w-2 cursor-col-resize hover:bg-primary/30 focus-visible:bg-primary/30 focus-visible:outline-none"
+        className="absolute inset-y-0 -start-1 z-10 w-2 cursor-col-resize hover:bg-primary/30 focus-visible:bg-primary focus-visible:outline-none"
       />
       <PanelBody assistant={assistant} onClose={close} />
     </aside>

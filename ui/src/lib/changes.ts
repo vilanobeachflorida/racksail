@@ -38,6 +38,11 @@ export interface ResourceChange {
   id: string;
   scope: Scope;
   server?: string;
+  labels?: Record<string, string>;
+  /** The spec before the change; secret fields hold references, never values. */
+  before?: unknown;
+  /** The spec after the change. */
+  after?: unknown;
   diff?: FieldDiff[] | null;
   source: ChangeSource;
 }
@@ -193,6 +198,43 @@ export function needsConfirmation(cs: ChangeSet): boolean {
   return (
     cs.risk === "high" || cs.risk === "critical" || (cs.effects ?? []).some((e) => e.destructive)
   );
+}
+
+/**
+ * The resource a change set is mostly about, whose name critical changes
+ * ask to be typed: the first one it deletes, or else the first one the
+ * request itself changes, or else the first change.
+ */
+export function confirmationTarget(cs: ChangeSet): ResourceChange | undefined {
+  const changes = cs.changes ?? [];
+  return (
+    changes.find((c) => c.op === "delete") ??
+    changes.find((c) => c.source.type === "request") ??
+    changes[0]
+  );
+}
+
+/**
+ * A resource's name for people: the value at the kind's title field (its UI
+ * hints' titleField, such as a site's domain) in the spec before the change,
+ * or after it for a new resource, and its id otherwise.
+ */
+export function resourceTitle(change: ResourceChange, titleField?: string): string {
+  if (titleField) {
+    for (const spec of [change.before, change.after]) {
+      let value: unknown = spec;
+      for (const key of titleField.split(".")) {
+        value =
+          value !== null && typeof value === "object"
+            ? (value as Record<string, unknown>)[key]
+            : undefined;
+      }
+      if (typeof value === "string" && value !== "") {
+        return value;
+      }
+    }
+  }
+  return change.id;
 }
 
 /** A contributor's label, as the preview shows it: "addon:cdn 1.2" or the hook point. */

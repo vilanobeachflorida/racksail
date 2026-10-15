@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { shellMessages } from "@/lib/i18n";
 import { pseudoMessage } from "@/lib/pseudo";
 import type { ModuleUI } from "@/modules/types";
+import { untranslatedText } from "@/test/pseudo";
 import { fakeApi, json, renderApp, renderShell } from "@/test/render";
 
 const version = {
@@ -213,6 +214,98 @@ describe("pseudo-locales", () => {
     ).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en-XA");
     expect(document.documentElement.dir).toBe("ltr");
+  });
+
+  it("leave nothing on the panel's own screens outside the catalogs", async () => {
+    const user = userEvent.setup();
+    const x = (text: string) => pseudoMessage(text, "en-XA");
+    const greek = fakeApi({
+      "GET /api/v1/health": () =>
+        json(
+          {
+            status: "degraded",
+            checks: [{ name: "πράκτορας", status: "failing", message: "χάθηκε" }],
+          },
+          503,
+        ),
+      "GET /api/v1/version": () => json(version),
+      "GET /api/v1/jobs": () =>
+        json({
+          jobs: [
+            {
+              id: "job_1",
+              type: "changeset.apply",
+              title: "Εφαρμογή",
+              state: "running",
+              progress: { done: 1, total: 3, message: "Εγκατάσταση" },
+              attempt: 1,
+              createdAt: "2026-10-15T12:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/events": () =>
+        json({
+          events: [
+            {
+              id: "evt_1",
+              type: "δοκιμή.συνέβη",
+              time: "2026-10-15T12:00:00Z",
+              severity: "warning",
+              scope: { level: "server" },
+              message: "Κάτι συνέβη",
+              actor: { type: "user", name: "Άννα", source: "ui" },
+            },
+          ],
+        }),
+    });
+    const { unmount } = renderApp(greek, "/", { locale: "en-XA" });
+    await screen.findByRole("heading", { level: 1, name: x("Home") });
+    await screen.findByText(/χάθηκε/);
+    await screen.findByText(/Κάτι συνέβη/);
+    expect(untranslatedText()).toEqual([]);
+
+    await user.keyboard("{Control>}j{/Control}");
+    await screen.findByText("Εφαρμογή");
+    expect(untranslatedText()).toEqual([]);
+    await user.keyboard("{Escape}");
+
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: x("Command bar") });
+    expect(untranslatedText()).toEqual([]);
+    await user.keyboard("{Escape}");
+
+    await user.keyboard("?");
+    await screen.findByRole("dialog", { name: x("Keyboard shortcuts") });
+    expect(untranslatedText()).toEqual([]);
+    unmount();
+
+    for (const path of ["/settings", "/settings/appearance"]) {
+      const { unmount: done } = renderApp(greek, path, { locale: "en-XA" });
+      await screen.findByRole("heading", { level: 1 });
+      expect(untranslatedText(), path).toEqual([]);
+      done();
+    }
+
+    renderApp(greek, "/settings/appearance/theme", { locale: "en-XA" });
+    await screen.findByRole("heading", { level: 1, name: x("Theme editor") });
+    // A problem of every kind, so each message shows.
+    const text = screen.getByRole("textbox", { name: x("Text") });
+    await user.clear(text);
+    await user.type(text, "#FFFFFF");
+    await user.click(screen.getByRole("combobox", { name: x("Start from") }));
+    await screen.findByRole("listbox");
+    expect(untranslatedText()).toEqual([]);
+    await user.keyboard("{Escape}");
+    const tabs = within(screen.getAllByRole("tablist")[0] as HTMLElement).getAllByRole("tab");
+    for (const tab of tabs) {
+      await user.click(tab);
+      expect(untranslatedText(), tab.textContent ?? "").toEqual([]);
+    }
+    const checker = screen.getByRole("region", { name: x("Contrast checker") });
+    for (const tab of within(checker).getAllByRole("tab")) {
+      await user.click(tab);
+      expect(untranslatedText(), tab.textContent ?? "").toEqual([]);
+    }
   });
 
   it("lay the panel out right to left", async () => {

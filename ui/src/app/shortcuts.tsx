@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
+import { useIntl } from "react-intl";
 import { Kbd } from "@/design/components/ui/display";
 import { withKeys } from "@/lib/utils";
+import { messages } from "./messages";
 
 /** Whether the platform's command key is ⌘ rather than Ctrl. */
 export function isApple(): boolean {
@@ -140,28 +142,37 @@ export function ariaKeyShortcuts(keys: Shortcut): string | undefined {
     .join("+");
 }
 
-/** Shows a shortcut the way the platform writes it: ⌘ K or Ctrl K. */
+/**
+ * Shows a shortcut the way the platform writes it: ⌘ K, or Ctrl K in the
+ * person's language, with "then" between the keys of a sequence.
+ */
 export function ShortcutKeys({ keys }: { keys: Shortcut }) {
+  const intl = useIntl();
   const apple = isApple();
+  const symbols: Record<string, string> = { mod: "⌘", shift: "⇧", alt: "⌥" };
   const label = (k: string) => {
-    switch (k) {
-      case "mod":
-        return apple ? "⌘" : "Ctrl";
-      case "shift":
-        return apple ? "⇧" : "Shift";
-      case "alt":
-        return apple ? "⌥" : "Alt";
-      default:
-        return k.length === 1 ? k.toUpperCase() : k;
+    if (apple && symbols[k]) {
+      return symbols[k];
     }
+    if (k.length === 1) {
+      return k.toUpperCase();
+    }
+    return intl.formatMessage(messages.keyName, { key: k === "mod" ? "ctrl" : k });
   };
   return (
     <span className="inline-flex items-center gap-1">
-      {withKeys(keys.split(" "), (chord) => chord).map(([key, chord]) => (
-        <span key={key} className="inline-flex items-center gap-0.5">
-          {chord.split("+").map((k) => (
-            <Kbd key={k}>{label(k)}</Kbd>
-          ))}
+      {withKeys(keys.split(" "), (chord) => chord).map(([key, chord], i) => (
+        <span key={key} className="inline-flex items-center gap-1">
+          {i > 0 ? (
+            <span className="text-muted-foreground text-xs">
+              {intl.formatMessage(messages.keyThen)}
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-0.5">
+            {chord.split("+").map((k) => (
+              <Kbd key={k}>{label(k)}</Kbd>
+            ))}
+          </span>
         </span>
       ))}
     </span>

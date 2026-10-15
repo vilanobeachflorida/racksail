@@ -19,6 +19,7 @@ import { useState } from "react";
 import { useIntl } from "react-intl";
 import {
   type ChangeSet,
+  confirmationTarget,
   type Effect,
   type EffectType,
   type FieldDiff,
@@ -117,15 +118,27 @@ function DiffRow({ diff }: { diff: FieldDiff }) {
             {intl.formatMessage(m.previewSensitive)}
           </span>
         ) : diff.op === "replace" ? (
-          <>
-            <del className="whitespace-pre-wrap font-mono text-muted-foreground text-xs">
-              {show(diff.before)}
-            </del>
-            <span aria-hidden="true"> → </span>
-            <ins className="whitespace-pre-wrap font-mono text-xs no-underline">
-              {show(diff.after)}
-            </ins>
-          </>
+          intl.formatMessage(m.previewChangedTo, {
+            before: (
+              <del
+                key="before"
+                className="whitespace-pre-wrap font-mono text-muted-foreground text-xs"
+              >
+                {show(diff.before)}
+              </del>
+            ),
+            after: (
+              <ins key="after" className="whitespace-pre-wrap font-mono text-xs no-underline">
+                {show(diff.after)}
+              </ins>
+            ),
+            // The words around it already say what changed.
+            arrow: (chunks) => (
+              <span key="arrow" aria-hidden="true">
+                {chunks}
+              </span>
+            ),
+          })
         ) : (
           <span className="whitespace-pre-wrap font-mono text-xs">
             {show(diff.op === "add" ? diff.after : diff.before)}
@@ -206,18 +219,37 @@ function EffectItem({ effect }: { effect: Effect }) {
       />
       <div className="flex min-w-0 flex-col gap-0.5">
         <p>
-          <span className="font-medium">
-            {intl.formatMessage(m.previewEffect, { action: effect.action })}
-          </span>{" "}
-          <code className="break-all font-mono text-xs">{effect.target}</code>
-          {effect.detail ? <span className="text-muted-foreground"> · {effect.detail}</span> : null}
+          {intl.formatMessage(m.previewEffectLine, {
+            action: (
+              <span key="action" className="font-medium">
+                {intl.formatMessage(m.previewEffect, { action: effect.action })}
+              </span>
+            ),
+            target: (
+              <code key="target" className="break-all font-mono text-xs">
+                {effect.target}
+              </code>
+            ),
+            hasDetail: effect.detail ? "yes" : "no",
+            detail: (
+              <span key="detail" className="text-muted-foreground">
+                {effect.detail}
+              </span>
+            ),
+          })}
         </p>
         {effect.source ? (
           <p className="break-all text-muted-foreground text-xs">
             {intl.formatMessage(m.previewFrom, { source: effect.source })}
           </p>
         ) : null}
-        {sizes.length ? <p className="text-muted-foreground text-xs">{sizes.join(" · ")}</p> : null}
+        {sizes.length ? (
+          <ul className="flex flex-wrap gap-x-3 text-muted-foreground text-xs">
+            {sizes.map((size) => (
+              <li key={size}>{size}</li>
+            ))}
+          </ul>
+        ) : null}
         {effect.destructive ? (
           <p className="font-medium text-critical-danger text-xs">
             {intl.formatMessage(m.previewDestructive)}
@@ -237,6 +269,12 @@ export interface ChangePreviewProps {
   changeSet: ChangeSet;
   /** A kind's name for people, such as "Site" for web.site; the kind itself by default. */
   kindLabel?: (kind: string) => string;
+  /**
+   * A resource's name for people, such as a site's domain, which critical
+   * changes ask to be typed; resourceTitle reads it from the kind's title
+   * field. The resource's id by default.
+   */
+  resourceName?: (change: ResourceChange) => string;
   onApply?: () => void | Promise<void>;
   onCancel?: () => void;
   onUndo?: () => void | Promise<void>;
@@ -254,6 +292,7 @@ export interface ChangePreviewProps {
 export function ChangePreview({
   changeSet: cs,
   kindLabel = (kind) => kind,
+  resourceName = (change) => change.id,
   onApply,
   onCancel,
   onUndo,
@@ -272,6 +311,9 @@ export function ChangePreview({
     .map((type) => ({ type, effects: effects.filter((e) => e.type === type) }))
     .filter((g) => g.effects.length > 0);
   const est = cs.estimate;
+  // Critical changes ask for the name of the resource they're about.
+  const target = confirmationTarget(cs);
+  const typedName = cs.risk === "critical" ? (target ? resourceName(target) : cs.title) : undefined;
   const apply = async () => {
     await onApply?.();
   };
@@ -340,8 +382,17 @@ export function ChangePreview({
             <ul className="flex flex-col gap-1 text-sm">
               {conflicts.map((c) => (
                 <li key={`${c.resource}:${c.path}`}>
-                  <code className="font-mono text-xs">{c.path}</code> · {c.message} ·{" "}
-                  {(c.sources ?? []).map(sourceName).join(", ")}
+                  {intl.formatMessage(m.previewConflict, {
+                    path: (
+                      <code key="path" className="font-mono text-xs">
+                        {c.path}
+                      </code>
+                    ),
+                    message: c.message,
+                    sources: intl.formatList((c.sources ?? []).map(sourceName), {
+                      type: "conjunction",
+                    }),
+                  })}
                 </li>
               ))}
             </ul>
@@ -448,7 +499,7 @@ export function ChangePreview({
           snapshot: cs.snapshot ? "yes" : "no",
         })}
         confirmLabel={intl.formatMessage(m.previewApply)}
-        typedConfirmation={cs.risk === "critical" ? cs.title : undefined}
+        typedConfirmation={typedName}
         busy={applying}
         onConfirm={apply}
       >

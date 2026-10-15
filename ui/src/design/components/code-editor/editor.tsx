@@ -28,7 +28,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useEffect, useId, useRef } from "react";
-import { useIntl } from "react-intl";
+import { type IntlShape, type MessageDescriptor, useIntl } from "react-intl";
 import { cn } from "@/lib/utils";
 import { designMessages as m } from "../../messages";
 import { type Language, languages } from "./languages";
@@ -131,6 +131,46 @@ const highlight = HighlightStyle.define([
   { tag: tags.inserted, color: "var(--rs-success)" },
 ]);
 
+/**
+ * CodeMirror's own words, in the person's language: the search panel, the
+ * problems panel, folding and what screen readers hear. The keys are
+ * CodeMirror's English phrases; $ stands for a number it fills in.
+ */
+function editorPhrases(intl: IntlShape): Record<string, string> {
+  const t = (d: MessageDescriptor) => intl.formatMessage(d);
+  return {
+    Find: t(m.codeFind),
+    Replace: t(m.codeReplace),
+    next: t(m.codeNext),
+    previous: t(m.codePrevious),
+    all: t(m.codeAll),
+    "match case": t(m.codeMatchCase),
+    regexp: t(m.codeRegexp),
+    "by word": t(m.codeByWord),
+    replace: t(m.codeReplaceOne),
+    "replace all": t(m.codeReplaceAll),
+    close: t(m.codeClose),
+    "current match": t(m.codeCurrentMatch),
+    "on line": t(m.codeOnLine),
+    "replaced $ matches": t(m.codeReplacedMatches),
+    "replaced match on line $": t(m.codeReplacedOnLine),
+    "Go to line": t(m.codeGoToLine),
+    go: t(m.codeGo),
+    Diagnostics: t(m.codeDiagnostics),
+    "No diagnostics": t(m.codeNoDiagnostics),
+    "Control character": t(m.codeControlCharacter),
+    "Folded lines": t(m.codeFoldedLines),
+    "Unfolded lines": t(m.codeUnfoldedLines),
+    to: t(m.codeTo),
+    "folded code": t(m.codeFoldedCode),
+    unfold: t(m.codeUnfold),
+    "Fold line": t(m.codeFoldLine),
+    "Unfold line": t(m.codeUnfoldLine),
+    Completions: t(m.codeCompletions),
+    "Selection deleted": t(m.codeSelectionDeleted),
+  };
+}
+
 export interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
@@ -172,6 +212,7 @@ export default function CodeEditor({
   const languageSlot = useRef(new Compartment());
   const readOnlySlot = useRef(new Compartment());
   const lintSlot = useRef(new Compartment());
+  const phrasesSlot = useRef(new Compartment());
   const callbacks = useRef({ onChange, onSave });
   useEffect(() => {
     callbacks.current = { onChange, onSave };
@@ -232,6 +273,7 @@ export default function CodeEditor({
         EditorView.editable.of(!readOnly),
       ]),
       lintSlot.current.of([]),
+      phrasesSlot.current.of(EditorState.phrases.of(editorPhrases(intl))),
       placeholder ? placeholderExtension(placeholder) : [],
     ];
     const created = new EditorView({
@@ -251,6 +293,12 @@ export default function CodeEditor({
       v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
     }
   }, [value]);
+
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: phrasesSlot.current.reconfigure(EditorState.phrases.of(editorPhrases(intl))),
+    });
+  }, [intl]);
 
   useEffect(() => {
     view.current?.dispatch({

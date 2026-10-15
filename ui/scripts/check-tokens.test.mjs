@@ -46,6 +46,12 @@ describe("findHardCodedColors", () => {
     ]);
   });
 
+  it("reports text sizes off the type scale", () => {
+    expect(
+      rules(`<Badge className="text-[0.625rem] text-xs text-[length:11px]" />`, "a.tsx"),
+    ).toEqual(["arbitrary text size: text-[0.625rem]", "arbitrary text size: text-[length:11px]"]);
+  });
+
   it("reports named colors in declarations", () => {
     expect(rules(".a { background: white; outline: 1px solid red; }", "a.css")).toEqual([
       "named color: background: white",

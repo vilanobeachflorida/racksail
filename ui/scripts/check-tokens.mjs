@@ -1,6 +1,8 @@
-// Reports colors written into UI code instead of taken from theme tokens.
-// Themes can only restyle what goes through tokens, so a hard-coded color is
-// a bug even when it looks right in the default theme.
+// Reports colors and type sizes written into UI code instead of taken from
+// theme tokens. Themes can only restyle what goes through tokens, so a
+// hard-coded color is a bug even when it looks right in the default theme,
+// and a size off the type scale ignores the theme's scale and can fall
+// below the smallest step.
 //
 // Usage: node scripts/check-tokens.mjs [dir]   (default: src)
 
@@ -50,6 +52,11 @@ const rules = [
   {
     name: "named color",
     pattern: new RegExp(`\\b(?:${styleProperties})\\s*:\\s*["'\`](?:${namedColors})\\b`, "g"),
+    files: /\.(?:tsx?|mjs)$/,
+  },
+  {
+    name: "arbitrary text size",
+    pattern: /(?<![\w-])text-\[(?:length:)?[\d.]+(?:px|r?em|pt)\]/g,
     files: /\.(?:tsx?|mjs)$/,
   },
 ];

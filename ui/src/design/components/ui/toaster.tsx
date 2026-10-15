@@ -20,7 +20,10 @@ export function Toaster() {
       position={document.documentElement.dir === "rtl" ? "bottom-left" : "bottom-right"}
       theme={theme?.mode ?? "system"}
       dir={document.documentElement.dir === "rtl" ? "rtl" : "ltr"}
-      containerAriaLabel={intl.formatMessage(designMessages.notifications)}
+      // Sonner would add its shortcut to the label in English.
+      customAriaLabel={intl.formatMessage(designMessages.notificationsLabel, {
+        keys: `${intl.formatMessage(designMessages.keyName, { key: "alt" })}+T`,
+      })}
       toastOptions={{
         unstyled: true,
         closeButtonAriaLabel: intl.formatMessage(designMessages.close),

@@ -94,7 +94,7 @@ export function CommandBar() {
                 assistant ? messages.commandPlaceholder : messages.commandPlaceholderNoAssistant,
               )}
             />
-            <CommandList>
+            <CommandList label={intl.formatMessage(messages.commandResults)}>
               <CommandEmpty>{intl.formatMessage(messages.commandEmpty)}</CommandEmpty>
               {assistant && query.trim() !== "" ? (
                 <CommandGroup heading={intl.formatMessage(messages.commandAssistant)} forceMount>

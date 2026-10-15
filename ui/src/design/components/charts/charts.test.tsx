@@ -76,7 +76,7 @@ describe("the time series chart", () => {
         .getAllByRole("cell")
         .slice(1)
         .map((c) => c.textContent),
-    ).toEqual(["–", "40 req"]);
+    ).toEqual(["No data", "40 req"]);
   });
 
   it("leaves the legend out for a single series, which the title names", () => {

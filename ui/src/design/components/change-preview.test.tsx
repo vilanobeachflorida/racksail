@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { ChangeSet } from "@/lib/changes";
+import { type ChangeSet, confirmationTarget, resourceTitle } from "@/lib/changes";
 import { renderWithProviders } from "@/test/render";
 import { ChangePreview } from "./change-preview";
 
@@ -119,24 +119,37 @@ describe("the change preview", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
   });
 
-  it("asks before removing data, with the name typed for critical changes", async () => {
+  const deletion: ChangeSet = {
+    ...base,
+    title: "Delete the site",
+    risk: "critical",
+    snapshot: true,
+    changes: [
+      {
+        op: "delete",
+        kind: "web.site",
+        id: "site_01",
+        scope: { level: "account", id: "acct_1" },
+        source: { type: "request" },
+        before: { domain: "example.com", php: { version: "8.4" } },
+      },
+    ],
+    effects: [
+      {
+        type: "file",
+        action: "delete",
+        target: "/srv/racksail/accounts/acct/sites/example.com",
+        destructive: true,
+      },
+    ],
+  };
+
+  it("asks before removing data, with the resource's name typed for critical changes", async () => {
     const onApply = vi.fn();
     renderWithProviders(
       <ChangePreview
-        changeSet={{
-          ...base,
-          title: "Delete example.com",
-          risk: "critical",
-          snapshot: true,
-          effects: [
-            {
-              type: "file",
-              action: "delete",
-              target: "/srv/racksail/accounts/acct/sites/example.com",
-              destructive: true,
-            },
-          ],
-        }}
+        changeSet={deletion}
+        resourceName={(c) => resourceTitle(c, "domain")}
         onApply={onApply}
       />,
     );
@@ -145,14 +158,38 @@ describe("the change preview", () => {
       screen.getByText("A snapshot is taken first, so what's removed can be restored."),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Apply Delete example.com?" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Apply Delete the site?" });
     expect(dialog).toHaveTextContent("A snapshot is taken first, so it can be restored.");
+    expect(dialog).toHaveTextContent("Type example.com to confirm");
     const confirm = within(dialog).getByRole("button", { name: "Apply" });
     expect(confirm).toBeDisabled();
-    await userEvent.type(within(dialog).getByRole("textbox"), "Delete example.com");
+    // The change set's title isn't the resource's name.
+    await userEvent.type(within(dialog).getByRole("textbox"), "Delete the site");
+    expect(confirm).toBeDisabled();
+    await userEvent.clear(within(dialog).getByRole("textbox"));
+    await userEvent.type(within(dialog).getByRole("textbox"), "example.com");
     await userEvent.click(confirm);
     expect(onApply).toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
+  it("asks for the id of a resource without a name", async () => {
+    renderWithProviders(<ChangePreview changeSet={deletion} onApply={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("Type site_01 to confirm");
+  });
+
+  it("names the resource a change set is about", () => {
+    const update = base.changes?.[1];
+    expect(confirmationTarget(deletion)?.id).toBe("site_01");
+    expect(
+      confirmationTarget({ ...base, changes: update ? [update, ...(base.changes ?? [])] : [] })?.id,
+    ).toBe("site_01");
+    expect(confirmationTarget({ ...base, changes: [] })).toBeUndefined();
+    const change = deletion.changes?.[0];
+    expect(change && resourceTitle(change, "php.version")).toBe("8.4");
+    expect(change && resourceTitle(change, "missing")).toBe("site_01");
+    expect(change && resourceTitle(change)).toBe("site_01");
   });
 
   it("offers undo once applied", async () => {

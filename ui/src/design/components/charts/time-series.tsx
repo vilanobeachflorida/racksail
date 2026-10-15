@@ -263,7 +263,9 @@ export function TimeSeries({
               top: Math.max(0, hover.top - 16),
             }}
           >
-            <p className="mb-1 font-medium">{f.dateTime(hoverTime)}</p>
+            <p className="mb-1 font-medium">
+              <time dateTime={new Date(hoverTime).toISOString()}>{f.dateTime(hoverTime)}</time>
+            </p>
             {series.map((s, i) => {
               const v = s.values[hover.index];
               return (
@@ -279,7 +281,9 @@ export function TimeSeries({
                     {s.label}
                   </span>
                   <span className="tabular-nums">
-                    {v === null || v === undefined ? "–" : formatValue(v)}
+                    {v === null || v === undefined
+                      ? intl.formatMessage(m.chartNoValue)
+                      : formatValue(v)}
                   </span>
                 </p>
               );
@@ -306,12 +310,16 @@ export function TimeSeries({
             <TableBody>
               {times.map((t, row) => (
                 <TableRow key={t}>
-                  <TableCell>{f.dateTime(t)}</TableCell>
+                  <TableCell>
+                    <time dateTime={new Date(t).toISOString()}>{f.dateTime(t)}</time>
+                  </TableCell>
                   {series.map((s) => {
                     const v = s.values[row];
                     return (
                       <TableCell key={s.label} className="text-end tabular-nums">
-                        {v === null || v === undefined ? "–" : formatValue(v)}
+                        {v === null || v === undefined
+                          ? intl.formatMessage(m.chartNoValue)
+                          : formatValue(v)}
                       </TableCell>
                     );
                   })}

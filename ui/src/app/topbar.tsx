@@ -200,7 +200,7 @@ export function TopBar({ runningJobs }: { runningJobs: number }) {
           {runningJobs > 0 ? (
             <Badge
               variant="accent"
-              className="absolute -end-1 -top-1 h-4 min-w-4 justify-center px-1 text-[0.625rem]"
+              className="absolute -end-1.5 -top-1.5 h-5 min-w-5 justify-center px-1 leading-none"
             >
               {intl.formatNumber(runningJobs)}
             </Badge>
