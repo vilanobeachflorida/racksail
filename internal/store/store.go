@@ -61,6 +61,10 @@ type Store interface {
 	Write(ctx context.Context, meta WriteMeta, fn func(tx Tx) error) error
 	// History returns every recorded spec version of a resource, oldest first.
 	History(ctx context.Context, id ID) ([]Version, error)
+	// Watch returns the writes committed from now on that f selects, as
+	// they are committed. Slow watchers miss changes rather than slowing
+	// writers down; Watcher.Dropped says how many.
+	Watch(f WatchFilter, buffer int) *Watcher
 	// Close releases the store's resources.
 	Close() error
 }
@@ -77,13 +81,15 @@ type WriteMeta struct {
 
 // Version is one recorded spec version of a resource.
 type Version struct {
-	Generation int64             `json:"generation"`
-	Spec       json.RawMessage   `json:"spec"`
+	Generation int64             `json:"generation" doc:"The generation this version of the spec had"`
+	Spec       json.RawMessage   `json:"spec" doc:"The desired state as it was; secret fields hold references, never values"`
 	Labels     map[string]string `json:"labels,omitempty"`
-	ChangeSet  ID                `json:"changeSet,omitempty"`
-	Actor      string            `json:"actor,omitempty"`
-	Time       time.Time         `json:"time"`
-	Deleted    bool              `json:"deleted,omitempty"`
+	// Server is the cluster server the resource was placed on.
+	Server    ID        `json:"server,omitempty" doc:"The cluster server the resource was placed on; empty for the panel's own server"`
+	ChangeSet ID        `json:"changeSet,omitempty" doc:"The change set that wrote this version"`
+	Actor     string    `json:"actor,omitempty" doc:"Who made the change, and what acted for them"`
+	Time      time.Time `json:"time"`
+	Deleted   bool      `json:"deleted,omitempty" doc:"Set on the version recorded when the resource was deleted"`
 }
 
 // Query selects resources for List.
@@ -92,18 +98,38 @@ type Query struct {
 	Kind string
 	// Scope limits the list to one owner when set.
 	Scope *Scope
+	// Scopes limits the list to resources of any of these owners when it
+	// isn't empty, as for an actor with grants on several accounts. Scope,
+	// when set, narrows it further.
+	Scopes []Scope
 	// Server limits the list to resources placed on one cluster server when set.
 	Server *ID
 	// Labels must all match.
 	Labels map[string]string
 	// Index matches values of indexes the kind declares, by index name.
 	Index map[string]string
+	// Phases limits the list to resources in any of these phases. A
+	// resource no reconciler has looked at yet is pending.
+	Phases []Phase
+	// Search keeps resources whose ID, indexed values, title or subtitle
+	// contain the text, ignoring the case of ASCII letters.
+	Search string
 	// IDs limits the list to these resources when it isn't empty, as for an
 	// actor whose grants name single resources.
 	IDs []ID
 	// IncludeDeleted also returns resources marked as deleted.
 	IncludeDeleted bool
-	// Cursor continues a previous list; it comes from Page.Next.
+	// Unreconciled keeps resources whose latest generation no reconciler
+	// has carried out yet, and resources being removed. It implies
+	// IncludeDeleted for those.
+	Unreconciled bool
+	// Sort orders the list by id, createdAt, updatedAt, generation, phase or
+	// the name of an index, with "-" in front for descending order. Empty
+	// means id, which is creation order. Resources with the same value are
+	// ordered by ID.
+	Sort string
+	// Cursor continues a previous list; it comes from Page.Next and only
+	// works with the same Sort.
 	Cursor string
 	// Limit is the page size. Zero means DefaultLimit; it is capped at MaxLimit.
 	Limit int

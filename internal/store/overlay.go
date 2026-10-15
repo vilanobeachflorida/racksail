@@ -2,9 +2,6 @@ package store
 
 import (
 	"context"
-	"sort"
-
-	"github.com/vilanobeachflorida/racksail/internal/i18n"
 )
 
 // Overlay is a Reader that shows changes which are planned but not written
@@ -46,29 +43,31 @@ func (o *Overlay) Get(ctx context.Context, id ID) (*Resource, error) {
 }
 
 // List implements Reader. Planned resources replace their stored versions
-// and new ones are merged in by ID, so pages and cursors work as they do on
-// the base.
+// and new ones are merged in where the query's order puts them, so pages and
+// cursors work as they do on the base.
 func (o *Overlay) List(ctx context.Context, q Query) (*Page, error) {
 	page, err := o.base.List(ctx, q)
 	if err != nil || len(o.items) == 0 {
 		return page, err
 	}
-	k, ok := o.kinds.Get(q.Kind)
-	if !ok {
-		return nil, i18n.ErrUnknownName.New("what", "kind", "name", q.Kind)
+	info, s, err := checkQuery(o.kinds, q)
+	if err != nil {
+		return nil, err
 	}
-	info := k.Info()
-	var after ID
+	var after *position
 	if q.Cursor != "" {
-		if after, err = DecodeCursor(q.Cursor); err != nil {
+		p, err := s.decode(q.Cursor)
+		if err != nil {
 			return nil, err
 		}
+		after = &p
 	}
 	// When the base has more pages, planned resources sorting after its last
 	// item belong to those pages.
-	var last ID
+	var last *position
 	if page.Next != "" && len(page.Items) > 0 {
-		last = page.Items[len(page.Items)-1].ID
+		p := s.positionOf(info, page.Items[len(page.Items)-1])
+		last = &p
 	}
 	merged := make([]*Resource, 0, len(page.Items)+len(o.items))
 	for _, r := range page.Items {
@@ -76,17 +75,21 @@ func (o *Overlay) List(ctx context.Context, q Query) (*Page, error) {
 			merged = append(merged, r)
 		}
 	}
-	for id, r := range o.items {
-		if (after != "" && id <= after) || (last != "" && id > last) || !queryMatches(info, r, q) {
+	for _, r := range o.items {
+		p := s.positionOf(info, r)
+		if (after != nil && !s.before(*after, p)) || (last != nil && s.before(*last, p)) || !queryMatches(info, r, q) {
 			continue
 		}
-		merged = append(merged, r.Clone())
+		merged = append(merged, r)
 	}
-	sort.Slice(merged, func(i, j int) bool { return merged[i].ID < merged[j].ID })
-	out := &Page{Items: merged, Next: page.Next}
-	if limit := q.EffectiveLimit(); len(merged) > limit {
-		out.Items = merged[:limit]
-		out.Next = EncodeCursor(out.Items[limit-1].ID)
+	// The cursor has been applied already.
+	q.Cursor = ""
+	out, err := pageOf(info, s, merged, q)
+	if err != nil {
+		return nil, err
+	}
+	if out.Next == "" {
+		out.Next = page.Next
 	}
 	return out, nil
 }
