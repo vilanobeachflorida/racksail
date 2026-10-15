@@ -98,9 +98,11 @@ type Operation struct {
 	Stream      bool       `json:"stream,omitempty" doc:"Whether it answers with Server-Sent Events"`
 	Public      bool       `json:"public,omitempty" doc:"Whether it works without signing in"`
 	// Request and Response name the schemas of the body and of the answer
-	// in the document's components.
+	// in the document's components, and Output the schema of what an action
+	// returns in its change set's output.
 	Request  string `json:"request,omitempty"`
 	Response string `json:"response,omitempty"`
+	Output   string `json:"output,omitempty"`
 }
 
 // Catalog lists every operation of an API document, sorted by path and
@@ -143,6 +145,9 @@ func Catalog(doc *huma.OpenAPI) []Operation {
 						break
 					}
 				}
+			}
+			if out, ok := ext[ExtOutput].(*huma.Schema); ok && out != nil {
+				o.Output = strings.TrimPrefix(out.Ref, "#/components/schemas/")
 			}
 			out = append(out, o)
 		}

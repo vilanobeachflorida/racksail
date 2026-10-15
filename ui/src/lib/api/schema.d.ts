@@ -1200,6 +1200,7 @@ export interface components {
             mutating: boolean;
             /** @description list, get, create, update, delete, history, or an action's name */
             operation?: string;
+            output?: string;
             path: string;
             /** @description The permission the operation needs */
             permission?: string;

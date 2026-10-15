@@ -1734,6 +1734,9 @@
             "description": "list, get, create, update, delete, history, or an action's name",
             "type": "string"
           },
+          "output": {
+            "type": "string"
+          },
           "path": {
             "type": "string"
           },

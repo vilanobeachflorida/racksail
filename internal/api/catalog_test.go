@@ -149,8 +149,8 @@ func TestOperationsCatalog(t *testing.T) {
 			t.Errorf("%s = %+v", id, got)
 		}
 	}
-	if byID["createTestSite"].Request != "TestSiteCreateRequest" || byID["getTestSite"].Response != "TestSite" {
-		t.Errorf("schemas = %+v %+v", byID["createTestSite"], byID["getTestSite"])
+	if byID["createTestSite"].Request != "TestSiteCreateRequest" || byID["getTestSite"].Response != "TestSite" || byID["pingTestSite"].Output != "PingOutput" {
+		t.Errorf("schemas = %+v %+v %+v", byID["createTestSite"], byID["getTestSite"], byID["pingTestSite"])
 	}
 
 	// Kinds describe themselves, with standalone schemas forms can use.
