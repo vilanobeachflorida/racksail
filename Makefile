@@ -213,10 +213,12 @@ CLOUD_URL   ?= https://cloud.debian.org/images/cloud/trixie/latest
 CLOUD_IMAGE := build/cloud/debian-13-genericcloud-$(CLOUD_ARCH).qcow2
 SHA512SUM   := $(if $(shell command -v sha512sum),sha512sum,shasum -a 512)
 
-CATALOG_OUT ?= $(BIN)/catalog
-# CI signs the index with the key in CATALOG_SIGNING_KEY, which must belong
-# to catalog/keys/official.pub.
-CATALOG_SIGN = $(if $(CATALOG_SIGNING_KEY),-key-env CATALOG_SIGNING_KEY -public catalog/keys/official.pub)
+CATALOG_OUT    ?= $(BIN)/catalog
+# CI signs the index with the key in the CATALOG_SIGNING_KEY environment
+# variable, which must belong to CATALOG_PUBLIC. Only the shell reads the
+# key: the secret holds a whole key file, newlines included, and make would
+# split a recipe it was expanded into.
+CATALOG_PUBLIC ?= catalog/keys/official.pub
 
 FUZZ_TIME ?= 1m
 
@@ -308,13 +310,14 @@ catalog-check:
 
 catalog:
 	rm -rf $(CATALOG_OUT) $(BIN)/catalog.tar.gz
-	$(GO) run ./catalog/tool index -dir catalog -out $(CATALOG_OUT) -archive $(BIN)/catalog.tar.gz $(CATALOG_SIGN)
+	$(GO) run ./catalog/tool index -dir catalog -out $(CATALOG_OUT) -archive $(BIN)/catalog.tar.gz \
+		$$(test -z "$$CATALOG_SIGNING_KEY" || echo -key-env CATALOG_SIGNING_KEY -public $(CATALOG_PUBLIC))
 
 catalog-publish:
-	@test -n "$(CATALOG_SIGNING_KEY)" || { echo "publishing signs the index with CATALOG_SIGNING_KEY, which isn't set"; exit 1; }
-	@test -f catalog/keys/official.pub || { echo "catalog/keys/official.pub is missing; see catalog/keys/README.md"; exit 1; }
+	@test -n "$$CATALOG_SIGNING_KEY" || { echo "publishing signs the index with CATALOG_SIGNING_KEY, which isn't set"; exit 1; }
+	@test -f $(CATALOG_PUBLIC) || { echo "$(CATALOG_PUBLIC) is missing; see catalog/keys/README.md"; exit 1; }
 	$(MAKE) catalog
-	$(GO) run ./catalog/tool verify -dir $(CATALOG_OUT) -public catalog/keys/official.pub
+	$(GO) run ./catalog/tool verify -dir $(CATALOG_OUT) -public $(CATALOG_PUBLIC)
 
 licenses:
 	$(GO) run ./packaging/licenses check
