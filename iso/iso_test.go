@@ -146,7 +146,7 @@ func TestBootMenu(t *testing.T) {
 	if len(cfgs) != 3 {
 		t.Fatalf("boot menu files = %v", cfgs)
 	}
-	placeholder := regexp.MustCompile(`@[A-Z_]+@`)
+	fillIn := regexp.MustCompile(`@[A-Z_]+@`)
 	known := []string{"@KERNEL_LIVE@", "@INITRD_LIVE@", "@APPEND_LIVE@", "@APPEND_VERIFY_CHECKSUMS@"}
 	clobbered := []string{"KERNEL_LIVE", "INITRD_LIVE", "APPEND_LIVE", "LINUX_LIVE", "LINUX_INSTALL", "MEMTEST", "KERNEL_GI", "KERNEL_DI", "LB_BOOTAPPEND"}
 	ids := map[string]bool{}
@@ -156,12 +156,12 @@ func TestBootMenu(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(data)
-		for _, p := range placeholder.FindAllString(text, -1) {
+		for _, p := range fillIn.FindAllString(text, -1) {
 			if !slices.Contains(known, p) {
 				t.Errorf("%s: live-build doesn't fill in %s", cfg, p)
 			}
 		}
-		rest := placeholder.ReplaceAllString(text, "")
+		rest := fillIn.ReplaceAllString(text, "")
 		for _, word := range clobbered {
 			if strings.Contains(rest, word) {
 				t.Errorf("%s: live-build would rewrite %s", cfg, word)

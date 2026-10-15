@@ -46,7 +46,7 @@ func stanzas(t *testing.T, text string) []map[string]string {
 	return out
 }
 
-var placeholder = regexp.MustCompile(`@[A-Z_]+@`)
+var fillIn = regexp.MustCompile(`@[A-Z_]+@`)
 
 func render(t *testing.T, name string, values map[string]string) string {
 	t.Helper()
@@ -58,7 +58,7 @@ func render(t *testing.T, name string, values map[string]string) string {
 	for k, v := range values {
 		text = strings.ReplaceAll(text, "@"+k+"@", v)
 	}
-	if left := placeholder.FindString(text); left != "" {
+	if left := fillIn.FindString(text); left != "" {
 		t.Fatalf("%s still has %s after rendering", name, left)
 	}
 	return text
