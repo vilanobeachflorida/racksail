@@ -1,0 +1,79 @@
+# The Debian package, built by nfpm with `make deb` from the repository's root.
+# The Makefile renders the units, users, directories and maintainer scripts
+# into build/deb with packaging/deb first, and sets every variable used here.
+name: racksail
+arch: ${DEB_ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: admin
+priority: optional
+maintainer: ${DEB_MAINTAINER}
+vendor: Racksail
+homepage: https://github.com/vilanobeachflorida/racksail
+license: AGPL-3.0-or-later
+description: |-
+  Your server, your rules.
+  Racksail turns a Debian 13 server into a platform for websites, email, DNS,
+  apps, file storage, containers and virtual machines, managed from one web
+  panel, a command-line tool and an API. Every module ships in the binary but
+  installs nothing until it is used.
+
+depends:
+  - systemd
+  - init-system-helpers
+recommends:
+  - btrfs-progs
+  - ca-certificates
+
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/racksail
+    file_info:
+      mode: 0755
+  - src: build/deb/units/*
+    dst: /usr/lib/systemd/system/
+    file_info:
+      mode: 0644
+  - src: build/deb/sysusers/racksail.conf
+    dst: /usr/lib/sysusers.d/racksail.conf
+    file_info:
+      mode: 0644
+  - src: build/deb/tmpfiles/racksail.conf
+    dst: /usr/lib/tmpfiles.d/racksail.conf
+    file_info:
+      mode: 0644
+  - src: build/deb/completions/racksail.bash
+    dst: /usr/share/bash-completion/completions/racksail
+    file_info:
+      mode: 0644
+  - src: build/deb/completions/racksail.zsh
+    dst: /usr/share/zsh/vendor-completions/_racksail
+    file_info:
+      mode: 0644
+  - src: build/deb/completions/racksail.fish
+    dst: /usr/share/fish/vendor_completions.d/racksail.fish
+    file_info:
+      mode: 0644
+  - src: build/deb/copyright
+    dst: /usr/share/doc/racksail/copyright
+    file_info:
+      mode: 0644
+  - src: ${NOTICES}
+    dst: /usr/share/doc/racksail/third-party-licenses.txt
+    file_info:
+      mode: 0644
+  - src: packaging/apt/*.in
+    dst: /usr/share/racksail/apt/
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: build/deb/scripts/postinst
+  preremove: build/deb/scripts/prerm
+  postremove: build/deb/scripts/postrm
+
+deb:
+  compression: zstd
+  fields:
+    Bugs: https://github.com/vilanobeachflorida/racksail/issues
