@@ -133,7 +133,11 @@ func TestLinkReachesTheEdgeOnlyWhenItIsNeeded(t *testing.T) {
 		t.Error("a stopped edge isn't reached for a change it doesn't need")
 	}
 
-	// A running edge gets changes at once.
+	// A running edge gets changes at once, along with what waited.
+	waited := store.NewID("site")
+	if err := link.SetRoutes(ctx, waited, []Route{{ID: "w", Hosts: []string{"w.test"}, Passive: true, Handler: Handler{Type: HandleRespond}}}); err != nil {
+		t.Fatal(err)
+	}
 	mu.Lock()
 	running = true
 	mu.Unlock()
@@ -142,6 +146,14 @@ func TestLinkReachesTheEdgeOnlyWhenItIsNeeded(t *testing.T) {
 	}
 	if requests.Load() == before {
 		t.Error("a running edge should get changes at once")
+	}
+	served, _ = e.table.Routes(ctx)
+	owners = map[store.ID]bool{}
+	for _, r := range served {
+		owners[r.Owner] = true
+	}
+	if !owners[waited] || !owners[passive] {
+		t.Errorf("the edge's table = %+v", served)
 	}
 }
 

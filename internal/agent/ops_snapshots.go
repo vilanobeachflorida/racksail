@@ -64,6 +64,9 @@ var SaveSnapshot = Register(Def[SaveSnapshotInput, SnapshotFileResult]{
 		} else if !errors.Is(err, system.ErrNotFound) {
 			return SnapshotFileResult{}, err
 		}
+		if err := checkSnapshots(ctx, env, SnapshotStreamInput{Snapshot: in.Snapshot, Parent: in.Parent}); err != nil {
+			return SnapshotFileResult{}, err
+		}
 		snapshots, err := beneath(env, in.Snapshot, true)
 		if err != nil {
 			return SnapshotFileResult{}, err
@@ -158,6 +161,7 @@ var RestoreSnapshot = Register(Def[RestoreSnapshotInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
+		// btrfs is given the directory; it must not pass through a link.
 		if dir, err := dirs.Stat(ctx, in.Dir); err != nil {
 			return Result{}, err
 		} else if !dir.IsDir() {

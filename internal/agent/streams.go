@@ -102,14 +102,34 @@ func runStream(ctx context.Context, env *Env, name string, in Input, run func() 
 	return err
 }
 
+// checkSnapshots refuses snapshot paths that pass through a link, before
+// btrfs is given them.
+func checkSnapshots(ctx context.Context, env *Env, in SnapshotStreamInput) error {
+	for _, p := range []string{in.Snapshot, in.Parent} {
+		if p == "" {
+			continue
+		}
+		if err := checkNoSymlinks(ctx, env, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func streamSend(ctx context.Context, env *Env, in SnapshotStreamInput, w io.Writer) error {
 	return runStream(ctx, env, "SendSnapshot", in, func() (bool, error) {
+		if err := checkSnapshots(ctx, env, in); err != nil {
+			return false, err
+		}
 		return false, env.System.Btrfs.Send(ctx, in.Snapshot, in.Parent, w)
 	})
 }
 
 func streamReceive(ctx context.Context, env *Env, dir string, r io.Reader) error {
 	return runStream(ctx, env, "ReceiveSnapshot", receiveInput{Dir: dir}, func() (bool, error) {
+		if err := checkNoSymlinks(ctx, env, dir); err != nil {
+			return false, err
+		}
 		return true, env.System.Btrfs.Receive(ctx, dir, r)
 	})
 }

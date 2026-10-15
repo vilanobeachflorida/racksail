@@ -120,7 +120,11 @@ func (l *Link) SetRoutes(ctx context.Context, owner store.ID, routes []Route) er
 			l.deactivate(ctx)
 		}
 	case l.running(ctx):
+		// The edge runs anyway, so what waited goes along.
 		delete(l.pending, owner)
+		if err := l.flush(ctx); err != nil {
+			return err
+		}
 		return l.opts.Client.SetRoutes(ctx, owner, routes)
 	default:
 		// Nothing the edge serves needs it yet: the change waits.

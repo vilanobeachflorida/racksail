@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,6 +105,19 @@ func TestOperationsNeverFollowAnAccountsLinks(t *testing.T) {
 	extract := ExtractArchiveInput{Root: "/srv/racksail/accounts/a/out", Archive: "x.tar", Dest: "x", Format: system.FormatTar}
 	if _, err := ExtractArchive.Call(ctx, c, extract, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("ExtractArchive on a linked root: %v", err)
+	}
+	// Paths handed to btrfs are checked before it sees them.
+	if err := c.SendSnapshot(ctx, SnapshotStreamInput{Snapshot: "/srv/racksail/accounts/a/out/snap"}, io.Discard); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("SendSnapshot: %v", err)
+	}
+	if err := c.ReceiveSnapshot(ctx, "/srv/racksail/accounts/a/out", bytes.NewReader(nil)); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("ReceiveSnapshot into a link: %v", err)
+	}
+	if _, err := SetSubvolumeQuota.Call(ctx, c, QuotaInput{Path: "/srv/racksail/accounts/a/out", LimitBytes: 1 << 30}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("SetSubvolumeQuota on a link: %v", err)
+	}
+	if _, err := DeleteSubvolume.Call(ctx, c, SubvolumeInput{Path: "/srv/racksail/accounts/a/out/data"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("DeleteSubvolume through a link: %v", err)
 	}
 	for _, leftover := range []string{"etc/outside/planted", "etc/outside/uploaded", "etc/outside/dir", "etc/outside/copy.tar"} {
 		if _, err := os.Lstat(filepath.Join(root, leftover)); err == nil {

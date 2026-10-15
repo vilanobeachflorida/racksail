@@ -195,17 +195,23 @@ func beneath(env *Env, p string, read bool) (system.Files, error) {
 	return beneathRoot(env.System.Files, p, read)
 }
 
-// checkNoSymlinks refuses paths that pass through a symbolic link below the
-// managed root, for operations that hand a path to a program, such as
-// btrfs, rather than work on it themselves. Missing directories are left
-// for the operation to report.
+// checkNoSymlinks refuses a path that is or passes through a symbolic link
+// below its managed root, for operations that hand a path to a program,
+// such as btrfs, rather than work on it themselves. A path that doesn't
+// exist is left for the operation to report.
 func checkNoSymlinks(ctx context.Context, env *Env, p string) error {
 	files, err := beneath(env, p, true)
 	if err != nil {
 		return err
 	}
-	if _, err := files.Stat(ctx, path.Dir(p)); err != nil && !errors.Is(err, system.ErrNotFound) {
+	info, err := files.Stat(ctx, p)
+	switch {
+	case errors.Is(err, system.ErrNotFound):
+		return nil
+	case err != nil:
 		return err
+	case info.IsSymlink():
+		return fmt.Errorf("%s is a symbolic link, which isn't followed here: %w", p, system.ErrInvalid)
 	}
 	return nil
 }
