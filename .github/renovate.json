@@ -12,6 +12,7 @@
   "prHourlyLimit": 4,
   "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
   "ignorePaths": ["**/node_modules/**", "**/testdata/**"],
+  "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["dependencies", "security"],

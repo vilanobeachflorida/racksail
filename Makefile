@@ -316,10 +316,12 @@ catalog-publish:
 licenses:
 	$(GO) run ./packaging/licenses check
 
+# Advisories that don't affect Racksail are listed, with their reasons, in
+# packaging/osv-scanner.toml.
 vulncheck:
 	$(GO) run $(GOVULNCHECK) ./...
 	cd sdk/go && $(GO) run $(GOVULNCHECK) ./...
-	$(GO) run $(OSV_SCANNER) scan source $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
+	$(GO) run $(OSV_SCANNER) scan source --config packaging/osv-scanner.toml $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
 
 # make gen rewrites the generated files; any difference means they were
 # committed out of date.

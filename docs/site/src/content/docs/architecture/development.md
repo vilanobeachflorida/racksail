@@ -41,7 +41,7 @@ It runs gofmt, go vet and staticcheck for macOS and Linux, builds for darwin, li
 | `make test-race` | The Go tests with the race detector, which needs a C compiler |
 | `make gen-check` | That the generated files match what `make gen` writes |
 | `make licenses` | That every Go module and npm package is under a license approved by the Open Source Initiative and compatible with AGPL-3.0-or-later |
-| `make vulncheck` | Known vulnerabilities, with govulncheck for the Go code and osv-scanner for every lockfile |
+| `make vulncheck` | Known vulnerabilities, with govulncheck for the Go code and osv-scanner for every lockfile; advisories that don't affect Racksail are listed with their reasons in `packaging/osv-scanner.toml` |
 | `make docs` | That this site builds |
 | `make catalog-check` | Every item of the official catalog |
 | `make e2e-local` | The end-to-end suites against `racksail dev` |

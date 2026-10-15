@@ -57,3 +57,7 @@ Release binaries come from `make cross` with `VERSION` and `CHANNEL` set. `make 
 ## Licenses
 
 `make licenses` checks every Go module the code uses on every platform it builds for, tests included, and every package in every npm lockfile: each license must be approved by the Open Source Initiative and compatible with AGPL-3.0-or-later. A dependency whose license files can't be read, or the rare justified exception, goes in [licenses/exceptions.yaml](licenses/exceptions.yaml) with its reason. `go run ./packaging/licenses notices` writes the license texts of everything the release binary contains.
+
+## Vulnerabilities
+
+`make vulncheck` runs govulncheck on the Go code, which reports only vulnerabilities the code can reach, and osv-scanner on every `go.mod` and npm lockfile. An advisory that doesn't affect Racksail, such as one about parsing untrusted input in a tool that only reads the repository's own files at build time, goes in [osv-scanner.toml](osv-scanner.toml) with the reason and a date when it lapses, so it gets looked at again. Renovate reads the same advisories, from GitHub and from the OSV database, and proposes fixed versions as soon as they are published, without the usual wait.
