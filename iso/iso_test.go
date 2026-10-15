@@ -22,6 +22,11 @@ var update = flag.Bool("update", false, "rewrite golden files")
 // the options it gets, one per line.
 func lbConfig(t *testing.T, env ...string) (string, error) {
 	t.Helper()
+	// Reading the script ties go test's cache to it, since sh reads it
+	// outside the test process.
+	if _, err := os.ReadFile("auto/config"); err != nil {
+		t.Fatal(err)
+	}
 	bin := t.TempDir()
 	stub := "#!/bin/sh\nfor arg in \"$@\"; do printf '%s\\n' \"$arg\"; done\n"
 	if err := os.WriteFile(filepath.Join(bin, "lb"), []byte(stub), 0o755); err != nil {

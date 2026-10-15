@@ -194,9 +194,8 @@ func CosignPins(script []byte) (string, map[string]string, error) {
 	return string(m[1]), sums, nil
 }
 
-// CheckCosignPins compares the install script's checksums with the ones
-// cosign published for the release it names.
-func CheckCosignPins(sums map[string]string, published []byte) error {
+// publishedSums reads a checksums file in the format sha256sum writes.
+func publishedSums(published []byte) map[string]string {
 	upstream := map[string]string{}
 	sc := bufio.NewScanner(bytes.NewReader(published))
 	for sc.Scan() {
@@ -205,6 +204,33 @@ func CheckCosignPins(sums map[string]string, published []byte) error {
 			upstream[fields[1]] = fields[0]
 		}
 	}
+	return upstream
+}
+
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// UpdateCosignPins writes the checksums cosign published into the install
+// script, for when a dependency update bumps COSIGN_VERSION.
+func UpdateCosignPins(script, published []byte) ([]byte, error) {
+	upstream := publishedSums(published)
+	for _, arch := range []string{"AMD64", "ARM64"} {
+		sum, ok := upstream["cosign-linux-"+strings.ToLower(arch)]
+		if !ok || !sha256Hex.MatchString(sum) {
+			return nil, fmt.Errorf("cosign's checksums don't list cosign-linux-%s", strings.ToLower(arch))
+		}
+		line := regexp.MustCompile(`(?m)^COSIGN_SHA256_` + arch + `=[0-9a-f]{64}$`)
+		if !line.Match(script) {
+			return nil, fmt.Errorf("the install script has no COSIGN_SHA256_%s line", arch)
+		}
+		script = line.ReplaceAll(script, []byte("COSIGN_SHA256_"+arch+"="+sum))
+	}
+	return script, nil
+}
+
+// CheckCosignPins compares the install script's checksums with the ones
+// cosign published for the release it names.
+func CheckCosignPins(sums map[string]string, published []byte) error {
+	upstream := publishedSums(published)
 	var errs []error
 	for _, arch := range []string{"amd64", "arm64"} {
 		name := "cosign-linux-" + arch

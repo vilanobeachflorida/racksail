@@ -83,6 +83,11 @@ func newHarness(t *testing.T) *harness {
 			t.Fatal(err)
 		}
 	}
+	// Reading the script ties go test's cache to it, since the shells that
+	// run it read it outside the test process.
+	if _, err := os.ReadFile("install.sh"); err != nil {
+		t.Fatal(err)
+	}
 	h.osRelease("debian", "13", "Debian GNU/Linux 13 (trixie)")
 	for name, body := range stubs {
 		h.write(filepath.Join(h.stubDir, name), "#!/bin/sh\n"+body+"\n", 0o755)

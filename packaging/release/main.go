@@ -6,7 +6,7 @@
 //	go run ./packaging/release nightly-version -date 20261015 -run 42
 //	go run ./packaging/release checksums -dir dist
 //	go run ./packaging/release manifest -dir dist -tag v1.2.3 -base-url URL
-//	go run ./packaging/release check-pins
+//	go run ./packaging/release check-pins [-write]
 package main
 
 import (
@@ -109,6 +109,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	case "check-pins":
 		script := flags.String("script", "packaging/install.sh", "the install script")
+		write := flags.Bool("write", false, "write cosign's published checksums into the script")
 		if err := flags.Parse(args); err != nil {
 			return err
 		}
@@ -124,8 +125,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if *write {
+			updated, err := UpdateCosignPins(data, published)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(*script, updated, 0o755)
+		}
 		if err := CheckCosignPins(sums, published); err != nil {
-			return err
+			return fmt.Errorf("%w; run go run ./packaging/release check-pins -write", err)
 		}
 		fmt.Fprintf(stdout, "the install script's cosign %s checksums match the release\n", version)
 		return nil

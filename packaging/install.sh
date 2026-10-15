@@ -19,6 +19,7 @@ REPOSITORY=vilanobeachflorida/racksail
 # cosign verifies the signatures. A cosign already on the PATH is used as it
 # is; otherwise this release is downloaded and checked against these
 # checksums before it runs.
+# renovate: datasource=github-releases depName=sigstore/cosign
 COSIGN_VERSION=v3.1.3
 COSIGN_SHA256_AMD64=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
 COSIGN_SHA256_ARM64=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a

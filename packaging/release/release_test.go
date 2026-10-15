@@ -173,6 +173,21 @@ func TestCosignPins(t *testing.T) {
 	if _, _, err := CosignPins([]byte("#!/bin/sh\n")); err == nil {
 		t.Error("a script without pins must fail")
 	}
+
+	updated, err := UpdateCosignPins(script, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, newSums, _ := CosignPins(updated)
+	if newSums["arm64"] != strings.Repeat("1", 64) || newSums["amd64"] != sums["amd64"] {
+		t.Errorf("updated pins = %v", newSums)
+	}
+	if !bytes.Equal(bytes.Replace(updated, []byte(strings.Repeat("1", 64)), []byte(sums["arm64"]), 1), script) {
+		t.Error("updating the pins changed more than the checksums")
+	}
+	if _, err := UpdateCosignPins(script, []byte("nothing useful\n")); err == nil {
+		t.Error("checksums without cosign's binaries must fail")
+	}
 }
 
 func TestCommands(t *testing.T) {
