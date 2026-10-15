@@ -14,6 +14,7 @@
       "!src/lib/api/schema.d.ts",
       "!src/design/theme.css",
       "!src/design/brand.ts",
+      "!src/design/themes.json",
       "!package-lock.json"
     ]
   },

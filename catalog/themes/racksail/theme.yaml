@@ -1,0 +1,106 @@
+format: 1
+id: racksail
+name: Racksail
+version: 1.0.0
+license: MIT
+author: Racksail
+description: 'The default Racksail theme: navy and blue on calm surfaces.'
+tokens:
+  light:
+    surface: '#F7F9FC'
+    surfaceRaised: '#FFFFFF'
+    surfaceSunken: '#EEF2F7'
+    text: '#0B1B33'
+    textMuted: '#4A5A70'
+    border: '#D8E0EA'
+    borderStrong: '#7A889C'
+    brand: '#01214F'
+    brandText: '#FFFFFF'
+    accent: '#0062CC'
+    accentText: '#FFFFFF'
+    success: '#1A7F37'
+    successText: '#FFFFFF'
+    warning: '#9A6700'
+    warningText: '#FFFFFF'
+    danger: '#CF222E'
+    dangerText: '#FFFFFF'
+    info: '#0062CC'
+    infoText: '#FFFFFF'
+    focus: '#007CFD'
+    overlay: '#01214F66'
+    chart:
+      - '#007CFD'
+      - '#E2622C'
+      - '#139A6B'
+      - '#B88200'
+      - '#D9558B'
+      - '#008300'
+      - '#4A3AA7'
+      - '#E34948'
+  dark:
+    surface: '#0A1626'
+    surfaceRaised: '#0F2036'
+    surfaceSunken: '#06101C'
+    text: '#E6EDF5'
+    textMuted: '#9FB0C4'
+    border: '#22344C'
+    borderStrong: '#5B6F88'
+    brand: '#007CFD'
+    brandText: '#00142F'
+    accent: '#3D9BFF'
+    accentText: '#00142F'
+    success: '#3FB950'
+    successText: '#00142F'
+    warning: '#D29922'
+    warningText: '#00142F'
+    danger: '#F85149'
+    dangerText: '#00142F'
+    info: '#3D9BFF'
+    infoText: '#00142F'
+    focus: '#3D9BFF'
+    overlay: '#00000099'
+    chart:
+      - '#3390F7'
+      - '#D95926'
+      - '#199E70'
+      - '#C98500'
+      - '#D55181'
+      - '#1F9A1F'
+      - '#9085E9'
+      - '#E66767'
+  typography:
+    sans:
+      family: Inter Variable
+    mono:
+      family: JetBrains Mono Variable
+    baseSize: 16px
+    scale: 1.125
+    weights:
+      regular: 400
+      medium: 500
+      semibold: 600
+      bold: 700
+  radius:
+    sm: 4px
+    md: 6px
+    lg: 10px
+    xl: 16px
+  density: comfortable
+  shadows:
+    sm: 0 1px 2px rgba(1, 33, 79, 0.08)
+    md: 0 4px 12px rgba(1, 33, 79, 0.10)
+    lg: 0 12px 32px rgba(1, 33, 79, 0.14)
+  motion:
+    fast: 120ms
+    normal: 200ms
+    slow: 320ms
+  focusRing:
+    width: 2px
+    offset: 2px
+console:
+  background: '#01214F'
+  foreground: '#E6EDF5'
+  accent: '#3D9BFF'
+  success: '#3FB950'
+  warning: '#D29922'
+  danger: '#F85149'

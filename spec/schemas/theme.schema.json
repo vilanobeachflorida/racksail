@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/vilanobeachflorida/racksail/main/spec/schemas/theme.schema.json",
   "title": "Racksail theme",
-  "description": "A theme is design tokens and asset files, never code. Every theme is also checked for WCAG AA contrast and for references outside the package.",
+  "description": "A theme is design tokens and asset files, never code. Every theme is also checked for WCAG AA contrast, for status colors that keep their meaning and for references outside the package. Themes can't set the protected colors of safety-critical screens.",
   "type": "object",
   "additionalProperties": false,
   "required": ["format", "id", "name", "version", "license", "tokens"],
@@ -35,7 +35,10 @@
             "xl": { "$ref": "#/$defs/length" }
           }
         },
-        "density": { "enum": ["comfortable", "compact"] },
+        "density": {
+          "description": "How tall controls and table rows are and how much space they leave.",
+          "enum": ["comfortable", "compact"]
+        },
         "shadows": {
           "type": "object",
           "additionalProperties": false,
@@ -52,6 +55,15 @@
             "fast": { "$ref": "#/$defs/duration" },
             "normal": { "$ref": "#/$defs/duration" },
             "slow": { "$ref": "#/$defs/duration" }
+          }
+        },
+        "focusRing": {
+          "description": "The outline that shows which element has keyboard focus.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": { "$ref": "#/$defs/length" },
+            "offset": { "$ref": "#/$defs/length" }
           }
         }
       }
@@ -128,7 +140,17 @@
         "info": { "$ref": "#/$defs/color" },
         "infoText": { "$ref": "#/$defs/color" },
         "focus": { "$ref": "#/$defs/color" },
-        "chart": { "type": "array", "minItems": 6, "maxItems": 12, "items": { "$ref": "#/$defs/color" } }
+        "overlay": {
+          "description": "Dims the page behind dialogs and sheets; it may be translucent.",
+          "$ref": "#/$defs/color"
+        },
+        "chart": {
+          "description": "Series colors, in order. Each must reach 3:1 against raised surfaces.",
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 12,
+          "items": { "$ref": "#/$defs/color" }
+        }
       }
     },
     "font": {
@@ -136,8 +158,17 @@
       "additionalProperties": false,
       "required": ["family"],
       "properties": {
-        "family": { "type": "string", "minLength": 1 },
-        "files": { "type": "array", "items": { "$ref": "#/$defs/asset" } }
+        "family": {
+          "description": "The family name as CSS uses it: letters, digits, spaces, hyphens and underscores.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,62}$"
+        },
+        "files": {
+          "description": "Variable font files in WOFF2 or WOFF format, inside the package.",
+          "type": "array",
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/asset" }
+        }
       }
     },
     "typography": {

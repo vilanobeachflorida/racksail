@@ -135,6 +135,12 @@ gen: $(UI_DEPS)
 	$(GO) run ./cmd/racksail openapi --agent > spec/agent-protocol.json.tmp && mv spec/agent-protocol.json.tmp spec/agent-protocol.json
 	$(GO) run ./cmd/racksail openapi --addon > spec/addon-protocol.json.tmp && mv spec/addon-protocol.json.tmp spec/addon-protocol.json
 	$(GO) run ./cmd/racksail theme css > ui/src/design/theme.css.tmp && mv ui/src/design/theme.css.tmp ui/src/design/theme.css
+	$(GO) run ./cmd/racksail theme spec > ui/src/design/themes.json.tmp && mv ui/src/design/themes.json.tmp ui/src/design/themes.json
+	@for id in racksail high-contrast compact; do \
+		echo "$(GO) run ./cmd/racksail theme export $$id > catalog/themes/$$id/theme.yaml"; \
+		$(GO) run ./cmd/racksail theme export $$id > catalog/themes/$$id/theme.yaml.tmp && \
+			mv catalog/themes/$$id/theme.yaml.tmp catalog/themes/$$id/theme.yaml || exit 1; \
+	done
 	$(GO) run ./brand/gen
 	cd ui && $(NPM) run gen:api
 

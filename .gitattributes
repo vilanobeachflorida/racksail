@@ -11,6 +11,8 @@ spec/agent-protocol.json linguist-generated=true
 spec/addon-protocol.json linguist-generated=true
 ui/src/lib/api/schema.d.ts linguist-generated=true
 ui/src/design/theme.css linguist-generated=true
+ui/src/design/themes.json linguist-generated=true
+catalog/themes/*/theme.yaml linguist-generated=true
 
 # Generated from the artwork in brand/gen by `go run ./brand/gen`.
 ui/src/design/brand.ts linguist-generated=true
