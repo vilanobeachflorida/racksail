@@ -229,6 +229,45 @@ func TestOverlayAndLayers(t *testing.T) {
 	}
 }
 
+func TestOverlayKeepsFontsAndBrandFilesTogether(t *testing.T) {
+	server := Default()
+	server.Tokens.Typography.Sans = Font{Family: "Acme Sans", Files: []string{"fonts/acme.woff2"}}
+	server.Tokens.Typography.Mono = Font{Family: "Acme Mono", Files: []string{"fonts/acme-mono.woff2"}}
+	server.Assets = Assets{LogoLight: "server-logo.svg", LogoDark: "server-logo-dark.svg", Favicon: "server.ico", LoginBackground: "sea.jpg"}
+
+	reseller := Default()
+	reseller.Tokens.Typography.Sans = Font{Family: "Inter Variable"}
+	reseller.Tokens.Typography.Mono = Font{}
+	reseller.Assets = Assets{LogoLight: "reseller-logo.svg"}
+
+	got, err := Layers{Server: &server, Reseller: &reseller}.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sans := got.Tokens.Typography.Sans; sans.Family != "Inter Variable" || len(sans.Files) != 0 {
+		t.Errorf("a family named by the reseller took the server's files: %+v", sans)
+	}
+	if mono := got.Tokens.Typography.Mono; mono.Family != "Acme Mono" || len(mono.Files) != 1 {
+		t.Errorf("a font the reseller doesn't name lost the server's files: %+v", mono)
+	}
+	want := Assets{LogoLight: "reseller-logo.svg", LoginBackground: "sea.jpg"}
+	if got.Assets.LogoLight != want.LogoLight || got.Assets.LogoDark != "" || got.Assets.Favicon != "" || got.Assets.LoginBackground != want.LoginBackground {
+		t.Errorf("assets = %+v, want the reseller's brand files only, and the server's login background", got.Assets)
+	}
+
+	// A layer without brand files or fonts keeps the ones below.
+	plain := Default()
+	plain.Tokens.Typography = Typography{}
+	plain.Assets = Assets{}
+	got, err = Overlay(server, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assets.LogoDark != "server-logo-dark.svg" || got.Tokens.Typography.Sans.Files[0] != "fonts/acme.woff2" {
+		t.Errorf("overlay without fonts or brand files = %+v", got)
+	}
+}
+
 func TestPaletteColors(t *testing.T) {
 	c := Default().Tokens.Light.Colors()
 	if c["chart8"] != "#E34948" || c["accentSubtle"] != "#E0ECF9" || c["overlay"] != "#01214F66" {

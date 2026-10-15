@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkTheme, contrastTable, paletteColors } from "./check";
 import { contrast, hue, isColor, luminance, mix, parseColor } from "./color";
 import { cssVar, renderLayerCSS, renderScopedCSS } from "./css";
+import { fontLayer, layerAssetURLs } from "./files";
 import { overlay, resolveLayers } from "./layers";
 import {
   applyPreferences,
@@ -161,6 +162,49 @@ describe("theme layers", () => {
     expect(theme.tokens.density).toBe("compact");
     expect(theme.tokens.light.accent).toBe("#5B21B6");
     expect(resolveLayers({})).toEqual(defaultTheme);
+  });
+
+  it("keep a font's files and the brand files with the layer that set them", () => {
+    const server = builtinTheme("racksail");
+    server.tokens.typography = {
+      ...server.tokens.typography,
+      sans: { family: "Acme Sans", files: ["fonts/acme.woff2"] },
+      mono: { family: "Acme Mono", files: ["fonts/acme-mono.woff2"] },
+    };
+    server.assets = {
+      logoLight: "server-logo.svg",
+      logoDark: "server-logo-dark.svg",
+      favicon: "server.ico",
+      loginBackground: "sea.jpg",
+    };
+    const reseller = builtinTheme("racksail");
+    reseller.tokens.typography = {
+      ...reseller.tokens.typography,
+      sans: { family: "Inter Variable" },
+      mono: undefined,
+    };
+    reseller.assets = { logoLight: "reseller-logo.svg" };
+    const theme = resolveLayers({ server, reseller });
+    expect(theme.tokens.typography?.sans).toEqual({ family: "Inter Variable" });
+    expect(theme.tokens.typography?.mono).toEqual({
+      family: "Acme Mono",
+      files: ["fonts/acme-mono.woff2"],
+    });
+    expect(theme.assets).toEqual({ logoLight: "reseller-logo.svg", loginBackground: "sea.jpg" });
+
+    expect(fontLayer({ server, reseller }, "sans")).toBe("reseller");
+    expect(fontLayer({ server }, "mono")).toBe("server");
+    expect(fontLayer({}, "sans")).toBeNull();
+    const url = (layer: string, path: string) => `/api/v1/themes/${layer}/files/${path}`;
+    expect(layerAssetURLs({ server, reseller }, url)).toEqual({
+      logoLight: "/api/v1/themes/reseller/files/reseller-logo.svg",
+      loginBackground: "/api/v1/themes/server/files/sea.jpg",
+    });
+    expect(layerAssetURLs({ server }, url)).toMatchObject({
+      logoDark: "/api/v1/themes/server/files/server-logo-dark.svg",
+      favicon: "/api/v1/themes/server/files/server.ico",
+    });
+    expect(layerAssetURLs({}, url)).toEqual({});
   });
 });
 

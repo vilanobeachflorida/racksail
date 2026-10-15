@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -233,7 +234,10 @@ func protectedKeys(doc any) []string {
 }
 
 // Overlay returns base with every token the layer sets replacing base's,
-// as the server, reseller and personal layers do.
+// as the server, reseller and personal layers do. Two groups go as one: a
+// font, so a family never gets another layer's font files, and the brand
+// files (logos, mark and favicon), so a reseller's customers never see the
+// server's logo beside the reseller's.
 func Overlay(base, layer Theme) (Theme, error) {
 	// A round trip through JSON maps merges every field without listing
 	// them, and omitted fields in the layer keep the base value.
@@ -258,8 +262,27 @@ func Overlay(base, layer Theme) (Theme, error) {
 		return Theme{}, err
 	}
 	var out Theme
-	err = json.Unmarshal(raw, &out)
-	return out, err
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return Theme{}, err
+	}
+	for _, f := range []struct{ dst, src *Font }{
+		{&out.Tokens.Typography.Sans, &layer.Tokens.Typography.Sans},
+		{&out.Tokens.Typography.Mono, &layer.Tokens.Typography.Mono},
+	} {
+		if f.src.Family != "" {
+			*f.dst = Font{Family: f.src.Family, Files: slices.Clone(f.src.Files)}
+		}
+	}
+	if a := layer.Assets; a.HasBrand() {
+		out.Assets.LogoLight, out.Assets.LogoDark, out.Assets.Mark, out.Assets.Favicon = a.LogoLight, a.LogoDark, a.Mark, a.Favicon
+	}
+	return out, nil
+}
+
+// HasBrand reports whether the assets include any of the brand files: a
+// logo, the mark or the favicon.
+func (a Assets) HasBrand() bool {
+	return a.LogoLight != "" || a.LogoDark != "" || a.Mark != "" || a.Favicon != ""
 }
 
 func mergeInto(dst, src map[string]any) {

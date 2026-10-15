@@ -168,21 +168,25 @@ function fontFormat(file: string): string {
 /**
  * The theme alone, inside its cascade layer, as the panel applies a server
  * or reseller theme on top of the default stylesheet. fontURL gives the URL
- * a font file of the theme package is served from.
+ * a font file of the theme package is served from, given the file and the
+ * font it belongs to.
  */
-export function renderLayerCSS(theme: Theme, fontURL?: (path: string) => string): string {
+export function renderLayerCSS(
+  theme: Theme,
+  fontURL?: (path: string, font: "sans" | "mono") => string,
+): string {
   const w = new Writer();
   if (fontURL) {
-    const fonts: (Font | undefined)[] = [
-      theme.tokens.typography?.sans,
-      theme.tokens.typography?.mono,
+    const fonts: ["sans" | "mono", Font | undefined][] = [
+      ["sans", theme.tokens.typography?.sans],
+      ["mono", theme.tokens.typography?.mono],
     ];
-    for (const font of fonts) {
+    for (const [name, font] of fonts) {
       for (const file of font?.files ?? []) {
         w.open("@font-face");
         w.line(`font-family: ${JSON.stringify(font?.family ?? "")};`);
         w.line(
-          `src: url(${JSON.stringify(fontURL(file))}) format(${JSON.stringify(fontFormat(file))});`,
+          `src: url(${JSON.stringify(fontURL(file, name))}) format(${JSON.stringify(fontFormat(file))});`,
         );
         w.line("font-weight: 100 900;");
         w.line("font-display: swap;");

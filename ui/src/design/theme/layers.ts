@@ -1,3 +1,4 @@
+import { brandAssets, hasBrand } from "./files";
 import { defaultTheme } from "./spec";
 import type { Theme } from "./types";
 
@@ -26,11 +27,38 @@ function mergeInto(dst: Record<string, unknown>, src: Record<string, unknown>): 
   }
 }
 
-/** A theme with every token a layer sets replacing the base's. */
+/**
+ * A theme with every token a layer sets replacing the base's. As in
+ * internal/theme, two groups go as one: a font, so a family never gets
+ * another layer's font files, and the brand files, so a reseller's
+ * customers never see the server's logo beside the reseller's.
+ */
 export function overlay(base: Theme, layer: Partial<Theme>): Theme {
   const merged = structuredClone(base) as unknown as Record<string, unknown>;
   mergeInto(merged, layer as unknown as Record<string, unknown>);
-  return merged as unknown as Theme;
+  const theme = merged as unknown as Theme;
+  for (const font of ["sans", "mono"] as const) {
+    const own = layer.tokens?.typography?.[font];
+    if (own?.family) {
+      theme.tokens.typography = {
+        ...theme.tokens.typography,
+        [font]: { family: own.family, ...(own.files?.length ? { files: [...own.files] } : {}) },
+      };
+    }
+  }
+  if (hasBrand(layer)) {
+    const assets = { ...theme.assets };
+    for (const name of brandAssets) {
+      const own = layer.assets?.[name];
+      if (own) {
+        assets[name] = own;
+      } else {
+        delete assets[name];
+      }
+    }
+    theme.assets = assets;
+  }
+  return theme;
 }
 
 /**
