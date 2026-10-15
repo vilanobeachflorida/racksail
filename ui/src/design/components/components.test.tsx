@@ -376,3 +376,15 @@ describe("the logo", () => {
     expect(screen.getAllByRole("img")[0]?.querySelectorAll("path")).toHaveLength(2);
   });
 });
+
+describe("right-to-left languages", () => {
+  it("lay out the controls right to left", () => {
+    renderWithProviders(
+      <RadioGroup aria-label="Mode" defaultValue="light">
+        <RadioGroupItem value="light" aria-label="Light" />
+      </RadioGroup>,
+      { locale: "ar" },
+    );
+    expect(screen.getByRole("radiogroup", { name: "Mode" })).toHaveAttribute("dir", "rtl");
+  });
+});

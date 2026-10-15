@@ -1,3 +1,4 @@
+import { Direction } from "radix-ui";
 import { createContext, type ReactNode, useContext } from "react";
 import { type IntlConfig, IntlProvider } from "react-intl";
 import appEnglish from "@/app/messages/en.json";
@@ -175,7 +176,10 @@ export function I18nProvider({ locale, messages, onError, children }: I18nProvid
       messages={messages}
       {...(onError ? { onError } : {})}
     >
-      {children}
+      {/* Radix components set their own direction, left to right unless told otherwise. */}
+      <Direction.Provider dir={isRightToLeft(locale) ? "rtl" : "ltr"}>
+        {children}
+      </Direction.Provider>
     </IntlProvider>
   );
 }
