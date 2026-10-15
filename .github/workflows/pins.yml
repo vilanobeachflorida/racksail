@@ -35,7 +35,8 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          mapfile -t recipes < <(git diff --name-only "$BASE"...HEAD -- 'catalog/**/recipe.yaml')
+          # Recipes the pull request removes have nothing left to pin.
+          mapfile -t recipes < <(git diff --name-only --diff-filter=d "$BASE"...HEAD -- 'catalog/**/recipe.yaml')
           if [ ${#recipes[@]} -gt 0 ]; then
             go run ./catalog/tool pin -write "${recipes[@]}"
             go run ./catalog/tool validate -dir catalog
