@@ -50,7 +50,7 @@ On a network that reaches Racksail's releases only through a mirror of your own,
 | Path | Holds |
 |---|---|
 | `v1.2.3/` | Each release's files under its tag, as they are on GitHub: `v1.2.3/racksail-linux-amd64`, `v1.2.3/SHA256SUMS` and the rest |
-| `cosign/v3.1.3/` | The cosign release the install script names in `COSIGN_VERSION`: `cosign-linux-amd64` and `cosign-linux-arm64`, from [cosign's releases](https://github.com/sigstore/cosign/releases) |
+| `cosign/<version>/` | The cosign release the install script names in `COSIGN_VERSION`: `cosign-linux-amd64` and `cosign-linux-arm64`, from [cosign's releases](https://github.com/sigstore/cosign/releases) |
 | `sigstore/` | Sigstore's trusted root, the keys the signatures are checked against, that the script names in `SIGSTORE_ROOT_SHA256`, as `<checksum>.trusted_root.json` |
 
 To fill it from a machine that can reach GitHub and Sigstore:
