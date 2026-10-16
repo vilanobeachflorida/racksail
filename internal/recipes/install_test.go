@@ -151,6 +151,25 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 	}
 }
 
+func TestUninstallKeepsDataByDefault(t *testing.T) {
+	for _, c := range []struct {
+		uninstall string
+		want      bool
+	}{
+		{"", true},
+		{"uninstall: {keepData: true}\n", true},
+		{"uninstall: {keepData: false, notes: Nothing in it is worth keeping.}\n", false},
+	} {
+		r, err := Parse([]byte(wordpress + "health:\n  - {type: resource, target: site}\n" + c.uninstall))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Uninstall.Keeps(); got != c.want {
+			t.Errorf("%q keeps data: %v, want %v", c.uninstall, got, c.want)
+		}
+	}
+}
+
 func TestInstallRefusals(t *testing.T) {
 	ctx := context.Background()
 	c := newCatalogServer(t)

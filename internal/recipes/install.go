@@ -619,9 +619,9 @@ func (e *Engine) UninstallRequest(ctx context.Context, id store.ID, in Uninstall
 	if err != nil {
 		return changeset.Request{}, err
 	}
-	keepData := false
+	keepData := true
 	if r, err := Parse([]byte(inst.Spec.Recipe)); err == nil {
-		keepData = r.Uninstall.KeepData
+		keepData = r.Uninstall.Keeps()
 	}
 	if in.KeepData != nil {
 		keepData = *in.KeepData
