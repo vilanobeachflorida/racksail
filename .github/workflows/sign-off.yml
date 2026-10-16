@@ -1,10 +1,14 @@
 name: Sign-off
 
-# Every commit in a pull request certifies the Developer Certificate of
+# Every commit a pull request adds certifies the Developer Certificate of
 # Origin with a Signed-off-by line for its author (decision P3 in
-# docs/architecture/decisions.md). Merge commits, and commits GitHub Apps
-# make, such as Renovate's updates and the pins workflow's checksums, have
-# no person to certify anything and are left out.
+# docs/architecture/decisions.md). Only those commits are checked: the ones
+# already on the base branch, such as the maintainers' own commits pushed
+# straight to main, which carry no sign-off, never are. Merge commits, and
+# commits GitHub Apps make, such as Renovate's updates and the pins
+# workflow's checksums, have no person to certify anything and are left out.
+# docs/architecture/signoff_test.go runs this script against a repository
+# of its own.
 on:
   pull_request:
 
@@ -34,7 +38,8 @@ jobs:
             case $email in
             *"[bot]@users.noreply.github.com") continue ;;
             esac
-            if ! git show --no-patch --format='%(trailers:key=Signed-off-by,valueonly)' "$commit" | grep --quiet --ignore-case --fixed-strings "<$email>"; then
+            signoffs=$(git show --no-patch --format='%(trailers:key=Signed-off-by,valueonly)' "$commit")
+            if ! grep --quiet --ignore-case --fixed-strings "<$email>" <<<"$signoffs"; then
               missing+=("$(git show --no-patch --format='%h %s (%an <%ae>)' "$commit")")
             fi
           done < <(git rev-list --no-merges "$PR_HEAD" --not "$BASE_BRANCH")
@@ -52,5 +57,5 @@ jobs:
             echo
             echo "    git rebase --signoff $from"
             echo "    git push --force-with-lease"
-          } | tee --append "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1
