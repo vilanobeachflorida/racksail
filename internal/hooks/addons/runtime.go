@@ -853,4 +853,3 @@ func (p *remote) Send(ctx context.Context, msg notify.Message) error {
 }
 
 var _ notify.Channel = (*remote)(nil)
-

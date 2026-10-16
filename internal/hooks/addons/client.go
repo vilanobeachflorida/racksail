@@ -42,9 +42,9 @@ func NewClient(name, socket string) *Client {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", socket)
 		},
-		MaxIdleConns:        4,
-		IdleConnTimeout:     time.Minute,
-		DisableCompression:  true,
+		MaxIdleConns:           4,
+		IdleConnTimeout:        time.Minute,
+		DisableCompression:     true,
 		MaxResponseHeaderBytes: 64 << 10,
 	}
 	return &Client{Name: name, Socket: socket, http: &http.Client{Transport: transport}}
