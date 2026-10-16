@@ -118,11 +118,30 @@ test("finds a resource and runs its actions from the command bar", async ({ page
 });
 
 test("shows what needs attention on the home screen", async ({ page }) => {
+  // A webhook whose deliveries keep failing works only in part, whichever
+  // modules the panel has on. Names under .invalid never resolve, so each
+  // test delivery fails at once, and five in a row make it degraded.
+  const url = `https://hooks.invalid/attention-${test.info().project.name}-${Date.now()}`;
+  const id = await createWebhook(page, url);
+  const path = `/api/v1/core/webhooks/${id}`;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    expect((await page.request.post(`${path}/actions/test`, { data: {} })).ok()).toBe(true);
+  }
+  expect((await (await page.request.get(path)).json()).status.phase).toBe("degraded");
+
   await page.goto("/");
   const inbox = page.getByRole("region", { name: /Needs your attention/ });
+  const item = inbox.getByRole("listitem", { name: `Webhook ${url} works only in part` });
+  await expect(item).toBeVisible();
+  await expect(item.getByText("The last 5 attempts to send events failed.")).toBeVisible();
+
+  // It opens the webhook, and once that's gone, so is what it needed.
+  await item.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: url })).toBeVisible();
+  await deleteWebhook(page, url);
+  await page.goto("/");
   await expect(inbox).toBeVisible();
-  // racksail dev's machine has disks nothing uses yet.
-  await expect(inbox.getByText(/disks? (isn't|aren't) used yet/)).toBeVisible();
+  await expect(item).toHaveCount(0);
 });
 
 test("deletes a resource from its list, and the dialog goes once that's applied", async ({ page }) => {
