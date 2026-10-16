@@ -446,6 +446,6 @@ func addonScreens(svc *modules.Services) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
-		client.Proxy("/ui/", nil).ServeHTTP(w, r)
+		client.Screens().ServeHTTP(w, r)
 	})
 }

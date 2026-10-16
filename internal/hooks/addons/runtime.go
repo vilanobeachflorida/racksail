@@ -491,8 +491,8 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 	return count, problems
 }
 
-// actorHeader tells an add-on who is asking, without anything that would
-// let it act as them.
+// actorHeader tells an add-on who is asking, or looking at one of its
+// screens, without anything that would let it act as them.
 func actorHeader(req *http.Request) string {
 	a, ok := auth.ActorFrom(req.Context())
 	if !ok {

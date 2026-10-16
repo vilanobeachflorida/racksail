@@ -208,6 +208,13 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"path": r.PathValue("path"), "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie")})
 	})
+	mux.HandleFunc("GET /ui/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"path": r.PathValue("path"), "query": r.URL.RawQuery, "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie"),
+			"request": r.Header.Get("Racksail-Request-Id"),
+		})
+	})
 	srv := &http.Server{Handler: mux}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -625,6 +632,33 @@ func TestAddonsTakePartInChanges(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if !strings.Contains(rec.body.String(), `"path":"scans"`) || strings.Contains(rec.body.String(), "secret") || !strings.Contains(rec.body.String(), "admin") {
 		t.Errorf("route = %d %s", rec.status, rec.body.String())
+	}
+	// Its screens are told who is looking, with the query they were asked
+	// with and the panel's ID for the request, and nothing of their
+	// credentials either.
+	_, _, _, client, ok := e.runtime.Running("site-guard")
+	if !ok {
+		t.Fatal("the add-on doesn't run")
+	}
+	mux = http.NewServeMux()
+	mux.Handle("GET /api/v1/addons/site-guard/ui/{path...}", client.Screens())
+	req, _ = http.NewRequest("GET", "/api/v1/addons/site-guard/ui/tab?resource=site_1", nil)
+	req.Header.Set("Cookie", "racksail_session=secret")
+	req = req.WithContext(auth.WithActor(req.Context(), e.admin))
+	rec = newRecorder()
+	// The API's middleware answers with the request's ID before handlers run.
+	rec.Header().Set("X-Request-Id", "req_01jq0000000000000000000001")
+	mux.ServeHTTP(rec, req)
+	var screen map[string]string
+	if err := json.Unmarshal(rec.body.Bytes(), &screen); err != nil {
+		t.Fatalf("screen = %d %s", rec.status, rec.body.String())
+	}
+	var looking auth.Actor
+	if err := json.Unmarshal([]byte(screen["actor"]), &looking); err != nil || looking.ID != e.admin.ID {
+		t.Errorf("the screen was told %q is looking", screen["actor"])
+	}
+	if screen["path"] != "tab" || screen["query"] != "resource=site_1" || screen["cookie"] != "" || screen["request"] != "req_01jq0000000000000000000001" {
+		t.Errorf("screen = %+v", screen)
 	}
 
 	// Turned off, it is out of the pipeline and its token is gone.

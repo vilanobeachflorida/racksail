@@ -146,6 +146,11 @@ func (c *Client) ApplyKind(ctx context.Context, call hooks.KindCall) (hooks.Kind
 	return applied, err
 }
 
+// Screens returns a handler that passes requests for the add-on's screens
+// to it at /ui/, telling it who is looking, as its routes are told who
+// asks.
+func (c *Client) Screens() http.Handler { return c.Proxy("/ui/", actorHeader) }
+
 // Proxy returns a handler that passes requests to the add-on under prefix,
 // such as /routes/ or /ui/, with what the add-on may know about who asks.
 // The panel's cookies and credentials never reach the add-on.
@@ -174,7 +179,13 @@ func (c *Client) Proxy(prefix string, who func(r *http.Request) string) http.Han
 		if who != nil {
 			req.Header.Set("Racksail-Actor", who(r))
 		}
-		if id := r.Header.Get("X-Request-Id"); id != "" {
+		// The panel answers with its ID for the request, which it makes up
+		// when the request brought none it takes.
+		id := w.Header().Get("X-Request-Id")
+		if id == "" {
+			id = r.Header.Get("X-Request-Id")
+		}
+		if id != "" {
 			req.Header.Set("Racksail-Request-Id", id)
 		}
 		resp, err := c.http.Do(req)
