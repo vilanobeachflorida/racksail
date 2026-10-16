@@ -2,7 +2,6 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo } from "react";
 import { type IntlShape, useIntl } from "react-intl";
-import { useAddonColumns } from "@/app/addons";
 import { usePermission } from "@/app/modules";
 import { DataTable } from "@/design/components/data-table/data-table";
 import type { CellValue, Column } from "@/design/components/data-table/model";
@@ -20,6 +19,7 @@ import { humanize } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { resourceMessages as m } from "../messages";
 import { useResourceChanges } from "./actions";
+import { useAddonColumns } from "./addon-columns";
 import {
   actionTitle,
   fieldLabel,

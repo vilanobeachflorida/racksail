@@ -11,15 +11,10 @@ import { shellMessages } from "@/lib/i18n";
 import { axeViolations } from "@/test/axe";
 import { fakeApi, json, Providers, renderShell } from "@/test/render";
 import { webhook, webhookKind } from "@/test/resources";
-import {
-  type AddonEntry,
-  addonIcon,
-  addonIcons,
-  columnBatch,
-  columnText,
-  useAddonColumns,
-} from "./addons";
+import { addonIcon, addonIcons } from "./addon-icons";
+import type { AddonEntry } from "./addons";
 import { createAppRouter } from "./router";
+import { columnBatch, columnText, useAddonColumns } from "./screens/resources/addon-columns";
 
 type Route = (request: Request) => Response | Promise<Response>;
 

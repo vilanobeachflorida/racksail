@@ -1,11 +1,10 @@
 import { lazy, Suspense } from "react";
 import { useIntl } from "react-intl";
-import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { HomeCard, LazyComponent } from "@/modules/types";
 import { QuickActions, RecentActivity } from "./activity";
-import { AddonFrame, addonEntryKey, useAddonEntries } from "./addons";
+import { useAddonEntries } from "./addons";
 import { messages } from "./messages";
 import { homeCards, useActiveModules, usePermission } from "./modules";
 import { PanelStatus } from "./status";
@@ -15,6 +14,8 @@ const eventReadPermission = "core.event.read";
 
 // The inbox's code loads apart from the shell; its words are the shell's.
 const InboxCard = lazy(() => import("./screens/inbox/card"));
+// Add-ons' cards load only when there are some.
+const AddonCards = lazy(() => import("./addon-cards"));
 
 // One lazy component per card loader, so re-rendering the home screen never
 // loads or remounts a card.
@@ -68,21 +69,11 @@ export function Home() {
             </div>
           );
         })}
-        {addonCards.map((entry) => (
-          <Card key={addonEntryKey(entry)} aria-label={entry.ui.label}>
-            <CardHeader>
-              <CardTitle>{entry.ui.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AddonFrame
-                addon={entry.addon}
-                path={entry.ui.path ?? ""}
-                title={entry.ui.label}
-                className="h-48"
-              />
-            </CardContent>
-          </Card>
-        ))}
+        {addonCards.length > 0 ? (
+          <Suspense fallback={loading}>
+            <AddonCards entries={addonCards} />
+          </Suspense>
+        ) : null}
       </div>
     </div>
   );

@@ -19,7 +19,8 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
-import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "../addons";
+import { addonIcon } from "../addon-icons";
+import { addonEntryKey, addonScreenPath, useAddonEntries } from "../addons";
 import { useSession } from "../identity/session";
 import { messages } from "../messages";
 import { useActiveModules, usePermission } from "../modules";

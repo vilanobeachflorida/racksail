@@ -1,6 +1,7 @@
 import { useParams } from "@tanstack/react-router";
 import { useIntl } from "react-intl";
-import { AddonFrame, useAddonEntries } from "../addons";
+import { AddonFrame } from "../addon-frame";
+import { addonPath, useAddonEntries } from "../addons";
 import { messages } from "../messages";
 import { usePageTitle } from "../page-title";
 
@@ -14,9 +15,7 @@ export default function AddonScreen() {
   const params = useParams({ strict: false }) as { addon?: string; _splat?: string };
   const addon = params.addon ?? "";
   const path = params._splat ?? "";
-  const entry = useAddonEntries().find(
-    (e) => e.addon === addon && (e.ui.path ?? "").replace(/^\/+/, "") === path,
-  );
+  const entry = useAddonEntries().find((e) => e.addon === addon && addonPath(e.ui.path) === path);
   const title = entry?.ui.label ?? intl.formatMessage(messages.addonsPage, { addon });
   usePageTitle(title);
   return (

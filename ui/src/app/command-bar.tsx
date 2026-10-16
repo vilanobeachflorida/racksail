@@ -38,7 +38,8 @@ import {
 } from "@/design/components/ui/command";
 import { DialogOverlay } from "@/design/components/ui/dialog";
 import { useTheme } from "@/design/theme/provider";
-import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "./addons";
+import { addonIcon } from "./addon-icons";
+import { addonEntryKey, addonScreenPath, useAddonEntries } from "./addons";
 import { useChangeTracker } from "./changes/tracker";
 import { useGeneralPreferences } from "./general";
 import { IdentityCommands, peopleKinds } from "./identity/commands";

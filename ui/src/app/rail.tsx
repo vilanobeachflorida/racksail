@@ -1,12 +1,17 @@
 import { Link } from "@tanstack/react-router";
 import { Building2, House, type LucideIcon, ScrollText, Settings, Users } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { useIntl } from "react-intl";
 import { cn } from "@/lib/utils";
-import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "./addons";
+import { useAddonEntries } from "./addons";
 import { messages } from "./messages";
 import { navEntries, useActiveModules, usePermission } from "./modules";
 
-function RailLink({
+// Add-ons' entries, and the icons they name, load apart from the shell.
+const AddonNavLinks = lazy(() => import("./addon-nav"));
+
+/** One entry of the navigation. */
+export function RailLink({
   to,
   icon: Icon,
   label,
@@ -97,17 +102,11 @@ export function NavLinks({ wide, onNavigate }: { wide?: boolean; onNavigate?: ()
               />
             </li>
           ))}
-        {addonNav.map((entry) => (
-          <li key={addonEntryKey(entry)}>
-            <RailLink
-              to={addonScreenPath(entry)}
-              icon={addonIcon(entry.ui.icon)}
-              label={entry.ui.label}
-              onNavigate={onNavigate}
-              wide={wide}
-            />
-          </li>
-        ))}
+        {addonNav.length > 0 ? (
+          <Suspense fallback={null}>
+            <AddonNavLinks entries={addonNav} onNavigate={onNavigate} wide={wide} />
+          </Suspense>
+        ) : null}
       </ul>
       <div className="border-border border-t pt-1">
         <RailLink
