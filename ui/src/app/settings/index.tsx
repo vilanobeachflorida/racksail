@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, Paintbrush, Palette } from "lucide-react";
+import {
+  Bell,
+  Blocks,
+  ChevronRight,
+  Paintbrush,
+  Palette,
+  RefreshCw,
+  ScrollText,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { messages } from "../messages";
@@ -71,6 +79,43 @@ export default function SettingsIndex() {
             title={intl.formatMessage(messages.themeEditorTitle)}
             description={intl.formatMessage(messages.themeEditorTeaser)}
           />
+          <Entry
+            to="/settings/notifications"
+            icon={<Bell aria-hidden="true" />}
+            title={intl.formatMessage(messages.notifyTitle)}
+            description={intl.formatMessage(messages.notifyTeaser)}
+          />
+        </ul>
+      </section>
+      <section className="flex flex-col gap-3" aria-labelledby="settings-server">
+        <h2 id="settings-server" className="font-semibold text-lg">
+          {intl.formatMessage(messages.settingsServer)}
+        </h2>
+        <ul className="flex flex-col gap-2">
+          {allowed("core.module.read") ? (
+            <Entry
+              to="/settings/modules"
+              icon={<Blocks aria-hidden="true" />}
+              title={intl.formatMessage(messages.modulesTitle)}
+              description={intl.formatMessage(messages.modulesTeaser)}
+            />
+          ) : null}
+          {allowed("core.policy.read") ? (
+            <Entry
+              to="/settings/rules"
+              icon={<ScrollText aria-hidden="true" />}
+              title={intl.formatMessage(messages.rulesTitle)}
+              description={intl.formatMessage(messages.rulesTeaser)}
+            />
+          ) : null}
+          {allowed("core.update_settings.read") ? (
+            <Entry
+              to="/settings/updates"
+              icon={<RefreshCw aria-hidden="true" />}
+              title={intl.formatMessage(messages.updatesTitle)}
+              description={intl.formatMessage(messages.updatesTeaser)}
+            />
+          ) : null}
         </ul>
       </section>
       {withPages.map(({ module, pages }) => (
