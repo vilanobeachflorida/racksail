@@ -21,7 +21,7 @@ const impersonationLimit = time.Hour
 // the session ends after an hour at most.
 func (s *Service) Impersonate(ctx context.Context, actor *auth.Actor, id store.ID, client auth.Client) (*Issued, error) {
 	if actor == nil || actor.Type != auth.ActorUser || actor.SessionID == "" {
-		return nil, auth.ErrStepUpUnavailable.New()
+		return nil, auth.ErrPanelOnly.New()
 	}
 	if actor.Impersonator != "" {
 		return nil, auth.ErrImpersonating.New("user", actor.Name, "action", "view the panel as someone else")

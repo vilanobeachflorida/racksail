@@ -37,8 +37,8 @@ type CreatedToken struct {
 // CreateToken makes an API token for the actor. It acts with at most the
 // actor's own grants, narrowed to the permissions and accounts it names.
 func (s *Service) CreateToken(ctx context.Context, actor *auth.Actor, in TokenInput) (CreatedToken, error) {
-	if actor.Type != auth.ActorUser {
-		return CreatedToken{}, auth.ErrStepUpUnavailable.New()
+	if err := requirePerson(actor); err != nil {
+		return CreatedToken{}, err
 	}
 	if actor.Impersonator != "" {
 		return CreatedToken{}, auth.ErrImpersonating.New("user", actor.Name, "action", "make API tokens for them")
@@ -181,6 +181,9 @@ func (s *Service) tokensOf(ctx context.Context, user store.ID) ([]TokenView, err
 // RevokeMyToken revokes one of the actor's tokens. A token may revoke
 // itself.
 func (s *Service) RevokeMyToken(ctx context.Context, actor *auth.Actor, id store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	return s.revoke(ctx, actor, actor.Person(), id)
 }
 

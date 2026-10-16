@@ -3023,8 +3023,12 @@
             ],
             "type": "string"
           },
+          "session": {
+            "description": "Whether only a person in the panel may use it, not an API token",
+            "type": "boolean"
+          },
           "stepUp": {
-            "description": "Whether it needs you to have confirmed it's you recently; API tokens can't use it",
+            "description": "Whether it needs you to have confirmed it's you recently, when you use it in the panel",
             "type": "boolean"
           },
           "stream": {
@@ -5765,7 +5769,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/links/use": {
@@ -5816,7 +5821,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/options": {
@@ -5849,7 +5855,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/passkey": {
@@ -5882,7 +5889,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/passkey/finish": {
@@ -5933,7 +5941,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/providers/{id}/callback": {
@@ -5990,7 +5999,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/providers/{id}/start": {
@@ -6043,7 +6053,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/setup": {
@@ -6076,7 +6087,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       },
       "post": {
         "description": "Creates the panel's first admin with the one-time setup code, which `racksail panel` prints when it starts and the server's console shows, and signs them in. It works once, while the panel has no users.",
@@ -6125,7 +6137,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "high"
+        "x-racksail-risk": "high",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/sign-in": {
@@ -6187,7 +6200,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/sign-in/second-step": {
@@ -6238,7 +6252,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/sign-in/second-step/mfa": {
@@ -6281,7 +6296,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/sign-in/second-step/passkey": {
@@ -6324,7 +6340,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/auth/sign-out": {
@@ -6358,7 +6375,8 @@
         "tags": [
           "Signing in"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/changesets": {
@@ -10341,7 +10359,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/alerts": {
@@ -10425,6 +10444,7 @@
           "Your account"
         ],
         "x-racksail-risk": "medium",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -10459,7 +10479,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/devices": {
@@ -10493,7 +10514,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       },
       "get": {
         "description": "Lists the browsers you trusted to skip the second sign-in step, until when.",
@@ -10585,7 +10607,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/links": {
@@ -10673,6 +10696,7 @@
           "Your account"
         ],
         "x-racksail-risk": "medium",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -10759,6 +10783,7 @@
           "Your account"
         ],
         "x-racksail-risk": "high",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       },
       "post": {
@@ -10809,6 +10834,7 @@
           "Your account"
         ],
         "x-racksail-risk": "low",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -10863,7 +10889,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/passkeys": {
@@ -10944,6 +10971,7 @@
           "Your account"
         ],
         "x-racksail-risk": "low",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -10995,7 +11023,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/passkeys/{id}": {
@@ -11040,6 +11069,7 @@
           "Your account"
         ],
         "x-racksail-risk": "high",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       },
       "patch": {
@@ -11099,7 +11129,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/password": {
@@ -11143,7 +11174,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/recovery-codes": {
@@ -11185,6 +11217,7 @@
           "Your account"
         ],
         "x-racksail-risk": "medium",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -11267,7 +11300,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/sessions/{id}": {
@@ -11311,7 +11345,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/ssh-keys": {
@@ -11402,6 +11437,7 @@
           "Your account"
         ],
         "x-racksail-risk": "medium",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -11446,7 +11482,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/tokens": {
@@ -11537,6 +11574,7 @@
           "Your account"
         ],
         "x-racksail-risk": "high",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -11581,7 +11619,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/me/totp": {
@@ -11616,6 +11655,7 @@
           "Your account"
         ],
         "x-racksail-risk": "high",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       },
       "post": {
@@ -11656,6 +11696,7 @@
           "Your account"
         ],
         "x-racksail-risk": "low",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },
@@ -11707,7 +11748,8 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true
       }
     },
     "/api/v1/metrics": {
@@ -12114,7 +12156,8 @@
         "tags": [
           "Session"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/session/preferences": {
@@ -12217,7 +12260,8 @@
         "tags": [
           "Session"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/session/step-up/passkey": {
@@ -12258,7 +12302,8 @@
         "tags": [
           "Session"
         ],
-        "x-racksail-risk": "read"
+        "x-racksail-risk": "read",
+        "x-racksail-session": true
       }
     },
     "/api/v1/users": {
@@ -12654,6 +12699,7 @@
         ],
         "x-racksail-permission": "core.impersonate",
         "x-racksail-risk": "high",
+        "x-racksail-session": true,
         "x-racksail-step-up": true
       }
     },

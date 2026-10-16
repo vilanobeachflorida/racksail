@@ -19,9 +19,14 @@ import (
 // nothing and are never framed.
 const apiPolicy = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
-// ExtStepUp marks operations that need the person to have confirmed it's
-// them recently, whatever their risk.
-const ExtStepUp = "x-racksail-step-up"
+// Extensions of operations about who may use them: ExtStepUp marks those
+// that need a person in the panel to have confirmed it's them recently,
+// whatever their risk, and ExtSession those only a person in the panel may
+// use, not an API token.
+const (
+	ExtStepUp  = "x-racksail-step-up"
+	ExtSession = "x-racksail-session"
+)
 
 // clientOf works out where a request comes from. The edge serves the panel
 // under its hostname by proxying to it over loopback, and tells it the
@@ -124,10 +129,13 @@ func (s *Server) gate(ctx huma.Context, next func(huma.Context)) {
 }
 
 // stepUp says whether an operation needs the actor to confirm it's them
-// first. Operations marked as needing it always do, and API tokens can't
-// use them; critical changes do when they come from the panel. Previews
-// change nothing, so they never need it.
+// first: those only people in the panel use refuse API tokens, and those
+// marked as needing it, or critical, need a recent confirmation from people
+// in the panel. Previews change nothing, so they never need it.
 func (s *Server) stepUp(actor *auth.Actor, op *huma.Operation, dryRun bool) error {
+	if session, _ := op.Extensions[ExtSession].(bool); session && actor.Type != auth.ActorUser {
+		return auth.ErrPanelOnly.New()
+	}
 	id := s.opts.Identity
 	if id == nil || dryRun {
 		return nil

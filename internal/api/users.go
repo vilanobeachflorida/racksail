@@ -331,7 +331,7 @@ func (s *Server) registerUsers() {
 		Description: "Starts viewing the panel as one of your customers' users, to see what they see and help them. Everything you do meanwhile is recorded with both your names, " +
 			"the panel shows a banner the whole time, and it ends after an hour at most. It needs core.impersonate, granted by name; admins of the whole server can't be impersonated.",
 		DefaultStatus: http.StatusNoContent,
-	}, Info{Permission: string(auth.PermImpersonate), Risk: store.RiskHigh, StepUp: true}), func(ctx context.Context, in *userPath) (*cookieOnly, error) {
+	}, Info{Permission: string(auth.PermImpersonate), Risk: store.RiskHigh, StepUp: true, Session: true}), func(ctx context.Context, in *userPath) (*cookieOnly, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err

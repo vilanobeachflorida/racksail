@@ -156,7 +156,7 @@ func (s *Server) registerSession() {
 		Description: "Confirms it's the person, with their password, a code from their authenticator app or a passkey, so sensitive actions go ahead for the minutes the sign-in policy says. " +
 			"The session cookie changes. While viewing the panel as someone, it's the admin who confirms.",
 	}
-	Describe(&op, Info{Risk: store.RiskLow})
+	Describe(&op, Info{Risk: store.RiskLow, Session: true})
 	huma.Register(s.api, op, func(ctx context.Context, in *stepUpInput) (*stepUpOutput, error) {
 		actor, err := Actor(ctx)
 		if err != nil {
@@ -187,7 +187,7 @@ func (s *Server) registerSession() {
 		Summary:     "Confirm it's you with a passkey",
 		Description: "Returns the options for navigator.credentials.get() to confirm it's the person with one of their passkeys; send the answer to the step-up operation.",
 	}
-	Describe(&op, Info{Risk: store.RiskRead})
+	Describe(&op, Info{Risk: store.RiskRead, Session: true})
 	huma.Register(s.api, op, func(ctx context.Context, _ *struct{}) (*passkeyOptionsOutput, error) {
 		actor, err := Actor(ctx)
 		if err != nil {
@@ -210,7 +210,7 @@ func (s *Server) registerSession() {
 		Description:   "Ends viewing the panel as another user and goes back to your own session.",
 		DefaultStatus: http.StatusNoContent,
 	}
-	Describe(&op, Info{Risk: store.RiskLow})
+	Describe(&op, Info{Risk: store.RiskLow, Session: true})
 	huma.Register(s.api, op, func(ctx context.Context, _ *struct{}) (*cookieOnly, error) {
 		actor, err := Actor(ctx)
 		if err != nil {

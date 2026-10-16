@@ -208,9 +208,11 @@ type useLinkInput struct {
 	Body identity.UseLinkInput
 }
 
-// public describes an operation anyone may call, signed in or not.
+// public describes an operation anyone may call, signed in or not. They
+// are all about signing in to the panel, so the racksail command leaves
+// them out.
 func public(op *huma.Operation, risk store.Risk) {
-	Describe(op, Info{Risk: risk})
+	Describe(op, Info{Risk: risk, Session: true})
 }
 
 // registerAuth adds signing in: the first admin, passwords and second

@@ -353,6 +353,9 @@ func (s *Service) sessionsOf(ctx context.Context, user, current store.ID) ([]Ses
 
 // EndMySession ends one of the actor's sessions.
 func (s *Service) EndMySession(ctx context.Context, actor *auth.Actor, id store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	x, err := s.opts.Store.Session(ctx, id)
 	if err != nil || x.User != actor.Person() {
 		return notFound(string(id))
@@ -370,6 +373,9 @@ func (s *Service) EndMySession(ctx context.Context, actor *auth.Actor, id store.
 
 // EndOtherSessions ends every session of the actor's but the current one.
 func (s *Service) EndOtherSessions(ctx context.Context, actor *auth.Actor) (int, error) {
+	if err := requirePerson(actor); err != nil {
+		return 0, err
+	}
 	if actor.Impersonator != "" {
 		return 0, auth.ErrImpersonating.New("user", actor.Name, "action", "sign them out elsewhere")
 	}
@@ -415,6 +421,9 @@ func (s *Service) MyDevices(ctx context.Context, actor *auth.Actor, deviceSecret
 // ForgetDevice stops trusting one of the actor's browsers, or all of them
 // when id is empty.
 func (s *Service) ForgetDevice(ctx context.Context, actor *auth.Actor, id store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change their trusted browsers")
 	}

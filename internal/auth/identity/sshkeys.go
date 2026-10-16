@@ -97,6 +97,9 @@ func (s *Service) sshKeysOf(ctx context.Context, user store.ID) ([]SSHKey, error
 
 // AddSSHKey adds an SSH key to the actor's user.
 func (s *Service) AddSSHKey(ctx context.Context, actor *auth.Actor, in SSHKeyInput) (SSHKey, error) {
+	if err := requirePerson(actor); err != nil {
+		return SSHKey{}, err
+	}
 	if actor.Impersonator != "" {
 		return SSHKey{}, auth.ErrImpersonating.New("user", actor.Name, "action", "add SSH keys")
 	}
@@ -141,6 +144,9 @@ func (s *Service) addSSHKey(ctx context.Context, actor *auth.Actor, u *User, in 
 
 // RemoveSSHKey removes one of the actor's SSH keys.
 func (s *Service) RemoveSSHKey(ctx context.Context, actor *auth.Actor, id store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "remove SSH keys")
 	}

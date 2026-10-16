@@ -21,6 +21,7 @@ var (
 	ErrAddressNotAllowed   = i18n.Define("auth.address_not_allowed", http.StatusForbidden, "Signing in from {address} isn't allowed for {what}.")
 	ErrStepUpRequired      = i18n.Define("auth.step_up_required", http.StatusForbidden, "Confirm it's you to continue: enter your password or a code from your authenticator app, or use a passkey.")
 	ErrStepUpUnavailable   = i18n.Define("auth.step_up_unavailable", http.StatusForbidden, "This needs you to confirm it's you, which an API token can't do. Do it in the panel instead.")
+	ErrPanelOnly           = i18n.Define("auth.panel_only", http.StatusForbidden, "Only you, signed in to the panel, can do this: API tokens can't change how you sign in. Do it in the panel instead.")
 	ErrImpersonating       = i18n.Define("auth.impersonating", http.StatusForbidden, "You're viewing the panel as {user}. Stop viewing as them to {action}.")
 	ErrCannotImpersonate   = i18n.Define("auth.cannot_impersonate", http.StatusForbidden, "You can't view the panel as {user}: {reason}.")
 	ErrNotImpersonating    = i18n.Define("auth.not_impersonating", http.StatusConflict, "You aren't viewing the panel as someone else.")

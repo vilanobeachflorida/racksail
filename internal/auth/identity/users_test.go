@@ -249,7 +249,7 @@ func TestTokens(t *testing.T) {
 	if _, err := h.svc.CreateToken(ctx, rex, TokenInput{Name: "special", Permissions: []string{"core.impersonate"}}); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("a special permission the user lacks = %v", err)
 	}
-	if _, err := h.svc.CreateToken(ctx, actor, TokenInput{Name: "from a token"}); !auth.ErrStepUpUnavailable.Is(err) {
+	if _, err := h.svc.CreateToken(ctx, actor, TokenInput{Name: "from a token"}); !auth.ErrPanelOnly.Is(err) {
 		t.Errorf("a token making tokens = %v", err)
 	}
 

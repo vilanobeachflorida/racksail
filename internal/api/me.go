@@ -170,10 +170,21 @@ type alertsInput struct {
 	Body identity.AlertChannelInput
 }
 
-// self describes an operation on the person's own user: anyone signed in
-// may use it, on themselves.
-func self(op *huma.Operation, risk store.Risk, stepUp bool) {
-	Describe(op, Info{Risk: risk, StepUp: stepUp})
+// selfAccess says who may use an operation on their own user: anyone
+// signed in, API tokens included, which can see but not change how one
+// signs in; only a person in the panel; or only one who confirmed it's them
+// recently.
+type selfAccess int
+
+const (
+	anyone selfAccess = iota
+	inPanel
+	confirmed
+)
+
+// self describes an operation on the person's own user.
+func self(op *huma.Operation, risk store.Risk, access selfAccess) {
+	Describe(op, Info{Risk: risk, Session: access >= inPanel, StepUp: access == confirmed})
 }
 
 // registerMe adds what people do about themselves: their profile,
@@ -182,9 +193,9 @@ func self(op *huma.Operation, risk store.Risk, stepUp bool) {
 func (s *Server) registerMe() {
 	tags := []string{"Your account"}
 	base := Prefix + "/me"
-	reg := func(op huma.Operation, risk store.Risk, stepUp bool) huma.Operation {
+	reg := func(op huma.Operation, risk store.Risk, access selfAccess) huma.Operation {
 		op.Tags, op.Security = tags, Protected
-		self(&op, risk, stepUp)
+		self(&op, risk, access)
 		return op
 	}
 	withActor := func(ctx context.Context) (*auth.Actor, *identity.Service, error) {
@@ -199,7 +210,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "getMe", Method: http.MethodGet, Path: base, Summary: "See your user",
 		Description: "Returns your user: your details, your roles, and how you sign in.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*meOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*meOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -211,7 +222,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "updateMe", Method: http.MethodPut, Path: base, Summary: "Change your details",
 		Description: "Changes your name, email address and language.",
-	}, store.RiskLow, false), func(ctx context.Context, in *profileInput) (*meOutput, error) {
+	}, store.RiskLow, inPanel), func(ctx context.Context, in *profileInput) (*meOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -224,7 +235,7 @@ func (s *Server) registerMe() {
 		OperationID: "changeMyPassword", Method: http.MethodPut, Path: base + "/password", Summary: "Change your password",
 		Description:   "Sets a new password, after checking the current one. It can also sign you out everywhere else.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, false), func(ctx context.Context, in *passwordInput) (*struct{}, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, in *passwordInput) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -235,7 +246,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "beginTotp", Method: http.MethodPost, Path: base + "/totp", Summary: "Set up an authenticator app",
 		Description: "Makes a secret for an authenticator app, as a QR code to scan and as text to type in. It counts once a code from the app checks out.",
-	}, store.RiskLow, true), func(ctx context.Context, _ *struct{}) (*totpOutput, error) {
+	}, store.RiskLow, confirmed), func(ctx context.Context, _ *struct{}) (*totpOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -252,7 +263,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "confirmTotp", Method: http.MethodPost, Path: base + "/totp/confirm", Summary: "Turn the authenticator app on",
 		Description: "Turns the authenticator app on with a code from it. When you have no recovery codes yet, the answer has your first ones, shown this once.",
-	}, store.RiskMedium, false), func(ctx context.Context, in *codeInput) (*recoveryCodesOutput, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, in *codeInput) (*recoveryCodesOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -270,7 +281,7 @@ func (s *Server) registerMe() {
 		OperationID: "removeTotp", Method: http.MethodDelete, Path: base + "/totp", Summary: "Remove the authenticator app",
 		Description:   "Turns the authenticator app off. Without any second step left, your recovery codes and trusted browsers go too.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskHigh, true), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+	}, store.RiskHigh, confirmed), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -281,7 +292,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "newRecoveryCodes", Method: http.MethodPost, Path: base + "/recovery-codes", Summary: "Make new recovery codes",
 		Description: "Replaces your recovery codes with ten new ones, shown this once. Each works once, in place of a second step, when you can't use yours.",
-	}, store.RiskMedium, true), func(ctx context.Context, _ *struct{}) (*recoveryCodesOutput, error) {
+	}, store.RiskMedium, confirmed), func(ctx context.Context, _ *struct{}) (*recoveryCodesOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -298,7 +309,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMyPasskeys", Method: http.MethodGet, Path: base + "/passkeys", Summary: "List your passkeys",
 		Description: "Lists the passkeys that sign you in, with when each was last used.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*passkeysOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*passkeysOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -312,7 +323,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "beginPasskeyRegistration", Method: http.MethodPost, Path: base + "/passkeys", Summary: "Add a passkey",
 		Description: "Returns the options for navigator.credentials.create() to make a passkey for the panel; send the new passkey to the finish operation.",
-	}, store.RiskLow, true), func(ctx context.Context, _ *struct{}) (*passkeyOptionsOutput, error) {
+	}, store.RiskLow, confirmed), func(ctx context.Context, _ *struct{}) (*passkeyOptionsOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -327,7 +338,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "finishPasskeyRegistration", Method: http.MethodPost, Path: base + "/passkeys/finish", Summary: "Keep a new passkey",
 		Description: "Keeps the passkey the browser made. It then signs you in on its own, and works as a second step after your password.",
-	}, store.RiskMedium, false), func(ctx context.Context, in *passkeyRegisterInput) (*passkeyOutput, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, in *passkeyRegisterInput) (*passkeyOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -339,7 +350,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "renamePasskey", Method: http.MethodPatch, Path: base + "/passkeys/{id}", Summary: "Rename a passkey",
 		Description: "Gives one of your passkeys a new name.",
-	}, store.RiskLow, false), func(ctx context.Context, in *renameInput) (*passkeyOutput, error) {
+	}, store.RiskLow, inPanel), func(ctx context.Context, in *renameInput) (*passkeyOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -352,7 +363,7 @@ func (s *Server) registerMe() {
 		OperationID: "removePasskey", Method: http.MethodDelete, Path: base + "/passkeys/{id}", Summary: "Remove a passkey",
 		Description:   "Stops one of your passkeys signing you in. The last way you have to sign in can't be removed.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskHigh, true), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskHigh, confirmed), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -363,7 +374,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMySessions", Method: http.MethodGet, Path: base + "/sessions", Summary: "List where you're signed in",
 		Description: "Lists your sessions, the browsers you're signed in from, with their address and when each was last used. The one asking is marked.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*sessionsOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*sessionsOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -378,7 +389,7 @@ func (s *Server) registerMe() {
 		OperationID: "endMySession", Method: http.MethodDelete, Path: base + "/sessions/{id}", Summary: "Sign out one session",
 		Description:   "Ends one of your sessions, signing that browser out.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskLow, false), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskLow, inPanel), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -389,7 +400,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "endMyOtherSessions", Method: http.MethodPost, Path: base + "/sessions/end-others", Summary: "Sign out everywhere else",
 		Description: "Ends every session of yours but the one asking.",
-	}, store.RiskMedium, false), func(ctx context.Context, _ *struct{}) (*endedOutput, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, _ *struct{}) (*endedOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -403,7 +414,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMyDevices", Method: http.MethodGet, Path: base + "/devices", Summary: "List your trusted browsers",
 		Description: "Lists the browsers you trusted to skip the second sign-in step, until when.",
-	}, store.RiskRead, false), func(ctx context.Context, in *devicesInput) (*devicesOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, in *devicesInput) (*devicesOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -418,7 +429,7 @@ func (s *Server) registerMe() {
 		OperationID: "forgetMyDevice", Method: http.MethodDelete, Path: base + "/devices/{id}", Summary: "Stop trusting a browser",
 		Description:   "Stops one browser skipping the second sign-in step.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskLow, false), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskLow, inPanel), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -430,7 +441,7 @@ func (s *Server) registerMe() {
 		OperationID: "forgetMyDevices", Method: http.MethodDelete, Path: base + "/devices", Summary: "Stop trusting every browser",
 		Description:   "Stops every browser you trusted skipping the second sign-in step.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskLow, false), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+	}, store.RiskLow, inPanel), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -441,7 +452,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMyTokens", Method: http.MethodGet, Path: base + "/tokens", Summary: "List your API tokens",
 		Description: "Lists your API tokens with what each may do, where, until when, and when each was last used. Their secrets are never shown again.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*tokensOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*tokensOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -457,7 +468,7 @@ func (s *Server) registerMe() {
 		Description: "Makes an API token for scripts and the racksail command. It acts as you, with at most your own permissions, narrowed to those and the accounts you name, " +
 			"from the addresses you name, until it expires or you revoke it. The token is shown this once.",
 		DefaultStatus: http.StatusCreated,
-	}, store.RiskHigh, true), func(ctx context.Context, in *tokenInput) (*createdTokenOutput, error) {
+	}, store.RiskHigh, confirmed), func(ctx context.Context, in *tokenInput) (*createdTokenOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -473,7 +484,7 @@ func (s *Server) registerMe() {
 		OperationID: "revokeMyToken", Method: http.MethodDelete, Path: base + "/tokens/{id}", Summary: "Revoke an API token",
 		Description:   "Stops one of your API tokens working, at once. A token may revoke itself.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, false), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -484,7 +495,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMySSHKeys", Method: http.MethodGet, Path: base + "/ssh-keys", Summary: "List your SSH keys",
 		Description: "Lists your SSH public keys, which let you reach the files and shells your roles allow over SSH and SFTP.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*sshKeysOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*sshKeysOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -499,7 +510,7 @@ func (s *Server) registerMe() {
 		OperationID: "addMySSHKey", Method: http.MethodPost, Path: base + "/ssh-keys", Summary: "Add an SSH key",
 		Description:   "Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options.",
 		DefaultStatus: http.StatusCreated,
-	}, store.RiskMedium, true), func(ctx context.Context, in *sshKeyInput) (*sshKeyOutput, error) {
+	}, store.RiskMedium, confirmed), func(ctx context.Context, in *sshKeyInput) (*sshKeyOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -512,7 +523,7 @@ func (s *Server) registerMe() {
 		OperationID: "removeMySSHKey", Method: http.MethodDelete, Path: base + "/ssh-keys/{id}", Summary: "Remove an SSH key",
 		Description:   "Removes one of your SSH keys.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, false), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -523,7 +534,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMyLinks", Method: http.MethodGet, Path: base + "/links", Summary: "List your outside sign-ins",
 		Description: "Lists the outside providers, such as a company directory, you sign in with.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*linksOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*linksOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -538,7 +549,7 @@ func (s *Server) registerMe() {
 		OperationID: "unlinkMyIdentity", Method: http.MethodDelete, Path: base + "/links/{provider}", Summary: "Stop signing in with a provider",
 		Description:   "Stops an outside provider signing you in. The last way you have to sign in can't be removed.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, true), func(ctx context.Context, in *linkProviderPath) (*struct{}, error) {
+	}, store.RiskMedium, confirmed), func(ctx context.Context, in *linkProviderPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -549,7 +560,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "listMyMfa", Method: http.MethodGet, Path: base + "/mfa", Summary: "List second steps from add-ons",
 		Description: "Lists the second sign-in steps add-ons provide, and whether you have each on.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*mfaOptionsOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*mfaOptionsOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -563,7 +574,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "beginMfa", Method: http.MethodPost, Path: base + "/mfa/{id}", Summary: "Turn on a second step from an add-on",
 		Description: "Starts a check with a second step an add-on provides; it is on once the check passes.",
-	}, store.RiskLow, true), func(ctx context.Context, in *idPath) (*mfaOutput, error) {
+	}, store.RiskLow, confirmed), func(ctx context.Context, in *idPath) (*mfaOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -581,7 +592,7 @@ func (s *Server) registerMe() {
 		OperationID: "finishMfa", Method: http.MethodPost, Path: base + "/mfa/{id}/finish", Summary: "Finish turning on a second step",
 		Description:   "Checks the response to the method's check, and turns it on when it passes. A method without input answers auth.pending until the person approves.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, false), func(ctx context.Context, in *mfaFinishInput) (*struct{}, error) {
+	}, store.RiskMedium, inPanel), func(ctx context.Context, in *mfaFinishInput) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -593,7 +604,7 @@ func (s *Server) registerMe() {
 		OperationID: "disableMfa", Method: http.MethodDelete, Path: base + "/mfa/{id}", Summary: "Turn off a second step from an add-on",
 		Description:   "Turns off a second sign-in step an add-on provides.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskHigh, true), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskHigh, confirmed), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -604,7 +615,7 @@ func (s *Server) registerMe() {
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "getMyAlerts", Method: http.MethodGet, Path: base + "/alerts", Summary: "See where your security alerts go",
 		Description: "Says where your security alerts go, sign-ins from new devices, lockouts and changes to how you sign in, and the channels they can go to.",
-	}, store.RiskRead, false), func(ctx context.Context, _ *struct{}) (*alertsOutput, error) {
+	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*alertsOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -632,7 +643,7 @@ func (s *Server) registerMe() {
 		OperationID: "setMyAlerts", Method: http.MethodPut, Path: base + "/alerts", Summary: "Choose where your security alerts go",
 		Description:   "Sends your security alerts to a notification channel, after opening it once to check its settings, or turns them off. The settings are kept encrypted and never shown again.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, true), func(ctx context.Context, in *alertsInput) (*struct{}, error) {
+	}, store.RiskMedium, confirmed), func(ctx context.Context, in *alertsInput) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -644,7 +655,7 @@ func (s *Server) registerMe() {
 		OperationID: "testMyAlerts", Method: http.MethodPost, Path: base + "/alerts/test", Summary: "Send a test alert",
 		Description:   "Sends a test alert to your channel and says how it went.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskLow, false), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+	}, store.RiskLow, inPanel), func(ctx context.Context, _ *struct{}) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err

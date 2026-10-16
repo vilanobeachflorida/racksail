@@ -233,7 +233,7 @@ func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	if session.Token == nil || session.Token.Name != "ci" || session.User.Username != "ada" || strings.Join(session.Permissions, ",") != "*.read" {
 		t.Errorf("token session = %+v", session)
 	}
-	if resp := call("POST", "/api/v1/me/tokens", map[string]any{"name": "more"}); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpUnavailable.Code {
+	if resp := call("POST", "/api/v1/me/tokens", map[string]any{"name": "more"}); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrPanelOnly.Code {
 		t.Errorf("a token making tokens = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	if resp := call("POST", "/api/v1/core/accounts/open?dryRun=true", map[string]any{"slug": "acme", "name": "Acme"}); resp.StatusCode != http.StatusForbidden {

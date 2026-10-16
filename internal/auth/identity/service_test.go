@@ -431,9 +431,19 @@ func TestStepUp(t *testing.T) {
 	if err := h.svc.RequireStepUp(h.actor(issued.Secret)); !auth.ErrStepUpRequired.Is(err) {
 		t.Errorf("a confirmation lasts the policy's minutes: %v", err)
 	}
-	token := &auth.Actor{Type: auth.ActorToken, ID: store.NewID(PrefixToken)}
-	if err := h.svc.RequireStepUp(token); !auth.ErrStepUpUnavailable.Is(err) {
+	// Tokens are scoped instead, and can't change how anyone signs in.
+	token := &auth.Actor{Type: auth.ActorToken, ID: store.NewID(PrefixToken), User: actor.User}
+	if err := h.svc.RequireStepUp(token); err != nil {
 		t.Errorf("tokens = %v", err)
+	}
+	if _, err := h.svc.BeginTOTP(ctx, token); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token setting up an authenticator app = %v", err)
+	}
+	if _, err := h.svc.AddSSHKey(ctx, token, SSHKeyInput{Name: "laptop", PublicKey: "ssh-ed25519 AAAA"}); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token adding an SSH key = %v", err)
+	}
+	if _, err := h.svc.UpdateProfile(ctx, token, ProfileInput{Name: "Ada", Email: "someone@example.net"}); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token changing the email address outside sign-ins match = %v", err)
 	}
 	if methods := h.svc.StepUpMethods(ctx, fresh); len(methods) != 1 || methods[0] != "password" {
 		t.Errorf("methods = %v", methods)

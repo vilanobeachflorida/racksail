@@ -96,6 +96,9 @@ type ProfileInput struct {
 
 // UpdateProfile changes the actor's name, email and language.
 func (s *Service) UpdateProfile(ctx context.Context, actor *auth.Actor, in ProfileInput) (Me, error) {
+	if err := requirePerson(actor); err != nil {
+		return Me{}, err
+	}
 	if actor.Impersonator != "" {
 		return Me{}, auth.ErrImpersonating.New("user", actor.Name, "action", "change their profile")
 	}
@@ -153,11 +156,11 @@ type PasswordInput struct {
 // password yet, or must choose a new one, the current one has to check
 // out.
 func (s *Service) ChangePassword(ctx context.Context, actor *auth.Actor, in PasswordInput) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change their password")
-	}
-	if actor.Type != auth.ActorUser {
-		return auth.ErrStepUpUnavailable.New()
 	}
 	u, err := s.opts.Store.User(ctx, actor.Person())
 	if err != nil {
@@ -222,6 +225,9 @@ func (s *Service) clearPending(ctx context.Context, actor *auth.Actor, done stri
 // BeginTOTP starts setting up an authenticator app: the secret to scan or
 // type in, which counts once a code from it checks out.
 func (s *Service) BeginTOTP(ctx context.Context, actor *auth.Actor) (*auth.TOTPKey, error) {
+	if err := requirePerson(actor); err != nil {
+		return nil, err
+	}
 	if actor.Impersonator != "" {
 		return nil, auth.ErrImpersonating.New("user", actor.Name, "action", "set up an authenticator app")
 	}
@@ -249,6 +255,9 @@ func (s *Service) BeginTOTP(ctx context.Context, actor *auth.Actor) (*auth.TOTPK
 // ConfirmTOTP turns the authenticator app on once a code from it checks
 // out, and returns the person's first recovery codes when they have none.
 func (s *Service) ConfirmTOTP(ctx context.Context, actor *auth.Actor, code string) ([]string, error) {
+	if err := requirePerson(actor); err != nil {
+		return nil, err
+	}
 	u, err := s.opts.Store.User(ctx, actor.Person())
 	if err != nil {
 		return nil, err
@@ -289,6 +298,9 @@ func (s *Service) ConfirmTOTP(ctx context.Context, actor *auth.Actor, code strin
 
 // RemoveTOTP turns the actor's authenticator app off.
 func (s *Service) RemoveTOTP(ctx context.Context, actor *auth.Actor) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "remove their authenticator app")
 	}
@@ -353,6 +365,9 @@ func (s *Service) newRecoveryCodes(ctx context.Context, user store.ID) ([]string
 // NewRecoveryCodes replaces the actor's recovery codes. It takes a second
 // step to be set up first, since the codes stand in for one.
 func (s *Service) NewRecoveryCodes(ctx context.Context, actor *auth.Actor) ([]string, error) {
+	if err := requirePerson(actor); err != nil {
+		return nil, err
+	}
 	if actor.Impersonator != "" {
 		return nil, auth.ErrImpersonating.New("user", actor.Name, "action", "make recovery codes")
 	}
@@ -486,16 +501,30 @@ func (s *Service) SteppedUp(actor *auth.Actor) bool {
 	return actor != nil && actor.SteppedUpWithin(s.Policy().StepUp(), s.now())
 }
 
-// RequireStepUp refuses a sensitive action unless the actor confirmed it's
-// them recently. API tokens can't confirm anything, so they're refused.
+// RequireStepUp refuses a sensitive action from someone in the panel
+// unless they confirmed it's them recently. API tokens are scoped to what
+// they may do instead, and can't confirm anything; what they mustn't do at
+// all refuses them itself (requirePerson).
 func (s *Service) RequireStepUp(actor *auth.Actor) error {
 	switch {
 	case actor == nil:
 		return i18n.ErrUnauthenticated.New()
 	case actor.Type != auth.ActorUser:
-		return auth.ErrStepUpUnavailable.New()
+		return nil
 	case !s.SteppedUp(actor):
 		return auth.ErrStepUpRequired.New()
+	}
+	return nil
+}
+
+// requirePerson refuses API tokens, for changes to how a person signs in,
+// which a stolen token mustn't be able to make.
+func requirePerson(actor *auth.Actor) error {
+	if actor == nil {
+		return i18n.ErrUnauthenticated.New()
+	}
+	if actor.Type != auth.ActorUser {
+		return auth.ErrPanelOnly.New()
 	}
 	return nil
 }

@@ -59,6 +59,9 @@ type AlertChannelInput struct {
 // new devices, lockouts and changes to how they sign in. The channel is
 // opened once to check the settings.
 func (s *Service) SetAlertChannel(ctx context.Context, actor *auth.Actor, in AlertChannelInput) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change where their alerts go")
 	}
@@ -98,6 +101,9 @@ func (s *Service) SetAlertChannel(ctx context.Context, actor *auth.Actor, in Ale
 // TestAlert sends a test alert to the actor's channel and reports how it
 // went.
 func (s *Service) TestAlert(ctx context.Context, actor *auth.Actor) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	u, err := s.opts.Store.User(ctx, actor.Person())
 	if err != nil {
 		return err

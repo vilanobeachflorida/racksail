@@ -128,6 +128,9 @@ func asProtocolError(err error, target **protocol.Error) bool {
 // BeginPasskeyRegistration starts adding a passkey to the actor's user. The
 // options go to navigator.credentials.create().
 func (s *Service) BeginPasskeyRegistration(ctx context.Context, actor *auth.Actor, origin string) (string, json.RawMessage, error) {
+	if err := requirePerson(actor); err != nil {
+		return "", nil, err
+	}
 	if actor.Impersonator != "" {
 		return "", nil, auth.ErrImpersonating.New("user", actor.Name, "action", "add passkeys")
 	}
@@ -167,6 +170,9 @@ func (s *Service) BeginPasskeyRegistration(ctx context.Context, actor *auth.Acto
 
 // FinishPasskeyRegistration keeps the passkey the browser made.
 func (s *Service) FinishPasskeyRegistration(ctx context.Context, actor *auth.Actor, ceremony, name string, response json.RawMessage, origin string) (PasskeyView, error) {
+	if err := requirePerson(actor); err != nil {
+		return PasskeyView{}, err
+	}
 	c, err := s.challenges.get(ceremony, "passkey-register")
 	if err != nil {
 		return PasskeyView{}, err
@@ -233,6 +239,9 @@ func (s *Service) MyPasskeys(ctx context.Context, actor *auth.Actor) ([]PasskeyV
 
 // RenamePasskey gives one of the actor's passkeys a new name.
 func (s *Service) RenamePasskey(ctx context.Context, actor *auth.Actor, id store.ID, name string) (PasskeyView, error) {
+	if err := requirePerson(actor); err != nil {
+		return PasskeyView{}, err
+	}
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 64 {
 		return PasskeyView{}, i18n.Invalid(i18n.Field("name", i18n.ErrBadValue, "reason", "use 1 to 64 characters"))
@@ -256,6 +265,9 @@ func (s *Service) RenamePasskey(ctx context.Context, actor *auth.Actor, id store
 // RemovePasskey removes one of the actor's passkeys, unless it is the last
 // way they have to sign in.
 func (s *Service) RemovePasskey(ctx context.Context, actor *auth.Actor, id store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "remove passkeys")
 	}

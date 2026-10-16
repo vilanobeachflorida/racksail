@@ -443,6 +443,9 @@ func (s *Service) MyLinks(ctx context.Context, actor *auth.Actor) ([]LinkView, e
 // UnlinkMine stops an outside identity signing in as the actor, unless it
 // is the only way they have.
 func (s *Service) UnlinkMine(ctx context.Context, actor *auth.Actor, provider store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change how they sign in")
 	}
@@ -516,6 +519,9 @@ func (s *Service) MFAOptions(ctx context.Context, actor *auth.Actor) ([]MFAOptio
 // the actor, or as a sign-in's second step. It returns what to ask the
 // person, and the ceremony that finishes it.
 func (s *Service) BeginMFA(ctx context.Context, actor *auth.Actor, id store.ID) (string, *auth.MFAChallenge, error) {
+	if err := requirePerson(actor); err != nil {
+		return "", nil, err
+	}
 	if actor.Impersonator != "" {
 		return "", nil, auth.ErrImpersonating.New("user", actor.Name, "action", "change their second steps")
 	}
@@ -542,6 +548,9 @@ func (s *Service) BeginMFA(ctx context.Context, actor *auth.Actor, id store.ID) 
 // FinishMFA turns an add-on's second step on for the actor once a check
 // with it passed.
 func (s *Service) FinishMFA(ctx context.Context, actor *auth.Actor, ceremony, response string) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	c, err := s.challenges.get(ceremony, "mfa-enroll")
 	if err != nil {
 		return err
@@ -582,6 +591,9 @@ func (s *Service) FinishMFA(ctx context.Context, actor *auth.Actor, ceremony, re
 
 // DisableMFA turns an add-on's second step off for the actor.
 func (s *Service) DisableMFA(ctx context.Context, actor *auth.Actor, id store.ID) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change their second steps")
 	}
