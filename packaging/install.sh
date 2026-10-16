@@ -41,8 +41,9 @@ OIDC_ISSUER=https://token.actions.githubusercontent.com
 # The binary's path on the server, which its services run.
 BINARY=/usr/local/bin/racksail
 
-# RACKSAIL_ROOT puts everything under another directory, for tests and for
-# preparing images.
+# RACKSAIL_ROOT is for the script's tests: the files it checks and the binary
+# it installs are looked for and put under that directory. The conversion
+# itself always sets up the running system, so this can't prepare an image.
 ROOT=${RACKSAIL_ROOT:-}
 
 usage() {
@@ -185,15 +186,37 @@ else
 	die "downloading needs curl or wget; install one with apt install curl"
 fi
 
-# fetch URL FILE downloads over HTTPS only, redirects included.
+# fetch URL FILE downloads over HTTPS only, redirects included. curl's
+# --proto holds every redirect to HTTPS. wget follows a redirect to plain
+# HTTP, so with wget the script follows each redirect itself, and only to
+# another HTTPS address.
 fetch() {
 	if [ "$DOWNLOADER" = curl ]; then
 		curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --retry 3 --output "$2" "$1" ||
 			die "couldn't download $1"
-	else
-		wget --quiet --https-only --tries=3 --output-document="$2" "$1" ||
-			die "couldn't download $1"
+		return
 	fi
+	fetch_url=$1
+	fetch_redirects=0
+	while :; do
+		if wget --server-response --max-redirect=0 --tries=3 --output-file="$TMP/wget.log" --output-document="$2" "$fetch_url"; then
+			return
+		fi
+		# --server-response logs each response's headers, indented.
+		fetch_location=$(sed -n 's/^  [Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]: *//p' "$TMP/wget.log" | tail -n 1 | tr -d '\r')
+		if [ -z "$fetch_location" ] || [ "$fetch_redirects" -ge 10 ]; then
+			tail -n 3 "$TMP/wget.log" | sed 's/^ */  /' >&2
+			die "couldn't download $1"
+		fi
+		case $fetch_location in
+		https://*) fetch_url=$fetch_location ;;
+		//*) fetch_url=https:$fetch_location ;;
+		/*) fetch_url=$(printf '%s\n' "$fetch_url" | sed 's|^\(https://[^/]*\).*|\1|')$fetch_location ;;
+		*:*) die "$1 redirects to $fetch_location, which isn't HTTPS, so it wasn't downloaded" ;;
+		*) fetch_url=${fetch_url%/*}/$fetch_location ;;
+		esac
+		fetch_redirects=$((fetch_redirects + 1))
+	done
 }
 
 sha256() {

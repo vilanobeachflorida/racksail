@@ -16,8 +16,9 @@ import (
 )
 
 // The install script runs against stand-ins for the commands it uses: curl
-// serves a fake release, cosign accepts bundles that name the identity it is
-// asked for, and the racksail binary records how it was called.
+// and wget serve a fake release, cosign accepts bundles that name the
+// identity it is asked for, and the racksail binary records how it was
+// called.
 var stubs = map[string]string{
 	"id":       `echo "${STUB_UID:-0}"`,
 	"uname":    `echo "${STUB_MACHINE:-x86_64}"`,
@@ -40,9 +41,47 @@ https://github.com/sigstore/cosign/* | */cosign/v*/cosign-linux-*) src=$STUB_FIL
 esac
 [ -f "$src" ] || exit 22
 cp "$src" "$out"`,
+	"wget":      wgetStub,
 	"systemctl": `echo "systemctl $*" >>"$STUB_LOG"`,
 	"cosign":    cosignStub,
 }
+
+// wgetStub serves the files as curl's stand-in does, writing the response's
+// headers into its log as wget --server-response does, and exits 8, as wget
+// does, for a missing file and for a redirect it may not follow. With
+// STUB_REDIRECT set, GitHub's release downloads redirect to
+// $STUB_REDIRECT/assets/<tag>/<file>, as GitHub redirects them to its object
+// storage; an empty STUB_REDIRECT makes that a relative redirect.
+const wgetStub = `log= out= url=
+for arg; do
+	case $arg in
+	--output-file=*) log=${arg#*=} ;;
+	--output-document=*) out=${arg#*=} ;;
+	-*) ;;
+	*) url=$arg ;;
+	esac
+done
+echo "$url" >>"$STUB_LOG.urls"
+case $url in
+https://github.com/*/releases/download/*)
+	if [ -n "${STUB_REDIRECT+set}" ]; then
+		printf '  HTTP/1.1 302 Found\n  Location: %s/assets/%s\n' "$STUB_REDIRECT" "${url#*/releases/download/}" >"$log"
+		exit 8
+	fi
+	;;
+esac
+case $url in
+https://api.github.com/*) src=$STUB_FILES/releases.json ;;
+https://github.com/sigstore/cosign/* | */cosign/v*/cosign-linux-*) src=$STUB_FILES/cosign/${url##*/} ;;
+*/sigstore/*.trusted_root.json) src=$STUB_FILES/sigstore/${url##*/} ;;
+*) dir=${url%/*}; src=$STUB_FILES/${dir##*/}/${url##*/} ;;
+esac
+if [ ! -f "$src" ]; then
+	printf '  HTTP/1.1 404 Not Found\n' >"$log"
+	exit 8
+fi
+printf '  HTTP/1.1 200 OK\n' >"$log"
+cp "$src" "$out"`
 
 // cosignStub accepts bundles that name the identity it is asked for, and
 // fails as cosign does when it can't reach what it needs with
@@ -226,6 +265,25 @@ func (h *harness) run(shell string, binaryVersion string, args ...string) result
 	return result{out: string(out), err: err, log: read(h.log), urls: read(h.log + ".urls"), answers: read(h.log + ".answers")}
 }
 
+// withoutCurl runs the script where wget is the only downloader, as on a
+// minimal Debian: the tools it needs come from a directory without curl.
+func (h *harness) withoutCurl() {
+	h.t.Helper()
+	os.Remove(filepath.Join(h.stubDir, "curl"))
+	tools := filepath.Join(h.dir, "tools")
+	if err := os.MkdirAll(tools, 0o755); err != nil {
+		h.t.Fatal(err)
+	}
+	for _, name := range []string{"awk", "cat", "chmod", "cp", "cut", "grep", "head", "install", "mkdir", "mktemp", "mv", "rm", "sed", "sha256sum", "shasum", "tail", "tr"} {
+		if path, err := exec.LookPath(name); err == nil {
+			if err := os.Symlink(path, filepath.Join(tools, name)); err != nil {
+				h.t.Fatal(err)
+			}
+		}
+	}
+	h.env = append(h.env, "PATH="+h.stubDir+":"+tools)
+}
+
 func shells(t *testing.T) []string {
 	out := []string{"sh"}
 	if _, err := os.Stat("/bin/dash"); err == nil {
@@ -315,6 +373,34 @@ func TestInstallScriptOptions(t *testing.T) {
 			if r.err != nil || !strings.Contains(r.urls, "/releases/download/v"+version+"/racksail-linux-amd64\n") {
 				t.Errorf("--channel %s: %v\n%s\n%s", channel, r.err, r.out, r.urls)
 			}
+		}
+	})
+	// wget follows redirects to plain HTTP, so the script follows them
+	// itself, as GitHub redirects downloads to its object storage.
+	t.Run("wget", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			redirect []string
+			want     string
+		}{
+			{"without redirects", nil, "https://github.com/vilanobeachflorida/racksail/releases/download/v1.9.10/racksail-linux-amd64\n"},
+			{"redirected to object storage", []string{"STUB_REDIRECT=https://objects.example.com"}, "https://objects.example.com/assets/v1.9.10/racksail-linux-amd64\n"},
+			{"redirected to a path", []string{"STUB_REDIRECT="}, "https://github.com/assets/v1.9.10/racksail-linux-amd64\n"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				h := newHarness(t)
+				h.withoutCurl()
+				h.env = append(h.env, tc.redirect...)
+				r := h.run("sh", "1.9.10", "--yes")
+				if r.err != nil || !strings.Contains(r.log, "racksail install --convert") {
+					t.Fatalf("%v\n%s\n%s", r.err, r.out, r.urls)
+				}
+				if !strings.Contains(r.urls, tc.want) {
+					t.Errorf("downloads:\n%s\nwant %s", r.urls, tc.want)
+				}
+			})
 		}
 	})
 	t.Run("hostname", func(t *testing.T) {
@@ -456,6 +542,18 @@ func TestInstallScriptRefuses(t *testing.T) {
 		{"bad hostname", nil, []string{"--hostname", "Not A Host"}, "1.9.10", "isn't a hostname"},
 		{"bad version", nil, []string{"--version", "latest"}, "1.9.10", "isn't a version"},
 		{"nothing published", func(h *harness) { h.write(filepath.Join(h.files, "releases.json"), "[]\n", 0o644) }, nil, "1.9.10", "no stable release has been published yet"},
+		{"wget redirected to plain HTTP", func(h *harness) {
+			h.withoutCurl()
+			h.env = append(h.env, "STUB_REDIRECT=http://objects.example.com")
+		}, nil, "1.9.10", "redirects to http://objects.example.com/assets/v1.9.10/racksail-linux-amd64, which isn't HTTPS, so it wasn't downloaded"},
+		{"wget redirected in a loop", func(h *harness) {
+			h.withoutCurl()
+			h.env = append(h.env, "STUB_REDIRECT=https://github.com/vilanobeachflorida/racksail/releases/download")
+		}, nil, "1.9.10", "couldn't download https://github.com/vilanobeachflorida/racksail/releases/download/v1.9.10/racksail-linux-amd64"},
+		{"wget can't find the release", func(h *harness) {
+			h.withoutCurl()
+			os.Remove(filepath.Join(h.files, "v1.9.10", "racksail-linux-amd64"))
+		}, nil, "1.9.10", "  HTTP/1.1 404 Not Found\ninstall.sh: couldn't download"},
 		{"cosign download tampered", func(h *harness) {
 			os.Remove(filepath.Join(h.stubDir, "cosign"))
 			h.write(filepath.Join(h.files, "cosign/cosign-linux-amd64"), "#!/bin/sh\nexit 0\n", 0o644)
