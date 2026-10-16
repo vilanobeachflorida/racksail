@@ -62,7 +62,7 @@ System hooks patch a copy of a service's configuration. The patched configuratio
 
 Some settings can't be loosened by any hook: authentication, authorization checks, the audit log, the minimum sandbox of services and the agent's allowlist of operations. Hooks can always make them stricter. Loosening one needs the `core.override` permission, which only a server admin can grant; every time it is used, the panel logs it and records it in the audit log. Rules never hold it. **Settings → Rules** marks the hooks that hold it in red.
 
-Only a server admin approves `core.override`, `secrets.read` and system hooks for an add-on, whoever else may install or change add-ons: someone with a narrower grant on add-ons, a token, or an add-on allowed to change add-ons is refused with `addons.admin_approval`. The same goes for giving an add-on that holds one of them another program, since it would run with what was approved for the first. Changing anything else of such an add-on, such as turning it off, needs no admin.
+Only a server admin approves `core.override`, `secrets.read` and system hooks for an add-on, whoever else may install or change add-ons: someone with a narrower grant on add-ons, a token, or an add-on allowed to change add-ons, even in what its modify hook adds to an admin's change, is refused with `addons.admin_approval`. The same goes for giving an add-on that holds one of them another program, since it would run with what was approved for the first. Changing anything else of such an add-on, such as turning it off, needs no admin.
 
 ## Kinds an add-on adds
 

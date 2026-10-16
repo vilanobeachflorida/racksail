@@ -655,18 +655,19 @@ func TestAddonsTakePartInChanges(t *testing.T) {
 	if !strings.Contains(rec.body.String(), `"path":"scans"`) || strings.Contains(rec.body.String(), "secret") || !strings.Contains(rec.body.String(), "admin") {
 		t.Errorf("route = %d %s", rec.status, rec.body.String())
 	}
-	// Its screens are told who is looking, with the query they were asked
-	// with and the panel's ID for the request, and nothing of their
+	// Its screens are told who is looking, the person the frame was opened
+	// for whoever the request is signed in as, with the query they were
+	// asked with and the panel's ID for the request, and nothing of their
 	// credentials either.
-	_, _, _, client, ok := e.runtime.Running("site-guard")
-	if !ok {
-		t.Fatal("the add-on doesn't run")
+	base, err := e.runtime.OpenFrame("site-guard", e.admin)
+	if err != nil {
+		t.Fatal(err)
 	}
 	mux = http.NewServeMux()
-	mux.Handle("GET /api/v1/addons/site-guard/ui/{path...}", client.Screens())
-	req, _ = http.NewRequest("GET", "/api/v1/addons/site-guard/ui/tab?resource=site_1", nil)
+	mux.Handle("/api/v1/addons/{addon}/frames/{token}/{path...}", e.runtime.Frames(nil))
+	req, _ = http.NewRequest("GET", base+"ui/tab?resource=site_1", nil)
 	req.Header.Set("Cookie", "racksail_session=secret")
-	req = req.WithContext(auth.WithActor(req.Context(), e.admin))
+	req = req.WithContext(auth.WithActor(req.Context(), &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "someone else"}))
 	rec = newRecorder()
 	// The API's middleware answers with the request's ID before handlers run.
 	rec.Header().Set("X-Request-Id", "req_01jq0000000000000000000001")
@@ -1065,6 +1066,40 @@ func TestOnlyServerAdminsApproveWhatOnlyTheyMayGrant(t *testing.T) {
 	widened.Approved.Secrets = true
 	if _, err := e.submit(collaborator, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: plain.ID, Revision: plain.Revision, Spec: spec(t, widened)}); !errors.Is(err, hooks.ErrDenied) || !strings.Contains(i18n.From(err).Message, "secrets.read") {
 		t.Errorf("a collaborator approving secrets.read: %v", err)
+	}
+}
+
+// What an add-on's modify hook adds is the add-on's doing, so it approves
+// nothing only a server admin may, even when a server admin makes the
+// change it joins.
+func TestModifyHooksApproveNothingOnlyAdminsMay(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	manifest := strings.Replace(guardManifest, "write: [{kind: web.site, fields: [cdn]}]", "write: [{kind: web.site, fields: [cdn]}, {kind: core.addon}]", 1)
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, withKinds(t, manifest))}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing the site guard: %v %+v", err, cs)
+	}
+	other := withKinds(t, strings.Replace(guardManifest, "id: site-guard", "id: plain", 1))
+	other.ID, other.Enabled = "plain", false
+	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, other)})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("another add-on: %v %+v", err, cs)
+	}
+	plain, _ := Addon.Get(ctx, e.store, cs.Changes[0].ID)
+	widened := plain.Spec
+	widened.Approved.Secrets = true
+	var after map[string]any
+	json.Unmarshal(spec(t, widened), &after)
+	e.fake.mu.Lock()
+	e.fake.adds = []map[string]any{{"op": "update", "kind": Addon.Name(), "id": string(plain.ID), "after": after}}
+	e.fake.mu.Unlock()
+	acct := store.AccountScope(store.NewID("acct"))
+	_, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, Spec: spec(t, siteSpec{Domains: []string{"shop.example"}})})
+	if !errors.Is(err, hooks.ErrDenied) || !errors.Is(err, ErrAdminApproval) || !strings.Contains(i18n.From(err).Message, "secrets.read") {
+		t.Errorf("a modify hook approving secrets.read: %v", err)
+	}
+	if got, _ := Addon.Get(ctx, e.store, plain.ID); got.Spec.Approved.Secrets {
+		t.Error("the other add-on may read secrets now")
 	}
 }
 

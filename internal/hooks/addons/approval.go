@@ -89,7 +89,9 @@ func specs(ch *changeset.ResourceChange) (after, before AddonSpec, ok bool) {
 // checkApproval refuses a change that gives a server's add-on, or a new
 // program of one, a permission only a server admin may approve, unless a
 // server admin makes it. Giving up such a permission, or changing what
-// doesn't widen it, such as turning the add-on off, needs no admin.
+// doesn't widen it, such as turning the add-on off, needs no admin. A
+// change an add-on's modify hook added is the add-on's, not that of the
+// person whose change it joined, and no add-on is a server admin.
 func (r *Runtime) checkApproval(ctx context.Context, c *hooks.Context) error {
 	ch := c.Change
 	if ch == nil || (ch.Op != changeset.OpCreate && ch.Op != changeset.OpUpdate) {
@@ -101,7 +103,11 @@ func (r *Runtime) checkApproval(ctx context.Context, c *hooks.Context) error {
 		return nil
 	}
 	need := adminOnly(after.Approved)
-	if len(need) == 0 || serverAdmin(c.Actor) {
+	approver := c.Actor
+	if ch.Source.Type == hooks.OwnerAddon {
+		approver = nil
+	}
+	if len(need) == 0 || serverAdmin(approver) {
 		return nil
 	}
 	had := adminOnly(before.Approved)

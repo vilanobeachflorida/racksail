@@ -41,7 +41,7 @@ Ask for as little as the add-on's job needs: the fields it reads rather than who
 
 Installing an add-on is a change like any other: its preview shows what the panel will download, the sandbox it sets up and the permissions the add-on gets, and the change only goes through when the permissions approved cover everything the manifest asks for. Otherwise it's refused with `addons.not_approved`, naming the first permission missing. A new version that asks for more needs the new permissions approved when it's installed.
 
-Three permissions can only be approved by an admin of the whole server, whoever else may install add-ons: `override`, `secrets` and `system` hooks. Someone with a narrower grant, a token or another add-on is refused with `addons.admin_approval`, and so is giving an add-on that holds one of them another program, since the new one would get what was approved for the old. Changing anything else, such as turning the add-on off, needs no admin.
+Three permissions can only be approved by an admin of the whole server, whoever else may install add-ons: `override`, `secrets` and `system` hooks. Someone with a narrower grant, a token or another add-on, through the API or in what its modify hook adds to someone else's change, is refused with `addons.admin_approval`, and so is giving an add-on that holds one of them another program, since the new one would get what was approved for the old. Changing anything else, such as turning the add-on off, needs no admin.
 
 ## How the panel holds an add-on to them
 
