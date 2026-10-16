@@ -8243,10 +8243,15 @@ export interface components {
             ui: components["schemas"]["UIExtension"];
         };
         UIExtension: {
+            /** @description The entry's icon, by its name in Lucide, such as shield */
             icon?: string;
+            /** @description The kind whose screens a tab or column goes on */
             kind?: string;
+            /** @description What the panel calls the entry */
             label: string;
+            /** @description For a column, the add-on's GET route that answers its values; otherwise the page under the add-on's /ui/ the entry shows */
             path?: string;
+            /** @description Where the entry goes: nav, tab, card, command, settings or column */
             type: string;
         };
         UIHints: {

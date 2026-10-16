@@ -156,7 +156,7 @@
         "label": { "type": "string" },
         "icon": { "type": "string" },
         "kind": { "description": "Kind for tabs and columns.", "type": "string" },
-        "path": { "description": "Page served by the add-on in a sandboxed frame.", "type": "string" }
+        "path": { "description": "Page served by the add-on in a sandboxed frame; for a column, the add-on's GET route that answers its values.", "type": "string" }
       }
     }
   }

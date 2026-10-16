@@ -596,6 +596,53 @@ permissions:
 	}
 }
 
+// Tabs and columns only show on the screens of the kind they name, and the
+// panel asks a column's values of the add-on's own route; an entry that
+// can't show is refused when the add-on is installed, not left out quietly.
+func TestAddonManifestUIEntries(t *testing.T) {
+	base := `
+format: 1
+id: site-guard
+name: Site guard
+version: 0.3.0
+license: Apache-2.0
+source: https://example.com/site-guard
+author: Example
+description: Blocks deploys that contain known web shells.
+apiVersions: [v1]
+permissions:
+  read: [{kind: web.site, fields: [domains]}]
+routes:
+  - {method: GET, path: /blocked, summary: Visitors blocked per site}
+  - {method: POST, path: /unblock, summary: Let a visitor in again}
+`
+	for _, tc := range []struct {
+		name, ui string
+		refused  string
+	}{
+		{"pages", "  - {type: nav, label: Guard, path: /overview}\n  - {type: card, label: Blocked, path: card}", ""},
+		{"a tab of a kind", "  - {type: tab, label: Guard, kind: web.site, path: /tab}", ""},
+		{"a tab of no kind", "  - {type: tab, label: Guard, path: /tab}", `the tab "Guard" needs the kind`},
+		{"a column from a GET route", "  - {type: column, label: Blocked, kind: web.site, path: blocked}", ""},
+		{"a column of no kind", "  - {type: column, label: Blocked, path: /blocked}", `the column "Blocked" needs the kind`},
+		{"a column without a route", "  - {type: column, label: Blocked, kind: web.site, path: /elsewhere}", `the column "Blocked" needs the path`},
+		{"a column from a POST route", "  - {type: column, label: Unblock, kind: web.site, path: /unblock}", `the column "Unblock" needs the path`},
+		{"a column without a path", "  - {type: column, label: Blocked, kind: web.site}", `the column "Blocked" needs the path`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := ParseAddonManifest([]byte(base + "ui:\n" + tc.ui + "\n"))
+			switch {
+			case tc.refused == "" && err != nil:
+				t.Fatal(err)
+			case tc.refused != "" && err == nil:
+				t.Fatalf("accepted %+v", m.UI)
+			case tc.refused != "" && !strings.Contains(err.Error(), tc.refused):
+				t.Fatalf("refused with %q, want %q", err, tc.refused)
+			}
+		})
+	}
+}
+
 func TestPolicySpec(t *testing.T) {
 	ok := PolicySpec{Name: "Quota", Type: PolicyDefault, Kinds: []string{"mail.mailbox"}, Defaults: []FieldDefault{{Field: "quotaBytes", Expression: "5 * 1024 * 1024 * 1024"}}}
 	if err := ok.Validate(); err != nil {

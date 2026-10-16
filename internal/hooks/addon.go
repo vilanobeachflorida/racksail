@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -104,11 +105,11 @@ type Resources struct {
 
 // UIExtension is a declarative addition to the UI.
 type UIExtension struct {
-	Type  string `yaml:"type" json:"type"`
-	Label string `yaml:"label" json:"label"`
-	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty"`
-	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty"`
-	Path  string `yaml:"path,omitempty" json:"path,omitempty"`
+	Type  string `yaml:"type" json:"type" doc:"Where the entry goes: nav, tab, card, command, settings or column"`
+	Label string `yaml:"label" json:"label" doc:"What the panel calls the entry"`
+	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty" doc:"The entry's icon, by its name in Lucide, such as shield"`
+	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty" doc:"The kind whose screens a tab or column goes on"`
+	Path  string `yaml:"path,omitempty" json:"path,omitempty" doc:"For a column, the add-on's GET route that answers its values; otherwise the page under the add-on's /ui/ the entry shows"`
 }
 
 // AddonRoute is an API route the add-on serves under /api/v1/addons/<id>/.
@@ -185,7 +186,31 @@ func ParseAddonManifest(data []byte) (*AddonManifest, error) {
 	if err := m.checkKinds(); err != nil {
 		return nil, err
 	}
+	if err := m.checkUI(); err != nil {
+		return nil, err
+	}
 	return &m, nil
+}
+
+// checkUI checks the entries a manifest adds to the panel. Tabs and columns
+// go on a kind's screens, so they name the kind, and the panel asks one of
+// the add-on's own GET routes for a column's values.
+func (m *AddonManifest) checkUI() error {
+	for _, e := range m.UI {
+		if (e.Type == "tab" || e.Type == "column") && strings.TrimSpace(e.Kind) == "" {
+			return fmt.Errorf("add-on %s: the %s %q needs the kind whose screens it goes on", m.ID, e.Type, e.Label)
+		}
+		if e.Type != "column" {
+			continue
+		}
+		path := strings.Trim(e.Path, "/")
+		if path == "" || !slices.ContainsFunc(m.Routes, func(r AddonRoute) bool {
+			return r.Method == http.MethodGet && strings.Trim(r.Path, "/") == path
+		}) {
+			return fmt.Errorf("add-on %s: the column %q needs the path of one of its GET routes, which answers its values", m.ID, e.Label)
+		}
+	}
+	return nil
 }
 
 // checkKinds checks the kinds a manifest adds against each other. Adding
