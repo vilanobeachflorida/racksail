@@ -260,7 +260,7 @@ function RuleList({ owner }: { owner: Owner }) {
         ) : items.length === 0 ? (
           <EmptyState icon={ScrollText} title={intl.formatMessage(m.rulesNone)} />
         ) : (
-          <Table>
+          <Table aria-labelledby="rules-list">
             <TableHeader>
               <TableRow>
                 <TableHead>{intl.formatMessage(m.rulesName)}</TableHead>
@@ -649,7 +649,7 @@ function Hooks() {
         {list.length === 0 ? (
           <EmptyState icon={Webhook} title={intl.formatMessage(m.hooksNone)} />
         ) : (
-          <Table>
+          <Table aria-labelledby="hooks-title">
             <TableHeader>
               <TableRow>
                 <TableHead>{intl.formatMessage(m.hooksOwner)}</TableHead>

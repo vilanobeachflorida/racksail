@@ -316,7 +316,7 @@ export function TimeSeries({
           {intl.formatMessage(m.chartTable)}
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-2 max-h-72 overflow-auto">
-          <Table>
+          <Table aria-labelledby={titleId}>
             <TableHeader>
               <TableRow>
                 <TableHead>{intl.formatMessage(m.chartTime)}</TableHead>

@@ -63,7 +63,7 @@ describe("the time series chart", () => {
     await waitFor(() => expect(figure.querySelector(".uplot")).not.toBeNull());
 
     await user.click(within(figure).getByRole("button", { name: "Show the data as a table" }));
-    const table = within(figure).getByRole("table");
+    const table = within(figure).getByRole("table", { name: "Requests per minute" });
     const rows = within(table).getAllByRole("row");
     expect(rows).toHaveLength(5);
     expect(

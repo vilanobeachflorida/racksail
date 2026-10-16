@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Inbox } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
 import { renderWithProviders } from "@/test/render";
@@ -38,7 +38,7 @@ import {
 } from "./ui/overlay";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { EmptyState, ErrorState, StatTile, StatusDot } from "./ui/states";
-import { Table, TableBody, TableCell, TableRow } from "./ui/table";
+import { Table, TableBody, TableCaption, TableCell, TableRow } from "./ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Toaster, toastWithUndo } from "./ui/toaster";
 
@@ -408,28 +408,73 @@ describe("toasts", () => {
 });
 
 describe("tables", () => {
-  const table = (
-    <Table aria-label="What each role may do">
-      <TableBody>
-        <TableRow>
-          <TableCell>web.site.read</TableCell>
-        </TableRow>
-      </TableBody>
-    </Table>
+  const body = (
+    <TableBody>
+      <TableRow>
+        <TableCell>web.site.read</TableCell>
+      </TableRow>
+    </TableBody>
   );
+  const table = <Table aria-label="What each role may do">{body}</Table>;
+  // As on a phone, where the table is wider than the screen.
+  const tooWide = () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+  };
 
   it("take focus only while they scroll sideways, so the keyboard can scroll them", () => {
     const { unmount } = renderWithProviders(table);
     const container = () =>
       screen.getByRole("table", { name: "What each role may do" }).parentElement as HTMLElement;
     expect(container()).not.toHaveAttribute("tabindex");
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
     unmount();
 
-    // As on a phone, where the table is wider than the screen.
-    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
-    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+    tooWide();
     renderWithProviders(table);
     expect(container()).toHaveAttribute("tabindex", "0");
+  });
+
+  it("scroll in a region named as the table, so a screen reader says what took focus", () => {
+    tooWide();
+    const named = (ui: ReactNode, name: string) => {
+      const { unmount } = renderWithProviders(ui);
+      const region = screen.getByRole("region", { name });
+      expect(region).toHaveAttribute("tabindex", "0");
+      expect(region).toContainElement(screen.getByRole("table", { name }));
+      unmount();
+    };
+    named(table, "What each role may do");
+    named(
+      <>
+        <h2 id="matrix">Permission matrix</h2>
+        <Table aria-labelledby="matrix" aria-label="Ignored, as for the table">
+          {body}
+        </Table>
+      </>,
+      "Permission matrix",
+    );
+    named(
+      <Table>
+        <TableCaption>Sites</TableCaption>
+        {body}
+      </Table>,
+      "Sites",
+    );
+    named(
+      <Table aria-label="Server sites">
+        <TableCaption>Sites</TableCaption>
+        {body}
+      </Table>,
+      "Server sites",
+    );
+  });
+
+  it("aren't regions without a name, which a region needs", () => {
+    tooWide();
+    renderWithProviders(<Table>{body}</Table>);
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(screen.getByRole("table").parentElement).toHaveAttribute("tabindex", "0");
   });
 });
 

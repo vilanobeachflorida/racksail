@@ -317,7 +317,10 @@ function ContrastChecker({ theme }: { theme: Theme }) {
         </div>
         {(["light", "dark", "console"] as const).map((m) => (
           <TabsContent key={m} value={m} className="max-h-[28rem] overflow-auto">
-            <ContrastTable rows={rows.filter((r) => r.mode === m && (!onlyFailing || !r.pass))} />
+            <ContrastTable
+              label={intl.formatMessage(tm.themeModeName, { mode: m })}
+              rows={rows.filter((r) => r.mode === m && (!onlyFailing || !r.pass))}
+            />
           </TabsContent>
         ))}
       </Tabs>
@@ -325,10 +328,10 @@ function ContrastChecker({ theme }: { theme: Theme }) {
   );
 }
 
-function ContrastTable({ rows }: { rows: ContrastRow[] }) {
+function ContrastTable({ label, rows }: { label: string; rows: ContrastRow[] }) {
   const intl = useIntl();
   return (
-    <Table>
+    <Table aria-label={label}>
       <TableHeader>
         <TableRow>
           <TableHead>{intl.formatMessage(tm.themeContrastPair)}</TableHead>

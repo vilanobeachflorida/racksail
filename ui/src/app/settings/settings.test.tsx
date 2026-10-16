@@ -65,6 +65,7 @@ describe("the theme editor", () => {
     ).toBeInTheDocument();
     const checker = screen.getByRole("region", { name: "Contrast checker" });
     expect(within(checker).getByText(/^All \d+ checks pass WCAG 2.2 AA.$/)).toBeInTheDocument();
+    expect(within(checker).getByRole("table", { name: "Light mode" })).toBeInTheDocument();
 
     const text = screen.getByRole("textbox", { name: "Text" });
     await user.clear(text);

@@ -300,7 +300,7 @@ function Audit() {
       ) : null}
       {rows.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <Table>
+          <Table aria-label={intl.formatMessage(t.auditTitle)}>
             <TableHeader>
               <TableRow>
                 <TableHead>{intl.formatMessage(t.auditWhen)}</TableHead>

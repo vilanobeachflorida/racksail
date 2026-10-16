@@ -1,4 +1,14 @@
-import { type ComponentProps, type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ComponentProps,
+  createContext,
+  type RefObject,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/utils";
 
 /** Whether an element's content is wider than it, so that it scrolls sideways. */
@@ -24,26 +34,50 @@ function useScrollsSideways(ref: RefObject<HTMLElement | null>): boolean {
   return scrolls;
 }
 
+/** How a table's caption tells the table which ID it has, or that it's gone. */
+const CaptionContext = createContext<{
+  id: string;
+  setCaption: (id: string | null) => void;
+} | null>(null);
+
 /**
  * A plain table for short lists; DataTable handles long ones. One wider
  * than the screen scrolls sideways, and takes focus then, so the keyboard
- * can scroll it too.
+ * can scroll it too. It's then a region named as the table is, by its
+ * aria-labelledby, its aria-label or its caption, so a screen reader says
+ * what took focus. Name every table: without a name the container can't be
+ * a region, and takes focus without saying what it holds.
  */
 export function Table({ className, ...props }: ComponentProps<"table">) {
   const container = useRef<HTMLDivElement>(null);
   const scrolls = useScrollsSideways(container);
+  const captionId = useId();
+  const [caption, setCaption] = useState<string | null>(null);
+  const captions = useMemo(() => ({ id: captionId, setCaption }), [captionId]);
+  // A table's name comes from its aria-labelledby, else its aria-label,
+  // else its caption.
+  const label = props["aria-labelledby"] ? undefined : props["aria-label"];
+  const labelledBy = props["aria-labelledby"] ?? (label ? undefined : (caption ?? undefined));
   return (
+    // The ring is drawn inside, since screens put tables in other scrolling
+    // containers, which would clip one outside.
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the container is named only while it scrolls, when it's a region
     <div
       ref={container}
       data-slot="table-container"
-      className="relative w-full overflow-x-auto focus-visible:focus-ring"
+      className="relative w-full overflow-x-auto focus-visible:focus-ring-inset"
+      role={scrolls && (label || labelledBy) ? "region" : undefined}
+      aria-label={scrolls ? label : undefined}
+      aria-labelledby={scrolls ? labelledBy : undefined}
       tabIndex={scrolls ? 0 : undefined}
     >
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom border-collapse text-sm", className)}
-        {...props}
-      />
+      <CaptionContext.Provider value={captions}>
+        <table
+          data-slot="table"
+          className={cn("w-full caption-bottom border-collapse text-sm", className)}
+          {...props}
+        />
+      </CaptionContext.Provider>
     </div>
   );
 }
@@ -94,10 +128,20 @@ export function TableCell({ className, ...props }: ComponentProps<"td">) {
   );
 }
 
-export function TableCaption({ className, ...props }: ComponentProps<"caption">) {
+export function TableCaption({ className, id, ...props }: ComponentProps<"caption">) {
+  const table = useContext(CaptionContext);
+  const own = id ?? table?.id;
+  useLayoutEffect(() => {
+    if (!table || !own) {
+      return;
+    }
+    table.setCaption(own);
+    return () => table.setCaption(null);
+  }, [table, own]);
   return (
     <caption
       data-slot="table-caption"
+      id={own}
       className={cn("mt-3 text-muted-foreground text-sm", className)}
       {...props}
     />
