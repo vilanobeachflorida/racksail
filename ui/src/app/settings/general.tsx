@@ -20,9 +20,10 @@ import {
   SelectValue,
 } from "@/design/components/ui/select";
 import { toast } from "@/design/components/ui/toaster";
-import { availableLocales, useLocaleChoice } from "@/lib/i18n";
+import { availableLocales, profileLocale, useLocaleChoice } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { type GeneralPreferences, useGeneralPreferences } from "../general";
+import { useSession } from "../identity/session";
 import { messages } from "../messages";
 import { generalMessages as m } from "../screens/messages";
 import { clearRecent } from "../screens/recent";
@@ -163,14 +164,19 @@ function TimeZonePicker({
 const sample = new Date(Date.UTC(2026, 0, 15, 15, 45));
 
 /**
- * How the panel works for the person in this browser: the language, the
- * time zone and clock times show in, letter shortcuts, and whether the
- * command bar remembers what they opened.
+ * How the panel works for the person: the time zone and clock times show
+ * in, letter shortcuts and whether the command bar remembers what they
+ * opened, which follow them to every browser once they're signed in, and
+ * the language this browser shows when it isn't their profile's.
  */
 export default function GeneralSettings() {
   const intl = useIntl();
+  const { session } = useSession();
   const { preferences, setPreferences } = useGeneralPreferences();
   const [locale, setLocale] = useLocaleChoice();
+  // Without a choice of its own, this browser shows the profile's language.
+  const shownForProfile = profileLocale(session?.user.locale);
+  const profileLanguage = availableLocales().find((l) => l.tag === shownForProfile)?.name;
   // An example time, marked up as the time it is.
   const clock = (hourCycle: "h12" | "h23" | undefined) => (
     <time key="example" dateTime="15:45">
@@ -192,7 +198,9 @@ export default function GeneralSettings() {
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.generalTitle)}</h1>
-        <p className="text-muted-foreground">{intl.formatMessage(m.description)}</p>
+        <p className="text-muted-foreground">
+          {intl.formatMessage(m.description, { kept: session ? "account" : "browser" })}
+        </p>
       </div>
       <Setting
         title={intl.formatMessage(messages.appearanceLanguage)}
@@ -208,7 +216,9 @@ export default function GeneralSettings() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="browser">
-                {intl.formatMessage(messages.languageBrowser)}
+                {profileLanguage
+                  ? intl.formatMessage(m.languageProfile, { language: profileLanguage })
+                  : intl.formatMessage(messages.languageBrowser)}
               </SelectItem>
               {availableLocales().map((l) => (
                 <SelectItem key={l.tag} value={l.tag}>

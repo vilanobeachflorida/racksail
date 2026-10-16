@@ -349,7 +349,7 @@ func TestStepUp(t *testing.T) {
 		t.Errorf("a token changing the email address sign-ins match = %v", err)
 	}
 	if err := h.svc.SetPreferences(ctx, token, json.RawMessage(`{"theme":"dark"}`)); !auth.ErrPanelOnly.Is(err) {
-		t.Errorf("a token changing display preferences = %v", err)
+		t.Errorf("a token changing preferences for the web UI = %v", err)
 	}
 	if methods := h.svc.StepUpMethods(ctx, fresh); len(methods) != 1 || methods[0] != "password" {
 		t.Errorf("methods = %v", methods)

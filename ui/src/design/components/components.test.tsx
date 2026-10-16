@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Inbox } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
 import { renderWithProviders } from "@/test/render";
@@ -38,6 +38,7 @@ import {
 } from "./ui/overlay";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { EmptyState, ErrorState, StatTile, StatusDot } from "./ui/states";
+import { Table, TableBody, TableCaption, TableCell, TableRow } from "./ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Toaster, toastWithUndo } from "./ui/toaster";
 
@@ -360,6 +361,120 @@ describe("toasts", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
     expect(undo).toHaveBeenCalled();
     expect(await screen.findByText("Undone")).toBeInTheDocument();
+  });
+
+  it("stay through an undo that takes a while, and end with how it went", async () => {
+    let finish: (failure?: Error) => void = () => {};
+    const undo = vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          finish = (failure) => (failure ? reject(failure) : resolve());
+        }),
+    );
+    const labels = {
+      undo: "Undo",
+      undoing: "Undoing",
+      undone: "Undone",
+      failed: (e: unknown) => `Couldn't undo: ${(e as Error).message}`,
+    };
+    renderWithProviders(<Toaster />);
+    toastWithUndo({ message: "Deleted example.com", undo, labels });
+    const button = await screen.findByRole("button", { name: "Undo" });
+    const shown = button.closest("[data-sonner-toast]");
+    await userEvent.click(button);
+    expect(await screen.findByText("Undoing")).toBeInTheDocument();
+    // Longer than Sonner takes to remove a toast it closed.
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(shown).toBeInTheDocument();
+    expect(shown).toHaveAttribute("data-removed", "false");
+    expect(within(shown as HTMLElement).getByText("Undoing")).toBeInTheDocument();
+    // Undo is offered once.
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    finish();
+    // The same toast says how it went.
+    expect(await within(shown as HTMLElement).findByText("Undone")).toBeInTheDocument();
+    expect(undo).toHaveBeenCalledTimes(1);
+
+    toastWithUndo({ message: "Deleted shop.example.com", undo, labels });
+    const again = (await screen.findByRole("button", { name: "Undo" })).closest(
+      "[data-sonner-toast]",
+    ) as HTMLElement;
+    await userEvent.click(within(again).getByRole("button", { name: "Undo" }));
+    finish(new Error("the site came back already"));
+    expect(
+      await within(again).findByText("Couldn't undo: the site came back already"),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("tables", () => {
+  const body = (
+    <TableBody>
+      <TableRow>
+        <TableCell>web.site.read</TableCell>
+      </TableRow>
+    </TableBody>
+  );
+  const table = <Table aria-label="What each role may do">{body}</Table>;
+  // As on a phone, where the table is wider than the screen.
+  const tooWide = () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+  };
+
+  it("take focus only while they scroll sideways, so the keyboard can scroll them", () => {
+    const { unmount } = renderWithProviders(table);
+    const container = () =>
+      screen.getByRole("table", { name: "What each role may do" }).parentElement as HTMLElement;
+    expect(container()).not.toHaveAttribute("tabindex");
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    unmount();
+
+    tooWide();
+    renderWithProviders(table);
+    expect(container()).toHaveAttribute("tabindex", "0");
+  });
+
+  it("scroll in a region named as the table, so a screen reader says what took focus", () => {
+    tooWide();
+    const named = (ui: ReactNode, name: string) => {
+      const { unmount } = renderWithProviders(ui);
+      const region = screen.getByRole("region", { name });
+      expect(region).toHaveAttribute("tabindex", "0");
+      expect(region).toContainElement(screen.getByRole("table", { name }));
+      unmount();
+    };
+    named(table, "What each role may do");
+    named(
+      <>
+        <h2 id="matrix">Permission matrix</h2>
+        <Table aria-labelledby="matrix" aria-label="Ignored, as for the table">
+          {body}
+        </Table>
+      </>,
+      "Permission matrix",
+    );
+    named(
+      <Table>
+        <TableCaption>Sites</TableCaption>
+        {body}
+      </Table>,
+      "Sites",
+    );
+    named(
+      <Table aria-label="Server sites">
+        <TableCaption>Sites</TableCaption>
+        {body}
+      </Table>,
+      "Server sites",
+    );
+  });
+
+  it("aren't regions without a name, which a region needs", () => {
+    tooWide();
+    renderWithProviders(<Table>{body}</Table>);
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(screen.getByRole("table").parentElement).toHaveAttribute("tabindex", "0");
   });
 });
 

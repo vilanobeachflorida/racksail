@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import Jobs from "@/app/jobs-panel";
 import type { Job, LogLine } from "@/lib/changes";
+import { shellMessages } from "@/lib/i18n";
 import { fakeApi, fakeLive, json, renderWithProviders } from "@/test/render";
 import { JobLog, JobsDrawer } from "./jobs-drawer";
 
@@ -65,6 +66,35 @@ describe("the jobs drawer", () => {
     expect(within(finished).getByText("Attempt 2")).toBeInTheDocument();
     await userEvent.click(within(finished).getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ id: "job_3" }));
+  });
+
+  it("says how far a job has got in one message, which translators can reorder", async () => {
+    renderWithProviders(
+      <JobsDrawer
+        open
+        onOpenChange={() => {}}
+        jobs={[
+          job("job_1", "running"),
+          job("job_2", "running", { progress: { done: 0, total: 0, message: "Starting" } }),
+          job("job_3", "running", { progress: { done: 1, total: 4 } }),
+        ]}
+        renderLog={() => null}
+      />,
+      {
+        messages: {
+          ...shellMessages,
+          "design.jobs.steps":
+            "{total, plural, =0 {{message}} other {{hasMessage, select, yes {{message}, } other {}}step {done} of {total}}}",
+        },
+      },
+    );
+    const running = within(await screen.findByRole("dialog", { name: "Jobs" })).getByRole(
+      "region",
+      { name: "Running" },
+    );
+    expect(within(running).getByText("Installing php8.4-fpm, step 2 of 5")).toBeInTheDocument();
+    expect(within(running).getByText("Starting")).toBeInTheDocument();
+    expect(within(running).getByText("step 1 of 4")).toBeInTheDocument();
   });
 
   it("explains an empty list and a failed load", async () => {

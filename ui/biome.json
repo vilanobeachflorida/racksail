@@ -15,7 +15,10 @@
       "!src/design/theme.css",
       "!src/design/brand.ts",
       "!src/design/themes.json",
-      "!package-lock.json"
+      "!package-lock.json",
+      "!.*",
+      "!src/**/.*",
+      "!scripts/**/.*"
     ]
   },
   "formatter": {

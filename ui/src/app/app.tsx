@@ -9,10 +9,13 @@ import {
   type ComponentProps,
   lazy,
   type ReactNode,
+  type RefObject,
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { type IntlConfig, useIntl } from "react-intl";
@@ -20,8 +23,8 @@ import { TooltipProvider } from "@/design/components/ui/overlay";
 import { toast } from "@/design/components/ui/toaster";
 import type { ThemeFileURL } from "@/design/theme/files";
 import type { ThemeLayers } from "@/design/theme/layers";
-import type { Preferences } from "@/design/theme/prefs";
-import { ThemeProvider } from "@/design/theme/provider";
+import { loadPreferences, type Preferences } from "@/design/theme/prefs";
+import { ThemeProvider, useTheme } from "@/design/theme/provider";
 import { type ApiClient, ApiError } from "@/lib/api/client";
 import { ApiProvider } from "@/lib/api/context";
 import { getSession, savePreferences } from "@/lib/api/operations";
@@ -31,10 +34,10 @@ import {
   applyLocale,
   defaultLocale,
   I18nProvider,
-  initialLocale,
   LocaleChoiceProvider,
   loadMessages,
   localeKey,
+  preferredLocale,
   shellMessages,
   storedLocale,
 } from "@/lib/i18n";
@@ -44,7 +47,13 @@ import { createQueryClient } from "@/lib/query";
 import { loadModules, type ModuleId } from "@/modules/registry";
 import type { ModuleUI } from "@/modules/types";
 import { BootError } from "./errors";
-import { GeneralPreferencesProvider, useGeneralPreferences } from "./general";
+import {
+  type GeneralPreferences,
+  GeneralPreferencesProvider,
+  generalForAccount,
+  loadGeneral,
+  useGeneralPreferences,
+} from "./general";
 import { SessionProvider, useSignOutWatch } from "./identity/session";
 import { StepUpProvider } from "./identity/step-up";
 import { messages } from "./messages";
@@ -85,7 +94,6 @@ export interface AppProps {
 export function App({ api, queryClient, locale, history, onIntlError, session, live }: AppProps) {
   const [client] = useState(() => queryClient ?? createQueryClient());
   const [choice, setChoice] = useState<string | null>(() => (locale ? null : storedLocale()));
-  const shown = locale ?? choice ?? initialLocale();
   const localeChoice = useMemo(
     () => ({
       choice,
@@ -108,16 +116,14 @@ export function App({ api, queryClient, locale, history, onIntlError, session, l
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>
         <LiveProvider {...(live ? { client: live } : {})}>
-          <GeneralPreferencesProvider>
-            <SessionPanel
-              api={api}
-              given={session}
-              locale={shown}
-              history={history}
-              onIntlError={onIntlError}
-              localeChoice={localeChoice}
-            />
-          </GeneralPreferencesProvider>
+          <SessionPanel
+            api={api}
+            given={session}
+            chosen={locale ?? choice}
+            history={history}
+            onIntlError={onIntlError}
+            localeChoice={localeChoice}
+          />
         </LiveProvider>
       </QueryClientProvider>
     </ApiProvider>
@@ -128,19 +134,22 @@ export function App({ api, queryClient, locale, history, onIntlError, session, l
  * Reads the session before the shell, unless it was given. A panel that
  * doesn't serve sessions answers 404, and the UI runs without one. Nobody
  * signed in gets the sign-in screens instead of the shell, and someone who
- * must first set up a second step or choose a password gets those.
+ * must first set up a second step or choose a password gets those. The
+ * panel shows the language chosen in this browser, or else the one of the
+ * person's profile.
  */
 function SessionPanel({
   api,
   given,
-  locale,
+  chosen,
   history,
   onIntlError,
   localeChoice,
 }: {
   api: ApiClient;
   given: PanelSession | null | undefined;
-  locale: string;
+  /** The language this browser shows, whatever the profile says; null when it has none. */
+  chosen: string | null;
   history: RouterHistory | undefined;
   onIntlError: IntlConfig["onError"] | undefined;
   localeChoice: ComponentProps<typeof LocaleChoiceProvider>["value"];
@@ -169,6 +178,7 @@ function SessionPanel({
   const current = given !== undefined ? given : (loaded.data ?? null);
   const out = current !== null && "signedOut" in current;
   const session = current === null || "signedOut" in current ? null : current;
+  const locale = chosen ?? preferredLocale(session?.user.locale);
   const refresh = useCallback(async () => {
     if (given === undefined) {
       await queryClient.refetchQueries({ queryKey: ["session"], exact: true });
@@ -239,7 +249,25 @@ function PreferencesNotKept({ error }: { error: unknown }) {
   );
 }
 
-/** Applies the themes and preferences the session brings. */
+interface CurrentPreferences {
+  display: Preferences | null;
+  general: GeneralPreferences | null;
+}
+
+/** Notes the preferences in effect, so a change of one kind is kept along with the other. */
+function NotePreferences({ into }: { into: RefObject<CurrentPreferences> }) {
+  const { preferences: display } = useTheme();
+  const { preferences: general } = useGeneralPreferences();
+  useLayoutEffect(() => {
+    into.current = { display, general };
+  }, [into, display, general]);
+  return null;
+}
+
+/**
+ * Applies the themes and preferences the session brings, and keeps the
+ * person's changes to their preferences with their account.
+ */
 function SessionTheme({
   api,
   session,
@@ -265,27 +293,40 @@ function SessionTheme({
     [serverFiles, resellerFiles],
   );
   const signedIn = session !== null;
+  // The account keeps both kinds of preferences as one document, so a
+  // change of one sends the other as it is now.
+  const now = useRef<CurrentPreferences>({ display: null, general: null });
   const keep = useCallback(
-    (preferences: Preferences) => {
+    (change: Partial<CurrentPreferences>) => {
       if (!signedIn) {
         return;
       }
-      savePreferences(api, preferences).catch((error: unknown) => {
-        toast.error(<PreferencesNotKept error={error} />);
-      });
+      const display = change.display ?? now.current.display ?? loadPreferences();
+      const general = change.general ?? now.current.general ?? loadGeneral();
+      savePreferences(api, { ...display, ...generalForAccount(general) }).catch(
+        (error: unknown) => {
+          toast.error(<PreferencesNotKept error={error} />);
+        },
+      );
     },
     [api, signedIn],
   );
+  const keepDisplay = useCallback((display: Preferences) => keep({ display }), [keep]);
+  const keepGeneral = useCallback((general: GeneralPreferences) => keep({ general }), [keep]);
+  const kept = session?.preferences ?? null;
   return (
     <ThemeProvider
       layers={layers}
       fileURL={fileURL}
       {...(theme?.brandName ? { brandName: theme.brandName } : {})}
       {...(theme?.customCSS ? { customCSSURL: theme.customCSS } : {})}
-      preferences={session?.preferences ?? null}
-      onPreferencesChange={keep}
+      preferences={kept}
+      onPreferencesChange={keepDisplay}
     >
-      {children}
+      <GeneralPreferencesProvider account={kept} onPreferencesChange={keepGeneral}>
+        <NotePreferences into={now} />
+        {children}
+      </GeneralPreferencesProvider>
     </ThemeProvider>
   );
 }

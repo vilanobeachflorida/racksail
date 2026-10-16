@@ -3,7 +3,7 @@ import { RotateCcw, Square } from "lucide-react";
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { usePageTitle } from "@/app/page-title";
-import { JobLog } from "@/design/components/jobs-drawer";
+import { JobLog, stepValues } from "@/design/components/jobs-drawer";
 import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { Alert, Progress } from "@/design/components/ui/display";
@@ -93,13 +93,9 @@ export default function JobScreen() {
             aria-label={intl.formatMessage(designMessages.jobsProgress, { title: job.title })}
           />
           <p className="text-muted-foreground text-sm">
-            {job.progress.total > 0
-              ? intl.formatMessage(designMessages.jobsSteps, {
-                  done: job.progress.done,
-                  total: job.progress.total,
-                })
+            {job.progress.total > 0 || job.progress.message
+              ? intl.formatMessage(designMessages.jobsSteps, stepValues(job))
               : null}
-            {job.progress.message ? ` ${job.progress.message}` : null}
           </p>
         </div>
       ) : null}

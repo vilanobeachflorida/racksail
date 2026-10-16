@@ -58,6 +58,11 @@ export interface ErrorStateProps extends Omit<ComponentProps<"div">, "title"> {
   onRetry?: () => void;
   /** Technical details for people who report the problem, hidden at first. */
   details?: ReactNode;
+  /**
+   * Makes the title a heading of this level, for a failure that takes the
+   * place of a whole screen; it's a paragraph otherwise.
+   */
+  headingLevel?: 1 | 2 | 3;
 }
 
 /** What a list or screen shows when loading it failed. */
@@ -66,10 +71,12 @@ export function ErrorState({
   error,
   onRetry,
   details,
+  headingLevel,
   className,
   ...props
 }: ErrorStateProps) {
   const intl = useIntl();
+  const Title = headingLevel ? (`h${headingLevel}` as const) : "p";
   return (
     <div
       data-slot="error-state"
@@ -80,10 +87,10 @@ export function ErrorState({
       )}
       {...props}
     >
-      <p className="flex items-center gap-2 font-semibold">
+      <Title className="flex items-center gap-2 font-semibold">
         <CircleAlert className="size-4 shrink-0 text-danger" aria-hidden="true" />
         {title}
-      </p>
+      </Title>
       {error !== undefined ? <p className="text-sm">{errorMessage(intl, error)}</p> : null}
       {details ? (
         <Collapsible>

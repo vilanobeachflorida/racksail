@@ -42,7 +42,7 @@ or give it to each command in `RACKSAIL_TOKEN`.
 Tokens are for using the panel, not for changing how you get in. Whatever its permissions, a token can't:
 
 - change how you sign in: your password, second steps, passkeys, API tokens, SSH keys, username, email address, the addresses you may sign in from, outside sign-ins and where your security alerts go;
-- change your name, language or display preferences;
+- change your name, language or preferences for the panel;
 - sign out your sessions or forget your trusted browsers;
 - view the panel as someone else.
 

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Globe, Plus, Sparkles } from "lucide-react";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinTheme } from "@/design/theme/spec";
+import { ApiError } from "@/lib/api/client";
 import type { TimelineEvent } from "@/lib/events";
 import { shellMessages } from "@/lib/i18n";
 import type { AssistantPanelProps, ModuleUI } from "@/modules/types";
@@ -422,6 +423,78 @@ describe("white-labeling", () => {
     expect(custom()?.rel).toBe("stylesheet");
     unmount();
     expect(custom()).toBeNull();
+  });
+});
+
+describe("a screen that fails", () => {
+  /** A module whose screen throws until it's fixed. */
+  function failing(error: unknown) {
+    const state = { broken: true };
+    const module: ModuleUI = {
+      ...web,
+      routes: [
+        {
+          path: "/sites",
+          title: { id: "web.sites" },
+          screen: async () => ({
+            default: () => {
+              if (state.broken) {
+                throw error;
+              }
+              return <h1>All sites</h1>;
+            },
+          }),
+        },
+      ],
+    };
+    return { module, state };
+  }
+
+  it("says what went wrong in the shell, with details, and tries again", async () => {
+    const user = userEvent.setup();
+    const { module, state } = failing(new TypeError("sites.map is not a function"));
+    await shell({ modules: [module], path: "/web/sites" });
+    const failure = await screen.findByRole("alert");
+    expect(
+      within(failure).getByRole("heading", { level: 1, name: "This screen ran into a problem" }),
+    ).toBeInTheDocument();
+    expect(failure).toHaveTextContent("sites.map is not a function");
+    // The rest of the panel still works.
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: /Search or run a command/ }).length,
+    ).toBeGreaterThan(0);
+
+    await user.click(within(failure).getByRole("button", { name: "Details" }));
+    const details = within(failure).getByText(/TypeError: sites\.map is not a function/);
+    expect(details.textContent).toMatch(/^\/web\/sites\nTypeError: sites\.map is not a function\n/);
+
+    state.broken = false;
+    await user.click(within(failure).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "All sites" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("gives the code and status of a problem from the panel for a bug report", async () => {
+    const user = userEvent.setup();
+    const { module } = failing(
+      new ApiError(503, {
+        type: "about:blank",
+        status: 503,
+        code: "core.unavailable",
+        params: { what: "The panel" },
+        instance: "/api/v1/web/sites",
+      }),
+    );
+    await shell({ modules: [module], path: "/web/sites" });
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent(
+      "The panel isn't available right now. Try again in a moment.",
+    );
+    await user.click(within(failure).getByRole("button", { name: "Details" }));
+    expect(within(failure).getByText(/core\.unavailable \(503\)/)).toHaveTextContent(
+      '/web/sites core.unavailable (503) {"what":"The panel"} /api/v1/web/sites',
+    );
   });
 });
 

@@ -122,7 +122,7 @@ function Roles() {
           />
         </div>
         <div className="overflow-x-auto">
-          <Table>
+          <Table aria-label={intl.formatMessage(t.matrixTitle)}>
             <TableHeader>
               <TableRow>
                 <TableHead>{intl.formatMessage(t.matrixPermission)}</TableHead>

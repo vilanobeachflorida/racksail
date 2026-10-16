@@ -232,7 +232,7 @@ async function visit(path: string, ready: () => Promise<unknown>) {
 describe("the screens in a pseudo-locale", () => {
   it("take every word on the home screen's inbox from the catalogs", async () => {
     const { unmount } = await visit("/", () => screen.findByText(/Αποτυχία/));
-    await screen.findByText(x("How updates work"));
+    await screen.findByRole("button", { name: (name) => name.includes(x("How updates work")) });
     expect(untranslatedText()).toEqual([]);
     unmount();
   });
@@ -270,7 +270,7 @@ describe("the screens in a pseudo-locale", () => {
     const screens: [string, string | RegExp][] = [
       ["/jobs", "Αλλαγή"],
       ["/jobs/εργ_01", "Αποτυχία"],
-      ["/events", "Κάτι συνέβη"],
+      ["/events", /Κάτι συνέβη/],
       ["/changes", "Αλλαγή"],
       ["/changes/αλλ_01", "Ομάδα"],
       ["/search?q=παράδειγμα", "παράδειγμα.ελ/άγκιστρο"],

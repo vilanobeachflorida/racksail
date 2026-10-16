@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { screens } from "../screens";
+import { screenshotName, screens } from "../screens";
 
 // Every screen, on a desktop and on a phone, against screenshots CI took
 // before: a change that moves, restyles or breaks what people see shows up
@@ -25,11 +25,6 @@ async function steady(page: Page): Promise<void> {
   });
 }
 
-/** A screenshot's name: home for /, the path's words otherwise. */
-function screenshotName(path: string): string {
-  return `${path.replace(/^\/|\/$/g, "").replace(/[^a-z0-9]+/gi, "-") || "home"}.png`;
-}
-
 test("every screen looks as it did", async ({ page }, testInfo) => {
   const updating = testInfo.config.updateSnapshots === "all" || testInfo.config.updateSnapshots === "changed";
   test.skip(
@@ -37,16 +32,21 @@ test("every screen looks as it did", async ({ page }, testInfo) => {
     "there are no baselines yet; the Screenshots workflow writes them",
   );
   await steady(page);
-  for (const screen of await screens(page)) {
-    await test.step(screen, async () => {
-      await page.goto(screen);
+  const all = await screens(page);
+  // A baseline is found by its screen's name, which is the same on every
+  // panel, and belongs to that screen alone.
+  const names = all.map(screenshotName);
+  expect(names.filter((name, i) => names.indexOf(name) !== i), "screens sharing a baseline").toEqual([]);
+  for (const screen of all) {
+    await test.step(screen.name, async () => {
+      await page.goto(screen.path);
       await page.waitForLoadState("networkidle");
       await page.evaluate(() => document.fonts.ready);
       const name = screenshotName(screen);
       const baseline = testInfo.snapshotPath(name);
       if (!updating && !existsSync(baseline)) {
         await testInfo.attach(name, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
-        expect.soft(existsSync(baseline), `${screen} has no baseline; run the Screenshots workflow on this branch to add one`).toBe(true);
+        expect.soft(existsSync(baseline), `${screen.name} has no baseline; run the Screenshots workflow on this branch to add one`).toBe(true);
         return;
       }
       // Times are the one thing a screen shows that a pinned clock can't

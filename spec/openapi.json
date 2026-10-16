@@ -8373,6 +8373,7 @@
         "additionalProperties": false,
         "properties": {
           "contrast": {
+            "description": "Standard or high contrast, or the system's",
             "enum": [
               "system",
               "standard",
@@ -8381,12 +8382,25 @@
             "type": "string"
           },
           "density": {
+            "description": "How tall controls and table rows are: the theme's, comfortable or compact",
             "enum": [
               "theme",
               "comfortable",
               "compact"
             ],
             "type": "string"
+          },
+          "hourCycle": {
+            "description": "A 12-hour or a 24-hour clock; left out, as the language writes times",
+            "enum": [
+              "h12",
+              "h23"
+            ],
+            "type": "string"
+          },
+          "letterShortcuts": {
+            "description": "Whether shortcuts made of letters alone, such as G then H, work; they do unless this is false",
+            "type": "boolean"
           },
           "mode": {
             "description": "Light, dark or the system's",
@@ -8398,6 +8412,7 @@
             "type": "string"
           },
           "motion": {
+            "description": "Reduced or all motion, or the system's",
             "enum": [
               "system",
               "reduce",
@@ -8405,7 +8420,12 @@
             ],
             "type": "string"
           },
+          "rememberRecent": {
+            "description": "Whether the command bar offers what was opened recently; it does unless this is false",
+            "type": "boolean"
+          },
           "textSize": {
+            "description": "How large text is",
             "enum": [
               "default",
               "small",
@@ -8413,6 +8433,12 @@
               "larger",
               "largest"
             ],
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone times show in, such as Europe/Lisbon or UTC; left out, the browser's",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z][A-Za-z0-9_+/-]*$",
             "type": "string"
           }
         },
@@ -9949,6 +9975,10 @@
             "description": "Where the person belongs"
           },
           "id": {
+            "type": "string"
+          },
+          "locale": {
+            "description": "The panel's language for the person, such as en or pt-BR; left out, their browser's",
             "type": "string"
           },
           "name": {
@@ -30445,7 +30475,7 @@
     },
     "/api/v1/session": {
       "get": {
-        "description": "Says who is signed in and what they may do, which modules are on, their display preferences, who is viewing the panel as them, what they must do first and how long confirming it's them lasts. The web UI reads it before anything else; `racksail whoami` shows it.",
+        "description": "Says who is signed in and what they may do, which modules are on, their preferences for the panel, who is viewing the panel as them, what they must do first and how long confirming it's them lasts. The web UI reads it before anything else; `racksail whoami` shows it.",
         "operationId": "getSession",
         "responses": {
           "200": {
@@ -30529,7 +30559,7 @@
     },
     "/api/v1/session/preferences": {
       "put": {
-        "description": "Keeps the person's display preferences with their user, so they follow them to other browsers: light or dark, contrast, density, text size and motion.",
+        "description": "Keeps the person's preferences for the panel with their user, so they follow them to other browsers: light or dark, contrast, density, text size and motion, the time zone and clock times show in, single-key shortcuts and whether the command bar remembers what was opened. They replace the ones kept before.",
         "operationId": "saveSessionPreferences",
         "requestBody": {
           "content": {
@@ -30564,7 +30594,7 @@
             "token": []
           }
         ],
-        "summary": "Keep display preferences",
+        "summary": "Keep your preferences",
         "tags": [
           "Session"
         ],

@@ -65,6 +65,8 @@ Work that takes more than a moment runs as a job and shows in the jobs drawer: r
 
 Tables sort from their headings, search across every column and filter by column. A view (sort, search, filters and hidden columns) can be saved and brought back. Selecting rows shows a toolbar of actions for them. Long lists render only the rows on screen. A table always says how many rows it shows, and separates "nothing here yet" from "nothing matches".
 
+Every table has a name: the heading above it, a label or a caption. A short table that's wider than the screen, such as a matrix on a phone, scrolls sideways and takes focus so the keyboard can scroll it, and a screen reader announces it by that name.
+
 ## Empty and loading states
 
 - An empty list says what will appear there and offers one first step.

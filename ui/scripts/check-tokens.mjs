@@ -5,10 +5,13 @@
 // below the smallest step.
 //
 // Usage: node scripts/check-tokens.mjs [dir]   (default: src)
+//
+// It checks the files git tracks there, so it needs a git checkout.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { trackedFiles } from "./tracked.mjs";
 
 const palette =
   "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
@@ -103,39 +106,30 @@ export function findHardCodedColors(text, file) {
 }
 
 /**
- * Lists the files to check under dir, skipping hidden directories,
- * generated files and tests.
+ * Lists the files to check under dir: those git tracks (see tracked.mjs),
+ * leaving out hidden directories, generated files and tests.
  * @param {string} dir
  * @returns {string[]}
  */
 export function filesToCheck(dir) {
-  /** @type {string[]} */
-  const files = [];
-  /** @param {string} current */
-  const walk = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) {
-        continue;
-      }
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(path);
-      } else if (/\.(?:css|tsx?|mjs)$/.test(entry.name)) {
-        const rel = relative(dir, path).split(sep).join("/");
-        if (!generated.includes(rel) && !isTest(entry.name)) {
-          files.push(path);
-        }
-      }
-    }
-  };
-  walk(dir);
-  return files.sort();
+  return trackedFiles(dir)
+    .filter((rel) => /\.(?:css|tsx?|mjs)$/.test(rel) && !generated.includes(rel) && !isTest(rel))
+    .map((rel) => join(dir, ...rel.split("/")));
 }
 
 function main() {
   const ui = fileURLToPath(new URL("..", import.meta.url));
   const dir = process.argv[2] ?? join(ui, "src");
-  const problems = filesToCheck(dir).flatMap((file) =>
+  /** @type {string[]} */
+  let files;
+  try {
+    files = filesToCheck(dir);
+  } catch (error) {
+    console.error(`check-tokens: git couldn't list the files to check in ${dir}: ${error}`);
+    process.exitCode = 1;
+    return;
+  }
+  const problems = files.flatMap((file) =>
     findHardCodedColors(readFileSync(file, "utf8"), relative(ui, file)),
   );
   for (const p of problems) {

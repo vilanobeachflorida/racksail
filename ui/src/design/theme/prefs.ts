@@ -1,7 +1,8 @@
 /**
  * Personal display preferences, the top theme layer. They live in the
- * browser and apply as attributes on the root element, which theme.css
- * turns into tokens; the server never has to render anything for them.
+ * browser, and with the person's account once they're signed in, and apply
+ * as attributes on the root element, which theme.css turns into tokens;
+ * the server never has to render anything for them.
  */
 export interface Preferences {
   mode: "system" | "light" | "dark";

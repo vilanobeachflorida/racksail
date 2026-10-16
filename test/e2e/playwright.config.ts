@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+import { hiddenBelow } from "./hidden";
 
 // The panel under test: RACKSAIL_E2E_URL for a running server, such as one
 // the QEMU harness installed, or otherwise a racksail dev that Playwright
@@ -22,8 +24,11 @@ if (!external) {
   process.env.RACKSAIL_E2E_SIGNIN_DATA = resolve("../..", signInData);
 }
 
+const specs = fileURLToPath(new URL("./specs", import.meta.url));
+
 export default defineConfig({
-  testDir: "./specs",
+  testDir: specs,
+  testIgnore: hiddenBelow(specs),
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

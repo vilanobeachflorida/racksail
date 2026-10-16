@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createIntl } from "react-intl";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PanelSession } from "@/lib/api/session";
 import { fakeApi, json, renderApp } from "@/test/render";
 import { readLinkReturn } from "./account/security";
@@ -153,6 +153,40 @@ describe("users", () => {
     });
   });
 
+  it("names the account a user belongs to, as the list of users does", async () => {
+    const owen: UserResource = {
+      ...adaResource,
+      id: "user_3",
+      scope: { level: "account", id: "acct_1" },
+      spec: { username: "owen", name: "Owen", grants: [], sshKeys: null },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/users": () => json({ items: [owen], next: "" }),
+      "GET /api/v1/core/users/user_3": () => json(owen),
+      "GET /api/v1/core/accounts": () =>
+        json({
+          items: [
+            {
+              id: "acct_1",
+              kind: "core.account",
+              scope: { level: "account", id: "acct_1" },
+              revision: 1,
+              generation: 1,
+              createdAt: "2026-10-01T10:00:00Z",
+              updatedAt: "2026-10-01T10:00:00Z",
+              spec: { name: "Review Account", slug: "reviewacct" },
+            },
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/users/user_3");
+    const home = await screen.findByRole("textbox", { name: /^Belongs to/ });
+    await waitFor(() => expect(home).toHaveValue("Account Review Account (reviewacct)"));
+  });
+
   it("names users in previews that ask for a typed confirmation", () => {
     expect(resourceName({ id: "user_9", before: { username: "bea" } })).toBe("bea");
     expect(resourceName({ id: "acct_1", after: { slug: "acme" } })).toBe("acme");
@@ -168,6 +202,43 @@ describe("the security settings", () => {
       provider: "signprov_1",
     });
     expect(readLinkReturn("")).toEqual({});
+  });
+});
+
+describe("roles and permissions", () => {
+  it("scroll the permission matrix in a region named after it, as on a phone", async () => {
+    // A phone's screen is narrower than the matrix.
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/roles": () =>
+        json({
+          roles: [
+            {
+              role: "admin",
+              title: "Admin",
+              description: "Does everything, everywhere.",
+              levels: ["server"],
+              patterns: ["*"],
+            },
+          ],
+          matrix: [
+            {
+              permission: "web.site.read",
+              description: "See sites",
+              roles: { admin: "everywhere" },
+            },
+          ],
+          self: [],
+        }),
+    });
+    renderApp(api, "/roles");
+    const region = await screen.findByRole("region", { name: "Permission matrix" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    const matrix = within(region).getByRole("table", { name: "Permission matrix" });
+    expect(within(matrix).getByText("web.site.read")).toBeInTheDocument();
   });
 });
 
@@ -193,5 +264,31 @@ describe("the audit log", () => {
     expect(
       who(intl, record({ type: "user", name: "bea", source: "ui", impersonator: "user_1" })),
     ).toBe("bea, in the panel, viewed by user_1");
+  });
+
+  it("lists the records in a table named after it", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/users": () => json({ items: [adaResource], next: "" }),
+      "GET /api/v1/audit": () =>
+        json({
+          records: [
+            {
+              id: "aud_1",
+              time: "2026-10-15T09:00:00Z",
+              action: "web.site.update",
+              summary: "Changed shop.example.com",
+              outcome: "success",
+              scope: { level: "server" },
+              actor: { type: "user", id: "user_1", name: "ada", source: "ui" },
+            },
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/audit");
+    const table = await screen.findByRole("table", { name: "Audit log" });
+    expect(within(table).getByText("Changed shop.example.com")).toBeInTheDocument();
   });
 });

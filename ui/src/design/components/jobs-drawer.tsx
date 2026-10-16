@@ -21,6 +21,15 @@ const jobStatus: Record<JobState, Status> = {
   canceled: "off",
 };
 
+/**
+ * The values of the message that says how far a job has got: its steps and
+ * what it's doing, in the words the job reports, which translators place.
+ */
+export function stepValues(job: Pick<Job, "progress">) {
+  const { done, total, message } = job.progress;
+  return { done, total, message: message ?? "", hasMessage: message ? "yes" : "no" };
+}
+
 export interface JobLogProps {
   lines: readonly LogLine[];
   loading?: boolean;
@@ -200,8 +209,7 @@ function JobItem({
             aria-label={intl.formatMessage(m.jobsProgress, { title: job.title })}
           />
           <p className="text-muted-foreground text-xs">
-            {total > 0 ? intl.formatMessage(m.jobsSteps, { done, total }) : null}
-            {message ? ` ${message}` : null}
+            {total > 0 || message ? intl.formatMessage(m.jobsSteps, stepValues(job)) : null}
           </p>
         </div>
       ) : null}
