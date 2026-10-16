@@ -15,7 +15,7 @@ How Racksail is run, how decisions are made and who makes them.
 |---|---|---|
 | Sergio | [@vilanobeachflorida](https://github.com/vilanobeachflorida) | Lead maintainer |
 
-To reach maintainers privately, use the contact details on their GitHub profiles. Security problems go through [SECURITY.md](SECURITY.md) instead.
+To reach the maintainers privately about conduct, write to [conduct@racksail.dev](mailto:conduct@racksail.dev), which reaches the maintainers listed here and nobody else; the [code of conduct](CODE_OF_CONDUCT.md) says what happens next. Security problems go through [SECURITY.md](SECURITY.md) instead. Anything else is best raised in the open, in an issue or a discussion.
 
 ## Making decisions
 

@@ -83,3 +83,11 @@ Settled choices. Change one by opening a pull request that edits this file and e
 | R3 | Installer UI: Bubble Tea terminal app, a browser mode protected by a one-time code, and an unattended answers file (YAML). |
 | R4 | CI: GitHub Actions. Dependency updates: Renovate. Vulnerability scanning: govulncheck and osv-scanner. License allowlist check on every change (`make licenses`): OSI-approved licenses compatible with AGPL-3.0, and the exceptions listed here, each with its reason, which `packaging/licenses/exceptions.yaml` lets through. `github.com/zeebo/blake3` is CC0-1.0, a public domain dedication the FSF lists as compatible with the GPL that the OSI never approved because it disclaims patent grants; `github.com/caddyserver/certmagic` needs it, so decision T9 does. The npm package `mdn-data` is CC0-1.0 too: CSS reference data that only the UI's and the docs site's build tools read, so none of it ships. |
 | R5 | Resource targets: core idle under 100 MB; web-only under 250 MB; everything on and idle under 500 MB. Minimum server: 1 CPU, 1 GB RAM, 20 GB disk. Recommended: 2 CPUs, 4 GB, 40 GB. |
+
+## To confirm before launch
+
+What the maintainers still have to set up or confirm. Each item is done, and its row removed, before the first release.
+
+| # | Item |
+|---|---|
+| L1 | `conduct@racksail.dev`, where code of conduct reports go as `CODE_OF_CONDUCT.md`, `GOVERNANCE.md` and the documentation site's community pages say, is a placeholder. The address has to exist and reach every maintainer listed in `GOVERNANCE.md` and nobody else, or another address takes its place everywhere it appears. |
