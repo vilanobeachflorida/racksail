@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -113,7 +114,17 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		"secrets": secrets,
 	}
 	required := []string{"spec"}
-	if info.Scope != store.ScopeServer {
+	switch {
+	case len(info.Levels) > 0:
+		levels := append([]string{string(info.Scope)}, levelNames(info.Levels)...)
+		description := "Where it belongs: the " + strings.Join(levels[:len(levels)-1], ", the ") + " or the " + levels[len(levels)-1]
+		if info.Scope == store.ScopeServer {
+			description += "; the server when left out"
+		} else {
+			required = append(required, "scope")
+		}
+		createProps["scope"] = &huma.Schema{AllOf: []*huma.Schema{s.schemaOf(reflect.TypeFor[store.Scope](), "Scope")}, Description: description}
+	case info.Scope != store.ScopeServer:
 		createProps["scope"] = s.schemaOf(reflect.TypeFor[store.Scope](), "Scope")
 		createProps["scope"] = &huma.Schema{AllOf: []*huma.Schema{createProps["scope"]}, Description: "The " + string(info.Scope) + " it belongs to"}
 		required = append(required, "scope")
@@ -145,6 +156,58 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 
 // plural names a kind's resources in sentences: "sites", "mail domains".
 func plural(info *store.KindInfo) string { return strings.ReplaceAll(info.Plural, "-", " ") }
+
+// sentenceTitle is a kind's title inside a sentence: Sign-in policy becomes
+// sign-in policy, and abbreviations such as DNS zone stay as they are.
+func sentenceTitle(info *store.KindInfo) string {
+	r := []rune(info.Title)
+	if len(r) == 0 || (len(r) > 1 && unicode.IsUpper(r[1])) {
+		return info.Title
+	}
+	r[0] = unicode.ToLower(r[0])
+	return string(r)
+}
+
+// withArticle puts "a" or "an" before a noun, by how its first word
+// sounds: an account, a user, an IP address, a DNS zone.
+func withArticle(noun string) string {
+	word, _, _ := strings.Cut(noun, " ")
+	word, _, _ = strings.Cut(word, "-")
+	if word == "" {
+		return noun
+	}
+	if vowelSound(word) {
+		return "an " + noun
+	}
+	return "a " + noun
+}
+
+// Abbreviations read as words rather than letter by letter, and words whose
+// first letter doesn't sound as it's written.
+var (
+	readAsWords = []string{"NAT", "NAS", "LAN", "SAN", "LUN", "RAID", "SIM", "SAML", "SASL", "SOAP"}
+	vowelAhead  = []string{"hour", "honest", "honor", "heir"}
+	vowelLetter = []string{"uni", "use", "usa", "usu", "uti", "ure", "uri", "ura", "ubi", "eu", "ewe", "one", "once"}
+)
+
+func vowelSound(word string) bool {
+	lower := strings.ToLower(word)
+	if len(word) > 1 && strings.ToUpper(word) == word && !slices.Contains(readAsWords, word) {
+		// Spelled out: an IP, an SSH key, an HTTP route, a DNS zone.
+		return strings.ContainsRune("AEFHILMNORSX8", rune(word[0]))
+	}
+	for _, p := range vowelAhead {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, p := range vowelLetter {
+		if strings.HasPrefix(lower, p) {
+			return false
+		}
+	}
+	return strings.ContainsRune("aeiou", rune(lower[0]))
+}
 
 var refPattern = regexp.MustCompile(`"#/components/schemas/([^"]+)"`)
 
@@ -220,4 +283,12 @@ func standaloneIn(reg huma.Registry, schema *huma.Schema) (json.RawMessage, erro
 		return nil, err
 	}
 	return bytes.ReplaceAll(out, []byte(`"#/components/schemas/`), []byte(`"#/$defs/`)), nil
+}
+
+func levelNames(levels []store.ScopeLevel) []string {
+	out := make([]string, len(levels))
+	for i, l := range levels {
+		out[i] = string(l)
+	}
+	return out
 }

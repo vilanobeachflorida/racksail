@@ -61,6 +61,9 @@ type Services struct {
 	// upgrades and uninstalls what they offer.
 	Catalogs *recipes.Catalogs
 	Recipes  *recipes.Engine
+	// Identity answers questions about the panel's users, such as which
+	// SSH keys may reach an account's files.
+	Identity auth.Directory
 	Log      *slog.Logger
 }
 

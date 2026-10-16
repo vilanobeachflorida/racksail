@@ -228,7 +228,8 @@ const ShownLocaleContext = createContext<string>(defaultLocale);
 
 /**
  * The locale the panel shows, pseudo-locales included, which react-intl
- * formats as the language they stand in for.
+ * formats as the language they stand in for. Parts of the panel that load
+ * their own messages with their screens load them for it.
  */
 export function useShownLocale(): string {
   return useContext(ShownLocaleContext);

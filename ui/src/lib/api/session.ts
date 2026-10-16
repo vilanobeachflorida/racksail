@@ -13,7 +13,14 @@ export type SessionPreferences = Partial<Preferences>;
  * they may do, which modules are on, and how the panel looks for them.
  */
 export interface PanelSession {
-  user: { id: string; name: string };
+  user: {
+    id: string;
+    name: string;
+    username?: string;
+    email?: string;
+    /** Where the person belongs: the server, a reseller or an account. */
+    home?: { level: "server" | "reseller" | "account"; id?: string };
+  };
   /**
    * What the person may do, as their roles grant it: permission names such
    * as web.site.read, or patterns such as * and *.read.
@@ -35,6 +42,48 @@ export interface PanelSession {
   };
   /** The person's display preferences, kept with their account. */
   preferences?: SessionPreferences | null;
+  /** The API token the panel was called with, rather than a session. */
+  token?: { id: string; name: string };
+  /** Who is viewing the panel as the person, and until when. */
+  impersonation?: SessionImpersonation;
+  /** What the person must do before anything else. */
+  pending?: "two-factor" | "password";
+  /** Until when sensitive actions go ahead without confirming it's them again. */
+  steppedUpUntil?: string;
+  /** How the person can confirm it's them: password, totp or passkey. */
+  stepUpMethods?: string[];
+  /** When the session ends at the latest. */
+  expiresAt?: string;
+  /** The accounts the person's grants name. */
+  accounts?: { id: string; name: string; slug: string }[];
+  /** Whether this is racksail dev, which signs everyone in as its developer. */
+  dev?: boolean;
+}
+
+/** An admin or reseller viewing the panel as someone, to help them. */
+export interface SessionImpersonation {
+  /** The user viewing. */
+  by: string;
+  name: string;
+  startedAt: string;
+  endsAt: string;
+}
+
+/** The session as the panel sends it; lists it leaves empty may come as null. */
+type SessionAnswer = Omit<PanelSession, "permissions" | "stepUpMethods" | "accounts"> & {
+  permissions: string[] | null;
+  stepUpMethods?: string[] | null;
+  accounts?: { id: string; name: string; slug: string }[] | null;
+};
+
+/** The session the panel sent, with its empty lists as lists. */
+export function normalizeSession(answer: SessionAnswer): PanelSession {
+  return {
+    ...answer,
+    permissions: answer.permissions ?? [],
+    stepUpMethods: answer.stepUpMethods ?? [],
+    accounts: answer.accounts ?? [],
+  };
 }
 
 // Wildcards in roles never cover these; they're granted by name.

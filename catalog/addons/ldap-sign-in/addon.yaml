@@ -1,0 +1,17 @@
+format: 1
+id: ldap-sign-in
+name: LDAP sign-in
+version: 1.0.0
+license: AGPL-3.0-or-later
+source: https://github.com/vilanobeachflorida/racksail/tree/main/addons/ldap-sign-in
+author: Racksail maintainers
+description: >-
+  Signs people in with the username and password they have in an LDAP directory, such as OpenLDAP,
+  389 Directory Server or Active Directory, over ldaps:// or StartTLS.
+apiVersions: [v1]
+provides: [auth-provider]
+permissions:
+  # Which directory it connects to is the admin's choice when they connect
+  # the provider, so it may reach any address.
+  network: [0.0.0.0/0, "::/0"]
+  resources: {cpu: 10%, memoryMB: 64}

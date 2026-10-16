@@ -123,7 +123,16 @@ func NewEngine(opts Options) (*Engine, error) {
 	return e, nil
 }
 
-// Submit implements Pipeline.
+// replans is how many times a request that names no revision is planned
+// before a change that keeps landing first makes it fail.
+const replans = 3
+
+// Submit implements Pipeline. A change is written only at the revision it
+// was planned against, so a change that lands meanwhile is never undone.
+// When that happens to a request that names no revision, which asks for the
+// change whatever is there, it is planned again from what landed, the way
+// it would have been planned had it come a moment later. A request that
+// names a revision fails with core.conflict instead, as it asked.
 func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 	var key string
 	if !req.DryRun {
@@ -132,12 +141,18 @@ func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 			return earlier, err
 		}
 	}
-	p, err := e.plan(ctx, req, "", "")
-	if err != nil {
-		e.settle(ctx, key, "")
-		return nil, err
+	named := slices.ContainsFunc(req.Changes, func(c Change) bool { return c.Revision != 0 })
+	for attempt := 1; ; attempt++ {
+		p, err := e.plan(ctx, req, "", "")
+		if err != nil {
+			e.settle(ctx, key, "")
+			return nil, err
+		}
+		cs, err := e.finish(ctx, p, req, key, !named && attempt < replans)
+		if !errors.Is(err, errReplan) {
+			return cs, err
+		}
 	}
-	return e.finish(ctx, p, req, key)
 }
 
 // Get implements Pipeline.
@@ -202,6 +217,8 @@ func (e *Engine) plan(ctx context.Context, req Request, id, undoOf store.ID) (*d
 	}
 	cs := p.cs
 	if e.opts.Hooks != nil {
+		// What hooks contribute is validated as the actor's own changes are.
+		ctx := planContext(ctx, req.Actor, e.opts.Authorizer, p.view)
 		requested := make([]ResourceChange, len(cs.Changes))
 		for i, c := range cs.Changes {
 			requested[i] = c.Clone()
@@ -261,6 +278,7 @@ func atChange(err error, i, n int) error {
 // the actor isn't allowed, or that stops after being allowed, is recorded in
 // the audit log.
 func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch Change, now time.Time) (err error) {
+	ctx = planContext(ctx, actor, e.opts.Authorizer, p.view)
 	kind, ok := e.opts.Kinds.Get(ch.Kind)
 	if !ok {
 		return i18n.ErrUnknownName.New("what", "kind", "name", ch.Kind)
@@ -269,6 +287,9 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	var old, next *store.Resource
 	var action store.Action
 	risk := info.Risks.Update
+	// A change to a resource no earlier change of the draft touched is
+	// planned against its stored version.
+	stored := !p.view.Planned(ch.ID)
 	switch ch.Op {
 	case OpCreate:
 		risk = info.Risks.Create
@@ -378,6 +399,11 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		if ch.Op != OpDelete {
 			change.LabelsBefore = old.Labels
 		}
+		// The spec written is the one planned from this version, so a write
+		// that lands in between makes the change fail rather than be lost.
+		if ch.Op != OpDelete && change.Revision == 0 && stored {
+			change.Revision = old.Revision
+		}
 	}
 	var effects []system.Effect
 	rec, hasReconciler := e.reconciler(info.Name)
@@ -426,6 +452,26 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	cs.Risk = store.MaxRisk(cs.Risk, risk)
 	p.titles = append(p.titles, title)
 	return nil
+}
+
+// planContext is the context a change is validated in. A kind's
+// validation can ask what the actor may do, such as whether they may
+// create an account for the reseller it names, and read the state the
+// change set leaves, such as the other users a change of roles affects.
+func planContext(ctx context.Context, actor *auth.Actor, authorizer auth.Authorizer, view *store.Overlay) context.Context {
+	ctx = auth.WithAuthorizer(auth.WithActor(ctx, actor), authorizer)
+	return store.WithReader(ctx, planned{view})
+}
+
+// planned lets validation read a draft's planned state and nothing more.
+type planned struct{ view *store.Overlay }
+
+func (p planned) Get(ctx context.Context, id store.ID) (*store.Resource, error) {
+	return p.view.Get(ctx, id)
+}
+
+func (p planned) List(ctx context.Context, q store.Query) (*store.Page, error) {
+	return p.view.List(ctx, q)
 }
 
 // changeTitle describes a change for people, such as "Update site" or
@@ -566,8 +612,14 @@ func storedRequest(req Request, cs *ChangeSet) *StoredRequest {
 	return out
 }
 
-// finish returns a planned change set as a preview, or applies it.
-func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string) (*ChangeSet, error) {
+// errReplan says a request is to be planned again: another change of a
+// resource it changes landed between its planning and its writes.
+var errReplan = errors.New("changeset: planned against a version that changed meanwhile")
+
+// finish returns a planned change set as a preview, or applies it. With
+// replan, a conflict with a change that landed meanwhile is errReplan, and
+// nothing about the attempt is recorded.
+func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string, replan bool) (*ChangeSet, error) {
 	cs := p.cs
 	cs.DryRun = req.DryRun
 	if req.DryRun {
@@ -587,6 +639,9 @@ func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string) 
 	}
 	written, err := e.apply(ctx, cs, p.secrets, key)
 	if !written {
+		if replan && store.ErrConflict.Is(err) {
+			return nil, errReplan
+		}
 		e.failed(ctx, p, cs.Changes, err)
 		e.settle(ctx, key, "")
 		return nil, err
@@ -1256,7 +1311,7 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	return e.finish(ctx, p, request, key)
+	return e.finish(ctx, p, request, key, false)
 }
 
 // markUndone records that a change set was undone by another. Only one that
@@ -1442,7 +1497,7 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 		}
 		return nil, ErrPreviewStale.New("title", preview.Title, "preview", string(fresh.ID))
 	}
-	return e.finish(ctx, p, request, key)
+	return e.finish(ctx, p, request, key, false)
 }
 
 // samePlan reports whether a new plan does what a preview showed: the same

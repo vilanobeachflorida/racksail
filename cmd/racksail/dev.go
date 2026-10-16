@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
+	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 	"github.com/vilanobeachflorida/racksail/internal/system"
@@ -23,7 +25,7 @@ import (
 func newDevCommand() *cobra.Command {
 	var addrs config.DevAddresses
 	var dataDir string
-	var fresh bool
+	var fresh, signIn bool
 	cmd := &cobra.Command{
 		Use:   "dev",
 		Short: "Run the panel, agent and edge in one process against a simulated server",
@@ -31,7 +33,8 @@ func newDevCommand() *cobra.Command {
 			"repository, so the whole product works on macOS or Linux without root. The simulated server is kept in " +
 			"the data directory between runs, with the timings of a small real server; --fresh starts over with a newly " +
 			"installed one. The edge serves what the simulated server holds, with certificates from a local CA. " +
-			"Everyone who reaches it is signed in as the admin, so it only listens on loopback addresses. Give each " +
+			"Everyone who reaches it is signed in as the developer, an admin, unless they sign in themselves, so it only listens on loopback " +
+			"addresses; --sign-in makes it ask, as a server does. Give each " +
 			"instance its own addresses and data directory to run several side by side. `make dev` also starts the UI " +
 			"dev server with hot reload.",
 		Example: "  racksail dev\n  racksail dev --addr 127.0.0.1:7170 --edge-http 127.0.0.1:0 --edge-https 127.0.0.1:0 --data .dev-2",
@@ -53,7 +56,20 @@ func newDevCommand() *cobra.Command {
 				return err
 			}
 			defer d.close(context.WithoutCancel(ctx))
-			apiServer, err := d.core.apiServer(nil, true)
+			var authn auth.Authenticator = d.core.identity
+			if signIn {
+				if err := d.core.bootstrap(ctx, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+			} else {
+				dev, err := d.core.identity.Developer(ctx)
+				if err != nil {
+					return err
+				}
+				authn = identity.DevAuthenticator{Service: d.core.identity, User: dev}
+				log.Warn("development mode: requests without a session or token are signed in as the developer, an admin; the panel only listens on loopback addresses")
+			}
+			apiServer, err := d.core.apiServer(authn, true)
 			if err != nil {
 				return err
 			}
@@ -67,6 +83,7 @@ func newDevCommand() *cobra.Command {
 	cmd.Flags().StringVar(&addrs.EdgeHTTPS, "edge-https", config.DevEdgeHTTPS, "address the edge serves HTTPS on once a module adds a route; port 0 picks a free one")
 	cmd.Flags().StringVar(&dataDir, "data", "./.dev", "directory for the development state")
 	cmd.Flags().BoolVar(&fresh, "fresh", false, "start over with a newly installed simulated server and no saved state")
+	cmd.Flags().BoolVar(&signIn, "sign-in", false, "sign in as on a server instead of as the developer; the first start prints a setup code for the first admin")
 	return cmd
 }
 

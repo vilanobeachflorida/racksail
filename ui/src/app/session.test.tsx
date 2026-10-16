@@ -69,7 +69,11 @@ const session: PanelSession = {
   preferences: { mode: "dark", density: "compact" },
 };
 
-function panel(answers: { session?: () => Response; preferences?: (r: Request) => Response }) {
+function panel(answers: {
+  session?: () => Response;
+  preferences?: (r: Request) => Response;
+  signInOptions?: () => Response;
+}) {
   return fakeApi({
     "GET /api/v1/health": () => json({ status: "ok", checks: [] }),
     "GET /api/v1/version": () =>
@@ -84,6 +88,7 @@ function panel(answers: { session?: () => Response; preferences?: (r: Request) =
     "GET /api/v1/events": () => json({ events: [] }),
     ...(answers.session ? { "GET /api/v1/session": answers.session } : {}),
     ...(answers.preferences ? { "PUT /api/v1/session/preferences": answers.preferences } : {}),
+    ...(answers.signInOptions ? { "GET /api/v1/auth/options": answers.signInOptions } : {}),
   });
 }
 
@@ -168,9 +173,12 @@ describe("the session", () => {
       panel({
         session: () =>
           json({ type: "about:blank", status: 401, code: "core.unauthenticated" }, 401),
+        signInOptions: () => json({ setupRequired: false, passkeys: false, providers: [] }),
       }),
     );
-    expect(await screen.findByRole("alert")).toHaveTextContent("Sign in to continue.");
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Username")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
   });
 });
 

@@ -16,6 +16,8 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
@@ -119,11 +121,16 @@ func (siteReconciler) ApplyAction(ctx context.Context, req reconcile.ActionReque
 // (of the account the stack makes), or stranger (owner of another one).
 type testAuth struct {
 	actors map[string]*auth.Actor
+	// identity signs in everyone else, with real sessions and tokens.
+	identity *identity.Service
 }
 
 func (a testAuth) Authenticate(ctx context.Context, r *http.Request) (*auth.Actor, error) {
 	actor, ok := a.actors[r.Header.Get("X-Test-Actor")]
 	if !ok {
+		if a.identity != nil {
+			return a.identity.Authenticate(ctx, r)
+		}
 		return nil, nil
 	}
 	return actor.Clone(), nil
@@ -132,18 +139,20 @@ func (a testAuth) Authenticate(ctx context.Context, r *http.Request) (*auth.Acto
 // stack is a panel built the way cmd/racksail builds one, around a SQLite
 // database and a simulated server, with in-process test hooks.
 type stack struct {
-	t       *testing.T
-	server  *Server
-	http    *httptest.Server
-	store   store.Store
-	log     *events.Log
-	jobs    *jobs.Manager
-	machine *sim.Machine
-	kinds   *store.KindRegistry
-	hooks   *hooks.Registry
-	authz   *auth.RoleAuthorizer
-	inbox   *inbox.Service
-	account store.ID
+	t        *testing.T
+	server   *Server
+	http     *httptest.Server
+	store    store.Store
+	log      *events.Log
+	jobs     *jobs.Manager
+	machine  *sim.Machine
+	kinds    *store.KindRegistry
+	hooks    *hooks.Registry
+	authz    *auth.RoleAuthorizer
+	inbox    *inbox.Service
+	identity *identity.Service
+	owners   *account.Ownership
+	account  store.ID
 	// reseller owns the account the stack makes.
 	reseller store.ID
 	actors   map[string]*auth.Actor
@@ -177,7 +186,7 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	}
 	t.Cleanup(func() { db.Close() })
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{siteKind, webhook.Kind} {
+	for _, k := range []store.Kind{siteKind, webhook.Kind, account.Kind, identity.PolicyKind, identity.ProviderKind, identity.UserKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -210,7 +219,10 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 		t.Fatal(err)
 	}
 	recs := reconcile.NewRegistry()
-	for _, r := range []reconcile.Reconciler{reconcile.Typed(siteKind, siteReconciler{}), webhook.Reconciler(dispatcher)} {
+	for _, r := range []reconcile.Reconciler{
+		reconcile.Typed(siteKind, siteReconciler{}), webhook.Reconciler(dispatcher), account.Reconciler(kinds),
+		identity.PolicyReconciler(), identity.ProviderReconciler(),
+	} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}
@@ -239,7 +251,8 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	}
 	s.hooks = registry
 	runner := &reconcile.Runner{Store: st, Agent: agentClient, Registry: recs, Secrets: vault, Events: log, Log: slog.New(slog.DiscardHandler)}
-	authz := auth.NewRoleAuthorizer(owners{s.account: s.reseller})
+	s.owners = account.NewOwnership(st, owners{s.account: s.reseller})
+	authz := auth.NewRoleAuthorizer(s.owners)
 	s.authz = authz
 	engine, err := changeset.NewEngine(changeset.Options{
 		Store: st, Kinds: kinds, Runner: runner, Jobs: q, Events: log, Audit: log, Secrets: vault, Storage: storage,
@@ -271,8 +284,17 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 		"reseller": {Type: auth.ActorUser, ID: store.NewID("user"), Name: "reseller", Source: auth.SourceUI,
 			Grants: []auth.Grant{{Role: auth.RoleReseller, Scope: store.ResellerScope(s.reseller)}}},
 	}
+	s.identity = identity.New(identity.Options{
+		Store: identity.NewMemory(), Resources: st, Pipeline: engine, Refresh: runner.Enqueue, Secrets: vault, Events: log, Audit: log,
+		Hooks: &hooks.Runner{Registry: registry, Events: log}, Authorizer: authz, Hostname: "localhost",
+		Log: slog.New(slog.DiscardHandler),
+	})
+	if err := recs.Register(s.identity.UserReconciler()); err != nil {
+		t.Fatal(err)
+	}
+	go runner.Run(ctx, time.Hour)
 	s.server = New(Options{
-		Auth: testAuth{actors: s.actors}, Modules: modules.NewRegistry(),
+		Auth: testAuth{actors: s.actors, identity: s.identity}, Modules: modules.NewRegistry(), Identity: s.identity, Accounts: s.owners,
 		Services: &modules.Services{
 			Store: st, Kinds: kinds, Pipeline: engine, Jobs: q, Events: log, Audit: log, Agent: agentClient, Secrets: vault, Authorizer: authz,
 		},
@@ -321,9 +343,11 @@ func (s *stack) call(actor, method, path string, body any, out any, header ...st
 	return resp
 }
 
-// bodyOf reads what call left of a response.
+// bodyOf reads what call left of a response, and leaves it there to be read
+// again.
 func bodyOf(resp *http.Response) string {
 	b, _ := io.ReadAll(resp.Body)
+	resp.Body = io.NopCloser(strings.NewReader(string(b)))
 	return string(b)
 }
 

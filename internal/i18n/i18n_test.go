@@ -55,6 +55,14 @@ func TestFormat(t *testing.T) {
 		{"{not a name} stays", map[string]any{"not a name": "x"}, "{not a name} stays"},
 		{"unclosed {brace", map[string]any{"brace": "x"}, "unclosed {brace"},
 		{"{n}{n}", map[string]any{"n": 2}, "22"},
+		{"Wait {s, plural, one {# second} other {# seconds}}.", map[string]any{"s": "1"}, "Wait 1 second."},
+		{"Wait {s, plural, one {# second} other {# seconds}}.", map[string]any{"s": 6}, "Wait 6 seconds."},
+		{"{n, plural, =0 {nothing} one {# file} other {# files}} for {who}", map[string]any{"n": 0, "who": "ada"}, "nothing for ada"},
+		{"{n, plural, one {# file of {who}} other {# files of {who}}}", map[string]any{"n": "3", "who": "ada"}, "3 files of ada"},
+		{"{n, plural, one {# file} other {# files}}", map[string]any{"n": "many"}, "many files"},
+		{"{n, plural, one {# file} other {# files}} stays", nil, "{n, plural, one {# file} other {# files}} stays"},
+		{"{n, select, a {x} other {y}}", map[string]any{"n": "a"}, "{n, select, a {x} other {y}}"},
+		{`JSON such as {"a": {"b": 1}} stays`, map[string]any{"a": 1}, `JSON such as {"a": {"b": 1}} stays`},
 	}
 	for _, tt := range tests {
 		if got := Format(tt.msg, tt.params); got != tt.want {

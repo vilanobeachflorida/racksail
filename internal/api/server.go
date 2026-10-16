@@ -21,6 +21,8 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
@@ -45,7 +47,7 @@ const (
 )
 
 // SessionCookie is the name of the session cookie.
-const SessionCookie = "racksail_session"
+const SessionCookie = auth.SessionCookie
 
 // Protected is the security requirement of operations that need a signed-in
 // actor: a session cookie or an API token.
@@ -86,8 +88,16 @@ type Options struct {
 	// Dev is racksail dev: without Auth, every request is signed in as the
 	// developer, an administrator, which the log says when the server is
 	// built.
-	Dev     bool
-	Modules *modules.Registry
+	Dev bool
+	// Identity is who signs in and how: the sign-in operations, sessions,
+	// tokens and users are its. Without it they answer api.no_sign_in.
+	Identity *identity.Service
+	// ModuleStates reports each module's state for the session document.
+	ModuleStates func() map[string]modules.State
+	// Accounts says which reseller each account belongs to, and learns
+	// which accounts are being opened for whom.
+	Accounts *account.Ownership
+	Modules  *modules.Registry
 	// Services are what operations work with, and what modules that add
 	// operations are given. Services.Kinds, when nil, is the process-wide
 	// kind registry, so the document lists every kind.
@@ -178,6 +188,7 @@ func New(opts Options) *Server {
 	}
 	mux := http.NewServeMux()
 	cfg := httpapi.Config("Racksail API", Version)
+	cfg.Transformers = append(cfg.Transformers, retryAfterHeader)
 	cfg.Info.Description = "The API of the Racksail panel. Every change goes through the change pipeline: " +
 		"mutating calls accept dryRun=true to preview the change set without applying it, and an Idempotency-Key header. " +
 		"Errors are RFC 9457 problem details with a stable code."
@@ -194,8 +205,12 @@ func New(opts Options) *Server {
 	if noSignIn && opts.Services.Store != nil {
 		opts.Log.Error("the panel has no way to sign anyone in, so it refuses every request that needs a signed-in user")
 	}
-	s.api.UseMiddleware(s.requireActor)
+	s.api.UseMiddleware(s.requireActor, s.gate)
 	s.registerSystem()
+	s.registerAuth()
+	s.registerSession()
+	s.registerMe()
+	s.registerUsers()
 	s.registerCatalog()
 	s.registerKindDocs()
 	s.registerResources()
@@ -455,14 +470,34 @@ func (s *Server) Handler() http.Handler {
 			}
 			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", r.URL.Path,
 				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond),
-				"actor", actor.String(), "remote", r.RemoteAddr)
+				"actor", actor.String(), "remote", r.RemoteAddr, "client", clientOf(r).IP)
 		}()
-		if len(s.opts.AllowFrom) > 0 && !s.allowed(r.RemoteAddr) {
-			writeProblem(rec, ErrAddressNotAllowed.New("address", r.RemoteAddr))
+		client := clientOf(r)
+		isAPI := r.URL.Path == apiRoot || strings.HasPrefix(r.URL.Path, apiRoot+"/")
+		setSecurityHeaders(rec.Header(), isAPI, client.Secure)
+		if len(s.opts.AllowFrom) > 0 && !s.allowed(addrPort(client.IP)) {
+			writeProblem(rec, ErrAddressNotAllowed.New("address", client.IP))
 			return
 		}
+		if isAPI && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if err := crossSite(r); err != nil {
+				writeProblem(rec, err)
+				return
+			}
+		}
 		ctx := withAudit(events.WithRequestID(r.Context(), id), s.services().Audit, s.opts.Log)
+		ctx = withOrigin(auth.WithClient(ctx, client), r, client)
+		if strings.HasPrefix(r.URL.Path, providerPath+"/") {
+			ctx = context.WithValue(ctx, queryKey{}, r.URL.Query())
+		}
+		ctx, reissued := identity.WithReissue(ctx)
 		found, err := s.opts.Auth.Authenticate(ctx, r)
+		if reissued.Issued != nil {
+			// The session got a new secret because what its person may do
+			// changed; the browser keeps the new one from this answer on.
+			cookie := sessionCookie(reissued.Issued, client.Secure)
+			http.SetCookie(rec, &cookie)
+		}
 		switch {
 		case err != nil:
 			// Credentials that aren't valid, such as an expired session
@@ -474,15 +509,14 @@ func (s *Server) Handler() http.Handler {
 			actor = found
 			ctx = auth.WithActor(ctx, actor)
 		}
-		if r.URL.Path == apiRoot || strings.HasPrefix(r.URL.Path, apiRoot+"/") {
+		if isAPI {
 			rec.Header().Set("Cache-Control", "no-store")
-			rec.Header().Set("X-Content-Type-Options", "nosniff")
 			// Load balancers ask for the health often; it is never limited.
 			if r.URL.Path != Prefix+"/health" {
 				// The headers describe the caller's bucket: how many requests
 				// it holds when full, how many are left, and the seconds
 				// until it is full again.
-				ok, q, wait := s.limiter.allow(actor, r.RemoteAddr)
+				ok, q, wait := s.limiter.allow(actor, addrPort(client.IP))
 				if q.limit > 0 {
 					rec.Header().Set("RateLimit-Limit", strconv.Itoa(q.limit))
 					rec.Header().Set("RateLimit-Remaining", strconv.Itoa(q.remaining))

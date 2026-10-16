@@ -12,6 +12,7 @@ import { AssistantDock } from "./assistant-dock";
 import { BrandMark, useBrandName } from "./brand";
 import { ChangeTrackerProvider } from "./changes/tracker";
 import { RouteAnnouncer, useRouteFocus } from "./focus";
+import { ImpersonationBanner } from "./identity/banner";
 import { useJobs } from "./jobs";
 import { messages } from "./messages";
 import { moduleCommands, useActiveModules, usePermission } from "./modules";
@@ -169,6 +170,7 @@ function Frame() {
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
       <SkipLinks />
+      <ImpersonationBanner />
       <TopBar runningJobs={running} />
       <div className="flex min-h-0 flex-1">
         <Rail />

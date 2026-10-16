@@ -148,3 +148,68 @@ func TestConvertRefusesOtherSystems(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+const cryptHash = "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1"
+
+func TestAdminHandover(t *testing.T) {
+	for name, acct := range map[string]Account{
+		"nobody":         {},
+		"no credentials": {Username: "admin"},
+	} {
+		if _, ok, err := AdminHandover(&Answers{Account: acct}); ok || err != nil {
+			t.Errorf("%s: handed over = %v, %v", name, ok, err)
+		}
+	}
+	step, ok, err := AdminHandover(&Answers{Account: Account{Username: "admin", PasswordHash: cryptHash, SSHKeys: []string{"ssh-ed25519 AAAA admin@laptop"}}})
+	if err != nil || !ok || step.Op != agent.WriteFile.Name() {
+		t.Fatalf("handover = %+v, %v, %v", step, ok, err)
+	}
+	in, ok := step.Input.(agent.WriteFileInput)
+	if !ok {
+		t.Fatalf("the step writes %T", step.Input)
+	}
+	// Only the panel's user may read the account it's handed.
+	if in.Path != system.StateDir+"/"+BootstrapFile || in.Mode != 0o600 || in.Owner.User != "racksail" {
+		t.Errorf("written as %s %o %+v", in.Path, in.Mode, in.Owner)
+	}
+	var got handover
+	if err := json.Unmarshal(in.Content, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Username != "admin" || got.PasswordHash != cryptHash || len(got.SSHKeys) != 1 {
+		t.Errorf("handed over %+v", got)
+	}
+}
+
+func TestConvertHandsTheAdminToThePanel(t *testing.T) {
+	ctx := context.Background()
+	m := sim.New(sim.Options{Hostname: "old"})
+	answers := &Answers{Format: 1, Mode: ModeConvert, Account: Account{Username: "admin", PasswordHash: cryptHash}}
+	steps, err := ConvertSteps(answers, "/usr/bin/racksail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, s := range steps {
+		titles = append(titles, s.Title)
+	}
+	if !strings.Contains(strings.Join(titles, "|"), "Hand the admin's account to the panel|Install Racksail's services") {
+		t.Errorf("steps = %v", titles)
+	}
+	if err := Convert(ctx, agent.NewLocal(m.Backend(), nil), steps, nil); err != nil {
+		t.Fatal(err)
+	}
+	files := m.Backend().Files
+	path := system.StateDir + "/" + BootstrapFile
+	data, err := files.ReadFile(ctx, path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got handover
+	if err := json.Unmarshal(data, &got); err != nil || got.Username != "admin" || got.PasswordHash != cryptHash {
+		t.Errorf("the panel was handed %s, %v", data, err)
+	}
+	if fi, err := files.Stat(ctx, path); err != nil || fi.Mode.Perm() != 0o600 || fi.Owner != "racksail" {
+		t.Errorf("the handover file = %+v, %v", fi, err)
+	}
+}

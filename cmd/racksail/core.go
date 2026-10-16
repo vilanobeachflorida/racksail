@@ -15,6 +15,8 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
@@ -50,6 +52,9 @@ type core struct {
 	queue    *jobs.Manager
 	runner   *reconcile.Runner
 	inbox    *inbox.Service
+	// identity signs people in; owners says whose each account is.
+	identity *identity.Service
+	owners   *account.Ownership
 	// cancel ends the background work, which work counts, so stop can wait
 	// for it before closing the database.
 	cancel context.CancelFunc
@@ -109,6 +114,10 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err != nil {
 		return nil, err
 	}
+	people, err := identity.NewSQL(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 
 	hookReg := hooks.NewRegistry()
 	if err := modules.DeclareHookPoints(hookReg, reg, kinds); err != nil {
@@ -164,8 +173,12 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err != nil {
 		return nil, err
 	}
-	if err := recs.Register(webhook.Reconciler(dispatcher)); err != nil {
-		return nil, err
+	for _, r := range []reconcile.Reconciler{
+		webhook.Reconciler(dispatcher), account.Reconciler(kinds), identity.PolicyReconciler(), identity.ProviderReconciler(),
+	} {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
 	}
 	hookRunner := &hooks.Runner{Registry: hookReg, Events: timeline, Audit: timeline, Log: log}
 	authorizer := auth.NewRoleAuthorizer(nil)
@@ -266,14 +279,25 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			}
 		}
 	}
-	// Reseller grants cover their customers' accounts once the module that
-	// keeps resellers says which accounts those are.
-	if owners, err = reg.Ownership(svc); err != nil {
+	// Reseller grants cover their customers' accounts: the accounts say
+	// whose they are, and a module that keeps resellers may say more.
+	resellers, err := reg.Ownership(svc)
+	if err != nil {
 		return nil, err
 	}
-	if owners != nil {
-		authorizer.SetOwnership(owners)
+	ownership := account.NewOwnership(st, resellers)
+	owners = ownership
+	authorizer.SetOwnership(ownership)
+	ids := identity.New(identity.Options{
+		Store: people, Resources: st, Pipeline: pipeline, Refresh: runner.Enqueue, Secrets: vault, Events: timeline, Audit: timeline,
+		Hooks: hookRunner, Authorizer: authorizer, Hostname: cfg.Panel.Hostname, SetupFile: filepath.Join(cfg.Paths.State, setupCodeFile), Log: log,
+	})
+	// Users are reconciled by the service that signs them in, which only
+	// exists once the pipeline that changes them does.
+	if err := recs.Register(ids.UserReconciler()); err != nil {
+		return nil, err
 	}
+	svc.Identity = ids.Directory()
 	if accounts, err = reg.Accounts(svc); err != nil {
 		return nil, err
 	}
@@ -288,7 +312,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 	c = &core{
 		log: log, agent: agentClient, modules: reg, manager: manager, services: svc, db: db, timeline: timeline, webhooks: dispatcher,
-		queue: queue, runner: runner, inbox: attention, cancel: cancel,
+		queue: queue, runner: runner, inbox: attention, identity: ids, owners: ownership, cancel: cancel,
 	}
 	// These are what a new release must have working to confirm itself.
 	coreHealth = []api.HealthCheck{
@@ -330,6 +354,8 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	c.work.Go(func() { dispatcher.Run(ctx) })
 	c.work.Go(func() { notifier.Run(ctx) })
 	c.work.Go(func() { timeline.Run(ctx, time.Hour) })
+	// The sign-in policy follows its resource, and expired sessions go.
+	c.work.Go(func() { ids.Run(ctx) })
 	c.work.Go(func() { attention.Run(ctx, time.Minute) })
 	// Modules become active as resources start to use them.
 	c.work.Go(func() { manager.Run(ctx) })
@@ -453,8 +479,10 @@ func (c *core) apiServer(authn auth.Authenticator, dev bool) (*api.Server, error
 	if !built {
 		c.log.Info("this binary has no web UI; the panel serves a page explaining how to build it")
 	}
+	states := func() map[string]modules.State { return c.manager.States() }
 	return api.New(api.Options{
 		Auth: authn, Dev: dev, Modules: c.modules, Services: c.services, Timeline: c.timeline, Webhooks: c.webhooks,
+		Identity: c.identity, Accounts: c.owners, ModuleStates: states,
 		Inbox: c.inbox, Health: c.health, AllowFrom: allow, RateLimit: api.RateLimit{PerActor: cfg.API.RateLimit, PerAddress: cfg.API.AnonymousRateLimit},
 		Metrics: c.metrics, UI: webui.Handler(assets), Log: c.log,
 	}), nil

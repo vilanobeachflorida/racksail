@@ -65,7 +65,7 @@ help:
 	@echo "make docs        build the documentation site"
 	@echo "make clean       remove build output"
 	@echo ""
-	@echo "make release     build everything a release publishes into $(DIST)/; needs VERSION"
+	@echo "make release     build everything a release publishes into $(DIST)/, the official add-ons included; needs VERSION"
 	@echo "make deb         build the Debian packages into $(DIST)/"
 	@echo "make iso         build the installer ISO in a Debian container; ISO_ARCH, ISO_VARIANT"
 	@echo "make e2e         install the ISO on a QEMU machine and run the end-to-end suites; ISO, E2E_FLAGS"
@@ -80,6 +80,8 @@ help:
 	@echo "make fuzz-list   list the fuzz targets as dir:FuzzName, as CI's daily fuzzing runs them"
 	@echo "make gen-check   fail when the generated files differ from what make gen writes"
 	@echo "make sdk-check   test the add-on SDKs"
+	@echo "make addons-check  vet, staticcheck and test the official add-ons in addons/"
+	@echo "make addons      build the official add-ons' release archives into $(DIST)/addons/"
 
 $(UI_DEPS): ui/package.json ui/package-lock.json
 	cd ui && $(NPM) ci --no-audit --no-fund
@@ -251,6 +253,10 @@ release:
 	rm -rf $(DIST)
 	$(MAKE) cross VERSION=$(VERSION) CHANNEL=$(RELEASE_CHANNEL)
 	$(MAKE) deb sbom VERSION=$(VERSION) CHANNEL=$(RELEASE_CHANNEL)
+	@# The official add-ons' archives go out with the release, checksummed and
+	@# signed with the rest, which is where the catalog's recipes pin them.
+	$(MAKE) addons
+	mv $(DIST)/addons/*.tar.gz $(DIST)/ && rm -r $(DIST)/addons
 	cp $(BIN)/racksail-linux-amd64 $(BIN)/racksail-linux-arm64 packaging/install.sh $(DIST)/
 	cp build/deb/third-party-licenses.txt $(DIST)/
 	$(GO) run ./packaging/release checksums -dir $(DIST)
@@ -358,6 +364,7 @@ licenses:
 vulncheck:
 	$(GO) run $(GOVULNCHECK) ./...
 	cd sdk/go && $(GO) run $(GOVULNCHECK) ./...
+	cd addons && $(GO) run $(GOVULNCHECK) ./...
 	$(GO) run $(OSV_SCANNER) scan source --config packaging/osv-scanner.toml $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
 
 # Every fuzz target in the code, as its package's directory and its name,
@@ -401,3 +408,32 @@ sdk-check: $(SDK_TS_DEPS)
 ci-lint:
 	$(GO) run $(ACTIONLINT)
 	shellcheck $$(git ls-files '*.sh' iso/auto/config 'iso/config/hooks/*' | grep -v '^\.')
+
+# The official add-ons in addons/, a Go module of their own: the LDAP and
+# OpenID Connect sign-ins. Each add-on's version is its catalog manifest's,
+# and its archive holds its program, called addon, as the panel unpacks it.
+ADDONS = $(shell git ls-files 'addons/*/main.go' | grep -v '^addons/internal/' | xargs -n 1 dirname | xargs -n 1 basename)
+
+.PHONY: addons addons-check
+
+check: addons-check
+
+addons-check:
+	cd addons && $(GO) vet ./... && GOOS=linux $(GO) vet ./...
+	cd addons && $(GO) run $(STATICCHECK) ./... && $(GO) run -exec 'env GOOS=linux' $(STATICCHECK) ./...
+	cd addons && $(GO) test ./...
+
+addons:
+	rm -rf $(DIST)/addons && mkdir -p $(DIST)/addons && : > $(DIST)/addons/SHA256SUMS
+	@for id in $(ADDONS); do \
+		version=$$(sed -n 's/^version: *//p' catalog/addons/$$id/addon.yaml); \
+		test -n "$$version" || { echo "catalog/addons/$$id/addon.yaml has no version"; exit 1; }; \
+		for p in $(PLATFORMS); do arch=$${p#*/}; \
+			(cd addons && GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags "-s -w -X main.version=$$version" \
+				-o ../build/addons/$$id-$$arch/addon ./$$id) || exit 1; \
+			(cd addons && $(GO) run ./internal/pack -program ../build/addons/$$id-$$arch/addon \
+				-out $(abspath $(DIST))/addons/$$id-$$version-linux-$$arch.tar.gz) >> $(DIST)/addons/SHA256SUMS || exit 1; \
+		done; \
+	done
+	@sed 's|  .*/|  |' $(DIST)/addons/SHA256SUMS > $(DIST)/addons/SHA256SUMS.tmp && mv $(DIST)/addons/SHA256SUMS.tmp $(DIST)/addons/SHA256SUMS
+	@cat $(DIST)/addons/SHA256SUMS

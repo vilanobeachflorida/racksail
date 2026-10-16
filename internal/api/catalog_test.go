@@ -192,7 +192,8 @@ func TestOperationsCatalog(t *testing.T) {
 		Kinds []KindDescription `json:"kinds"`
 	}
 	s.call("nobody", "GET", "/api/v1/kinds", nil, &kinds)
-	if len(kinds.Kinds) != 2 {
+	if !slices.ContainsFunc(kinds.Kinds, func(k KindDescription) bool { return k.Name == "test.site" }) ||
+		!slices.ContainsFunc(kinds.Kinds, func(k KindDescription) bool { return k.Name == "core.webhook" }) {
 		t.Fatalf("kinds = %+v", kinds)
 	}
 	var site KindDescription
@@ -235,9 +236,10 @@ func TestOperationsCatalog(t *testing.T) {
 func TestEveryOperationIsAuthorized(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	// Operations that only describe the API, searches whose answers are
-	// filtered to what the caller may see, and taking back the caller's own
+	// filtered to what the caller may see, and the caller's own session and
 	// dismissals need nothing more than a sign-in.
-	open := []string{"listOperations", "listKinds", "getKind", "listEventTypes", "streamResources", "listChangeSets", "listJobs", "searchResources", "listInbox", "streamInbox", "restoreInboxItem"}
+	open := []string{"listOperations", "listKinds", "getKind", "listEventTypes", "streamResources", "listChangeSets", "listJobs", "listRoles",
+		"getSession", "searchResources", "listInbox", "streamInbox", "restoreInboxItem"}
 	// IDs that look right for each path, of things that exist or not.
 	prefixOf := func(path string) string {
 		switch {
@@ -274,6 +276,10 @@ func TestEveryOperationIsAuthorized(t *testing.T) {
 			t.Errorf("%s without signing in = %d", op.ID, resp.StatusCode)
 		}
 		if op.Stream && slices.Contains(open, op.ID) {
+			continue
+		}
+		if _, self := SignedInOperations[op.ID]; self && !slices.Contains(open, op.ID) {
+			// What people do about themselves is tested with real users.
 			continue
 		}
 		resp := s.call("nobody", op.Method, path+query, body, nil)

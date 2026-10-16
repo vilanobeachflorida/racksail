@@ -253,11 +253,16 @@ func changeParams() []*huma.Param {
 
 func intPtr(i int) *int { return &i }
 
-// changeParamsOf reads dryRun and Idempotency-Key.
+// changeParamsOf reads dryRun and Idempotency-Key. dryRun is read the way
+// Huma reads it into ChangeParams, so it means the same to every operation.
 func changeParamsOf(ctx huma.Context) (ChangeParams, error) {
-	dry, err := paramsOf(ctx).boolean("dryRun")
-	if err != nil {
-		return ChangeParams{}, err
+	var dry bool
+	if v := ctx.Query("dryRun"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return ChangeParams{}, badParam("dryRun", "use true or false")
+		}
+		dry = b
 	}
 	key := ctx.Header("Idempotency-Key")
 	if len(key) > 128 {

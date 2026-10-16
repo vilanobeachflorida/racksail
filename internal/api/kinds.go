@@ -69,7 +69,7 @@ func (s *Server) registerKind(k store.Kind) {
 	s.docs[info.Name] = d
 	tags := []string{s.tagOf(info)}
 	base := KindPath(info)
-	title := strings.ToLower(info.Title)
+	title := sentenceTitle(info)
 	many := plural(info)
 	listID := "list" + camel(info.Module(), info.Plural)
 	idParam := pathParam("id", "The "+title+"'s ID, which starts with "+info.Prefix+"_")
@@ -96,7 +96,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// Get.
 	op = &huma.Operation{
 		OperationID: "get" + d.name, Method: http.MethodGet, Path: base + "/{id}", Tags: tags, Security: Protected,
-		Summary:     "Get a " + title,
+		Summary:     "Get " + withArticle(title),
 		Description: "Returns one " + title + ": its settings (spec), and what Racksail last saw of it (status). " + info.Description,
 		Parameters:  []*huma.Param{idParam, fieldsParam()},
 		Responses:   map[string]*huma.Response{"200": jsonResponse("The "+title, d.resource)},
@@ -107,46 +107,46 @@ func (s *Server) registerKind(k store.Kind) {
 	// Create.
 	op = &huma.Operation{
 		OperationID: "create" + d.name, Method: http.MethodPost, Path: base, Tags: tags, Security: Protected,
-		Summary: "Create a " + title,
+		Summary: "Create " + withArticle(title),
 		Description: info.Description + " Creating one is a change like any other: with dryRun=true the answer is the change set, " +
 			"what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
 		Parameters:  changeParams(),
 		RequestBody: &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{"application/json": {Schema: d.create}}},
 		Responses:   changeResponses("The change set, applied to the settings; its job carries out the change on the server"),
 	}
-	Describe(op, Info{Kind: info.Name, Operation: "create", Permission: string(auth.KindPermission(info.Name, "create")), Risk: info.Risks.Create, DryRun: true, Reversible: true})
+	Describe(op, Info{Kind: info.Name, Operation: "create", Permission: string(auth.KindPermission(info.Name, "create")), Risk: info.Risks.Create, DryRun: true, Reversible: true, StepUp: info.Confirm})
 	s.handle(op, s.createKind(k))
 
 	// Update.
 	op = &huma.Operation{
 		OperationID: "update" + d.name, Method: http.MethodPut, Path: base + "/{id}", Tags: tags, Security: Protected,
-		Summary: "Change a " + title,
+		Summary: "Change " + withArticle(title),
 		Description: "Replaces the " + title + "'s settings with new ones, previewed and applied like any change. " +
 			"Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
 		Parameters:  append([]*huma.Param{idParam}, changeParams()...),
 		RequestBody: &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{"application/json": {Schema: d.edit}}},
 		Responses:   changeResponses("The change set, applied to the settings; its job carries out the change on the server"),
 	}
-	Describe(op, Info{Kind: info.Name, Operation: "update", Permission: string(auth.KindPermission(info.Name, "update")), Risk: info.Risks.Update, DryRun: true, Reversible: true})
+	Describe(op, Info{Kind: info.Name, Operation: "update", Permission: string(auth.KindPermission(info.Name, "update")), Risk: info.Risks.Update, DryRun: true, Reversible: true, StepUp: info.Confirm})
 	s.handle(op, s.updateKind(k))
 
 	// Delete.
 	revision := queryParam("revision", huma.TypeInteger, "The revision you read; when someone changed the "+title+" since, the delete fails with a conflict")
 	op = &huma.Operation{
 		OperationID: "delete" + d.name, Method: http.MethodDelete, Path: base + "/{id}", Tags: tags, Security: Protected,
-		Summary: "Delete a " + title,
+		Summary: "Delete " + withArticle(title),
 		Description: "Deletes the " + title + " and removes what it set up on the server, previewed and applied like any change. " +
 			"Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
 		Parameters: append([]*huma.Param{idParam, revision}, changeParams()...),
 		Responses:  changeResponses("The change set; its job removes the " + title + " from the server"),
 	}
-	Describe(op, Info{Kind: info.Name, Operation: "delete", Permission: string(auth.KindPermission(info.Name, "delete")), Risk: info.Risks.Delete, DryRun: true, Destructive: true, Reversible: true})
+	Describe(op, Info{Kind: info.Name, Operation: "delete", Permission: string(auth.KindPermission(info.Name, "delete")), Risk: info.Risks.Delete, DryRun: true, Destructive: true, Reversible: true, StepUp: info.Confirm})
 	s.handle(op, s.deleteKind(k))
 
 	// History.
 	op = &huma.Operation{
 		OperationID: "get" + d.name + "History", Method: http.MethodGet, Path: base + "/{id}/history", Tags: tags, Security: Protected,
-		Summary:     "Show a " + title + "'s history",
+		Summary:     "Show " + withArticle(title) + "'s history",
 		Description: "Returns every recorded version of the " + title + "'s settings, oldest first, with the change set that wrote it and who made the change.",
 		Parameters:  []*huma.Param{idParam},
 		Responses:   map[string]*huma.Response{"200": jsonResponse("The versions", s.schemaOf(typeOfHistory, "History"))},
@@ -185,7 +185,7 @@ func (s *Server) registerKind(k store.Kind) {
 		}
 		Describe(op, Info{
 			Kind: info.Name, Operation: a.Name, Permission: string(auth.KindPermission(info.Name, a.Name)), Risk: a.Risk,
-			DryRun: true, Long: a.Long, Destructive: a.Destructive, Reversible: a.Reversible,
+			DryRun: true, Long: a.Long, Destructive: a.Destructive, Reversible: a.Reversible, StepUp: info.Confirm && a.Risk != store.RiskLow,
 		})
 		s.handle(op, s.kindAction(k, a))
 	}
@@ -352,15 +352,19 @@ func (s *Server) createKind(k store.Kind) handler {
 			return 0, nil, i18n.Invalid(i18n.Field("body.spec", i18n.ErrRequired))
 		}
 		scope := store.ServerScope()
-		if info.Scope != store.ScopeServer {
+		switch {
+		case info.Scope != store.ScopeServer || len(info.Levels) > 0:
 			if body.Scope == nil {
-				return 0, nil, i18n.Invalid(i18n.Field("body.scope", i18n.ErrRequired))
+				if info.Scope != store.ScopeServer {
+					return 0, nil, i18n.Invalid(i18n.Field("body.scope", i18n.ErrRequired))
+				}
+				break
 			}
 			scope = *body.Scope
 			if scope.Level == "" {
 				scope.Level = info.Scope
 			}
-		} else if body.Scope != nil && *body.Scope != scope {
+		case body.Scope != nil && *body.Scope != scope:
 			return 0, nil, i18n.Invalid(i18n.Field("body.scope", i18n.ErrBadValue, "reason", info.Title+" resources belong to the server"))
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
@@ -510,14 +514,17 @@ type KindDescription struct {
 	Description string           `json:"description"`
 	Prefix      string           `json:"prefix" doc:"What its IDs start with, before the underscore"`
 	Scope       store.ScopeLevel `json:"scope" enum:"server,reseller,account" doc:"Who owns resources of the kind"`
-	Path        string           `json:"path" doc:"Where its operations are"`
-	Singleton   bool             `json:"singleton,omitempty" doc:"At most one per owner"`
-	Risks       KindRisks        `json:"risks"`
-	Actions     []ActionInfo     `json:"actions"`
-	Indexes     []IndexInfo      `json:"indexes"`
-	Events      []string         `json:"events" doc:"The event types the kind emits"`
-	UI          store.UIHints    `json:"ui"`
-	Backup      BackupInfo       `json:"backup"`
+	// Levels are where else its resources may belong.
+	Levels    []store.ScopeLevel `json:"levels,omitempty" doc:"Further levels its resources may belong to, as users belong to the server, a reseller or an account"`
+	Path      string             `json:"path" doc:"Where its operations are"`
+	Singleton bool               `json:"singleton,omitempty" doc:"At most one per owner"`
+	Confirm   bool               `json:"confirm,omitempty" doc:"Whether changing one asks people in the panel to confirm it's them"`
+	Risks     KindRisks          `json:"risks"`
+	Actions   []ActionInfo       `json:"actions"`
+	Indexes   []IndexInfo        `json:"indexes"`
+	Events    []string           `json:"events" doc:"The event types the kind emits"`
+	UI        store.UIHints      `json:"ui"`
+	Backup    BackupInfo         `json:"backup"`
 	// Schemas are filled in when one kind is asked for.
 	Spec    json.RawMessage            `json:"spec,omitempty" doc:"The JSON Schema of the settings"`
 	Status  json.RawMessage            `json:"status,omitempty" doc:"The JSON Schema of the status"`
@@ -563,7 +570,7 @@ func describeKind(k store.Kind) KindDescription {
 	info := k.Info()
 	d := KindDescription{
 		Name: info.Name, Module: info.Module(), Title: info.Title, Plural: info.Plural, Description: info.Description,
-		Prefix: info.Prefix, Scope: info.Scope, Path: KindPath(info), Singleton: info.Singleton, UI: info.UI,
+		Prefix: info.Prefix, Scope: info.Scope, Levels: info.Levels, Path: KindPath(info), Singleton: info.Singleton, Confirm: info.Confirm, UI: info.UI,
 		Risks:   KindRisks{Create: info.Risks.Create, Update: info.Risks.Update, Delete: info.Risks.Delete},
 		Backup:  BackupInfo{Covered: !info.Backup.Exclude, Reason: info.Backup.Reason},
 		Actions: []ActionInfo{}, Indexes: []IndexInfo{}, Events: []string{},

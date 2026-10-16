@@ -204,6 +204,7 @@ func (e *Engine) addContribution(ctx context.Context, p *draft, actor *auth.Acto
 		}
 		c.Before, c.LabelsBefore = nil, nil
 	case OpUpdate, OpDelete:
+		stored := !p.view.Planned(c.ID)
 		r, err := p.view.Get(ctx, c.ID)
 		if err != nil {
 			return err
@@ -212,6 +213,9 @@ func (e *Engine) addContribution(ctx context.Context, p *draft, actor *auth.Acto
 			return store.ErrNotFound.New("what", string(c.ID))
 		}
 		old, next = r, r.Clone()
+		if c.Op == OpUpdate && c.Revision == 0 && stored {
+			c.Revision = r.Revision
+		}
 		// The resource's own placement and previous state, whatever the hook
 		// said, so authorization and undo see the truth.
 		c.Scope, c.Server, c.Before, c.LabelsBefore = r.Scope, r.Server, r.Spec, nil

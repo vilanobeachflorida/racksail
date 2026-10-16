@@ -95,6 +95,9 @@ func TestDefineRejectsBadDefinitions(t *testing.T) {
 		{"resource field naming no kind", func(i *KindInfo) {
 			i.UI.Fields = map[string]FieldHint{"database": {Widget: "resource", Kind: "Databases"}}
 		}, "isn't a kind's name"},
+		{"unknown level", func(i *KindInfo) { i.Levels = []ScopeLevel{"galaxy"} }, "scope level"},
+		{"level twice", func(i *KindInfo) { i.Levels = []ScopeLevel{ScopeAccount, ScopeAccount} }, "twice"},
+		{"level of the scope", func(i *KindInfo) { i.Levels = []ScopeLevel{ScopeServer} }, "twice"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -121,6 +124,61 @@ func TestDefineRejectsBadDefinitions(t *testing.T) {
 	type noStatus struct{ X int }
 	if err := Define[testSiteSpec, noStatus](good).Err(); err == nil {
 		t.Error("a status without store.Status should be rejected")
+	}
+}
+
+// A kind with several levels has resources wherever they're made, and
+// nowhere else.
+func TestKindsOwnedAtSeveralLevels(t *testing.T) {
+	ctx := context.Background()
+	k := Define[testSiteSpec, Status](KindInfo{
+		Name: "test.member", Prefix: "tmember", Scope: ScopeServer, Levels: []ScopeLevel{ScopeAccount},
+		Title: "Member", Plural: "members", Description: "Someone, somewhere.",
+	})
+	if err := k.Err(); err != nil {
+		t.Fatal(err)
+	}
+	info := k.Info()
+	if !info.OwnedAt(ScopeServer) || !info.OwnedAt(ScopeAccount) || info.OwnedAt(ScopeReseller) {
+		t.Errorf("levels = %s and %v", info.Scope, info.Levels)
+	}
+	kinds := NewKindRegistry()
+	if err := kinds.Register(k); err != nil {
+		t.Fatal(err)
+	}
+	st := NewMemory(kinds)
+	err := st.Write(ctx, WriteMeta{}, func(tx Tx) error {
+		for _, scope := range []Scope{ServerScope(), AccountScope(NewID("acct"))} {
+			if err := tx.Create(ctx, &Resource{Meta: Meta{Kind: "test.member", Scope: scope}, Spec: json.RawMessage(`{"domains":["a.test"]}`)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &Resource{Meta: Meta{Kind: "test.member", Scope: ResellerScope(NewID("rsl"))}, Spec: json.RawMessage(`{"domains":["a.test"]}`)}
+	if err := k.Validate(ctx, r, nil); !i18n.ErrInvalid.Is(err) || !strings.Contains(i18n.From(err).Fields[0].Message, "server or account level") {
+		t.Errorf("a reseller's member = %v", err)
+	}
+	err = st.Write(ctx, WriteMeta{}, func(tx Tx) error { return tx.Create(ctx, r) })
+	if !i18n.ErrInvalid.Is(err) {
+		t.Errorf("storing a reseller's member = %v", err)
+	}
+}
+
+func TestReadersInContexts(t *testing.T) {
+	ctx := context.Background()
+	if _, ok := ReaderFrom(ctx); ok {
+		t.Error("a plain context carries no reader")
+	}
+	if _, ok := ReaderFrom(WithReader(ctx, nil)); ok {
+		t.Error("a nil reader isn't carried")
+	}
+	st := NewMemory(NewKindRegistry())
+	if r, ok := ReaderFrom(WithReader(ctx, st)); !ok || r != Reader(st) {
+		t.Errorf("reader = %v, %v", r, ok)
 	}
 }
 

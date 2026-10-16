@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -303,6 +304,116 @@ func TestKindsWithoutReconcilersAreReadyOnceStored(t *testing.T) {
 	}
 	if _, err := e.store.Get(ctx, got.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("a deleted label is purged at once: %v", err)
+	}
+}
+
+// A change is written only at the revision it was planned against, so a
+// change that lands meanwhile is never undone. A request that names no
+// revision is planned again from what landed; one that names a revision
+// fails, as it asked.
+func TestChangesDontOverwriteWhatLandedMeanwhile(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	cs := e.submit(t, false, e.create("test.label", labelSpec{Name: "draft"}))
+	id := cs.Changes[0].ID
+	// land has another write label the resource while the update is
+	// checked, at the first attempts.
+	land := func(attempts int) {
+		var mu sync.Mutex
+		landed := 0
+		e.hooks.during = func(ctx context.Context, point string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if point != "test.label.update.validate" || landed == attempts {
+				return
+			}
+			landed++
+			err := e.store.Write(ctx, store.WriteMeta{Actor: "test"}, func(tx store.Tx) error {
+				cur, err := tx.Get(ctx, id)
+				if err != nil {
+					return err
+				}
+				cur.Labels = map[string]string{"reviewed": strconv.Itoa(landed)}
+				return tx.Update(ctx, cur)
+			})
+			if err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	rename := func(name string, revision int64) (*ChangeSet, error) {
+		return e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{
+			{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"` + name + `"}`), Revision: revision},
+		}})
+	}
+	land(1)
+	applied, err := rename("mine", 0)
+	if err != nil {
+		t.Fatalf("an update planned before another landed = %v", err)
+	}
+	e.wait(t, applied)
+	got, err := labelKind.Get(ctx, e.store, id)
+	if err != nil || got.Spec.Name != "mine" || got.Labels["reviewed"] != "1" {
+		t.Errorf("the label keeps what landed and gets the update: %+v, %v", got, err)
+	}
+
+	land(1)
+	if _, err := rename("theirs", got.Revision); !store.ErrConflict.Is(err) {
+		t.Errorf("an update naming the revision it was made against = %v", err)
+	}
+	// A request that keeps losing to other writes gives up in the end.
+	land(replans)
+	if _, err := rename("yours", 0); !store.ErrConflict.Is(err) {
+		t.Errorf("an update overtaken every time = %v", err)
+	}
+	e.hooks.during = nil
+	if got, _ := labelKind.Get(ctx, e.store, id); got.Spec.Name != "mine" {
+		t.Errorf("label = %+v", got.Spec)
+	}
+
+	// Several changes of one resource in a request build on each other.
+	next := e.submit(t, false,
+		Change{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"one"}`)},
+		Change{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"two"}`)},
+	)
+	if next.State != StateApplied || next.Changes[0].Revision == 0 || next.Changes[1].Revision != 0 {
+		t.Errorf("changes = %+v", next.Changes)
+	}
+	if got, _ := labelKind.Get(ctx, e.store, id); got.Spec.Name != "two" {
+		t.Errorf("label = %+v", got.Spec)
+	}
+}
+
+// What validation sees of other resources is the state the change set
+// leaves: earlier changes of the same request included.
+func TestValidationReadsThePlannedState(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	var seen []string
+	e.hooks.during = func(ctx context.Context, point string) {
+		r, ok := store.ReaderFrom(ctx)
+		if !ok {
+			t.Errorf("%s has no reader", point)
+			return
+		}
+		page, err := r.List(ctx, store.Query{Kind: "test.label"})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for _, item := range page.Items {
+			obj, _ := labelKind.Decode(item)
+			seen = append(seen, obj.Spec.Name)
+		}
+		seen = append(seen, "|")
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, DryRun: true, Changes: []Change{
+		e.create("test.label", labelSpec{Name: "first"}), e.create("test.label", labelSpec{Name: "second"}),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(seen, " "); got != "| first |" {
+		t.Errorf("what the validate points saw: %q", got)
 	}
 }
 

@@ -40,6 +40,7 @@ import { DialogOverlay } from "@/design/components/ui/dialog";
 import { useTheme } from "@/design/theme/provider";
 import { useChangeTracker } from "./changes/tracker";
 import { useGeneralPreferences } from "./general";
+import { IdentityCommands } from "./identity/commands";
 import { messages } from "./messages";
 import { moduleCommands, navEntries, useActiveModules, useModules, usePermission } from "./modules";
 import { commandMessages as cm } from "./screens/messages";
@@ -85,9 +86,10 @@ function useShownResource() {
 /**
  * The command bar (⌘K): go anywhere, find resources of any kind, start a
  * new one, run what the screen's resource offers and the actions modules
- * add, open what was opened recently, undo the last change, change the
- * appearance, and, with the assistant on, ask a question or run one of its
- * / commands from the same input.
+ * add, reach people and access and your own account, open what was opened
+ * recently, undo the last change, change the appearance, and, with the
+ * assistant on, ask a question or run one of its / commands from the same
+ * input.
  */
 export default function CommandBar() {
   const intl = useIntl();
@@ -349,6 +351,7 @@ export default function CommandBar() {
                       </CommandItem>
                     ))}
                   </CommandGroup>
+                  <IdentityCommands close={close} />
                   {creatable.length > 0 || moduleCommands(modules, allowed).length > 0 || last ? (
                     <CommandGroup heading={intl.formatMessage(messages.commandActions)}>
                       {last ? (

@@ -6,11 +6,13 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api"
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -30,7 +32,20 @@ const (
 	groupTools  = "tools"
 )
 
-func newRootCommand() *cobra.Command {
+// newRootCommand builds every command.
+func newRootCommand() *cobra.Command { return buildRootCommand(true) }
+
+// newRootCommandFor builds the commands the arguments may run. The roles
+// that run Racksail have no use for the commands built from the API
+// document, so they skip building them.
+func newRootCommandFor(args []string) *cobra.Command {
+	return buildRootCommand(len(args) == 0 || !slices.Contains(roles, args[0]))
+}
+
+// roles are the commands that run Racksail rather than call it.
+var roles = []string{"panel", "agent", "edge", "wake-proxy", "dev", "install"}
+
+func buildRootCommand(withAPICommands bool) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "racksail",
 		Short: "Your server, your rules.",
@@ -59,6 +74,15 @@ func newRootCommand() *cobra.Command {
 		cmd.GroupID = groupTools
 		root.AddCommand(cmd)
 	}
+	// A binary whose registries have problems refuses to run, which the
+	// commands that need them say; building from them could fail first.
+	if withAPICommands && checkRegistries() == nil {
+		if err := addAPICommands(root, opts); err != nil {
+			root.PersistentPreRunE = func(*cobra.Command, []string) error {
+				return fmt.Errorf("building the commands from the API: %w", err)
+			}
+		}
+	}
 	root.SetHelpCommandGroupID(groupTools)
 	root.SetCompletionCommandGroupID(groupTools)
 	return root
@@ -68,7 +92,8 @@ func newRootCommand() *cobra.Command {
 // codes, operations, kinds, event and job types, notification channels and
 // modules. A binary with such problems refuses to run.
 func checkRegistries() error {
-	return errors.Join(i18n.Err(), agent.Err(), store.Err(), events.Err(), jobs.Err(), notify.Err(), api.ExtensionErr(), modules.Default().Err())
+	return errors.Join(i18n.Err(), agent.Err(), store.Err(), events.Err(), jobs.Err(), notify.Err(), auth.Err(), api.ExtensionErr(),
+		modules.Default().Err())
 }
 
 // newLogger builds the logger for a role from its configuration.
