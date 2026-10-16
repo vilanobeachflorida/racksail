@@ -2,7 +2,15 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { buildForm, defaultValue, getAt, humanize, parsePath, setAt } from "@/lib/forms/model";
+import {
+  buildForm,
+  defaultValue,
+  getAt,
+  humanize,
+  parsePath,
+  setAt,
+  withoutEmptyObjects,
+} from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { renderWithProviders } from "@/test/render";
 import { SchemaForm } from "./schema-form";
@@ -82,6 +90,30 @@ describe("the form model", () => {
     expect(setAt({ a: 1, b: 2 }, "a", undefined)).toEqual({ b: 2 });
     expect(humanize("alwaysOn")).toBe("Always on");
   });
+
+  it("leaves out optional objects nobody filled in, and keeps required ones", () => {
+    const owner: JSONSchema = {
+      type: "object",
+      properties: {
+        owner: {
+          type: "object",
+          properties: { level: { type: "string" }, id: { type: "string" } },
+          required: ["level"],
+        },
+        limits: { $ref: "#/$defs/limits" },
+        name: { type: "string" },
+      },
+      required: ["limits"],
+      $defs: { limits: { type: "object", properties: { memory: { type: "integer" } } } },
+    };
+    expect(withoutEmptyObjects(owner, { owner: {}, limits: {}, name: "a" }, owner)).toEqual({
+      limits: {},
+      name: "a",
+    });
+    expect(withoutEmptyObjects(owner, { owner: { level: "account" } }, owner)).toEqual({
+      owner: { level: "account" },
+    });
+  });
 });
 
 describe("the schema form", () => {
@@ -108,13 +140,13 @@ describe("the schema form", () => {
     await userEvent.click(screen.getByRole("button", { name: "Add to Aliases" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Aliases 1" }), "www.example.com");
     await userEvent.click(screen.getByRole("button", { name: "Create site" }));
+    // Limits nobody filled in stay out of the spec.
     expect(onSubmit).toHaveBeenCalledWith({
       spec: {
         domain: "example.com",
         runtime: "php",
         alwaysOn: true,
         workers: 2,
-        limits: {},
         aliases: ["www.example.com"],
       },
       secrets: { password: "s3cret-pass" },

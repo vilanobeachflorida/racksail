@@ -45,6 +45,14 @@ export interface ResourceChange {
   after?: unknown;
   diff?: FieldDiff[] | null;
   source: ChangeSource;
+  /** The labels before the change. */
+  labelsBefore?: Record<string, string>;
+  /** An action's input. */
+  input?: unknown;
+  /** What an action returned, once it was applied. */
+  output?: unknown;
+  /** How far carrying out the change got: started, or done once it's in place. */
+  state?: "started" | "done";
 }
 
 export type EffectType =
@@ -135,6 +143,8 @@ export interface ChangeSet {
   estimate: Estimate;
   /** Applying it takes snapshots first, because it removes data. */
   snapshot?: boolean;
+  /** The snapshots applying it took. */
+  snapshots?: { source: string; path: string }[] | null;
   dryRun?: boolean;
   state: ChangeSetState;
   job?: string;

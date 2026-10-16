@@ -12,9 +12,11 @@ export function createQueryClient(): QueryClient {
       queries: {
         staleTime: 30_000,
         refetchOnWindowFocus: false,
-        // Errors the request itself caused won't go away by asking again.
+        // Errors the request itself caused won't go away by asking again,
+        // apart from asking too often, which passes in a moment.
         retry: (failures, error) =>
-          failures < 2 && !(error instanceof ApiError && error.status < 500),
+          failures < 2 &&
+          !(error instanceof ApiError && error.status < 500 && error.status !== 429),
       },
     },
   });

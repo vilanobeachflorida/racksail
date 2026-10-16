@@ -92,7 +92,8 @@ export function RiskBadge({ risk }: { risk: Risk }) {
   );
 }
 
-function DiffRow({ diff }: { diff: FieldDiff }) {
+/** One field a change touches, with its value before and after. */
+export function DiffRow({ diff }: { diff: FieldDiff }) {
   const intl = useIntl();
   const sign = { add: "+", remove: "−", replace: "~" }[diff.op];
   return (
@@ -275,6 +276,11 @@ export interface ChangePreviewProps {
    * field. The resource's id by default.
    */
   resourceName?: (change: ResourceChange) => string;
+  /**
+   * Makes the person type this before applying, as destructive actions and
+   * deletes of what matters ask, whatever the change set's risk.
+   */
+  confirmText?: string;
   onApply?: () => void | Promise<void>;
   onCancel?: () => void;
   onUndo?: () => void | Promise<void>;
@@ -293,6 +299,7 @@ export function ChangePreview({
   changeSet: cs,
   kindLabel = (kind) => kind,
   resourceName = (change) => change.id,
+  confirmText,
   onApply,
   onCancel,
   onUndo,
@@ -313,7 +320,10 @@ export function ChangePreview({
   const est = cs.estimate;
   // Critical changes ask for the name of the resource they're about.
   const target = confirmationTarget(cs);
-  const typedName = cs.risk === "critical" ? (target ? resourceName(target) : cs.title) : undefined;
+  const typedName =
+    confirmText ??
+    (cs.risk === "critical" ? (target ? resourceName(target) : cs.title) : undefined);
+  const confirm = needsConfirmation(cs) || typedName !== undefined;
   const apply = async () => {
     await onApply?.();
   };
@@ -472,10 +482,10 @@ export function ChangePreview({
             ) : null}
             {onApply ? (
               <Button
-                variant={needsConfirmation(cs) ? "destructive" : "default"}
+                variant={confirm ? "destructive" : "default"}
                 disabled={conflicts.length > 0}
                 busy={applying}
-                onClick={() => (needsConfirmation(cs) ? setConfirming(true) : void apply())}
+                onClick={() => (confirm ? setConfirming(true) : void apply())}
               >
                 {intl.formatMessage(m.previewApply)}
               </Button>

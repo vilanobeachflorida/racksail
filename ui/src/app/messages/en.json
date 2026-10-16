@@ -432,6 +432,7 @@
   "design.form.showSecret": "Show",
   "design.form.requiredMark": "required",
   "design.form.createOnly": "Set when it's created; it can't be changed.",
+  "design.form.item": "{item} {n, number}",
   "design.form.remove": "Remove {item}",
   "design.form.add": "Add to {item}",
   "design.form.secretUnchanged": "Leave empty to keep the current value",

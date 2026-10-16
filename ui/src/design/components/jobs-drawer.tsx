@@ -113,20 +113,34 @@ function JobItem({
   action,
   onCancel,
   onRetry,
+  focused,
 }: {
   job: Job;
   renderLog: (job: Job) => ReactNode;
   action?: JobActionState;
   onCancel?: (job: Job) => void;
   onRetry?: (job: Job) => void;
+  focused?: boolean;
 }) {
   const intl = useIntl();
   const f = useFormat();
-  const [open, setOpen] = useState(job.state === "running");
+  const [open, setOpen] = useState(job.state === "running" || focused === true);
+  const item = useRef<HTMLLIElement>(null);
+  // The job someone opened the drawer for shows with its log, in view.
+  useEffect(() => {
+    if (focused) {
+      setOpen(true);
+      item.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [focused]);
   const { done, total, message } = job.progress;
   const percent = total > 0 ? (done / total) * 100 : undefined;
   return (
-    <li className="flex flex-col gap-2 border-border border-b py-3 last:border-b-0">
+    <li
+      ref={item}
+      data-focused={focused ? "" : undefined}
+      className="flex flex-col gap-2 border-border border-b py-3 last:border-b-0 data-[focused]:-mx-2 data-[focused]:rounded-md data-[focused]:bg-primary-subtle data-[focused]:px-2"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col gap-1">
           <p className="font-medium text-sm">{job.title}</p>
@@ -215,6 +229,10 @@ export interface JobsDrawerProps {
   actions?: Readonly<Record<string, JobActionState>>;
   onCancel?: (job: Job) => void;
   onRetry?: (job: Job) => void;
+  /** The job the drawer was opened to show: it's expanded and scrolled into view. */
+  focusJob?: string | null;
+  /** Something to put under the list, such as a link to every job. */
+  footer?: ReactNode;
 }
 
 /** The drawer with every job the panel is running or ran recently, and their live logs. */
@@ -229,6 +247,8 @@ export function JobsDrawer({
   actions,
   onCancel,
   onRetry,
+  focusJob,
+  footer,
 }: JobsDrawerProps) {
   const intl = useIntl();
   const running = jobs.filter((j) => !jobDone(j.state));
@@ -243,6 +263,7 @@ export function JobsDrawer({
           action={actions?.[job.id]}
           onCancel={onCancel}
           onRetry={onRetry}
+          focused={focusJob === job.id}
         />
       ))}
     </ul>
@@ -287,6 +308,7 @@ export function JobsDrawer({
             ) : null}
           </>
         )}
+        {footer}
       </SheetContent>
     </Sheet>
   );

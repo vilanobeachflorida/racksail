@@ -22,6 +22,8 @@ export interface FieldHint {
   /** Can be set on create and is read-only afterwards. */
   createOnly?: boolean;
   order?: number;
+  /** The kind of the resources a resource field names by ID. */
+  kind?: string;
 }
 
 export interface FieldGroup {
@@ -185,6 +187,49 @@ export function defaultValue(schema: JSONSchema, root: JSONSchema, depth = 0): u
     return out;
   }
   return undefined;
+}
+
+/**
+ * The value without the optional objects nobody filled in, such as an
+ * owner left empty, which would otherwise ask for their required fields
+ * and reach the server as empty objects.
+ */
+export function withoutEmptyObjects(
+  schema: JSONSchema,
+  value: unknown,
+  root: JSONSchema,
+  depth = 0,
+): unknown {
+  let s: JSONSchema;
+  try {
+    s = resolveRef(schema, root);
+  } catch {
+    return value;
+  }
+  if (
+    depth > 8 ||
+    !s.properties ||
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return value;
+  }
+  const required = new Set(s.required ?? []);
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    const child = s.properties[key];
+    const next = child ? withoutEmptyObjects(child, v, root, depth + 1) : v;
+    const empty =
+      next !== null &&
+      typeof next === "object" &&
+      !Array.isArray(next) &&
+      Object.keys(next).length === 0;
+    if (!(empty && !required.has(key))) {
+      out[key] = next;
+    }
+  }
+  return out;
 }
 
 /** Splits a path like spec.domains[0] into keys and indexes. */
