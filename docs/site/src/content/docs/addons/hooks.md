@@ -64,6 +64,23 @@ Some settings can't be loosened by any hook: authentication, authorization check
 
 Only a server admin approves `core.override`, `secrets.read` and system hooks for an add-on, whoever else may install or change add-ons: someone with a narrower grant on add-ons, a token, or an add-on allowed to change add-ons is refused with `addons.admin_approval`. The same goes for giving an add-on that holds one of them another program, since it would run with what was approved for the first. Changing anything else of such an add-on, such as turning it off, needs no admin.
 
+## What an add-on may read and change
+
+An add-on's `permissions` name the kinds it may read and change, each as a data scope:
+
+```yaml
+permissions:
+  read: [{kind: web.site, fields: [domains]}]
+  write: [{kind: web.site, fields: [cdn], actions: [purge]}]
+```
+
+- A scope that names only its kind covers all of it: every field, the status and the labels, and for `write` also deleting resources and every action.
+- A scope that names fields covers those fields and nothing else. The add-on sees those fields of each resource, its status's phase and none of its labels, and with `write` it may create resources and change those fields, but not delete resources, run actions or change labels.
+- `labels: true` adds the labels to such a scope, and in `write`, `delete: true` adds deleting and `actions` the actions it lists. They also work without fields, as in `{kind: web.site, actions: [purge]}`, which allows that action and nothing else.
+- What an add-on may change, it may also see.
+
+The panel holds the add-on to them everywhere: in what hooks are sent, in what a modify hook's answer may add, and in its calls to the API, where a list of a kind it sees only part of can't be searched, filtered or sorted by the rest. A refusal says what was refused: `addons.field_denied`, `addons.delete_denied`, `addons.action_denied`, `addons.labels_denied` or `addons.query_denied`.
+
 ## Add-ons of an account
 
 An add-on an account owner installs, a `core.account_addon`, affects only that account:

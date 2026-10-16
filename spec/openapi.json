@@ -4346,7 +4346,22 @@
       "DataScope": {
         "additionalProperties": false,
         "properties": {
+          "actions": {
+            "description": "For changing: the actions of the kind the add-on may run, such as purge",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "delete": {
+            "description": "For changing: the add-on may delete resources of the kind",
+            "type": "boolean"
+          },
           "fields": {
+            "description": "The fields of the spec, as dotted paths such as cdn or tls.mode",
             "items": {
               "type": "string"
             },
@@ -4356,7 +4371,12 @@
             ]
           },
           "kind": {
+            "description": "The kind, such as web.site",
             "type": "string"
+          },
+          "labels": {
+            "description": "The resources' labels, which the add-on may see, or change when the scope is for changing",
+            "type": "boolean"
           }
         },
         "required": [
@@ -8156,6 +8176,7 @@
         "additionalProperties": false,
         "properties": {
           "hooks": {
+            "description": "The hook levels the add-on may use: observe, validate, modify and system",
             "items": {
               "type": "string"
             },
@@ -8165,6 +8186,7 @@
             ]
           },
           "network": {
+            "description": "The hosts, addresses or networks the add-on may reach; none when empty",
             "items": {
               "type": "string"
             },
@@ -8174,9 +8196,11 @@
             ]
           },
           "override": {
+            "description": "core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve",
             "type": "boolean"
           },
           "read": {
+            "description": "The kinds, and the fields of them, the add-on may see",
             "items": {
               "$ref": "#/components/schemas/DataScope"
             },
@@ -8186,12 +8210,15 @@
             ]
           },
           "resources": {
-            "$ref": "#/components/schemas/Resources"
+            "$ref": "#/components/schemas/Resources",
+            "description": "The most CPU and memory the add-on's process may use"
           },
           "secrets": {
+            "description": "secrets.read: the add-on may read the secrets of the resources it may see",
             "type": "boolean"
           },
           "write": {
+            "description": "The kinds, and the fields of them, the add-on may change, which it may also see",
             "items": {
               "$ref": "#/components/schemas/DataScope"
             },
@@ -9360,9 +9387,11 @@
         "additionalProperties": false,
         "properties": {
           "cpu": {
+            "description": "The most CPU time, in percent of one CPU, such as 20%",
             "type": "string"
           },
           "memoryMB": {
+            "description": "The most memory, in MB",
             "format": "int64",
             "type": "integer"
           }

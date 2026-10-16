@@ -48,6 +48,8 @@ type siteSpec struct {
 
 var siteKind = store.Define[siteSpec, store.Status](store.KindInfo{
 	Name: "web.site", Prefix: "site", Scope: store.ScopeAccount, Title: "Site", Plural: "sites", Description: "A site.",
+	Actions: []store.Action{{Name: "purge", Title: "Purge", Summary: "Empty the site's cache", Risk: store.RiskLow, Past: "purged"}},
+	Indexes: []store.Index{{Name: "domain", Path: "domains"}, {Name: "note", Path: "notes"}},
 })
 
 const guardManifest = `
@@ -287,7 +289,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{t: t, store: st, places: accounts{}}
 	e.catalogs = recipes.NewCatalogs(recipes.CatalogOptions{Store: st, Cache: filepath.Join(dir, "catalogs"), Logger: log})
 	rt := NewRuntime(Options{
-		Registry: reg, Store: st, Agent: ag, Events: bus, Audit: bus, Tokens: NewMemoryTokens(),
+		Registry: reg, Store: st, Kinds: kinds, Agent: ag, Events: bus, Audit: bus, Tokens: NewMemoryTokens(),
 		SafeMode: OpenSafeMode(filepath.Join(dir, "state"), nil), TokenDir: filepath.Join(dir, "tokens"), SocketDir: dir,
 		Resolve: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			if host == "api.example.com" {

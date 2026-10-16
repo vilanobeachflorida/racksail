@@ -86,7 +86,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["kind"],
-      "properties": { "kind": { "type": "string" }, "fields": { "type": "array", "items": { "type": "string" } } }
+      "properties": {
+        "kind": { "type": "string" },
+        "fields": { "type": "array", "items": { "type": "string" } },
+        "labels": { "description": "The resources' labels, which a scope that names anything but the kind covers only when it says so.", "type": "boolean" },
+        "delete": { "description": "For write: deleting resources, which a scope that names anything but the kind allows only when it says so.", "type": "boolean" },
+        "actions": {
+          "description": "For write: the actions a scope that names anything but the kind allows.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        }
+      }
     },
     "permissions": {
       "type": "object",

@@ -5758,8 +5758,16 @@ export interface components {
             user: string;
         };
         DataScope: {
+            /** @description For changing: the actions of the kind the add-on may run, such as purge */
+            actions?: string[] | null;
+            /** @description For changing: the add-on may delete resources of the kind */
+            delete?: boolean;
+            /** @description The fields of the spec, as dotted paths such as cdn or tls.mode */
             fields?: string[] | null;
+            /** @description The kind, such as web.site */
             kind: string;
+            /** @description The resources' labels, which the add-on may see, or change when the scope is for changing */
+            labels?: boolean;
         };
         DeliveriesOutputBody: {
             deliveries: components["schemas"]["Delivery"][] | null;
@@ -7007,12 +7015,19 @@ export interface components {
             name: string;
         };
         Permissions: {
+            /** @description The hook levels the add-on may use: observe, validate, modify and system */
             hooks?: string[] | null;
+            /** @description The hosts, addresses or networks the add-on may reach; none when empty */
             network?: string[] | null;
+            /** @description core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve */
             override?: boolean;
+            /** @description The kinds, and the fields of them, the add-on may see */
             read?: components["schemas"]["DataScope"][] | null;
+            /** @description The most CPU and memory the add-on's process may use */
             resources?: components["schemas"]["Resources"];
+            /** @description secrets.read: the add-on may read the secrets of the resources it may see */
             secrets?: boolean;
+            /** @description The kinds, and the fields of them, the add-on may change, which it may also see */
             write?: components["schemas"]["DataScope"][] | null;
         };
         PointInfo: {
@@ -7434,8 +7449,12 @@ export interface components {
             steps?: components["schemas"]["Step"][] | null;
         };
         Resources: {
+            /** @description The most CPU time, in percent of one CPU, such as 20% */
             cpu?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The most memory, in MB
+             */
             memoryMB?: number;
         };
         ResyncNotice: {

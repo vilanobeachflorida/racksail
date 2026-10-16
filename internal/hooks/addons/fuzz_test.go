@@ -73,9 +73,72 @@ func FuzzFilterBody(f *testing.F) {
 	f.Add([]byte(`{"items":[{"id":"site_1","kind":"web.site","scope":{"level":"account","id":"acct_01j9x3k4m5n6p7q8r9s0t1u2v3"},"spec":{"domains":["a.example"],"notes":"private"}}]}`))
 	f.Add([]byte(`[{"kind":"core.addon","spec":{"id":"x"}},1,"a",null]`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		out := filterBody(data, fuzzGrants)
-		if json.Valid(data) && !json.Valid(out) {
+		out := filterBody(data, fuzzGrants, "web.site")
+		if json.Valid(data) && (out == nil || !json.Valid(out)) {
 			t.Fatalf("filtering %s gave %s", data, out)
 		}
+		var v any
+		if json.Unmarshal(out, &v) == nil {
+			if what := unreadable(v); what != "" {
+				t.Fatalf("filtering %s kept %s: %s", data, what, out)
+			}
+		}
 	})
+}
+
+// unreadable finds what fuzzGrants don't let the add-on see in a filtered
+// answer: of a resource with a spec, fields beyond domains and cdn, a
+// status beyond its phase, or labels.
+func unreadable(v any) string {
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if what := unreadable(e); what != "" {
+				return what
+			}
+		}
+	case map[string]any:
+		if spec, ok := x["spec"]; ok {
+			if kind, named := x["kind"].(string); named && kind != "web.site" {
+				return "the spec of a " + kind
+			}
+			if m, ok := spec.(map[string]any); ok {
+				for k := range m {
+					if k != "domains" && k != "cdn" {
+						return "the spec's " + k
+					}
+				}
+			} else if spec != nil {
+				return "a spec that isn't an object"
+			}
+			if st, ok := x["status"].(map[string]any); ok {
+				for k := range st {
+					if k != "phase" {
+						return "the status's " + k
+					}
+				}
+			} else if _, ok := x["status"]; ok {
+				return "a status that isn't an object"
+			}
+			if _, ok := x["labels"]; ok {
+				return "labels"
+			}
+		}
+		if _, ok := x["changes"].([]any); ok {
+			if _, ok := x["effects"]; ok {
+				// Change sets are filtered by FilterChangeSet, which
+				// FuzzMerge and the tests cover.
+				return ""
+			}
+		}
+		for k, child := range x {
+			if k == "spec" {
+				continue
+			}
+			if what := unreadable(child); what != "" {
+				return what
+			}
+		}
+	}
+	return ""
 }

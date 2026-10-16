@@ -61,28 +61,44 @@ func (h HookDecl) DeadlineDuration() (time.Duration, error) {
 // installed, approved by the person installing it and enforced at runtime.
 type Permissions struct {
 	// Hooks are the hook levels the add-on may use.
-	Hooks []Kind      `yaml:"hooks,omitempty" json:"hooks,omitempty"`
-	Read  []DataScope `yaml:"read,omitempty" json:"read,omitempty"`
-	Write []DataScope `yaml:"write,omitempty" json:"write,omitempty"`
+	Hooks []Kind      `yaml:"hooks,omitempty" json:"hooks,omitempty" doc:"The hook levels the add-on may use: observe, validate, modify and system"`
+	Read  []DataScope `yaml:"read,omitempty" json:"read,omitempty" doc:"The kinds, and the fields of them, the add-on may see"`
+	Write []DataScope `yaml:"write,omitempty" json:"write,omitempty" doc:"The kinds, and the fields of them, the add-on may change, which it may also see"`
 	// Secrets grants secrets:read, shown with a red warning.
-	Secrets bool `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Secrets bool `yaml:"secrets,omitempty" json:"secrets,omitempty" doc:"secrets.read: the add-on may read the secrets of the resources it may see"`
 	// Network lists the hosts the add-on may reach; none by default.
-	Network   []string  `yaml:"network,omitempty" json:"network,omitempty"`
-	Resources Resources `yaml:"resources,omitempty" json:"resources,omitzero"`
+	Network   []string  `yaml:"network,omitempty" json:"network,omitempty" doc:"The hosts, addresses or networks the add-on may reach; none when empty"`
+	Resources Resources `yaml:"resources,omitempty" json:"resources,omitzero" doc:"The most CPU and memory the add-on's process may use"`
 	// Override grants core.override, which only a server admin can approve.
-	Override bool `yaml:"override,omitempty" json:"override,omitempty"`
+	Override bool `yaml:"override,omitempty" json:"override,omitempty" doc:"core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve"`
 }
 
-// DataScope grants access to a kind, optionally to some fields only.
+// DataScope grants access to a kind, optionally to some of it only. A
+// scope that names nothing but the kind covers all of it: every field and
+// label, and for changing, deleting resources and every action too. A scope
+// that names fields, labels, deleting or actions covers those and nothing
+// more, so an add-on allowed one field can't delete a resource, run an
+// action or relabel it unless its scope says so.
 type DataScope struct {
-	Kind   string   `yaml:"kind" json:"kind"`
-	Fields []string `yaml:"fields,omitempty" json:"fields,omitempty"`
+	Kind   string   `yaml:"kind" json:"kind" doc:"The kind, such as web.site"`
+	Fields []string `yaml:"fields,omitempty" json:"fields,omitempty" doc:"The fields of the spec, as dotted paths such as cdn or tls.mode"`
+	// Labels, Delete and Actions are what a scope with limits allows
+	// beyond its fields. Reading only knows labels.
+	Labels  bool     `yaml:"labels,omitempty" json:"labels,omitempty" doc:"The resources' labels, which the add-on may see, or change when the scope is for changing"`
+	Delete  bool     `yaml:"delete,omitempty" json:"delete,omitempty" doc:"For changing: the add-on may delete resources of the kind"`
+	Actions []string `yaml:"actions,omitempty" json:"actions,omitempty" doc:"For changing: the actions of the kind the add-on may run, such as purge"`
+}
+
+// Whole reports whether a scope covers all of its kind: it names no
+// fields, labels, deleting or actions to limit it to.
+func (s DataScope) Whole() bool {
+	return len(s.Fields) == 0 && !s.Labels && !s.Delete && len(s.Actions) == 0
 }
 
 // Resources caps the add-on's process.
 type Resources struct {
-	CPU      string `yaml:"cpu,omitempty" json:"cpu,omitempty"`
-	MemoryMB int    `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty"`
+	CPU      string `yaml:"cpu,omitempty" json:"cpu,omitempty" doc:"The most CPU time, in percent of one CPU, such as 20%"`
+	MemoryMB int    `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty" doc:"The most memory, in MB"`
 }
 
 // UIExtension is a declarative addition to the UI.
@@ -134,6 +150,11 @@ func ParseAddonManifest(data []byte) (*AddonManifest, error) {
 		}
 		if _, err := h.DeadlineDuration(); err != nil {
 			return nil, err
+		}
+	}
+	for _, s := range m.Permissions.Read {
+		if s.Delete || len(s.Actions) > 0 {
+			return nil, fmt.Errorf("add-on %s asks to delete or run actions on %s with a permission to read it; that takes a permission to write it", m.ID, s.Kind)
 		}
 	}
 	return &m, nil

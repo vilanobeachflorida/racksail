@@ -99,6 +99,14 @@ var (
 	ErrSafeMode    = i18n.Define("addons.safe_mode", http.StatusConflict, "Safe mode is on, so no add-on runs: {reason}")
 	ErrRefused     = i18n.Define("addons.refused", http.StatusForbidden, "{reason}")
 	ErrFieldDenied = i18n.Define("addons.field_denied", http.StatusForbidden, "{addon} may not change {field} of a {kind}.")
+	// ErrDeleteDenied, ErrActionDenied and ErrLabelsDenied refuse what a
+	// permission limited to some of a kind doesn't name.
+	ErrDeleteDenied = i18n.Define("addons.delete_denied", http.StatusForbidden, "{addon} may not delete a {kind}.")
+	ErrActionDenied = i18n.Define("addons.action_denied", http.StatusForbidden, "{addon} may not run the {action} action of a {kind}.")
+	ErrLabelsDenied = i18n.Define("addons.labels_denied", http.StatusForbidden, "{addon} may not change the labels of a {kind}.")
+	// ErrQueryDenied refuses a list that would tell an add-on what fields
+	// it may not read hold.
+	ErrQueryDenied = i18n.Define("addons.query_denied", http.StatusForbidden, "{addon} may only search, filter and sort a {kind} list by what it may read, not by {param}.")
 	ErrUnknown     = i18n.Define("addons.unknown", http.StatusNotFound, "There is no add-on called {addon}.")
 	// ErrAdminApproval refuses approving what only a server admin may
 	// approve to someone who isn't one.
@@ -210,6 +218,34 @@ func Check(spec AddonSpec, account bool) (*hooks.AddonManifest, error) {
 	return man, nil
 }
 
+// covers reports whether approved scopes allow everything want allows of
+// its kind, whichever of them allows each part.
+func covers(approved []hooks.DataScope, want hooks.DataScope) bool {
+	a := accessOf(approved, want.Kind)
+	switch {
+	case !a.Granted:
+		return false
+	case a.Whole:
+		return true
+	case want.Whole():
+		return false
+	case want.Labels && !a.Labels, want.Delete && !a.Delete:
+		return false
+	}
+	fields := a.fields()
+	for _, f := range want.Fields {
+		if !pathAllowed(f, fields) {
+			return false
+		}
+	}
+	for _, act := range want.Actions {
+		if !a.Action(act) {
+			return false
+		}
+	}
+	return true
+}
+
 func trimReason(err error) string {
 	msg := err.Error()
 	if i := strings.LastIndex(msg, ": "); i >= 0 && strings.Contains(msg, "schema") {
@@ -226,34 +262,21 @@ func Missing(asked, approved hooks.Permissions) string {
 			return string(h) + " hooks"
 		}
 	}
-	covered := func(list []hooks.DataScope, want hooks.DataScope) bool {
-		for _, s := range list {
-			if s.Kind != want.Kind {
-				continue
-			}
-			if len(s.Fields) == 0 {
-				return true
-			}
-			if len(want.Fields) == 0 {
-				return false
-			}
-			ok := true
-			for _, f := range want.Fields {
-				ok = ok && slices.Contains(s.Fields, f)
-			}
-			if ok {
-				return true
-			}
-		}
-		return false
-	}
 	for _, r := range asked.Read {
-		if !covered(approved.Read, r) {
+		if !covers(approved.Read, r) {
 			return "reading " + r.Kind
 		}
 	}
 	for _, w := range asked.Write {
-		if !covered(approved.Write, w) {
+		if !covers(approved.Write, w) {
+			switch a := accessOf(approved.Write, w.Kind); {
+			case a.Granted && w.Delete && !a.Deleting():
+				return "deleting " + w.Kind
+			case a.Granted && slices.ContainsFunc(w.Actions, func(act string) bool { return !a.Action(act) }):
+				return "running actions of " + w.Kind
+			case a.Granted && w.Labels && !a.Relabeling():
+				return "changing the labels of " + w.Kind
+			}
 			return "changing " + w.Kind
 		}
 	}

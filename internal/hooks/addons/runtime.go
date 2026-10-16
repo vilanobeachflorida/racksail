@@ -54,6 +54,9 @@ const (
 type Options struct {
 	Registry *hooks.Registry
 	Store    store.Store
+	// Kinds are the kinds the panel knows, which the kinds add-ons add
+	// join; the process-wide registry when nil.
+	Kinds    *store.KindRegistry
 	Agent    agent.Client
 	Events   events.Bus
 	Audit    events.AuditLog
@@ -119,6 +122,9 @@ func NewRuntime(opts Options) *Runtime {
 	if opts.Tokens == nil {
 		opts.Tokens = NewMemoryTokens()
 	}
+	if opts.Kinds == nil {
+		opts.Kinds = store.Kinds()
+	}
 	if opts.Resolve == nil {
 		opts.Resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
@@ -145,6 +151,8 @@ func Instance(kind, id string, scope store.Scope) string {
 
 // SafeMode returns the runtime's safe mode.
 func (r *Runtime) SafeMode() *SafeMode { return r.opts.SafeMode }
+
+func (r *Runtime) kinds() *store.KindRegistry { return r.opts.Kinds }
 
 func (r *Runtime) safeModeOn() bool { return r.opts.SafeMode != nil && r.opts.SafeMode.Active() }
 
@@ -236,7 +244,7 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 	}
 	in := &installed{
 		resource: obj.ID, kind: obj.Kind, instance: inst, manifest: man,
-		grants: NewGrants(obj.Spec.Approved, obj.Scope), client: NewClient(man.Name, path.Join(r.opts.SocketDir, inst+".sock")),
+		grants: NewGrants(obj.Spec.Approved, obj.Scope).WithKinds(r.opts.Kinds), client: NewClient(man.Name, path.Join(r.opts.SocketDir, inst+".sock")),
 		startedAt: now,
 	}
 	// The hosts it may reach are looked up now; their addresses go into its
@@ -835,10 +843,11 @@ func (r *Runtime) record(ctx context.Context, actor *auth.Actor, action, summary
 }
 
 // Hooks are the runtime's own hooks: an add-on that changes something
-// through the API may only change the fields its permissions allow; only a
-// server admin approves what only a server admin may grant; and an add-on
-// from a catalog, as every account's add-on is, must be what the catalog
-// offers.
+// through the API may only make the changes its permissions allow, the
+// fields they name and deleting, actions and labels only as far as they
+// say; only a server admin approves what only a server admin may grant;
+// and an add-on from a catalog, as every account's add-on is, must be what
+// the catalog offers.
 func (r *Runtime) Hooks() []hooks.Registration {
 	const owner = hooks.OwnerCore + ":addons"
 	var out []hooks.Registration
@@ -866,13 +875,7 @@ func (r *Runtime) Hooks() []hooks.Registration {
 			if !ok {
 				return ErrUnknown.New("addon", c.Actor.Name)
 			}
-			if !g.InScope(c.Change.Scope) {
-				return ErrFieldDenied.New("addon", man.Name, "field", "anything", "kind", c.Change.Kind)
-			}
-			if field := g.CheckWrite(*c.Change); field != "" {
-				return ErrFieldDenied.New("addon", man.Name, "field", field, "kind", c.Change.Kind)
-			}
-			return nil
+			return g.CheckWrite(man.Name, *c.Change)
 		},
 	})
 }
