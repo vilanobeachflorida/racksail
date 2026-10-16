@@ -348,8 +348,32 @@ func (r *Registry) DeclareKind(k store.Kind) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, p := range KindPoints(k) {
-		r.points[p] = k.Info().Title + " hook point."
+		_, op, stage, _ := ParseKindPoint(p)
+		r.points[p] = describeKindPoint(k.Info().Title, op, stage)
 	}
+}
+
+// describeKindPoint says what happens at a point of the change pipeline,
+// for people choosing where to attach a hook.
+func describeKindPoint(title, op, stage string) string {
+	var what, done string
+	switch op {
+	case "create":
+		what, done = "creating one", "one was created"
+	case "update":
+		what, done = "changing one", "one was changed"
+	case "delete":
+		what, done = "deleting one", "one was deleted"
+	default:
+		what, done = "its "+op+" action", "its "+op+" action was carried out"
+	}
+	switch stage {
+	case string(changeset.StageValidate):
+		return title + ": " + what + " is checked; validate hooks can refuse it."
+	case string(changeset.StagePlan):
+		return title + ": " + what + " is planned; modify hooks can add to the change."
+	}
+	return title + ": " + done + "."
 }
 
 // Declare adds a hook point a module offers beyond the generated ones, such

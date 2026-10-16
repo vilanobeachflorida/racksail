@@ -426,6 +426,17 @@ func TestDescribe(t *testing.T) {
 			t.Errorf("hooks at %s = %+v", p.Point, p.Hooks)
 		}
 	}
+	// Each point says what happens there.
+	for _, c := range []struct{ op, stage, want string }{
+		{"create", "validate", "Site: creating one is checked; validate hooks can refuse it."},
+		{"delete", "plan", "Site: deleting one is planned; modify hooks can add to the change."},
+		{"update", "applied", "Site: one was changed."},
+		{"deploy", "applied", "Site: its deploy action was carried out."},
+	} {
+		if got := describeKindPoint("Site", c.op, c.stage); got != c.want {
+			t.Errorf("%s %s = %q, want %q", c.op, c.stage, got, c.want)
+		}
+	}
 	caddy := r.Describe("system.caddy")
 	if len(caddy) != 1 || !caddy[0].Config || !caddy[0].Checked || len(caddy[0].Invariants) != 5 {
 		t.Errorf("configuration point = %+v", caddy)
