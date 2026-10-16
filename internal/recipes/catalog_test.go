@@ -71,6 +71,8 @@ type catalogServer struct {
 	built time.Time
 	items []IndexItem
 	down  bool
+	// requests counts what was asked of the catalog.
+	requests int
 }
 
 func newCatalogServer(t *testing.T) *catalogServer {
@@ -79,6 +81,7 @@ func newCatalogServer(t *testing.T) *catalogServer {
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
+		c.requests++
 		if c.down {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
@@ -355,9 +358,33 @@ func TestCatalogMirrorsAndMarketplace(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, id); err != nil {
 		t.Fatalf("through the mirror: %v", err)
 	}
-	off := NewCatalogs(CatalogOptions{Store: p.store, Active: func() bool { return false }})
+	off := NewCatalogs(CatalogOptions{Store: p.store, Cache: p.cache, Active: func() bool { return false }})
 	if _, err := off.Sync(ctx, id); !errors.Is(err, ErrMarketplaceOn) {
 		t.Errorf("with the marketplace off, nothing is fetched: %v", err)
+	}
+	// Nor are an item's files, which the item's screen, its icon and the
+	// add-on runtime ask for; what was fetched before is still there.
+	c.mu.Lock()
+	asked := c.requests
+	c.mu.Unlock()
+	for _, file := range []string{"apps/wordpress/recipe.yaml", "apps/wordpress/icon.svg"} {
+		if _, err := off.File(ctx, id, "wordpress", file); !errors.Is(err, ErrMarketplaceOn) {
+			t.Errorf("%s with the marketplace off: %v", file, err)
+		}
+	}
+	if _, _, _, err := off.Recipe(ctx, id, "wordpress"); !errors.Is(err, ErrMarketplaceOn) {
+		t.Errorf("a recipe with the marketplace off: %v", err)
+	}
+	c.mu.Lock()
+	if c.requests != asked {
+		t.Errorf("the catalog was asked %d more times with the marketplace off", c.requests-asked)
+	}
+	c.mu.Unlock()
+	if _, err := p.catalogs.File(ctx, id, "wordpress", "apps/wordpress/icon.svg"); err != nil {
+		t.Fatal(err)
+	}
+	if icon, err := off.File(ctx, id, "wordpress", "apps/wordpress/icon.svg"); err != nil || !strings.Contains(string(icon), "svg") {
+		t.Errorf("a file fetched while the marketplace was on = %q, %v", icon, err)
 	}
 	bad, _ := json.Marshal(CatalogSpec{Name: "bad", Title: "Bad", URL: "ftp://example.com", Keys: []string{"not a key"}})
 	if _, err := p.engine.Submit(ctx, changeset.Request{Actor: p.admin, Changes: []changeset.Change{{Op: changeset.OpCreate, Kind: CatalogKind.Name(), Scope: store.ServerScope(), Spec: bad}}}); err == nil {

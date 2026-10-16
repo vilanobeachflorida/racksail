@@ -543,7 +543,8 @@ func (c *Catalogs) Item(ctx context.Context, catalog store.ID, item string) (*Li
 }
 
 // File fetches one file of an item, checked against the index, from the
-// cache when it was fetched before.
+// cache when it was fetched before. Like indexes, files are only fetched
+// while the marketplace module is on; what the cache holds stays readable.
 func (c *Catalogs) File(ctx context.Context, catalog store.ID, item, file string) ([]byte, error) {
 	it, err := c.Item(ctx, catalog, item)
 	if err != nil {
@@ -567,6 +568,9 @@ func (c *Catalogs) File(ctx context.Context, catalog store.ID, item, file string
 		if data, err := os.ReadFile(cached); err == nil && hashOf(data) == want.SHA256 {
 			return data, nil
 		}
+	}
+	if !c.active() {
+		return nil, ErrMarketplaceOn.New()
 	}
 	obj, err := CatalogKind.Get(ctx, c.opts.Store, catalog)
 	if err != nil {
