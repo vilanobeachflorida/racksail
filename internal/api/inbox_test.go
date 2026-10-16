@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"net/http"
@@ -88,9 +89,22 @@ func TestInbox(t *testing.T) {
 		}
 	}
 
-	// Dismissing only changes what the owner sees.
-	if resp := s.call("owner", "POST", "/api/v1/inbox/"+siteItem+"/dismiss", nil, nil); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("dismiss = %d %s", resp.StatusCode, bodyOf(resp))
+	// A dry run checks the item without dismissing it.
+	if resp := s.call("owner", "POST", "/api/v1/inbox/"+siteItem+"/dismiss?dryRun=true", nil, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("dry run = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if got := s.inboxOf("owner", ""); got.Dismissed != 0 {
+		t.Errorf("a dry run dismissed %d", got.Dismissed)
+	}
+	if resp := s.call("stranger", "POST", "/api/v1/inbox/"+siteItem+"/dismiss?dryRun=true", nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a dry run of someone else's item = %d", resp.StatusCode)
+	}
+	// Dismissing only changes what the owner sees, and a repeat with its key
+	// leaves it so.
+	for range 2 {
+		if resp := s.call("owner", "POST", "/api/v1/inbox/"+siteItem+"/dismiss", nil, nil, "Idempotency-Key", "dismiss-1"); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("dismiss = %d %s", resp.StatusCode, bodyOf(resp))
+		}
 	}
 	if got := s.inboxOf("owner", ""); !slices.Equal(itemIDs(got.Items), []string{jobItem}) || got.Dismissed != 1 {
 		t.Errorf("after dismissing = %v, %d", itemIDs(got.Items), got.Dismissed)
@@ -104,11 +118,22 @@ func TestInbox(t *testing.T) {
 			t.Errorf("dismissal of %s = %+v", it.ID, it.Dismissal)
 		}
 	}
-	if resp := s.call("owner", "DELETE", "/api/v1/inbox/"+siteItem+"/dismiss", nil, nil); resp.StatusCode != http.StatusNoContent {
+	type restored struct {
+		Restored bool `json:"restored"`
+	}
+	var dry, first, again restored
+	if resp := s.call("owner", "DELETE", "/api/v1/inbox/"+siteItem+"/dismiss?dryRun=true", nil, &dry); resp.StatusCode != http.StatusOK || !dry.Restored {
+		t.Errorf("restore as a dry run = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if got := s.inboxOf("owner", ""); got.Dismissed != 1 {
+		t.Errorf("a dry run brought the item back: %d dismissed", got.Dismissed)
+	}
+	if resp := s.call("owner", "DELETE", "/api/v1/inbox/"+siteItem+"/dismiss", nil, &first, "Idempotency-Key", "restore-1"); resp.StatusCode != http.StatusOK || !first.Restored {
 		t.Errorf("restore = %d %s", resp.StatusCode, bodyOf(resp))
 	}
-	if resp := s.call("owner", "DELETE", "/api/v1/inbox/"+siteItem+"/dismiss", nil, nil); resp.StatusCode != http.StatusNotFound {
-		t.Errorf("restoring again = %d", resp.StatusCode)
+	// Bringing it back again finds nothing to take back, and changes nothing.
+	if resp := s.call("owner", "DELETE", "/api/v1/inbox/"+siteItem+"/dismiss", nil, &again, "Idempotency-Key", "restore-1"); resp.StatusCode != http.StatusOK || again.Restored {
+		t.Errorf("restoring again = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	if got := s.inboxOf("owner", ""); len(got.Items) != 2 || got.Dismissed != 0 {
 		t.Errorf("after restoring = %v", itemIDs(got.Items))
@@ -122,9 +147,11 @@ func TestInbox(t *testing.T) {
 		}
 	}
 	for _, until := range []time.Time{time.Now().Add(-time.Minute), time.Now().Add(400 * 24 * time.Hour)} {
-		resp := s.call("owner", "POST", "/api/v1/inbox/"+jobItem+"/dismiss", map[string]any{"until": until}, nil)
-		if resp.StatusCode != http.StatusUnprocessableEntity {
-			t.Errorf("snoozing until %s = %d %s", until, resp.StatusCode, bodyOf(resp))
+		for _, query := range []string{"", "?dryRun=true"} {
+			resp := s.call("owner", "POST", "/api/v1/inbox/"+jobItem+"/dismiss"+query, map[string]any{"until": until}, nil)
+			if resp.StatusCode != http.StatusUnprocessableEntity {
+				t.Errorf("snoozing until %s%s = %d %s", until, query, resp.StatusCode, bodyOf(resp))
+			}
 		}
 	}
 	if resp := s.call("owner", "POST", "/api/v1/inbox/"+jobItem+"/dismiss", map[string]any{"until": time.Now().Add(time.Hour)}, nil); resp.StatusCode != http.StatusNoContent {
@@ -184,5 +211,86 @@ func TestInboxStream(t *testing.T) {
 	})
 	if len(reasons) == 0 || !strings.Contains(reasons[0], `"reason"`) {
 		t.Errorf("changes = %v", reasons)
+	}
+}
+
+// inboxChanges follows an actor's inbox stream until the test ends, as the
+// data of the changed events it sends.
+func inboxChanges(t *testing.T, s *stack, actor string) <-chan string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), "GET", s.http.URL+"/api/v1/inbox/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-Actor", actor)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("%s's stream = %d", actor, resp.StatusCode)
+	}
+	out := make(chan string, 64)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		event := ""
+		for sc.Scan() {
+			switch line := sc.Text(); {
+			case strings.HasPrefix(line, "event: "):
+				event = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: ") && event == "changed":
+				select {
+				case out <- strings.TrimPrefix(line, "data: "):
+				default:
+				}
+			}
+		}
+	}()
+	return out
+}
+
+// Dismissing or bringing back an item changes one person's inbox, so only
+// their streams hear of it.
+func TestInboxStreamTellsWhoDismissed(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	site := store.NewID("tsite")
+	s.machine.FailNext("files.write", sitePath(site), errors.New("disk full"))
+	var cs changeset.ChangeSet
+	resp := s.call("owner", "POST", "/api/v1/test/sites", map[string]any{
+		"id": site, "scope": map[string]any{"level": "account", "id": s.account},
+		"spec": map[string]any{"domains": []string{"dismissed.test"}, "content": "x"},
+	}, &cs)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("create = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &cs)
+	// The failure may still be settling as the streams start; each kind of
+	// change is told on its own, so the dismissal is told either way.
+	owner, admin := inboxChanges(t, s, "owner"), inboxChanges(t, s, "admin")
+	item := "resource:" + string(site)
+	if resp := s.call("owner", "POST", "/api/v1/inbox/"+item+"/dismiss", nil, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("dismiss = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	deadline := time.After(5 * time.Second)
+	for told := false; !told; {
+		select {
+		case data := <-owner:
+			told = strings.Contains(data, `"reason":"dismissal"`)
+		case <-deadline:
+			t.Fatal("the owner's stream didn't say they dismissed an item")
+		}
+	}
+	// Other things may happen meanwhile, but not that dismissal.
+	quiet := time.After(3 * inboxSettle)
+	for done := false; !done; {
+		select {
+		case data := <-admin:
+			if strings.Contains(data, `"reason":"dismissal"`) {
+				t.Errorf("the admin's stream heard of the owner's dismissal: %s", data)
+			}
+		case <-quiet:
+			done = true
+		}
 	}
 }

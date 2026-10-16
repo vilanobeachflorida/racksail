@@ -234,10 +234,10 @@ func TestOperationsCatalog(t *testing.T) {
 // that needs one succeeds, and without signing in nothing protected does.
 func TestEveryOperationIsAuthorized(t *testing.T) {
 	s := newStack(t, RateLimit{})
-	// Operations that only describe the API, and searches whose answers
-	// are filtered to what the caller may see, need nothing more than a
-	// sign-in.
-	open := []string{"listOperations", "listKinds", "getKind", "listEventTypes", "streamResources", "listChangeSets", "listJobs", "searchResources", "listInbox", "streamInbox"}
+	// Operations that only describe the API, searches whose answers are
+	// filtered to what the caller may see, and taking back the caller's own
+	// dismissals need nothing more than a sign-in.
+	open := []string{"listOperations", "listKinds", "getKind", "listEventTypes", "streamResources", "listChangeSets", "listJobs", "searchResources", "listInbox", "streamInbox", "restoreInboxItem"}
 	// IDs that look right for each path, of things that exist or not.
 	prefixOf := func(path string) string {
 		switch {

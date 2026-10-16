@@ -54,9 +54,10 @@ type InboxItem struct {
 
 // InboxProblem says why part of the inbox couldn't be read.
 type InboxProblem struct {
-	Source  string `json:"source" doc:"What couldn't be read, such as updates"`
-	Code    string `json:"code" doc:"The error's code, for the panel to translate"`
-	Message string `json:"message"`
+	Source  string         `json:"source" doc:"What couldn't be read, such as updates"`
+	Code    string         `json:"code" doc:"The error's code, for the panel to translate"`
+	Message string         `json:"message"`
+	Params  map[string]any `json:"params,omitempty" doc:"The values the code's message is filled in with"`
 }
 
 // InboxChange tells a client of the inbox stream to read the inbox again.
@@ -94,8 +95,21 @@ type inboxOutput struct {
 	}
 }
 
-type inboxItemInput struct {
-	ID string `path:"id" maxLength:"512" doc:"The item's ID"`
+// Dismissing and bringing back items take dryRun and an Idempotency-Key as
+// every mutating call does. Neither goes through the change pipeline, so a
+// dry run checks the request without making it, and a repeat is safe as it
+// is, which is why the key needs no keeping.
+
+type inboxRestoreInput struct {
+	ID             string `path:"id" maxLength:"512" doc:"The item's ID"`
+	DryRun         bool   `query:"dryRun" doc:"Only say whether there is a dismissal to take back"`
+	IdempotencyKey string `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string. Bringing an item back again changes nothing, so a repeat is safe with or without it"`
+}
+
+type inboxRestoreOutput struct {
+	Body struct {
+		Restored bool `json:"restored" doc:"Whether there was a dismissal to take back, or with dryRun=true whether there is one"`
+	}
 }
 
 // dismissBody says until when to snooze an item.
@@ -104,7 +118,9 @@ type dismissBody struct {
 }
 
 type dismissInput struct {
-	ID string `path:"id" maxLength:"512" doc:"The item's ID"`
+	ID             string `path:"id" maxLength:"512" doc:"The item's ID"`
+	DryRun         bool   `query:"dryRun" doc:"Check the item and the time without dismissing anything"`
+	IdempotencyKey string `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string. Dismissing an item again only replaces its dismissal, so a repeat is safe with or without it"`
 	// The body is optional: without it the item is dismissed until it
 	// changes.
 	Body *dismissBody
@@ -213,7 +229,8 @@ func (s *Server) registerInbox() {
 		OperationID: "dismissInboxItem", Method: http.MethodPost, Path: Prefix + "/inbox/{id}/dismiss", Tags: tags, Security: Protected,
 		Summary: "Dismiss an inbox item",
 		Description: "Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. " +
-			"It only changes what you see: others still see the item, and nothing on the server changes.",
+			"It only changes what you see: others still see the item, and nothing on the server changes. " +
+			"Dismissing it again replaces the dismissal; with dryRun=true the item and the time are checked and nothing is dismissed.",
 		DefaultStatus: http.StatusNoContent,
 	}
 	Describe(&op, Info{Operation: "dismiss", Risk: store.RiskLow, Reversible: true})
@@ -238,6 +255,10 @@ func (s *Server) registerInbox() {
 		if err != nil {
 			return nil, err
 		}
+		// The item is the caller's and the time is good: all a dry run checks.
+		if in.DryRun {
+			return nil, nil
+		}
 		actor, _ := Actor(ctx)
 		if err := svc.Dismiss(ctx, inbox.Person(actor), item, until); err != nil {
 			return nil, err
@@ -247,12 +268,12 @@ func (s *Server) registerInbox() {
 
 	op = huma.Operation{
 		OperationID: "restoreInboxItem", Method: http.MethodDelete, Path: Prefix + "/inbox/{id}/dismiss", Tags: tags, Security: Protected,
-		Summary:       "Bring back a dismissed inbox item",
-		Description:   "Shows an item you dismissed or snoozed in your inbox again.",
-		DefaultStatus: http.StatusNoContent,
+		Summary: "Bring back a dismissed inbox item",
+		Description: "Shows an item you dismissed or snoozed in your inbox again. The answer says whether there was a dismissal to take back; " +
+			"bringing back an item that isn't dismissed changes nothing. With dryRun=true it only says whether there is one.",
 	}
 	Describe(&op, Info{Operation: "restore", Risk: store.RiskLow, Reversible: true})
-	huma.Register(s.api, op, func(ctx context.Context, in *inboxItemInput) (*struct{}, error) {
+	huma.Register(s.api, op, func(ctx context.Context, in *inboxRestoreInput) (*inboxRestoreOutput, error) {
 		svc, err := s.inbox()
 		if err != nil {
 			return nil, err
@@ -261,14 +282,16 @@ func (s *Server) registerInbox() {
 		if err != nil {
 			return nil, err
 		}
-		ok, err := svc.Restore(ctx, inbox.Person(actor), in.ID)
+		out := &inboxRestoreOutput{}
+		if in.DryRun {
+			_, out.Body.Restored, err = svc.Dismissed(ctx, inbox.Person(actor), in.ID)
+		} else {
+			out.Body.Restored, err = svc.Restore(ctx, inbox.Person(actor), in.ID)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			return nil, i18n.ErrNotFound.New("what", "A dismissal of "+in.ID)
-		}
-		return nil, nil
+		return out, nil
 	})
 
 	op = huma.Operation{
@@ -293,16 +316,21 @@ func (s *Server) registerInbox() {
 	})
 }
 
-// inboxSettle is how long the inbox stream waits for more changes before
-// it tells the client, so a burst of them is read once.
+// inboxSettle is how long the inbox stream waits for more changes of a kind
+// before it tells the client, so a burst of them is read once.
 const inboxSettle = 300 * time.Millisecond
+
+// inboxReasons are what the stream says changed, in the order it tells
+// changes that settle together.
+var inboxReasons = []string{"checked", "event", "resource", "dismissal"}
 
 // followInbox tells a client when its inbox may have changed: when the
 // sources the inbox keeps found something new, when the timeline has an
-// event the inbox shows, and when a resource the client can see starts or
-// stops failing.
+// event the inbox shows, when a resource the client can see starts or
+// stops failing, and when the person dismissed or brought back an item,
+// elsewhere as much as here.
 func (s *Server) followInbox(ctx context.Context, svc *inbox.Service, q inbox.Query, out send, ready func() error) error {
-	changes, stop := svc.Changes()
+	checked, dismissed, stop := svc.Changes(inbox.Person(q.Actor))
 	defer stop()
 	var timeline <-chan events.Event
 	if log := s.opts.Timeline; log != nil {
@@ -332,14 +360,31 @@ func (s *Server) followInbox(ctx context.Context, svc *inbox.Service, q inbox.Qu
 	if err := ready(); err != nil {
 		return err
 	}
+	// Each kind of change settles on its own, so the reason a change gives
+	// is always what happened, while a burst of one kind is told once.
+	due := map[string]time.Time{}
 	var timer *time.Timer
 	var fire <-chan time.Time
-	reason := ""
-	mark := func(why string) {
-		if timer == nil {
-			timer = time.NewTimer(inboxSettle)
+	schedule := func() {
+		if timer != nil {
+			timer.Stop()
+		}
+		timer, fire = nil, nil
+		var next time.Time
+		for _, at := range due {
+			if next.IsZero() || at.Before(next) {
+				next = at
+			}
+		}
+		if !next.IsZero() {
+			timer = time.NewTimer(time.Until(next))
 			fire = timer.C
-			reason = why
+		}
+	}
+	mark := func(why string) {
+		if _, waiting := due[why]; !waiting {
+			due[why] = time.Now().Add(inboxSettle)
+			schedule()
 		}
 	}
 	defer func() {
@@ -351,8 +396,10 @@ func (s *Server) followInbox(ctx context.Context, svc *inbox.Service, q inbox.Qu
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-changes:
+		case <-checked:
 			mark("checked")
+		case <-dismissed:
+			mark("dismissal")
 		case e, ok := <-timeline:
 			if !ok {
 				timeline = nil
@@ -377,10 +424,16 @@ func (s *Server) followInbox(ctx context.Context, svc *inbox.Service, q inbox.Qu
 			}
 			mark("resource")
 		case <-fire:
-			timer, fire = nil, nil
-			if err := out("changed", "", InboxChange{Reason: reason}); err != nil {
-				return err
+			now := time.Now()
+			for _, why := range inboxReasons {
+				if at, waiting := due[why]; waiting && !at.After(now) {
+					delete(due, why)
+					if err := out("changed", "", InboxChange{Reason: why}); err != nil {
+						return err
+					}
+				}
 			}
+			schedule()
 		}
 	}
 }

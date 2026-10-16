@@ -175,6 +175,8 @@ type SourceProblem struct {
 	Source  string `json:"source"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Params fill in the message of Code, as an error's do.
+	Params map[string]any `json:"params,omitempty"`
 }
 
 // Result is what someone's inbox holds.
@@ -222,9 +224,13 @@ type Service struct {
 	opts    Options
 	base    context.Context
 	sources []*shared
-	// changes tells the inbox streams that what sources found changed.
-	changes broadcaster
-	work    sync.WaitGroup
+	// checks tells the inbox streams that what the kept sources found
+	// changed, which every inbox shows.
+	checks broadcaster
+	// dismissals tells a person's streams that they dismissed an item or
+	// brought one back, which only their inbox shows.
+	dismissals broadcaster
+	work       sync.WaitGroup
 }
 
 // New returns a service. ctx bounds the checks it runs in the background.
@@ -299,7 +305,7 @@ func (s *Service) List(ctx context.Context, q Query, visible func(Item) bool, wi
 			}
 			s.opts.Log.Warn("reading the inbox", "source", src.reg.Name, "error", err)
 			e := i18n.From(err)
-			res.Unavailable = append(res.Unavailable, SourceProblem{Source: src.reg.Name, Code: string(e.Code), Message: e.Message})
+			res.Unavailable = append(res.Unavailable, SourceProblem{Source: src.reg.Name, Code: string(e.Code), Message: e.Message, Params: e.Params})
 			continue
 		}
 		for _, it := range items {
@@ -417,7 +423,7 @@ func (s *Service) startCheck(sh *shared) {
 		sh.items, sh.err, sh.checked, sh.running = items, err, s.opts.Now(), nil
 		sh.mu.Unlock()
 		if changed {
-			s.changes.notify()
+			s.checks.notify("")
 		}
 	})
 }
@@ -487,7 +493,7 @@ func (s *Service) Dismiss(ctx context.Context, person string, item Item, until *
 	if err := s.opts.Dismissals.Put(ctx, person, item.ID, Dismissal{Version: item.Version, At: s.opts.Now().UTC(), Until: until}); err != nil {
 		return err
 	}
-	s.changes.notify()
+	s.dismissals.notify(person)
 	return nil
 }
 
@@ -496,29 +502,50 @@ func (s *Service) Dismiss(ctx context.Context, person string, item Item, until *
 func (s *Service) Restore(ctx context.Context, person, id string) (bool, error) {
 	ok, err := s.opts.Dismissals.Delete(ctx, person, id)
 	if ok {
-		s.changes.notify()
+		s.dismissals.notify(person)
 	}
 	return ok, err
 }
 
-// Changes returns a channel that receives whenever what the kept sources
-// found changes, or someone dismisses or restores an item, until stop is
-// called. A receiver that is busy gets one notice for several.
-func (s *Service) Changes() (<-chan struct{}, func()) { return s.changes.subscribe() }
-
-// broadcaster tells subscribers that something changed.
-type broadcaster struct {
-	mu   sync.Mutex
-	subs map[chan struct{}]struct{}
+// Dismissed returns a person's dismissal of an item, if they have one that
+// is still kept, whether or not it still hides the item.
+func (s *Service) Dismissed(ctx context.Context, person, id string) (Dismissal, bool, error) {
+	all, err := s.opts.Dismissals.Of(ctx, person)
+	if err != nil {
+		return Dismissal{}, false, err
+	}
+	d, ok := all[id]
+	return d, ok, nil
 }
 
-func (b *broadcaster) subscribe() (<-chan struct{}, func()) {
+// Changes returns two channels until stop is called: checked receives
+// whenever what the kept sources found changes, which every inbox shows,
+// and dismissed whenever person dismisses an item or brings one back,
+// which only their own does. A receiver that is busy gets one notice for
+// several.
+func (s *Service) Changes(person string) (checked, dismissed <-chan struct{}, stop func()) {
+	checked, stopChecks := s.checks.subscribe("")
+	dismissed, stopDismissals := s.dismissals.subscribe(person)
+	return checked, dismissed, func() {
+		stopChecks()
+		stopDismissals()
+	}
+}
+
+// broadcaster tells subscribers that something they follow changed.
+type broadcaster struct {
+	mu sync.Mutex
+	// subs holds whose changes each subscriber follows; "" follows all.
+	subs map[chan struct{}]string
+}
+
+func (b *broadcaster) subscribe(person string) (<-chan struct{}, func()) {
 	ch := make(chan struct{}, 1)
 	b.mu.Lock()
 	if b.subs == nil {
-		b.subs = map[chan struct{}]struct{}{}
+		b.subs = map[chan struct{}]string{}
 	}
-	b.subs[ch] = struct{}{}
+	b.subs[ch] = person
 	b.mu.Unlock()
 	return ch, func() {
 		b.mu.Lock()
@@ -527,10 +554,15 @@ func (b *broadcaster) subscribe() (<-chan struct{}, func()) {
 	}
 }
 
-func (b *broadcaster) notify() {
+// notify tells the subscribers who follow person's changes, or every
+// subscriber when person is empty.
+func (b *broadcaster) notify(person string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for ch := range b.subs {
+	for ch, follows := range b.subs {
+		if person != "" && follows != "" && follows != person {
+			continue
+		}
 		select {
 		case ch <- struct{}{}:
 		default:

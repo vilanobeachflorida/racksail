@@ -411,12 +411,12 @@ export interface paths {
         put?: never;
         /**
          * Dismiss an inbox item
-         * @description Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. It only changes what you see: others still see the item, and nothing on the server changes.
+         * @description Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. It only changes what you see: others still see the item, and nothing on the server changes. Dismissing it again replaces the dismissal; with dryRun=true the item and the time are checked and nothing is dismissed.
          */
         post: operations["dismissInboxItem"];
         /**
          * Bring back a dismissed inbox item
-         * @description Shows an item you dismissed or snoozed in your inbox again.
+         * @description Shows an item you dismissed or snoozed in your inbox again. The answer says whether there was a dismissal to take back; bringing back an item that isn't dismissed changes nothing. With dryRun=true it only says whether there is one.
          */
         delete: operations["restoreInboxItem"];
         options?: never;
@@ -1269,8 +1269,16 @@ export interface components {
             /** @description The error's code, for the panel to translate */
             code: string;
             message: string;
+            /** @description The values the code's message is filled in with */
+            params?: {
+                [key: string]: unknown;
+            };
             /** @description What couldn't be read, such as updates */
             source: string;
+        };
+        InboxRestoreOutputBody: {
+            /** @description Whether there was a dismissal to take back, or with dryRun=true whether there is one */
+            restored: boolean;
         };
         IndexInfo: {
             name: string;
@@ -2691,8 +2699,14 @@ export interface operations {
     };
     dismissInboxItem: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Check the item and the time without dismissing anything */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string. Dismissing an item again only replaces its dismissal, so a repeat is safe with or without it */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 /** @description The item's ID */
                 id: string;
@@ -2725,8 +2739,14 @@ export interface operations {
     };
     restoreInboxItem: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Only say whether there is a dismissal to take back */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string. Bringing an item back again changes nothing, so a repeat is safe with or without it */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 /** @description The item's ID */
                 id: string;
@@ -2735,12 +2755,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["InboxRestoreOutputBody"];
+                };
             };
             /** @description Error */
             default: {

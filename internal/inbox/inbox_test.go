@@ -121,15 +121,30 @@ func TestDismissals(t *testing.T) {
 				}
 				return res
 			}
-			changes, stop := s.Changes()
+			checked, dismissed, stop := s.Changes(Person(alice))
 			defer stop()
+			_, others, stopOthers := s.Changes(Person(bob))
+			defer stopOthers()
 			if err := s.Dismiss(t.Context(), Person(alice), list(alice, false).Items[0], nil); err != nil {
 				t.Fatal(err)
 			}
 			select {
-			case <-changes:
+			case <-dismissed:
 			default:
-				t.Error("dismissing doesn't tell the streams")
+				t.Error("dismissing doesn't tell the person's streams")
+			}
+			select {
+			case <-others:
+				t.Error("someone else's streams heard of the dismissal")
+			case <-checked:
+				t.Error("a dismissal was told as a check")
+			default:
+			}
+			if d, ok, err := s.Dismissed(t.Context(), Person(alice), "job:a"); err != nil || !ok || d.Version != "1" {
+				t.Errorf("the dismissal = %+v, %v, %v", d, ok, err)
+			}
+			if _, ok, _ := s.Dismissed(t.Context(), Person(bob), "job:a"); ok {
+				t.Error("someone else has the dismissal")
 			}
 			if res := list(alice, false); !slices.Equal(ids(res.Items), []string{"job:b"}) || res.Dismissed != 1 {
 				t.Errorf("after dismissing = %v, %d dismissed", ids(res.Items), res.Dismissed)
@@ -162,8 +177,18 @@ func TestDismissals(t *testing.T) {
 			if ok, err := s.Restore(t.Context(), Person(alice), "job:b"); err != nil || !ok {
 				t.Errorf("restore = %v, %v", ok, err)
 			}
+			select {
+			case <-dismissed:
+			default:
+				t.Error("bringing an item back doesn't tell the person's streams")
+			}
 			if ok, _ := s.Restore(t.Context(), Person(alice), "job:b"); ok {
 				t.Error("restoring twice found a dismissal")
+			}
+			select {
+			case <-dismissed:
+				t.Error("restoring nothing told the streams")
+			default:
 			}
 			// Pruning drops snoozes that ended and old dismissals.
 			d := s.opts.Dismissals
@@ -205,6 +230,11 @@ func TestUnavailableSources(t *testing.T) {
 	if !slices.Equal(ids(res.Items), []string{"x"}) || len(res.Unavailable) != 1 || res.Unavailable[0].Source != "broken" || res.Unavailable[0].Code != "core.unavailable" {
 		t.Errorf("result = %+v", res)
 	}
+	// The values of the reason's message come along, for the UI to
+	// translate it.
+	if got := res.Unavailable[0].Params["what"]; got != "The agent" {
+		t.Errorf("the problem's params = %+v", res.Unavailable[0].Params)
+	}
 	if off.calls.Load() != 0 {
 		t.Error("a source that isn't active was read")
 	}
@@ -233,7 +263,7 @@ func TestKeptSources(t *testing.T) {
 		Now:     func() time.Time { mu.Lock(); defer mu.Unlock(); return clock },
 		Wait:    20 * time.Millisecond, Log: quiet,
 	})
-	changes, stop := s.Changes()
+	changes, _, stop := s.Changes(Person(alice))
 	defer stop()
 	// The first check takes longer than a request waits.
 	res, err := s.List(t.Context(), Query{Actor: alice}, nil, false)

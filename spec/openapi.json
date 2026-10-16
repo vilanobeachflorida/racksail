@@ -1564,6 +1564,11 @@
           "message": {
             "type": "string"
           },
+          "params": {
+            "additionalProperties": {},
+            "description": "The values the code's message is filled in with",
+            "type": "object"
+          },
           "source": {
             "description": "What couldn't be read, such as updates",
             "type": "string"
@@ -1573,6 +1578,19 @@
           "source",
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "InboxRestoreOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "restored": {
+            "description": "Whether there was a dismissal to take back, or with dryRun=true whether there is one",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "restored"
         ],
         "type": "object"
       },
@@ -4894,7 +4912,7 @@
     },
     "/api/v1/inbox/{id}/dismiss": {
       "delete": {
-        "description": "Shows an item you dismissed or snoozed in your inbox again.",
+        "description": "Shows an item you dismissed or snoozed in your inbox again. The answer says whether there was a dismissal to take back; bringing back an item that isn't dismissed changes nothing. With dryRun=true it only says whether there is one.",
         "operationId": "restoreInboxItem",
         "parameters": [
           {
@@ -4907,11 +4925,38 @@
               "maxLength": 512,
               "type": "string"
             }
+          },
+          {
+            "description": "Only say whether there is a dismissal to take back",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Only say whether there is a dismissal to take back",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string. Bringing an item back again changes nothing, so a repeat is safe with or without it",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string. Bringing an item back again changes nothing, so a repeat is safe with or without it",
+              "maxLength": 128,
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxRestoreOutputBody"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
@@ -4941,7 +4986,7 @@
         "x-racksail-risk": "low"
       },
       "post": {
-        "description": "Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. It only changes what you see: others still see the item, and nothing on the server changes.",
+        "description": "Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. It only changes what you see: others still see the item, and nothing on the server changes. Dismissing it again replaces the dismissal; with dryRun=true the item and the time are checked and nothing is dismissed.",
         "operationId": "dismissInboxItem",
         "parameters": [
           {
@@ -4952,6 +4997,26 @@
             "schema": {
               "description": "The item's ID",
               "maxLength": 512,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Check the item and the time without dismissing anything",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Check the item and the time without dismissing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string. Dismissing an item again only replaces its dismissal, so a repeat is safe with or without it",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string. Dismissing an item again only replaces its dismissal, so a repeat is safe with or without it",
+              "maxLength": 128,
               "type": "string"
             }
           }
