@@ -52,7 +52,7 @@ The full list is in [conventions.md](docs/architecture/conventions.md). The shor
 
 - Write the subject line in the imperative, under 72 characters ("Add DNS zone import"). Add a body when the reason for the change isn't obvious.
 - Keep a pull request to one topic. Include tests, and update the docs when behaviour changes. Screenshots help for UI changes.
-- Sign off every commit to certify the [Developer Certificate of Origin](https://developercertificate.org/): that you wrote the change or otherwise have the right to submit it under the project's licenses. `git commit -s` adds the `Signed-off-by:` line. It's the only trailer we use; please don't add others. We use the DCO instead of a contributor license agreement, so no single party can relicense the project.
+- Sign off every commit of your pull request to certify the [Developer Certificate of Origin](https://developercertificate.org/): that you wrote the change or otherwise have the right to submit it under the project's licenses. `git commit -s` adds the `Signed-off-by:` line, and CI checks that every commit the pull request adds has one for its author; `git rebase --signoff` adds the ones you forgot. It's the only trailer we use, so don't add others. The maintainers' own commits pushed straight to `main` don't go through a pull request and carry no sign-off. We use the DCO instead of a contributor license agreement, so no single party can relicense the project.
 
 ## Licenses
 
