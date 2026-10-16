@@ -9,7 +9,7 @@ import {
   newIdempotencyKey,
   undoChangeSet,
 } from "../screens/changes/api";
-import { type TrackerHost, type TrackOptions, undoable } from "./tracker";
+import { mayUndo, type TrackerHost, type TrackOptions } from "./tracker";
 
 /*
  * Following the changes people apply: their progress and outcome in a
@@ -72,18 +72,20 @@ async function finish(host: TrackerHost, cs: ChangeSet) {
   } catch {
     // The change set as it was answered still says what was applied.
   }
+  const { intl, shell, allowed } = host.current();
+  // Undo is only offered to those the panel would let undo it.
+  const undoes = mayUndo(final, allowed);
   if (final.undoOf) {
     const undone = final.undoOf;
     host.setLast((l) => (l?.id === undone ? null : l));
-  } else if (undoable(final)) {
+  } else if (undoes) {
     host.setLast(final);
   }
   if (entry.quiet) {
     return;
   }
-  const { intl, shell } = host.current();
   const id = `change-${cs.id}`;
-  const undo = undoable(final)
+  const undo = undoes
     ? { label: intl.formatMessage(messages.trackerUndo), onClick: () => void host.undo(cs.id) }
     : undefined;
   if (final.state === "failed") {

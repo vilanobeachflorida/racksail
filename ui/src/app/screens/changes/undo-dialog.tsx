@@ -26,12 +26,8 @@ export default function UndoDialog({
   const api = useApi();
   const labels = useKindLabels();
   const [open, setOpen] = useState(true);
-  const flow = useChangeFlow({
-    onApplied: () => {
-      setOpen(false);
-      onClose();
-    },
-  });
+  // Once applied, the dialog closes itself and the toasts follow the undo.
+  const flow = useChangeFlow();
   const { show } = flow;
   useEffect(() => {
     show(preview, { send: (options) => undoChangeSet(api, of, options) });

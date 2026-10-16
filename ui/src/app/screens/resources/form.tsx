@@ -1,9 +1,10 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, Trash2 } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useIntl } from "react-intl";
 import { usePageTitle } from "@/app/page-title";
+import { DiffRow } from "@/design/components/change-preview";
 import { SchemaForm } from "@/design/components/schema-form";
 import { Button } from "@/design/components/ui/button";
 import {
@@ -37,8 +38,10 @@ import type { FieldNode } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { ChangeDialog } from "../changes/dialog";
 import { useChangeFlow } from "../changes/flow";
-import { formMessages as m, resourceMessages as rm } from "../messages";
+import { historyMessages as hm, formMessages as m, resourceMessages as rm } from "../messages";
 import { createResource, listResources, updateResource } from "./api";
+import { diffSpecs } from "./diff";
+import { newResourceID } from "./ids";
 import {
   fieldLabel,
   formHints,
@@ -56,7 +59,7 @@ import {
 } from "./kinds";
 import { useKindLabels } from "./labels";
 import { useRouteKind } from "./layout";
-import { useResource } from "./queries";
+import { resourcesKey, useResource } from "./queries";
 
 type FieldProblem = NonNullable<Problem["errors"]>[number];
 
@@ -151,9 +154,21 @@ function LabelsEditor({
   );
 }
 
-/** The kind whose resources own resources of a scope, by the panel's convention: *.account or *.reseller. */
+/**
+ * The kind whose resources own resources of a scope: the core's account
+ * and reseller kinds, or by the panel's convention a module's kind of that
+ * name that isn't itself an account's.
+ */
 function ownerKind(kinds: readonly Kind[], level: string): Kind | undefined {
-  return kinds.find((k) => k.name.endsWith(`.${level}`) && k.scope !== "account");
+  return (
+    kinds.find((k) => k.name === `core.${level}`) ??
+    kinds.find((k) => k.name.endsWith(`.${level}`) && k.scope !== "account")
+  );
+}
+
+/** Whether a kind's resources own themselves, as an account belongs to itself. */
+function ownsItself(kind: Kind, kinds: readonly Kind[]): boolean {
+  return kind.scope !== "server" && ownerKind(kinds, kind.scope)?.name === kind.name;
 }
 
 /** Who a new resource belongs to: an account or a reseller, chosen from those the person can see. */
@@ -257,7 +272,11 @@ function placeProblems(error: unknown): {
   return { fields, ...(owner ? { owner } : {}), ...(labels ? { labels } : {}), other };
 }
 
-/** Choices for fields that name other resources, loaded before the form shows. */
+/**
+ * Choices for fields that name other resources of a kind their hints name,
+ * loaded before the form shows. A field whose kind isn't known, or whose
+ * resources the person can't list, takes the ID as text instead.
+ */
 function useResourceChoices(kind: Kind, kinds: readonly Kind[]) {
   const api = useApi();
   const targets = useMemo(
@@ -283,55 +302,154 @@ function useResourceChoices(kind: Kind, kinds: readonly Kind[]) {
   const choices = (field: FieldNode) => {
     const i = targets.findIndex((t) => t.name === field.hint.kind);
     const target = targets[i];
-    const items = lists[i]?.data?.items ?? [];
-    return target ? items.map((r) => ({ value: r.id, label: resourceTitle(target, r) })) : [];
+    const items = lists[i]?.data?.items;
+    return target && items
+      ? items.map((r) => ({ value: r.id, label: resourceTitle(target, r) }))
+      : undefined;
   };
   return { pending, choices };
+}
+
+/** Whether the panel refused a change because the resource changed since it was read. */
+function isConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "core.conflict";
+}
+
+/**
+ * What someone else changed in a resource since the form opened it, or that
+ * they deleted it, with a way to start again from the latest settings.
+ */
+function ChangedSince({
+  kind,
+  opened,
+  latest,
+  onReload,
+}: {
+  kind: Kind;
+  opened: Resource;
+  latest: Resource;
+  onReload: () => void;
+}) {
+  const intl = useIntl();
+  const listId = useId();
+  if (latest.deletedAt) {
+    return (
+      <Alert
+        tone="danger"
+        title={intl.formatMessage(m.deletedTitle, { kind: kindNoun(intl, kind) })}
+      >
+        {intl.formatMessage(m.deletedBody)}
+      </Alert>
+    );
+  }
+  const diffs = diffSpecs(opened.spec, latest.spec, sensitivePaths(kind));
+  const labelsChanged = JSON.stringify(opened.labels ?? {}) !== JSON.stringify(latest.labels ?? {});
+  return (
+    <Alert
+      tone="warning"
+      title={intl.formatMessage(m.changedTitle, { kind: kindNoun(intl, kind) })}
+      actions={
+        <Button variant="outline" size="sm" onClick={onReload}>
+          <RefreshCw aria-hidden="true" />
+          {intl.formatMessage(m.reload)}
+        </Button>
+      }
+    >
+      <p>{intl.formatMessage(m.changedBody)}</p>
+      {diffs.length > 0 ? (
+        <>
+          <p id={listId} className="mt-2 font-medium text-sm">
+            {intl.formatMessage(m.changedFields)}
+          </p>
+          <ul aria-labelledby={listId} className="divide-y divide-border">
+            {diffs.map((d) => (
+              <DiffRow key={`${d.op}:${d.path}`} diff={d} />
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {labelsChanged ? <p className="mt-2 text-sm">{intl.formatMessage(hm.labels)}</p> : null}
+    </Alert>
+  );
 }
 
 /**
  * The form a kind's schema and hints make, for a new resource or new
  * settings of one, whose change goes through the preview before it's
  * applied. Problems the server finds show under their fields.
+ *
+ * New settings are made against the resource as the form opened it, its
+ * settings, labels and revision, so the panel refuses them when someone
+ * else changed the resource meanwhile rather than quietly undo what they
+ * did; the form then says what they changed and offers to start again
+ * from the latest settings. A kind whose resources own themselves, as an
+ * account does, gets its new resource's ID chosen here, since it names
+ * itself as its owner.
  */
 function ResourceForm({
   kind,
   kinds,
-  resource,
+  resource: latest,
+  onReload,
 }: {
   kind: Kind;
   kinds: readonly Kind[];
+  /** The resource whose settings change, as the panel says it is now. */
   resource?: Resource;
+  /** Opens the form again on the latest settings. */
+  onReload?: () => void;
 }) {
   const intl = useIntl();
   const api = useApi();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const labels = useKindLabels();
   const schemas = useKindSchemas(kind.name);
   const choices = useResourceChoices(kind, kinds);
   const hints = useMemo(() => formHints(kind), [kind]);
+  const [resource] = useState(latest);
+  const self = !resource && ownsItself(kind, kinds);
+  const [newID] = useState(() => (self ? newResourceID(kind.prefix) : ""));
   const [owner, setOwner] = useState("");
   const [rows, setRows] = useState<LabelRow[]>(() => rowsOf(resource?.labels));
   const [labelsOpen, setLabelsOpen] = useState(() => rows.length > 0);
   const [problems, setProblems] = useState<ReturnType<typeof placeProblems> | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [refused, setRefused] = useState(false);
+  const [applied, setApplied] = useState(false);
   const [open, setOpen] = useState(false);
   const errorId = useId();
   const flow = useChangeFlow({
-    onApplied: (applied: ChangeSet) => {
-      setOpen(false);
-      const id = resource?.id ?? applied.changes?.[0]?.id;
+    onApplied: (cs: ChangeSet) => {
+      setApplied(true);
+      const id = resource?.id ?? cs.changes?.[0]?.id;
       if (id) {
         void navigate({ to: resourcePath(kind, id) });
       }
     },
   });
+  // The panel refused the change for being made against what someone else
+  // changed since, here or when it was applied.
+  const conflict = refused || (flow.state.step === "error" && isConflict(flow.state.error));
+  // The panel may know of the change before the stream says so.
+  useEffect(() => {
+    if (conflict) {
+      void queryClient.invalidateQueries({ queryKey: resourcesKey(kind.name) });
+    }
+  }, [conflict, queryClient, kind.name]);
   const schema = schemas.data?.spec as JSONSchema | undefined;
   if (schemas.isPending || choices.pending || !schema) {
     return <Skeleton className="h-64 w-full" />;
   }
+  // Someone else changed it, as the live resource or a refusal says. The
+  // person's own change moves it on too, until the form has gone.
+  const changedSince =
+    resource !== undefined &&
+    latest !== undefined &&
+    !applied &&
+    (conflict || latest.revision !== resource.revision || Boolean(latest.deletedAt));
   const secretFields = sensitivePaths(kind);
-  const ownerMissing = !resource && kind.scope !== "server" && !typeID.test(owner);
+  const ownerMissing = !resource && !self && kind.scope !== "server" && !typeID.test(owner);
   const submit = async ({ spec, secrets }: { spec: unknown; secrets: Record<string, string> }) => {
     setError(null);
     if (ownerMissing) {
@@ -348,6 +466,13 @@ function ResourceForm({
       Object.entries(secrets).filter(([path]) => secretFields.includes(path)),
     );
     const carriesSecrets = Object.keys(kept).length > 0;
+    const scope =
+      kind.scope === "server"
+        ? {}
+        : {
+            scope: { level: kind.scope, id: self ? newID : owner },
+            ...(self ? { id: newID } : {}),
+          };
     setOpen(true);
     try {
       await flow.preview({
@@ -371,7 +496,7 @@ function ResourceForm({
                 kind,
                 {
                   spec,
-                  ...(kind.scope === "server" ? {} : { scope: { level: kind.scope, id: owner } }),
+                  ...scope,
                   ...(rows.length > 0 ? { labels: labelMap } : {}),
                   ...(carriesSecrets ? { secrets: kept } : {}),
                 },
@@ -382,6 +507,10 @@ function ResourceForm({
       // The form shows what kept the change from planning.
       setOpen(false);
       flow.reset();
+      if (isConflict(e)) {
+        setRefused(true);
+        return;
+      }
       const placed = placeProblems(e);
       setProblems(placed);
       if (placed.other) {
@@ -391,12 +520,15 @@ function ResourceForm({
   };
   return (
     <div className="flex flex-col gap-6">
+      {changedSince && resource && latest ? (
+        <ChangedSince kind={kind} opened={resource} latest={latest} onReload={() => onReload?.()} />
+      ) : null}
       {error ? (
         <Alert tone="danger" title={intl.formatMessage(m.problem)} id={errorId}>
           {errorMessage(intl, error)}
         </Alert>
       ) : null}
-      {!resource && kind.scope !== "server" ? (
+      {!resource && kind.scope !== "server" && !self ? (
         <OwnerField
           kind={kind}
           kinds={kinds}
@@ -438,9 +570,7 @@ function ResourceForm({
       />
       <ChangeDialog
         open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-        }}
+        onOpenChange={setOpen}
         title={intl.formatMessage(resource ? m.reviewUpdate : m.reviewCreate, {
           kind: kindNoun(intl, kind),
           name: resource ? resourceTitle(kind, resource) : "",
@@ -486,6 +616,8 @@ export function EditResource() {
   const intl = useIntl();
   const { kind, kinds, id } = useRouteKind();
   const resource = useResource(kind, id);
+  // Bumped to open the form again on the latest settings.
+  const [opened, setOpened] = useState(0);
   const name = kind && resource.data ? resourceTitle(kind, resource.data) : undefined;
   usePageTitle(
     name ? intl.formatMessage(m.editCrumb) : undefined,
@@ -508,7 +640,16 @@ export function EditResource() {
           <CardDescription>{intl.formatMessage(m.settingsHelpUpdate)}</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResourceForm kind={kind} kinds={kinds} resource={resource.data} />
+          <ResourceForm
+            key={opened}
+            kind={kind}
+            kinds={kinds}
+            resource={resource.data}
+            onReload={() => {
+              // The panel may know of a change the stream hasn't told yet.
+              void resource.refetch().then(() => setOpened((n) => n + 1));
+            }}
+          />
         </CardContent>
       </Card>
     </div>

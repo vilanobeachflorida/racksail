@@ -1,7 +1,8 @@
 import { CircleCheck, CircleX, Undo2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { useIntl } from "react-intl";
-import { undoable, useChangeTracker } from "@/app/changes/tracker";
+import { mayUndo, useChangeTracker } from "@/app/changes/tracker";
+import { usePermission } from "@/app/modules";
 import { ChangePreview } from "@/design/components/change-preview";
 import { JobLog } from "@/design/components/jobs-drawer";
 import { Button } from "@/design/components/ui/button";
@@ -42,53 +43,77 @@ export interface ChangeDialogProps {
   renderOutput?: (change: ResourceChange) => ReactNode;
 }
 
-/** The applied change, followed until its job ends, then what came of it. */
+/**
+ * The applied change, followed until its job ends, then what came of it,
+ * and undo once there is something to undo.
+ */
 function Applied({
   applied,
   renderOutput,
+  onClose,
+  onUndo,
 }: {
   applied: ChangeSet;
   renderOutput?: (change: ResourceChange) => ReactNode;
+  onClose: () => void;
+  onUndo: () => void;
 }) {
   const intl = useIntl();
+  const allowed = usePermission();
   const followed = useFollowJob(applied.job);
   const job = followed.job;
-  const running = !job || !jobDone(job.state);
+  const running = applied.job ? !job || !jobDone(job.state) : applied.state === "applying";
+  const succeeded = job ? job.state === "succeeded" : applied.state === "applied";
   const percent =
     job && job.progress.total > 0 ? (job.progress.done / job.progress.total) * 100 : undefined;
+  // A job that was canceled ends its change set as failed, which can be undone too.
+  const ended: ChangeSet | null = running
+    ? null
+    : { ...applied, state: succeeded ? "applied" : "failed" };
   return (
-    <div className="flex flex-col gap-3" aria-live="polite">
-      {running ? (
-        <div className="flex flex-col gap-1">
-          <p className="font-medium">{intl.formatMessage(m.applying)}</p>
-          <Progress value={percent} aria-label={intl.formatMessage(m.applying)} />
-          {job?.progress.message ? (
-            <p className="text-muted-foreground text-sm">{job.progress.message}</p>
-          ) : null}
-        </div>
-      ) : job.state === "succeeded" ? (
-        <p className="flex items-center gap-2 font-medium">
-          <CircleCheck className="size-5 text-success" aria-hidden="true" />
-          {intl.formatMessage(m.applied)}
-        </p>
-      ) : (
-        <div className="flex flex-col gap-1">
+    <>
+      <div className="flex flex-col gap-3" aria-live="polite">
+        {running ? (
+          <div className="flex flex-col gap-1">
+            <p className="font-medium">{intl.formatMessage(m.applying)}</p>
+            <Progress value={percent} aria-label={intl.formatMessage(m.applying)} />
+            {job?.progress.message ? (
+              <p className="text-muted-foreground text-sm">{job.progress.message}</p>
+            ) : null}
+          </div>
+        ) : succeeded ? (
           <p className="flex items-center gap-2 font-medium">
-            <CircleX className="size-5 text-danger" aria-hidden="true" />
-            {intl.formatMessage(job.state === "canceled" ? m.canceled : m.failed)}
+            <CircleCheck className="size-5 text-success" aria-hidden="true" />
+            {intl.formatMessage(m.applied)}
           </p>
-          {job.error ? <p className="text-danger text-sm">{job.error.message}</p> : null}
-        </div>
-      )}
-      {job ? (
-        <JobLog lines={followed.lines} loading={followed.loading} label={applied.title} />
-      ) : (
-        <Skeleton className="h-24 w-full" />
-      )}
-      {!running && job.state === "succeeded" && renderOutput ? (
-        <FinishedOutput id={applied.id} renderOutput={renderOutput} />
-      ) : null}
-    </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <p className="flex items-center gap-2 font-medium">
+              <CircleX className="size-5 text-danger" aria-hidden="true" />
+              {intl.formatMessage(job?.state === "canceled" ? m.canceled : m.failed)}
+            </p>
+            {job?.error ? <p className="text-danger text-sm">{job.error.message}</p> : null}
+          </div>
+        )}
+        {job ? (
+          <JobLog lines={followed.lines} loading={followed.loading} label={applied.title} />
+        ) : applied.job ? (
+          <Skeleton className="h-24 w-full" />
+        ) : null}
+        {!running && succeeded && renderOutput ? (
+          <FinishedOutput id={applied.id} renderOutput={renderOutput} />
+        ) : null}
+      </div>
+      <DialogFooter>
+        {ended && mayUndo(ended, allowed) ? (
+          <Button variant="outline" onClick={onUndo}>
+            <Undo2 aria-hidden="true" />
+            {intl.formatMessage(m.undo)}
+          </Button>
+        ) : null}
+        <Button onClick={onClose}>{intl.formatMessage(designMessages.close)}</Button>
+      </DialogFooter>
+    </>
   );
 }
 
@@ -119,8 +144,9 @@ function FinishedOutput({
 /**
  * Takes a change through its preview: what is asked first, the preview of
  * what the change does, applying it, and for changes someone waits for,
- * its progress and result. Closing it while the change runs leaves the
- * toasts to say how it ends.
+ * its progress and result. Once a change the toasts follow is applied, the
+ * dialog closes itself; closing it while a change it follows runs hands
+ * that change to the toasts too.
  */
 export function ChangeDialog({
   open,
@@ -136,14 +162,26 @@ export function ChangeDialog({
 }: ChangeDialogProps) {
   const intl = useIntl();
   const tracker = useChangeTracker();
-  const { state } = flow;
+  const { state, reset } = flow;
   const close = () => {
     if (state.step === "applied") {
       tracker.track(state.applied);
     }
     onOpenChange(false);
-    flow.reset();
+    reset();
   };
+  // A change the toasts follow needs nothing more from the dialog, whose
+  // owner hears it closing as it would from the person.
+  const openChange = useRef(onOpenChange);
+  useEffect(() => {
+    openChange.current = onOpenChange;
+  });
+  useEffect(() => {
+    if (state.step === "tracked") {
+      openChange.current(false);
+      reset();
+    }
+  }, [state.step, reset]);
   let body: ReactNode = null;
   let footer: ReactNode = null;
   switch (state.step) {
@@ -173,31 +211,33 @@ export function ChangeDialog({
             {...(resourceName ? { resourceName } : {})}
             {...(confirmText ? { confirmText } : {})}
             applying={state.step === "applying"}
-            onApply={flow.apply}
+            onApply={async () => {
+              await flow.apply();
+            }}
             onCancel={close}
           />
         </div>
       );
       break;
-    case "applied":
-      body = <Applied applied={state.applied} {...(renderOutput ? { renderOutput } : {})} />;
-      footer = (
-        <DialogFooter>
-          {undoable({ ...state.applied, state: "applied" }) ? (
-            <Button
-              variant="outline"
-              onClick={() => {
-                void tracker.undo(state.applied.id);
-                close();
-              }}
-            >
-              <Undo2 aria-hidden="true" />
-              {intl.formatMessage(m.undo)}
-            </Button>
-          ) : null}
-          <Button onClick={close}>{intl.formatMessage(designMessages.close)}</Button>
-        </DialogFooter>
+    case "applied": {
+      const applied = state.applied;
+      body = (
+        <Applied
+          applied={applied}
+          {...(renderOutput ? { renderOutput } : {})}
+          onClose={close}
+          onUndo={() => {
+            // The change is being undone, so the toasts don't take it over
+            // to offer the same; the undo has toasts of its own.
+            onOpenChange(false);
+            reset();
+            void tracker.undo(applied.id);
+          }}
+        />
       );
+      break;
+    }
+    case "tracked":
       break;
     case "error":
       body = (
@@ -209,7 +249,7 @@ export function ChangeDialog({
       footer = (
         <DialogFooter>
           {form ? (
-            <Button variant="outline" onClick={() => flow.reset()}>
+            <Button variant="outline" onClick={reset}>
               {intl.formatMessage(m.back)}
             </Button>
           ) : null}
@@ -220,7 +260,7 @@ export function ChangeDialog({
   }
   return (
     <Dialog
-      open={open}
+      open={open && state.step !== "tracked"}
       onOpenChange={(next) => {
         if (!next) {
           close();

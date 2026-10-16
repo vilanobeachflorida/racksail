@@ -1,37 +1,83 @@
-import { Link, useParams } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { type ReactNode, useState } from "react";
 import { useIntl } from "react-intl";
-import { undoable, useChangeTracker } from "@/app/changes/tracker";
+import { mayUndo, useChangeTracker } from "@/app/changes/tracker";
+import { usePermission } from "@/app/modules";
 import { usePageTitle } from "@/app/page-title";
 import { ChangePreview } from "@/design/components/change-preview";
+import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
+import { Alert } from "@/design/components/ui/display";
 import { ErrorState } from "@/design/components/ui/states";
-import { useApi } from "@/lib/api/context";
+import { ApiError } from "@/lib/api/client";
+import type { ChangeSet } from "@/lib/changes";
+import { errorMessage } from "@/lib/errors";
 import { ScreenSkeleton } from "../catalog";
-import { changeListMessages as m } from "../messages";
+import { changeMessages as cm, changeListMessages as m } from "../messages";
 import { useRecordRecent } from "../recent";
-import { useKinds } from "../resources/kinds";
+import { type Kind, kindPath, resourcePath, useKinds } from "../resources/kinds";
 import { useKindLabels } from "../resources/labels";
 import { isMissing } from "../resources/queries";
 import { ResourceLink, When } from "../resources/values";
-import { applyPreview, newIdempotencyKey } from "./api";
+import { ChangeDialog } from "./dialog";
+import { useChangeFlow } from "./flow";
 import { useChangeSet } from "./queries";
+
+/**
+ * Where to make a change again when its preview can't be applied: the form
+ * of the one resource it creates or changes, when its kind has one.
+ */
+function redoPath(cs: ChangeSet, kinds: readonly Kind[]): string | undefined {
+  const requested = (cs.changes ?? []).filter((c) => c.source.type === "request");
+  const [change] = requested;
+  if (requested.length !== 1 || !change) {
+    return undefined;
+  }
+  const kind = kinds.find((k) => k.name === change.kind);
+  if (!kind || kind.ui.hidden) {
+    return undefined;
+  }
+  if (change.op === "create") {
+    return `${kindPath(kind)}/new`;
+  }
+  return change.op === "update" ? `${resourcePath(kind, change.id)}/edit` : undefined;
+}
 
 /**
  * One change: the preview of what it did, or would do, field by field and
  * on the server; who made it, through what and when; the job that carried
  * it out; and undo while that can be done. A preview that can still be
- * applied can be applied from here.
+ * applied is applied from here as the change dialog applies one: when the
+ * change would now do something else, the dialog shows what, to apply that
+ * instead, and what kept it from applying shows above it.
  */
 export default function ChangeScreen() {
+  const { changeSetId } = useParams({ strict: false }) as { changeSetId: string };
+  // What applying one change ran into isn't another's.
+  return <Change key={changeSetId} id={changeSetId} />;
+}
+
+function Change({ id: changeSetId }: { id: string }) {
   const intl = useIntl();
-  const api = useApi();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const tracker = useChangeTracker();
+  const allowed = usePermission();
   const labels = useKindLabels();
   const kinds = useKinds().data ?? [];
-  const { changeSetId } = useParams({ strict: false }) as { changeSetId: string };
   const changeSet = useChangeSet(changeSetId);
   const cs = changeSet.data;
+  const [fresh, setFresh] = useState(false);
+  const flow = useChangeFlow({
+    onApplied: (applied) => {
+      // The preview became the applied change set, or the fresh preview did.
+      queryClient.setQueryData(["changesets", applied.id], applied);
+      if (applied.id !== changeSetId) {
+        void navigate({ to: `/changes/${applied.id}` });
+      }
+    },
+  });
   usePageTitle(cs?.title);
   useRecordRecent(
     cs ? { path: `/changes/${cs.id}`, title: cs.title, what: intl.formatMessage(m.change) } : null,
@@ -47,6 +93,19 @@ export default function ChangeScreen() {
       />
     );
   }
+  const apply = async () => {
+    flow.show(cs);
+    const end = await flow.apply();
+    if (end.step === "preview") {
+      setFresh(true);
+    }
+  };
+  const failure = flow.state.step === "error" && !fresh ? flow.state.error : null;
+  // A preview that carried secret values is made again from its form.
+  const redo =
+    failure instanceof ApiError && failure.code === "changeset.preview_has_secrets"
+      ? redoPath(cs, kinds)
+      : undefined;
   const row = (term: string, value: ReactNode) => (
     <div className="contents">
       <dt className="font-medium text-muted-foreground text-sm">{term}</dt>
@@ -68,19 +127,30 @@ export default function ChangeScreen() {
         <p className="text-muted-foreground text-sm">{intl.formatMessage(m.change)}</p>
         <h1 className="break-words font-semibold text-2xl">{cs.title}</h1>
       </div>
+      {failure ? (
+        <Alert
+          tone="danger"
+          title={intl.formatMessage(cm.applyFailed)}
+          {...(redo
+            ? {
+                actions: (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={redo}>{intl.formatMessage(m.redo)}</Link>
+                  </Button>
+                ),
+              }
+            : {})}
+        >
+          {errorMessage(intl, failure)}
+        </Alert>
+      ) : null}
       <ChangePreview
         changeSet={cs}
         kindLabel={labels.kind}
         resourceName={labels.resourceName}
-        {...(cs.state === "planned" && cs.dryRun
-          ? {
-              onApply: async () => {
-                tracker.track(await applyPreview(api, cs.id, newIdempotencyKey()));
-                void changeSet.refetch();
-              },
-            }
-          : {})}
-        {...(undoable(cs) ? { onUndo: () => tracker.undo(cs.id) } : {})}
+        applying={flow.state.step === "applying" && !fresh}
+        {...(cs.state === "planned" && cs.dryRun ? { onApply: apply } : {})}
+        {...(mayUndo(cs, allowed) ? { onUndo: () => tracker.undo(cs.id) } : {})}
       />
       <Card aria-labelledby="change-details">
         <CardHeader>
@@ -127,6 +197,14 @@ export default function ChangeScreen() {
           </dl>
         </CardContent>
       </Card>
+      <ChangeDialog
+        open={fresh}
+        onOpenChange={setFresh}
+        title={cs.title}
+        flow={flow}
+        kindLabel={labels.kind}
+        resourceName={labels.resourceName}
+      />
     </div>
   );
 }

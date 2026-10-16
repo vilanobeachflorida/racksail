@@ -23,7 +23,7 @@ import { EmptyState, ErrorState } from "@/design/components/ui/states";
 import { toast, toastWithUndo } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
 import { retryJob } from "@/lib/api/operations";
-import { errorMessage, errorMessageId } from "@/lib/errors";
+import { errorMessage } from "@/lib/errors";
 import type { Severity } from "@/lib/events";
 import { useFormat } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,7 @@ import {
   useInbox,
 } from "./api";
 import { inboxMessages as m } from "./messages";
-import { inboxMessage, inboxTitle } from "./text";
+import { inboxMessage, inboxProblemText, inboxTitle } from "./text";
 
 /** How many items show before the rest are asked for. */
 const shown = 5;
@@ -340,6 +340,20 @@ function Inbox() {
   const visible = all ? items : items.slice(0, shown);
   const waiting = items.filter((i) => !i.dismissal).length;
   const source = (name: string) => intl.formatMessage(m.source, { source: name });
+  const coreKinds = visible.some((item) => item.kind?.startsWith("core."));
+  const list = (
+    <ul className="flex flex-col divide-y divide-border">
+      {visible.map((item) => (
+        <ItemRow
+          key={item.id}
+          item={item}
+          actions={actions}
+          dismissals={dismissals}
+          moduleTitle={moduleTitle}
+        />
+      ))}
+    </ul>
+  );
   return (
     <Card aria-labelledby="inbox-title" aria-busy={inbox.isPending}>
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
@@ -389,9 +403,7 @@ function Inbox() {
               <p key={p.source} className="text-muted-foreground">
                 {intl.formatMessage(m.unavailable, {
                   part: source(p.source),
-                  reason: Object.hasOwn(intl.messages, errorMessageId(p.code))
-                    ? intl.formatMessage({ id: errorMessageId(p.code) })
-                    : p.message,
+                  reason: inboxProblemText(intl, p),
                 })}
               </p>
             ))}
@@ -402,18 +414,14 @@ function Inbox() {
                 description={intl.formatMessage(m.emptyHelp)}
                 className="py-6"
               />
+            ) : coreKinds ? (
+              // The core's kinds are named in a catalog of their own; until
+              // it has loaded, or if it can't, they read in English.
+              <ScreenMessages catalog="kinds" fallback={list} optional>
+                {list}
+              </ScreenMessages>
             ) : (
-              <ul className="flex flex-col divide-y divide-border">
-                {visible.map((item) => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
-                    actions={actions}
-                    dismissals={dismissals}
-                    moduleTitle={moduleTitle}
-                  />
-                ))}
-              </ul>
+              list
             )}
             {items.length > shown ? (
               <Button

@@ -25,6 +25,7 @@
   "app.activity.all": "Show all events",
   "app.quickActions.title": "Quick actions",
   "app.quickActions.more": "Search or run a command",
+  "app.quickActions.create": "New {kind}",
   "app.notFound.title": "This page doesn't exist",
   "app.notFound.body": "The address may be mistyped, or the page has moved.",
   "app.notFound.home": "Go to the home screen",

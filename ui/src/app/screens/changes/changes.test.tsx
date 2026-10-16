@@ -176,6 +176,98 @@ describe("the changes screens", () => {
     );
   });
 
+  it("show what a kept preview would do now, to apply that instead", async () => {
+    const user = userEvent.setup();
+    const fresh = changeSet({ id: "chg_fresh", title: "Update webhook", state: "planned" });
+    let current = fresh;
+    const { api, sent } = panel({
+      "POST /api/v1/changesets/chg_planned/apply": () =>
+        json(
+          {
+            type: "about:blank",
+            status: 409,
+            code: "changeset.preview_stale",
+            params: { title: "Update webhook", preview: "chg_fresh" },
+          },
+          409,
+        ),
+      "GET /api/v1/changesets/chg_fresh": () => json(current),
+      "POST /api/v1/changesets/chg_fresh/apply": () => {
+        current = { ...fresh, state: "applying", dryRun: false, job: "job_2" };
+        return json(current);
+      },
+    });
+    const { router } = renderShell({
+      modules: [],
+      messages: shellMessages,
+      path: "/changes/chg_planned",
+      api,
+    });
+    await screen.findByRole("heading", { level: 1, name: "Update webhook" });
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    const dialog = await screen.findByRole("dialog", { name: "Update webhook" });
+    expect(within(dialog).getByText(/Something changed since the preview was made/)).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() =>
+      expect(sent.some((s) => s.path === "/api/v1/changesets/chg_fresh/apply")).toBe(true),
+    );
+    // The fresh preview became the change, whose page follows it.
+    await waitFor(() => expect(router.state.location.pathname).toBe("/changes/chg_fresh"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+  });
+
+  it("say why a kept preview can't be applied, and where to make the change again", async () => {
+    const user = userEvent.setup();
+    const { api } = panel({
+      "POST /api/v1/changesets/chg_planned/apply": () =>
+        json(
+          {
+            type: "about:blank",
+            status: 409,
+            code: "changeset.preview_has_secrets",
+            params: { title: "Update webhook" },
+          },
+          409,
+        ),
+    });
+    const { router } = renderShell({
+      modules: [],
+      messages: shellMessages,
+      path: "/changes/chg_planned",
+      api,
+    });
+    await screen.findByRole("heading", { level: 1, name: "Update webhook" });
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The change couldn't be applied");
+    expect(alert).toHaveTextContent(
+      "Update webhook carried secret values, which previews don't keep. Send the change again to apply it.",
+    );
+    await user.click(within(alert).getByRole("link", { name: "Make the change again" }));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/core/webhooks/${webhook().id}/edit`),
+    );
+  });
+
+  it("only offer undo to those who may undo what it takes", async () => {
+    const { api } = panel();
+    // Undoing the creation deletes the webhook, which the person may not do.
+    renderShell({
+      modules: [],
+      messages: shellMessages,
+      path: "/changes",
+      api,
+      can: (p) => p !== "core.webhook.delete",
+    });
+    const table = await screen.findByRole("table", { name: "Changes" });
+    const row = (name: string) =>
+      within(table).getByRole("link", { name }).closest('[role="row"]') as HTMLElement;
+    await within(table).findByRole("link", { name: "Create webhook" });
+    expect(within(row("Create webhook")).queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(within(row("Update webhook")).getByRole("button", { name: "Undo" })).toBeVisible();
+  });
+
   it("show the job a change ran as", async () => {
     const { api } = panel();
     renderShell({ modules: [], messages: shellMessages, path: "/changes/chg_applied", api });

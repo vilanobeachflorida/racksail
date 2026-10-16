@@ -217,8 +217,9 @@ describe("the attention inbox", () => {
           return new Response(null, { status: 204 });
         },
         "DELETE /api/v1/inbox/job%3Ajob_1/dismiss": () => {
+          const restored = dismissed;
           dismissed = false;
-          return new Response(null, { status: 204 });
+          return json({ restored });
         },
       },
     );
@@ -264,7 +265,7 @@ describe("the attention inbox", () => {
           : json({ items: [], dismissed: 1 }),
       {
         "DELETE /api/v1/inbox/certificate%3Amail.example.com/dismiss": () =>
-          new Response(null, { status: 204 }),
+          json({ restored: true }),
       },
     );
     const { card } = await home(api);
@@ -294,6 +295,54 @@ describe("the attention inbox", () => {
     expect(within(card).getByRole("status")).toHaveTextContent("Checking updates…");
     expect(
       within(card).getByText("Couldn't check certificates: The edge isn't running."),
+    ).toBeInTheDocument();
+  });
+
+  it("says why parts couldn't be checked in the person's words, when it has the values for them", async () => {
+    const { api } = panel(() =>
+      json({
+        items: [],
+        dismissed: 0,
+        unavailable: [
+          {
+            source: "updates",
+            code: "core.unavailable",
+            message: "The package lists are down.",
+            params: { what: "The package lists" },
+          },
+          // Without the value its message needs, the panel's English reads.
+          {
+            source: "certificates",
+            code: "core.timeout",
+            message: "Reading the certificates took too long.",
+          },
+        ],
+      }),
+    );
+    const { card } = await home(api);
+    expect(
+      await within(card).findByText(
+        "Couldn't check updates: The package lists isn't available right now. Try again in a moment.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(card).getByText(
+        "Couldn't check certificates: Reading the certificates took too long.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("names the panel's own kinds in the person's words", async () => {
+    // The panel sends its English word; the screens' catalog has the person's.
+    const { api } = panel(() =>
+      json({
+        items: [{ ...degraded, params: { ...degraded.params, kind: "core.webhook" } }],
+        dismissed: 0,
+      }),
+    );
+    const { card } = await home(api);
+    expect(
+      await within(card).findByText("Webhook https://hooks.example.com works only in part"),
     ).toBeInTheDocument();
   });
 

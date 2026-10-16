@@ -283,8 +283,9 @@ export default function KindList() {
       </Link>
     </Button>
   ) : null;
-  // Actions that need nothing more than the resources run on several at once.
-  const bulk = (kind.actions ?? []).filter((a) => !a.hasInput && may(a.name));
+  // Every action the person may run works on several at once, those that
+  // take input with the same input for each.
+  const bulk = (kind.actions ?? []).filter((a) => may(a.name));
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -311,32 +312,38 @@ export default function KindList() {
           rowKey={(r) => r.id}
           columns={columns}
           loading={list.isPending}
-          bulkActions={(selected, clear) => (
-            <>
-              {bulk.map((a) => (
-                <Button
-                  key={a.name}
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    changes.launch({ kind, resources: selected, action: a, onApplied: clear })
-                  }
-                >
-                  {actionTitle(intl, kind, a)}
-                </Button>
-              ))}
-              {may("delete") ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => changes.launch({ kind, resources: selected, onApplied: clear })}
-                >
-                  <Trash2 aria-hidden="true" />
-                  {intl.formatMessage(m.delete)}
-                </Button>
-              ) : null}
-            </>
-          )}
+          bulkActions={(selected, clear) => {
+            // What is being removed already takes no more changes.
+            const live = selected.filter((r) => !r.deletedAt);
+            return (
+              <>
+                {bulk.map((a) => (
+                  <Button
+                    key={a.name}
+                    variant="outline"
+                    size="sm"
+                    disabled={live.length === 0}
+                    onClick={() =>
+                      changes.launch({ kind, resources: live, action: a, onApplied: clear })
+                    }
+                  >
+                    {actionTitle(intl, kind, a)}
+                  </Button>
+                ))}
+                {may("delete") ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={live.length === 0}
+                    onClick={() => changes.launch({ kind, resources: live, onApplied: clear })}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    {intl.formatMessage(m.delete)}
+                  </Button>
+                ) : null}
+              </>
+            );
+          }}
           empty={
             <EmptyState
               title={intl.formatMessage(m.empty, { kinds: kindNouns(intl, kind) })}

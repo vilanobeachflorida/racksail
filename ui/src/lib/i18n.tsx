@@ -22,18 +22,26 @@ const moduleCatalogs = import.meta.glob<Messages>("../modules/*/messages/*.json"
 // The shell's screens, such as the lists and details of resources, the
 // jobs and the timeline, have a catalog of their own that loads with the
 // first of them, so the shell shows without it. The attention inbox, the
-// home screen's first card, has a small one of its own that loads with it.
+// home screen's first card, has a small one of its own that loads with it,
+// and the core's kinds have their words apart, for the home screen to name
+// them without loading the screens' catalog.
 const screenCatalogs = import.meta.glob<Messages>(
-  ["../app/screens/messages/*.json", "../app/screens/inbox/messages/*.json"],
+  [
+    "../app/screens/messages/*.json",
+    "../app/screens/inbox/messages/*.json",
+    "../app/screens/kinds/messages/*.json",
+  ],
   { import: "default" },
 );
 
-/** The catalogs of the shell's screens: their words, and the inbox's. */
-export type ScreenCatalog = "screens" | "inbox";
+/** The catalogs of the shell's screens: their words, the inbox's, and the core's kinds'. */
+export type ScreenCatalog = "screens" | "inbox" | "kinds";
 
-const screenCatalogDirs: Record<ScreenCatalog, string> = {
-  screens: "../app/screens/messages",
-  inbox: "../app/screens/inbox/messages",
+// The screens name the core's kinds too, so their catalog brings those words.
+const screenCatalogDirs: Record<ScreenCatalog, string[]> = {
+  screens: ["../app/screens/messages", "../app/screens/kinds/messages"],
+  inbox: ["../app/screens/inbox/messages"],
+  kinds: ["../app/screens/kinds/messages"],
 };
 
 function localeOf(path: string): string {
@@ -112,8 +120,9 @@ export async function loadMessages(
 }
 
 /**
- * Loads the messages of the shell's screens, or of the inbox, English with
- * any translation on top, as loadMessages does for the shell.
+ * Loads the messages of the shell's screens, of the inbox or of the core's
+ * kinds, English with any translation on top, as loadMessages does for the
+ * shell.
  */
 export async function loadScreenMessages(
   locale: string,
@@ -128,7 +137,9 @@ export async function loadScreenMessages(
   }
   const layers = locale === defaultLocale ? [defaultLocale] : [defaultLocale, locale];
   const loaded = await Promise.all(
-    layers.map((layer) => load(screenCatalogs, `${screenCatalogDirs[catalog]}/${layer}.json`)),
+    layers.flatMap((layer) =>
+      screenCatalogDirs[catalog].map((dir) => load(screenCatalogs, `${dir}/${layer}.json`)),
+    ),
   );
   return Object.assign({}, ...loaded);
 }

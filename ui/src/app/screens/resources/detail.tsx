@@ -15,6 +15,7 @@ import {
 } from "@/design/components/ui/overlay";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/design/components/ui/tabs";
+import { toast } from "@/design/components/ui/toaster";
 import type { FieldHint } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { EventTimeline } from "../events/list";
@@ -47,6 +48,9 @@ const commonFields = new Set(["phase", "message", "code", "observedGeneration", 
 function CopyID({ id }: { id: string }) {
   const intl = useIntl();
   const [copied, setCopied] = useState(false);
+  // The browser may not let the page write to the clipboard, as without
+  // HTTPS or when the person said no; the ID can still be selected.
+  const failed = () => toast.error(intl.formatMessage(m.copyFailed));
   return (
     <span className="inline-flex items-center gap-1">
       <code className="font-mono text-muted-foreground text-xs" translate="no">
@@ -58,7 +62,11 @@ function CopyID({ id }: { id: string }) {
           size="icon-sm"
           aria-label={intl.formatMessage(copied ? m.copied : m.copyID)}
           onClick={() => {
-            void navigator.clipboard?.writeText(id).then(() => setCopied(true));
+            if (!navigator.clipboard) {
+              failed();
+              return;
+            }
+            navigator.clipboard.writeText(id).then(() => setCopied(true), failed);
           }}
         >
           {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}

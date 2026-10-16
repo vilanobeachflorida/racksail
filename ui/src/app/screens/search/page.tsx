@@ -16,10 +16,7 @@ import {
   useKinds,
 } from "../resources/kinds";
 import { PhaseBadge, When } from "../resources/values";
-import { minSearch, type SearchResult, useResourceSearch } from "./api";
-
-/** How long typing settles before the search runs. */
-const settle = 250;
+import { minSearch, type SearchResult, searchSettle, useResourceSearch } from "./api";
 
 /** One kind's results: the resources found, and a way to its list when there are more. */
 function KindResults({
@@ -100,7 +97,7 @@ export default function SearchScreen() {
           search: text.trim() ? { q: text.trim() } : {},
           replace: true,
         }),
-      settle,
+      searchSettle,
     );
     return () => clearTimeout(timer);
   }, [text, q, navigate]);

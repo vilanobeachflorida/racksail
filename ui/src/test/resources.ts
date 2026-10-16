@@ -152,6 +152,88 @@ export const hiddenKind: Kind = {
   ui: { ...webhookKind.ui, hidden: true },
 } as Kind;
 
+/** A kind as a module would describe it, with only what the generic screens need. */
+function kind(
+  fields: Omit<Partial<Kind>, "ui" | "spec"> & {
+    name: string;
+    ui: Record<string, unknown>;
+    spec: Record<string, unknown>;
+  },
+): Kind {
+  const [module = ""] = fields.name.split(".");
+  return {
+    module,
+    description: `${fields.title ?? ""} for tests.`,
+    risks: { create: "low", update: "medium", delete: "medium" },
+    actions: [],
+    indexes: [],
+    events: [],
+    backup: { covered: true },
+    status: { type: "object", properties: { phase: { type: "string" } } },
+    inputs: {},
+    outputs: {},
+    ...fields,
+  } as unknown as Kind;
+}
+
+/** The core's accounts, which own themselves, as the panel's identity keeps them. */
+export const accountKind = kind({
+  name: "core.account",
+  title: "Account",
+  plural: "accounts",
+  prefix: "acct",
+  scope: "account",
+  path: "/api/v1/core/accounts",
+  ui: { titleField: "name", fields: { name: { order: 0 } } },
+  spec: {
+    type: "object",
+    properties: { name: { type: "string", title: "Name", minLength: 1 } },
+    required: ["name"],
+  },
+});
+
+/** A module's kind of resource that sites refer to. */
+export const databaseKind = kind({
+  name: "databases.database",
+  title: "Database",
+  plural: "databases",
+  prefix: "db",
+  scope: "account",
+  path: "/api/v1/databases/databases",
+  ui: { titleField: "name" },
+  spec: { type: "object", properties: { name: { type: "string" } } },
+});
+
+/**
+ * A module's kind that belongs to accounts, with a field naming a database
+ * its hints say the kind of, and one naming a reseller they don't.
+ */
+export const siteKind = kind({
+  name: "web.site",
+  title: "Site",
+  plural: "sites",
+  prefix: "site",
+  scope: "account",
+  path: "/api/v1/web/sites",
+  ui: {
+    titleField: "domain",
+    fields: {
+      domain: { order: 0 },
+      database: { order: 1, widget: "resource", kind: "databases.database" },
+      reseller: { order: 2, widget: "resource" },
+    },
+  },
+  spec: {
+    type: "object",
+    properties: {
+      domain: { type: "string", title: "Domain", minLength: 1 },
+      database: { type: "string", title: "Database" },
+      reseller: { type: "string", title: "Reseller" },
+    },
+    required: ["domain"],
+  },
+});
+
 /** A webhook resource, with what a test changes. */
 export function webhook(
   overrides: Partial<Resource> & { spec?: Record<string, unknown> } = {},

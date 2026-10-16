@@ -28,6 +28,7 @@ export const messages = {
   activityAll: m("app.activity.all"),
   quickActionsTitle: m("app.quickActions.title"),
   quickActionsMore: m("app.quickActions.more"),
+  quickActionsCreate: m("app.quickActions.create"),
   statusOk: m("app.status.ok"),
   statusDegraded: m("app.status.degraded"),
   statusChecks: m("app.status.checks"),

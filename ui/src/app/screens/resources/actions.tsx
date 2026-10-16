@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useState } from "react";
 import { useIntl } from "react-intl";
 import { SchemaForm } from "@/design/components/schema-form";
 import { Skeleton } from "@/design/components/ui/skeleton";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, type Problem } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import type { ChangeSet, ResourceChange } from "@/lib/changes";
 import type { JSONSchema } from "@/lib/schema";
@@ -35,15 +35,44 @@ export interface Launch {
   onApplied?: (applied: ChangeSet) => void;
 }
 
+type FieldProblem = NonNullable<Problem["errors"]>[number];
+
+/**
+ * The problems the panel found with an action's input. Several resources
+ * get the same input, so the problems each change has with it, located as
+ * changes[1].input.delivery, are the input's own, once each.
+ */
+function inputProblems(error: unknown): FieldProblem[] {
+  if (!(error instanceof ApiError)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: FieldProblem[] = [];
+  for (const p of error.problem.errors ?? []) {
+    const location = (p.location ?? "").replace(/^(body\.)?changes\[\d+\]\./, "");
+    // A problem with the input as a whole has no field to show under.
+    if (location.startsWith("input.") && !seen.has(location)) {
+      seen.add(location);
+      out.push({ ...p, location });
+    }
+  }
+  return out;
+}
+
 /** Whether deleting a kind's resources asks for the name to be typed, as for what matters most. */
 function typedDelete(kind: Kind): boolean {
   return kind.risks.delete === "high" || kind.risks.delete === "critical";
 }
 
-/** Asks for an action's input, with the form its schema makes. */
+/**
+ * Asks for an action's input, with the form its schema makes, starting from
+ * what was given before, as when the preview was refused or someone went
+ * back to change it.
+ */
 function ActionInput({
   kind,
   action,
+  value,
   onSubmit,
   onCancel,
   busy,
@@ -51,10 +80,11 @@ function ActionInput({
 }: {
   kind: Kind;
   action: KindAction;
+  value: unknown;
   onSubmit: (input: unknown) => void;
   onCancel: () => void;
   busy: boolean;
-  problems: ApiError | null;
+  problems: FieldProblem[];
 }) {
   const intl = useIntl();
   const schemas = useKindSchemas(kind.name);
@@ -65,10 +95,11 @@ function ActionInput({
   return (
     <SchemaForm
       schema={schema}
+      {...(value === undefined ? {} : { initialValue: value })}
       submitLabel={intl.formatMessage(m.preview)}
       busy={busy}
       problemPrefix="input"
-      problems={problems?.problem.errors ?? []}
+      problems={problems}
       onSubmit={(result) => onSubmit(result.spec)}
       onCancel={onCancel}
     />
@@ -117,8 +148,9 @@ function useLaunchRequest() {
  * Deletes resources or runs a kind's actions on them through the change
  * preview: the action's input first when it takes one, then what the
  * change does, then applying it. Several resources make one change set,
- * applied and undone together. An action on one resource that answers when
- * done is followed in the dialog until it has, with its result.
+ * applied and undone together, with the same input for each. An action on
+ * one resource that answers when done is followed in the dialog until it
+ * has, with its result; anything else is left to the toasts once applied.
  */
 export function useResourceChanges(): { launch: (launch: Launch) => void; dialog: ReactNode } {
   const intl = useIntl();
@@ -126,7 +158,9 @@ export function useResourceChanges(): { launch: (launch: Launch) => void; dialog
   const requestFor = useLaunchRequest();
   const [current, setCurrent] = useState<Launch | null>(null);
   const [open, setOpen] = useState(false);
-  const [problems, setProblems] = useState<ApiError | null>(null);
+  const [problems, setProblems] = useState<FieldProblem[]>([]);
+  // The action's input as last given, which its form starts from again.
+  const [input, setInput] = useState<unknown>(undefined);
   const waits = Boolean(current?.action && !current.action.long && current.resources.length === 1);
   const flow = useChangeFlow({
     onApplied: (applied) => current?.onApplied?.(applied),
@@ -137,7 +171,8 @@ export function useResourceChanges(): { launch: (launch: Launch) => void; dialog
   const launch = useCallback(
     (l: Launch) => {
       setCurrent(l);
-      setProblems(null);
+      setProblems([]);
+      setInput(undefined);
       setOpen(true);
       if (l.action?.hasInput) {
         flow.reset();
@@ -194,18 +229,22 @@ export function useResourceChanges(): { launch: (launch: Launch) => void; dialog
           <ActionInput
             kind={kind}
             action={action}
+            value={input}
             busy={flow.state.step === "previewing"}
             problems={problems}
             onCancel={() => {
               setOpen(false);
               setCurrent(null);
             }}
-            onSubmit={(input) => {
-              setProblems(null);
-              flow.preview(requestFor(current, input)).catch((error: unknown) => {
-                // Problems with the input show under its fields.
-                if (error instanceof ApiError && (error.problem.errors?.length ?? 0) > 0) {
-                  setProblems(error);
+            onSubmit={(given) => {
+              setProblems([]);
+              setInput(given);
+              flow.preview(requestFor(current, given)).catch((error: unknown) => {
+                // Problems with the input show under its fields, and
+                // anything else in the dialog.
+                const fields = inputProblems(error);
+                if (fields.length > 0) {
+                  setProblems(fields);
                   flow.reset();
                 }
               });

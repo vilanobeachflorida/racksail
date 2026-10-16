@@ -1,10 +1,19 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { ChangeSet } from "@/lib/changes";
 import { shellMessages } from "@/lib/i18n";
 import { axeViolations } from "@/test/axe";
-import { fakeApi, json, renderShell } from "@/test/render";
-import { changeSet, hiddenKind, webhook, webhookKind } from "@/test/resources";
+import { fakeApi, fakeLive, json, renderShell } from "@/test/render";
+import {
+  accountKind,
+  changeSet,
+  databaseKind,
+  hiddenKind,
+  siteKind,
+  webhook,
+  webhookKind,
+} from "@/test/resources";
 
 const second = webhook({
   id: "whk_01jq0000000000000000000002",
@@ -110,9 +119,49 @@ function panel(routes: Record<string, Route> = {}) {
   return { api, sent };
 }
 
-function render(path: string, api = panel().api, can?: (permission: string) => boolean) {
-  return renderShell({ modules: [], messages: shellMessages, path, api, ...(can ? { can } : {}) });
+function render(
+  path: string,
+  api = panel().api,
+  can?: (permission: string) => boolean,
+  live = fakeLive().live,
+) {
+  return renderShell({
+    modules: [],
+    messages: shellMessages,
+    path,
+    api,
+    live,
+    ...(can ? { can } : {}),
+  });
 }
+
+/** A problem the panel answers with. */
+function refusal(status: number, code: string, extra: Record<string, unknown> = {}) {
+  return json({ type: "about:blank", status, code, title: code, ...extra }, status);
+}
+
+/** The change set a preview becomes once it's applied. */
+const appliedOf = (cs: ChangeSet): ChangeSet => ({
+  ...cs,
+  state: "applied",
+  dryRun: false,
+  appliedAt: "2026-10-15T12:01:00Z",
+});
+
+const removal = changeSet({
+  id: "chg_remove",
+  title: "Delete webhook",
+  changes: [
+    {
+      op: "delete",
+      kind: "core.webhook",
+      id: webhook().id,
+      scope: { level: "server" },
+      source: { type: "request" },
+      before: webhook().spec,
+    },
+  ] as never,
+});
 
 describe("a kind's list", () => {
   it("shows the columns the kind's hints name, with links, badges and states", async () => {
@@ -182,6 +231,113 @@ describe("a kind's list", () => {
         { op: "delete", kind: "core.webhook", id: webhook().id, revision: 7 },
         { op: "delete", kind: "core.webhook", id: second.id, revision: 3 },
       ],
+    });
+  });
+
+  it("closes the dialog once the change several rows make is applied", async () => {
+    const user = userEvent.setup();
+    const both = changeSet({ id: "chg_delete", title: "Delete 2 webhooks" });
+    const { api, sent } = panel({
+      "POST /api/v1/changesets": () => json(both),
+      "POST /api/v1/changesets/chg_delete/apply": () => json(appliedOf(both)),
+      "GET /api/v1/changesets/chg_delete": () => json(appliedOf(both)),
+    });
+    render("/core/webhooks", api);
+    const table = await screen.findByRole("table", { name: "Webhooks" });
+    await within(table).findByText("https://b.example.com/hook");
+    for (const box of within(table)
+      .getAllByRole("checkbox", { name: /Select/ })
+      .slice(1)) {
+      await user.click(box);
+    }
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete 2 webhooks?" });
+    await user.click(await within(dialog).findByRole("button", { name: "Apply" }));
+    await waitFor(() =>
+      expect(sent.some((s) => s.path === "/api/v1/changesets/chg_delete/apply")).toBe(true),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("Applied: Delete 2 webhooks")).toBeInTheDocument();
+  });
+
+  it("deletes a row from its menu, and closes the dialog once that's applied", async () => {
+    const user = userEvent.setup();
+    const { api, sent } = panel({
+      "DELETE /api/v1/core/webhooks/whk_01jq0000000000000000000001": () => json(removal),
+      "POST /api/v1/changesets/chg_remove/apply": () => json(appliedOf(removal)),
+      "GET /api/v1/changesets/chg_remove": () => json(appliedOf(removal)),
+    });
+    render("/core/webhooks", api);
+    const table = await screen.findByRole("table", { name: "Webhooks" });
+    await user.click(
+      await within(table).findByRole("button", {
+        name: "Actions for https://hooks.example.com/racksail",
+      }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete the webhook https://hooks.example.com/racksail?",
+    });
+    await user.click(await within(dialog).findByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("Applied: Delete webhook")).toBeInTheDocument();
+    expect(sent.find((s) => s.method === "DELETE")?.search).toBe("?dryRun=true&revision=7");
+  });
+
+  it("runs an action that takes input on several rows, keeping what was typed when refused", async () => {
+    const user = userEvent.setup();
+    let refuse = true;
+    const resend = changeSet({ id: "chg_resend", title: "Send again: 2 webhooks", risk: "low" });
+    const { api, sent } = panel({
+      "POST /api/v1/changesets": (request) => {
+        if (new URL(request.url).searchParams.get("dryRun") !== "true") {
+          return json(appliedOf(resend));
+        }
+        if (refuse) {
+          refuse = false;
+          // Each change has the same problem with the input they share.
+          return refusal(422, "core.invalid", {
+            errors: [0, 1].map((i) => ({
+              location: `changes[${i}].input.delivery`,
+              code: "core.bad_value",
+              message: "there's no such delivery",
+              params: { reason: "there's no such delivery" },
+            })),
+          });
+        }
+        return json(resend);
+      },
+      "POST /api/v1/changesets/chg_resend/apply": () => json(appliedOf(resend)),
+      "GET /api/v1/changesets/chg_resend": () => json(appliedOf(resend)),
+    });
+    render("/core/webhooks", api);
+    const table = await screen.findByRole("table", { name: "Webhooks" });
+    await within(table).findByText("https://b.example.com/hook");
+    for (const box of within(table)
+      .getAllByRole("checkbox", { name: /Select/ })
+      .slice(1)) {
+      await user.click(box);
+    }
+    await user.click(screen.getByRole("button", { name: "Send again" }));
+    const dialog = await screen.findByRole("dialog", { name: "Send again: 2 resources" });
+    await user.type(await within(dialog).findByRole("textbox", { name: /Delivery/ }), "dlv_7");
+    await user.click(within(dialog).getByRole("button", { name: "Preview" }));
+    // The problem shows under the field, which keeps what was typed.
+    const field = await within(dialog).findByRole("textbox", { name: /Delivery/ });
+    await waitFor(() => expect(field).toHaveAccessibleDescription(/there's no such delivery/));
+    expect(field).toHaveValue("dlv_7");
+    await user.click(within(dialog).getByRole("button", { name: "Preview" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const previews = sent.filter((s) => s.path === "/api/v1/changesets");
+    expect(previews.at(-1)?.body).toEqual({
+      changes: [webhook().id, second.id].map((id) => ({
+        op: "action",
+        kind: "core.webhook",
+        id,
+        action: "redeliver",
+        input: { delivery: "dlv_7" },
+      })),
     });
   });
 
@@ -264,6 +420,135 @@ describe("a resource's page", () => {
     const dialog = await screen.findByRole("dialog", { name: "Send a test" });
     expect(await within(dialog).findByRole("button", { name: "Apply" })).toBeInTheDocument();
     expect(sent.find((s) => s.path.endsWith("/actions/test"))?.search).toBe("?dryRun=true");
+  });
+
+  it("goes back to an action's input as it was typed when the preview fails", async () => {
+    const user = userEvent.setup();
+    const { api, sent } = panel({
+      "POST /api/v1/core/webhooks/whk_01jq0000000000000000000001/actions/redeliver": () =>
+        refusal(409, "core.conflict", { params: { what: "The delivery dlv_9" } }),
+    });
+    render("/core/webhooks/whk_01jq0000000000000000000001?action=redeliver", api);
+    const dialog = await screen.findByRole("dialog", { name: "Send again" });
+    await user.type(await within(dialog).findByRole("textbox", { name: /Delivery/ }), "dlv_9");
+    await user.click(within(dialog).getByRole("button", { name: "Preview" }));
+    expect(await within(dialog).findByText("The change couldn't be previewed")).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "Back" }));
+    expect(await within(dialog).findByRole("textbox", { name: /Delivery/ })).toHaveValue("dlv_9");
+    expect(sent.find((s) => s.path.endsWith("/redeliver"))?.body).toEqual({ delivery: "dlv_9" });
+  });
+
+  it("follows an action someone waits for, and undoing it leaves its own toast alone", async () => {
+    const user = userEvent.setup();
+    const tested = changeSet({
+      id: "chg_test",
+      title: "Send a test webhook",
+      risk: "low",
+      changes: [
+        {
+          op: "action",
+          action: "test",
+          kind: "core.webhook",
+          id: webhook().id,
+          scope: { level: "server" },
+          source: { type: "request" },
+          // The action noted when it last tested, which undo puts back.
+          before: webhook().spec,
+          after: { ...(webhook().spec as Record<string, unknown>), description: "Tested" },
+        },
+      ] as never,
+    });
+    const undo = changeSet({
+      id: "chg_undo",
+      title: "Undo: Send a test webhook",
+      undoOf: "chg_test",
+    });
+    const job = {
+      id: "job_t",
+      type: "changeset.apply",
+      title: "Send a test webhook",
+      state: "succeeded",
+      progress: { done: 1, total: 1 },
+      attempt: 1,
+      createdAt: "2026-10-15T12:00:00Z",
+    };
+    const { api, sent } = panel({
+      "POST /api/v1/core/webhooks/whk_01jq0000000000000000000001/actions/test": () => json(tested),
+      "POST /api/v1/changesets/chg_test/apply": () => json({ ...appliedOf(tested), job: "job_t" }),
+      "GET /api/v1/changesets/chg_test": () => json({ ...appliedOf(tested), job: "job_t" }),
+      "GET /api/v1/jobs/job_t": () => json(job),
+      "GET /api/v1/jobs/job_t/logs": () => json({ lines: [] }),
+      "POST /api/v1/changesets/chg_test/undo": () => json(undo),
+      "POST /api/v1/changesets/chg_undo/apply": () => json(appliedOf(undo)),
+      "GET /api/v1/changesets/chg_undo": () => json(appliedOf(undo)),
+    });
+    render("/core/webhooks/whk_01jq0000000000000000000001?action=test", api);
+    const dialog = await screen.findByRole("dialog", { name: "Send a test" });
+    await user.click(await within(dialog).findByRole("button", { name: "Apply" }));
+    expect(await within(dialog).findByText("Done")).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("Applied: Undo: Send a test webhook")).toBeInTheDocument();
+    expect(sent.some((s) => s.path === "/api/v1/changesets/chg_undo/apply")).toBe(true);
+    expect(screen.queryByText("Applied: Send a test webhook")).not.toBeInTheDocument();
+  });
+
+  it("only offers undo in the history to those who may undo what it takes", async () => {
+    const user = userEvent.setup();
+    const created = changeSet({
+      id: "chg_created",
+      state: "applied",
+      dryRun: false,
+      title: "Create webhook",
+      changes: [
+        {
+          op: "create",
+          kind: "core.webhook",
+          id: webhook().id,
+          scope: { level: "server" },
+          source: { type: "request" },
+          after: webhook().spec,
+        },
+      ] as never,
+    });
+    const updated = changeSet({ id: "chg_updated", state: "applied", dryRun: false });
+    const { api } = panel({
+      "GET /api/v1/changesets": () => json({ changeSets: [updated, created] }),
+    });
+    const history = async (can: (permission: string) => boolean) => {
+      const shown = render("/core/webhooks/whk_01jq0000000000000000000001", api, can);
+      await user.click(await screen.findByRole("tab", { name: "History" }));
+      const list = await screen.findByRole("list", {
+        name: "Versions of the settings, newest first",
+      });
+      const version = (name: string) => {
+        const item = within(list).getByText(name).closest("li") as HTMLElement;
+        return within(item).queryByRole("button", { name: "Undo" });
+      };
+      await within(list).findByText("Version 2");
+      const found = { update: version("Version 2"), create: version("Created, version 1") };
+      shown.unmount();
+      return found;
+    };
+    // Undoing the creation deletes the webhook; undoing the update changes it.
+    const noDelete = await history((p) => p !== "core.webhook.delete");
+    expect(noDelete.update).not.toBeNull();
+    expect(noDelete.create).toBeNull();
+    const noUpdate = await history((p) => p !== "core.webhook.update");
+    expect(noUpdate.update).toBeNull();
+    expect(noUpdate.create).not.toBeNull();
+  });
+
+  it("says when the ID can't be copied", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(
+      new DOMException("Write permission denied.", "NotAllowedError"),
+    );
+    render("/core/webhooks/whk_01jq0000000000000000000001");
+    await user.click(await screen.findByRole("button", { name: "Copy the ID" }));
+    expect(
+      await screen.findByText("The ID couldn't be copied. Select it and copy it from there."),
+    ).toBeInTheDocument();
   });
 
   it("says when the resource doesn't exist", async () => {
@@ -389,6 +674,93 @@ describe("creating and editing", () => {
     expect(body.spec).not.toHaveProperty("owner");
   });
 
+  it("makes new settings against what the form opened, and says when someone else changed it", async () => {
+    const user = userEvent.setup();
+    const live = fakeLive();
+    let current = webhook();
+    const { api, sent } = panel({
+      "GET /api/v1/core/webhooks/whk_01jq0000000000000000000001": () => json(current),
+      "PUT /api/v1/core/webhooks/whk_01jq0000000000000000000001": async (request) => {
+        const body = (await request.json()) as { revision?: number };
+        return body.revision === current.revision
+          ? json(changeSet())
+          : refusal(409, "core.conflict", { params: { what: current.id } });
+      },
+    });
+    render("/core/webhooks/whk_01jq0000000000000000000001/edit", api, undefined, live.live);
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "Edit https://hooks.example.com/racksail",
+    });
+    await user.type(await screen.findByLabelText("Description"), "Mine");
+
+    // Someone else sends the webhook one more event meanwhile.
+    current = webhook({
+      revision: 8,
+      spec: { events: ["web.site.*", "*.failed", "web.site.deleted"] },
+    });
+    const stream = live.sources.find((s) => s.url === "/api/v1/resources/stream");
+    act(() => {
+      stream?.open();
+      stream?.emit("notice", {
+        op: "updated",
+        id: current.id,
+        kind: "core.webhook",
+        scope: { level: "server" },
+        generation: 3,
+        revision: 8,
+        phase: "ready",
+      });
+    });
+    const title = await screen.findByText("Someone else changed this webhook since you opened it");
+    const alert = title.closest('[role="alert"]') as HTMLElement;
+    expect(within(alert).getByRole("list", { name: "What they changed" })).toHaveTextContent(
+      "web.site.deleted",
+    );
+    // What was typed stays, and applying it would be refused rather than
+    // undo the other change.
+    expect(screen.getByLabelText("Description")).toHaveValue("Mine");
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    await waitFor(() => expect(sent.some((s) => s.method === "PUT")).toBe(true));
+    expect(sent.find((s) => s.method === "PUT")?.body).toMatchObject({
+      revision: 7,
+      spec: { events: ["web.site.*", "*.failed"], description: "Mine" },
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "Load the latest settings" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Someone else changed this webhook since you opened it"),
+      ).not.toBeInTheDocument(),
+    );
+    const description = await screen.findByLabelText("Description");
+    expect(description).toHaveValue("");
+    await user.type(description, "Mine");
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    await screen.findByRole("dialog", { name: "Change https://hooks.example.com/racksail" });
+    expect(sent.filter((s) => s.method === "PUT").at(-1)?.body).toMatchObject({
+      revision: 8,
+      spec: { events: ["web.site.*", "*.failed", "web.site.deleted"], description: "Mine" },
+    });
+  });
+
+  it("says when the panel refuses new settings because the resource changed meanwhile", async () => {
+    const user = userEvent.setup();
+    const { api } = panel({
+      "PUT /api/v1/core/webhooks/whk_01jq0000000000000000000001": () =>
+        refusal(409, "core.conflict", { params: { what: webhook().id } }),
+    });
+    render("/core/webhooks/whk_01jq0000000000000000000001/edit", api);
+    await user.type(await screen.findByLabelText("Description"), "Mine");
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    // The panel knew before its stream said so.
+    expect(
+      await screen.findByText("Someone else changed this webhook since you opened it"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("These settings can't be used yet")).not.toBeInTheDocument();
+  });
+
   it("previews new settings and applies the preview as it was shown", async () => {
     const user = userEvent.setup();
     const { api, sent } = panel({
@@ -432,5 +804,148 @@ describe("creating and editing", () => {
       revision: 7,
     });
     expect(await screen.findByText("Applied: Update webhook")).toBeInTheDocument();
+  });
+});
+
+describe("resources that belong to accounts", () => {
+  const accounts = [
+    {
+      ...webhook(),
+      id: "acct_01jq0000000000000000000001",
+      kind: "core.account",
+      scope: { level: "account", id: "acct_01jq0000000000000000000001" },
+      spec: { name: "Shop" },
+    },
+    {
+      ...webhook(),
+      id: "acct_01jq0000000000000000000002",
+      kind: "core.account",
+      scope: { level: "account", id: "acct_01jq0000000000000000000002" },
+      spec: { name: "Blog" },
+    },
+  ];
+  const database = {
+    ...webhook(),
+    id: "db_01jq0000000000000000000001",
+    kind: "databases.database",
+    scope: { level: "account", id: "acct_01jq0000000000000000000001" },
+    spec: { name: "shop" },
+  };
+
+  /** A panel with accounts, databases and sites, recording what it's sent. */
+  function accountsPanel(routes: Record<string, Route> = {}) {
+    return panel({
+      "GET /api/v1/kinds": () =>
+        json({ kinds: [webhookKind, accountKind, databaseKind, siteKind] }),
+      "GET /api/v1/kinds/web.site": () => json(siteKind),
+      "GET /api/v1/kinds/core.account": () => json(accountKind),
+      "GET /api/v1/core/accounts": () => json({ items: accounts }),
+      "GET /api/v1/databases/databases": () => json({ items: [database] }),
+      "POST /api/v1/web/sites": () => json(changeSet({ title: "Create site" })),
+      "POST /api/v1/core/accounts": () => json(changeSet({ title: "Create account" })),
+      ...routes,
+    });
+  }
+
+  it("ask who a new one belongs to, and offer the resources its fields refer to", async () => {
+    const user = userEvent.setup();
+    const { api, sent } = accountsPanel();
+    render("/web/sites/new", api);
+    await screen.findByRole("heading", { level: 1, name: "New site" });
+    await user.click(await screen.findByRole("combobox", { name: /Account/ }));
+    await user.click(await screen.findByRole("option", { name: "Shop" }));
+    await user.type(screen.getByRole("textbox", { name: /Domain/ }), "shop.example.com");
+    await user.click(screen.getByRole("combobox", { name: /Database/ }));
+    await user.click(await screen.findByRole("option", { name: "shop" }));
+    // Without a kind to list, a field naming a resource takes its ID.
+    await user.type(
+      screen.getByRole("textbox", { name: /Reseller/ }),
+      "rsl_01jq0000000000000000000001",
+    );
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    await screen.findByRole("dialog", { name: "Create the site" });
+    expect(sent.find((s) => s.method === "POST")?.body).toEqual({
+      spec: {
+        domain: "shop.example.com",
+        database: "db_01jq0000000000000000000001",
+        reseller: "rsl_01jq0000000000000000000001",
+      },
+      scope: { level: "account", id: "acct_01jq0000000000000000000001" },
+    });
+  });
+
+  it("say what's wrong with the owner the panel was given", async () => {
+    const user = userEvent.setup();
+    const { api } = accountsPanel({
+      "POST /api/v1/web/sites": () =>
+        refusal(422, "core.invalid", {
+          errors: [
+            {
+              location: "body.scope.id",
+              code: "core.not_found",
+              message: "That account doesn't exist.",
+              params: { what: "That account" },
+            },
+          ],
+        }),
+    });
+    render("/web/sites/new", api);
+    await user.click(await screen.findByRole("combobox", { name: /Account/ }));
+    await user.click(await screen.findByRole("option", { name: "Blog" }));
+    await user.type(screen.getByRole("textbox", { name: /Domain/ }), "blog.example.com");
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    expect(await screen.findByText("That account doesn't exist.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("ask nothing of an account, which belongs to itself, and name it up front", async () => {
+    const user = userEvent.setup();
+    const { api, sent } = accountsPanel();
+    render("/core/accounts/new", api);
+    await screen.findByRole("heading", { level: 1, name: "New account" });
+    expect(screen.queryByRole("combobox", { name: /Account/ })).not.toBeInTheDocument();
+    await user.type(await screen.findByRole("textbox", { name: /Name/ }), "Studio");
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    await screen.findByRole("dialog", { name: "Create the account" });
+    const body = sent.find((s) => s.method === "POST")?.body as {
+      id: string;
+      scope: { level: string; id: string };
+    };
+    expect(body.id).toMatch(/^acct_[0-7][0-9a-hjkmnp-tv-z]{25}$/);
+    expect(body.scope).toEqual({ level: "account", id: body.id });
+  });
+});
+
+describe("the home screen's quick actions", () => {
+  it("start a new resource of the kinds no module starts itself", async () => {
+    const user = userEvent.setup();
+    const { router } = render("/");
+    const card = await screen.findByRole("region", { name: "Quick actions" });
+    await user.click(await within(card).findByRole("button", { name: "New webhook" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/core/webhooks/new"));
+  });
+
+  it("leave out kinds the person may not create", async () => {
+    const { api } = panel({
+      "GET /api/v1/kinds": () => json({ kinds: [webhookKind, accountKind] }),
+      "GET /api/v1/operations": () =>
+        json({
+          operations: ["webhook", "account"].map((name) => ({
+            id: `create${name}`,
+            method: "POST",
+            path: `/api/v1/core/${name}s`,
+            kind: `core.${name}`,
+            operation: "create",
+            permission: `core.${name}.create`,
+            risk: "medium",
+            mutating: true,
+            summary: `Create a ${name}`,
+          })),
+        }),
+    });
+    render("/", api, (p) => p !== "core.webhook.create");
+    const card = await screen.findByRole("region", { name: "Quick actions" });
+    expect(await within(card).findByRole("button", { name: "New account" })).toBeVisible();
+    expect(within(card).queryByRole("button", { name: "New webhook" })).not.toBeInTheDocument();
   });
 });

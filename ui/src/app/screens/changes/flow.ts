@@ -22,7 +22,10 @@ export type FlowState =
   | { step: "previewing" }
   | { step: "preview"; preview: ChangeSet; stale?: boolean }
   | { step: "applying"; preview: ChangeSet }
+  /** Applied and followed here until its job ends, as for actions whose result someone waits for. */
   | { step: "applied"; applied: ChangeSet }
+  /** Applied and handed to the change tracker, whose toast follows it. */
+  | { step: "tracked"; applied: ChangeSet }
   | { step: "error"; error: unknown; preview?: ChangeSet };
 
 export interface FlowOptions {
@@ -39,10 +42,18 @@ export interface ChangeFlow {
   state: FlowState;
   /** Previews a change; the promise fails with what kept it from planning, such as fields that aren't valid. */
   preview: (request: ChangeRequest) => Promise<ChangeSet>;
-  /** Shows a preview made elsewhere, such as an undo's. */
-  show: (preview: ChangeSet, request: ChangeRequest) => void;
-  /** Applies the change the preview shows. */
-  apply: () => Promise<void>;
+  /**
+   * Shows a preview made elsewhere, such as an undo's or one kept on the
+   * changes screen. Without the request that made it, a preview that
+   * carried secret values can't be applied: only sending the change again
+   * could, and its values are gone.
+   */
+  show: (preview: ChangeSet, request?: ChangeRequest) => void;
+  /**
+   * Applies the change the preview shows. It never fails: it resolves with
+   * the state it left the flow in, which says how it went.
+   */
+  apply: () => Promise<FlowState>;
   reset: () => void;
 }
 
@@ -59,9 +70,10 @@ export function useChangeFlow({ onApplied, keep }: FlowOptions = {}): ChangeFlow
   const request = useRef<ChangeRequest | null>(null);
   // The state as last set, for apply, which runs from the preview's button.
   const current = useRef<FlowState>(state);
-  const set = useCallback((next: FlowState) => {
+  const set = useCallback((next: FlowState): FlowState => {
     current.current = next;
     setState(next);
+    return next;
   }, []);
   const appliedRef = useRef(onApplied);
   useEffect(() => {
@@ -85,54 +97,61 @@ export function useChangeFlow({ onApplied, keep }: FlowOptions = {}): ChangeFlow
   );
 
   const show = useCallback(
-    (cs: ChangeSet, next: ChangeRequest) => {
-      request.current = next;
+    (cs: ChangeSet, next?: ChangeRequest) => {
+      request.current = next ?? null;
       set({ step: "preview", preview: cs });
     },
     [set],
   );
 
-  const apply = useCallback(async () => {
-    const state = current.current;
-    const req = request.current;
-    if (state.step !== "preview" || !req) {
-      return;
-    }
-    set({ step: "applying", preview: state.preview });
-    const key = newIdempotencyKey();
-    try {
-      let applied: ChangeSet;
-      try {
-        applied = req.carriesSecrets
-          ? await req.send({ idempotencyKey: key })
-          : await applyPreview(api, state.preview.id, key);
-      } catch (error) {
-        // A preview that carried secret values can only be sent again.
-        if (error instanceof ApiError && error.code === "changeset.preview_has_secrets") {
-          applied = await req.send({ idempotencyKey: key });
-        } else {
-          throw error;
-        }
-      }
-      tracker.track(applied, { quiet: keep });
-      set(keep ? { step: "applied", applied } : { step: "idle" });
-      appliedRef.current?.(applied);
-    } catch (error) {
-      // The change would now do something else: show what, to apply that.
+  /** What applying a preview ran into: a fresh preview when the change would now do something else. */
+  const failed = useCallback(
+    async (error: unknown, preview: ChangeSet): Promise<FlowState> => {
       if (error instanceof ApiError && error.code === "changeset.preview_stale") {
         const fresh = error.problem.params?.preview;
         if (typeof fresh === "string") {
           try {
-            set({ step: "preview", preview: await getChangeSet(api, fresh), stale: true });
-            return;
+            return set({ step: "preview", preview: await getChangeSet(api, fresh), stale: true });
           } catch {
-            // Fall through to say what happened.
+            // The refusal itself says what happened.
           }
         }
       }
-      set({ step: "error", error, preview: state.preview });
+      return set({ step: "error", error, preview });
+    },
+    [api, set],
+  );
+
+  const apply = useCallback(async (): Promise<FlowState> => {
+    const state = current.current;
+    const req = request.current;
+    if (state.step !== "preview") {
+      return state;
     }
-  }, [api, keep, set, tracker]);
+    set({ step: "applying", preview: state.preview });
+    const key = newIdempotencyKey();
+    let applied: ChangeSet;
+    try {
+      applied = req?.carriesSecrets
+        ? await req.send({ idempotencyKey: key })
+        : await applyPreview(api, state.preview.id, key);
+    } catch (error) {
+      // A preview that carried secret values can only be sent again, which
+      // takes the request that made it.
+      if (!(req && error instanceof ApiError && error.code === "changeset.preview_has_secrets")) {
+        return failed(error, state.preview);
+      }
+      try {
+        applied = await req.send({ idempotencyKey: key });
+      } catch (again) {
+        return failed(again, state.preview);
+      }
+    }
+    tracker.track(applied, { quiet: keep });
+    const next = set(keep ? { step: "applied", applied } : { step: "tracked", applied });
+    appliedRef.current?.(applied);
+    return next;
+  }, [api, failed, keep, set, tracker]);
 
   const reset = useCallback(() => {
     request.current = null;

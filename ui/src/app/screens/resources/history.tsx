@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { History, Undo2 } from "lucide-react";
 import { useIntl } from "react-intl";
-import { undoable, useChangeTracker } from "@/app/changes/tracker";
+import { mayUndo, useChangeTracker } from "@/app/changes/tracker";
 import { usePermission } from "@/app/modules";
 import { DiffRow } from "@/design/components/change-preview";
 import { Button } from "@/design/components/ui/button";
@@ -63,7 +63,6 @@ export function ResourceHistory({ kind, resource }: { kind: Kind; resource: Reso
   }
   const byID = new Map((changeSets.data ?? []).map((cs) => [cs.id, cs]));
   const secret = sensitivePaths(kind);
-  const mayUndo = allowed(`${kind.name}.update`);
   return (
     <ol className="flex flex-col gap-3" aria-label={intl.formatMessage(m.label)}>
       {versions
@@ -109,7 +108,7 @@ export function ResourceHistory({ kind, resource }: { kind: Kind; resource: Reso
                       </Link>
                     </Button>
                   ) : null}
-                  {cs && undoable(cs) && mayUndo ? (
+                  {cs && mayUndo(cs, allowed) ? (
                     <Button variant="outline" size="sm" onClick={() => void tracker.undo(cs.id)}>
                       <Undo2 aria-hidden="true" />
                       {intl.formatMessage(m.undo)}

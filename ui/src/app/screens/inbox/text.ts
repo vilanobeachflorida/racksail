@@ -1,7 +1,8 @@
 import { type MessageFormatElement, parse, TYPE } from "@formatjs/icu-messageformat-parser";
 import type { IntlShape } from "react-intl";
+import { errorMessageId } from "@/lib/errors";
 import { eventText, messageArguments, type TimelineEvent } from "@/lib/events";
-import type { InboxItem } from "./api";
+import type { InboxItem, InboxProblem } from "./api";
 
 /**
  * The message id of an item's words: inbox.<code> for what the core finds,
@@ -37,7 +38,8 @@ function countedArguments(text: string): Set<string> {
 
 /**
  * A kind's name in the person's language when a catalog that has loaded
- * has it: a module's kinds are in its catalog, which loads with the shell.
+ * has it: a module's kinds are in its catalog, which loads with the shell,
+ * and the core's in one of their own, which the inbox loads for them.
  */
 function kindWord(intl: IntlShape, kind: string): string | undefined {
   const cut = kind.indexOf(".");
@@ -108,4 +110,28 @@ export function inboxMessage(intl: IntlShape, item: InboxItem): string {
     return "";
   }
   return translated(intl, inboxMessageId(item, "message"), item) ?? item.message;
+}
+
+/**
+ * Why part of the inbox couldn't be checked: the translation of the
+ * problem's code with its values, unless the catalogs lack it or the
+ * problem lacks a value it needs, and the panel's English otherwise.
+ */
+export function inboxProblemText(intl: IntlShape, problem: InboxProblem): string {
+  const id = errorMessageId(problem.code);
+  const text = intl.messages[id];
+  if (typeof text !== "string") {
+    return problem.message;
+  }
+  const values: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(problem.params ?? {})) {
+    values[key] =
+      typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+        ? value
+        : JSON.stringify(value);
+  }
+  if (!messageArguments(text).every((name) => name in values)) {
+    return problem.message;
+  }
+  return intl.formatMessage({ id }, values);
 }

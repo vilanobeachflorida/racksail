@@ -110,6 +110,20 @@ describe("the command bar", () => {
     expect(router.state.location.search).toEqual({ q: "hooks" });
   });
 
+  it("searches once typing settles, rather than letter by letter", async () => {
+    const user = userEvent.setup();
+    const { api, sent } = panel();
+    renderShell({ modules: [], messages: shellMessages, api });
+    await screen.findByRole("navigation", { name: "Main" });
+    const bar = await openBar(user);
+    await user.type(within(bar).getByRole("combobox"), "hooks");
+    await within(bar).findByRole("option", { name: /https:\/\/hooks\.example\.com\/racksail/ });
+    const searched = sent
+      .filter((s) => s.path === "/api/v1/search")
+      .map((s) => new URLSearchParams(s.search).get("q"));
+    expect(searched).toEqual(["hooks"]);
+  });
+
   it("starts new resources and opens the lists of the kinds the person may use", async () => {
     const user = userEvent.setup();
     const { api } = panel();

@@ -8,6 +8,7 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
@@ -28,6 +29,10 @@ const shown = 8;
 
 /** How many quick actions the card offers before the command bar. */
 const quickActions = 6;
+
+// New resources of kinds no module starts itself fill the card, with code
+// and words that load apart from the shell.
+const NewResourceActions = lazy(() => import("./screens/resources/quick"));
 
 /** How each severity looks: an icon, and the color that goes with it. */
 export const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }> = {
@@ -117,8 +122,8 @@ export function RecentActivity() {
 }
 
 /**
- * The home card of things to start: the command bar and the actions
- * modules offer to the person.
+ * The home card of things to start: the actions modules offer to the
+ * person, new resources of the kinds they may create, and the command bar.
  */
 export function QuickActions() {
   const intl = useIntl();
@@ -147,6 +152,9 @@ export function QuickActions() {
             {intl.formatMessage(action.label)}
           </Button>
         ))}
+        <Suspense fallback={null}>
+          <NewResourceActions count={quickActions - actions.length} />
+        </Suspense>
         <Button
           variant="ghost"
           className="justify-start text-muted-foreground"

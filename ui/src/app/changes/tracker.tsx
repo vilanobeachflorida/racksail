@@ -18,6 +18,7 @@ import type { ApiClient } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import type { ChangeSet } from "@/lib/changes";
 import { type LiveClient, useLiveClient } from "@/lib/live";
+import { usePermission } from "../modules";
 import { ScreenMessages } from "../screens/catalog";
 import { type ShellState, useShell } from "../shell-state";
 
@@ -52,12 +53,41 @@ const TrackerContext = createContext<ChangeTracker>({
   last: null,
 });
 
-/** Whether a change set changed settings, which undo can put back; actions alone can't be undone. */
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+
+/**
+ * The permissions undoing a change set takes, as the panel works the undo
+ * out: deleting what it created, putting back the settings and labels it
+ * changed, and creating again what it deleted. An action that changed no
+ * settings needs nothing, since there is nothing of it to put back.
+ */
+export function undoPermissions(cs: Pick<ChangeSet, "changes">): string[] {
+  const changes = cs.changes ?? [];
+  const created = new Set(changes.filter((c) => c.op === "create").map((c) => c.id));
+  const needed = new Set<string>();
+  for (const c of changes) {
+    if (c.op === "create") {
+      needed.add(`${c.kind}.delete`);
+    } else if (c.op === "delete") {
+      needed.add(`${c.kind}.create`);
+    } else if (!created.has(c.id) && !(same(c.before, c.after) && same(c.labels, c.labelsBefore))) {
+      needed.add(`${c.kind}.update`);
+    }
+  }
+  return [...needed];
+}
+
+/** Whether a change set changed something undo can put back; actions that changed no settings can't be undone. */
 export function undoable(cs: Pick<ChangeSet, "changes" | "state">): boolean {
-  return (
-    (cs.state === "applied" || cs.state === "failed") &&
-    (cs.changes ?? []).some((c) => c.op !== "action")
-  );
+  return (cs.state === "applied" || cs.state === "failed") && undoPermissions(cs).length > 0;
+}
+
+/** Whether someone with these permissions may undo a change set. */
+export function mayUndo(
+  cs: Pick<ChangeSet, "changes" | "state">,
+  allowed: (permission: string) => boolean,
+): boolean {
+  return undoable(cs) && undoPermissions(cs).every(allowed);
 }
 
 /** A change being followed, and how. */
@@ -74,7 +104,11 @@ export interface TrackerHost {
   queryClient: QueryClient;
   followed: Map<string, Followed>;
   /** The latest of what toasts use, since they outlive renders. */
-  current: () => { intl: IntlShape; shell: ShellState };
+  current: () => {
+    intl: IntlShape;
+    shell: ShellState;
+    allowed: (permission: string) => boolean;
+  };
   setLast: Dispatch<SetStateAction<ChangeSet | null>>;
   /** Shows an undo's preview before it's applied. */
   confirm: (preview: ChangeSet, of: string) => void;
@@ -92,12 +126,13 @@ export function ChangeTrackerProvider({ children }: { children: ReactNode }) {
   const live = useLiveClient();
   const queryClient = useQueryClient();
   const shell = useShell();
+  const allowed = usePermission();
   const followed = useRef(new Map<string, Followed>());
   const [confirming, setConfirming] = useState<{ preview: ChangeSet; of: string } | null>(null);
   const [last, setLast] = useState<ChangeSet | null>(null);
-  const latest = useRef({ intl, shell });
+  const latest = useRef({ intl, shell, allowed });
   useEffect(() => {
-    latest.current = { intl, shell };
+    latest.current = { intl, shell, allowed };
   });
 
   const host = useMemo<TrackerHost>(() => {

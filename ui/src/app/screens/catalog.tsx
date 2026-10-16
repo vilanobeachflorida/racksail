@@ -19,16 +19,23 @@ export function ScreenSkeleton() {
 /**
  * Shows its children with the screens' messages beside the shell's, once
  * they have loaded. They load the first time any screen needs them; the
- * inbox has a catalog of its own, which the home screen loads alone.
+ * inbox has a catalog of its own, which the home screen loads alone, as it
+ * does the words of the core's kinds, which come with the screens' too.
  */
 export function ScreenMessages({
   children,
   fallback = <ScreenSkeleton />,
   catalog = "screens",
+  optional = false,
 }: {
   children: ReactNode;
   fallback?: ReactNode;
   catalog?: ScreenCatalog;
+  /**
+   * Keeps showing the fallback when the messages can't load, for parts
+   * that read well without them, rather than failing the screen.
+   */
+  optional?: boolean;
 }) {
   const intl = useIntl();
   const locale = useShownLocale();
@@ -43,7 +50,7 @@ export function ScreenMessages({
     () => (loaded.data ? { ...(intl.messages as Record<string, string>), ...loaded.data } : null),
     [intl.messages, loaded.data],
   );
-  if (loaded.isError) {
+  if (loaded.isError && !optional) {
     // The route's error screen says what went wrong.
     throw loaded.error;
   }

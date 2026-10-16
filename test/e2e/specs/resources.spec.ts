@@ -1,19 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { waitForQuota } from "../quota";
 
 // The generic screens every kind gets, against racksail dev, which signs
 // everyone in: a webhook created through the change preview, edited, the
 // edit undone from its toast and from the history, and the webhook deleted.
-// Each test makes its own webhook, so the desktop and phone runs never meet.
+// Each test makes its own webhook, so tests running side by side, and the
+// desktop and phone runs, never meet. racksail dev doesn't rate-limit the
+// developer it signs everyone in as, so nothing here waits for a limit.
 test.skip(!process.env.RACKSAIL_E2E_DEV, "the generic screens need racksail dev, which signs everyone in");
-
-// Everyone racksail dev signs in is the same person, whose requests share
-// one rate limit, so the changes here are made one test at a time, each
-// once the panel would take a burst of requests.
-test.describe.configure({ mode: "serial" });
-test.beforeEach(async ({ request }) => {
-  await waitForQuota(request);
-});
 
 /** A webhook address of this test's own. */
 function hookURL(name: string): string {
@@ -25,9 +18,8 @@ function toast(page: Page, text: string) {
   return page.locator("[data-sonner-toast]").filter({ hasText: text });
 }
 
-/** Creates a webhook through its form and preview, and waits for its page. */
-async function createWebhook(page: Page, url: string): Promise<void> {
-  await waitForQuota(page.request);
+/** Creates a webhook through its form and preview, waits for its page, and returns its ID. */
+async function createWebhook(page: Page, url: string): Promise<string> {
   await page.goto("/core/webhooks/new");
   await expect(page.getByRole("heading", { level: 1, name: "New webhook" })).toBeVisible();
   await page.getByRole("textbox", { name: "URL" }).fill(url);
@@ -41,11 +33,11 @@ async function createWebhook(page: Page, url: string): Promise<void> {
   await preview.getByRole("button", { name: "Apply" }).click();
   await expect(page.getByRole("heading", { level: 1, name: url })).toBeVisible();
   await expect(toast(page, "Applied: Create webhook")).toBeVisible();
+  return new URL(page.url()).pathname.split("/").at(-1) ?? "";
 }
 
 /** Changes the webhook's description through the edit form and its preview. */
 async function describeWebhook(page: Page, url: string, description: string): Promise<void> {
-  await waitForQuota(page.request);
   await page.getByRole("link", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { level: 1, name: `Edit ${url}` })).toBeVisible();
   await page.getByRole("textbox", { name: "Description" }).fill(description);
@@ -59,7 +51,6 @@ async function describeWebhook(page: Page, url: string, description: string): Pr
 
 /** Deletes the webhook on screen through its preview. */
 async function deleteWebhook(page: Page, url: string): Promise<void> {
-  await waitForQuota(page.request);
   await page.getByRole("button", { name: "Delete" }).click();
   const preview = page.getByRole("dialog", { name: `Delete the webhook ${url}?` });
   await preview.getByRole("button", { name: "Apply" }).click();
@@ -72,20 +63,16 @@ test("creates a resource, edits it and undoes the edit from its toast", async ({
   await createWebhook(page, url);
   await describeWebhook(page, url, "Sent by the end-to-end tests");
 
-  await waitForQuota(page.request);
   await toast(page, "Applied: Update webhook").getByRole("button", { name: "Undo" }).click();
   await expect(toast(page, "Applied: Undo: Update webhook")).toBeVisible();
   await expect(page.getByText("Sent by the end-to-end tests")).toHaveCount(0);
 
   // The list shows it, and the changes screen has all three changes.
-  await waitForQuota(page.request);
   await page.goto("/core/webhooks");
   await expect(page.getByRole("link", { name: url })).toBeVisible();
-  await waitForQuota(page.request);
   await page.goto("/changes");
   await expect(page.getByRole("link", { name: "Undo: Update webhook" }).first()).toBeVisible();
 
-  await waitForQuota(page.request);
   await page.goto("/core/webhooks");
   await page.getByRole("link", { name: url }).click();
   await deleteWebhook(page, url);
@@ -96,7 +83,6 @@ test("undoes a change from the resource's history", async ({ page }) => {
   await createWebhook(page, url);
   await describeWebhook(page, url, "Kept in the history");
 
-  await waitForQuota(page.request);
   await page.getByRole("tab", { name: "History" }).click();
   const versions = page.getByRole("list", { name: "Versions of the settings, newest first" });
   await expect(versions.getByText("Version 2")).toBeVisible();
@@ -137,4 +123,81 @@ test("shows what needs attention on the home screen", async ({ page }) => {
   await expect(inbox).toBeVisible();
   // racksail dev's machine has disks nothing uses yet.
   await expect(inbox.getByText(/disks? (isn't|aren't) used yet/)).toBeVisible();
+});
+
+test("deletes a resource from its list, and the dialog goes once that's applied", async ({ page }) => {
+  const url = hookURL("list");
+  await createWebhook(page, url);
+  await page.goto("/core/webhooks");
+  await page.getByRole("button", { name: `Actions for ${url}` }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  const preview = page.getByRole("dialog", { name: `Delete the webhook ${url}?` });
+  await preview.getByRole("button", { name: "Apply" }).click();
+  await expect(toast(page, "Applied: Delete webhook")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: url })).toHaveCount(0);
+});
+
+test("won't apply an edit over someone else's, and starts again from theirs", async ({ page }) => {
+  const url = hookURL("conflict");
+  const id = await createWebhook(page, url);
+  await page.getByRole("link", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: `Edit ${url}` })).toBeVisible();
+  await page.getByRole("textbox", { name: "Description" }).fill("Mine");
+
+  // Someone else sends the webhook one more event through the API meanwhile.
+  const path = `/api/v1/core/webhooks/${id}`;
+  const current = await (await page.request.get(path)).json();
+  const theirs = await page.request.put(path, {
+    data: { spec: { ...current.spec, events: [...current.spec.events, "web.site.deleted"] }, revision: current.revision },
+  });
+  expect(theirs.status()).toBe(202);
+
+  const changed = page.getByRole("alert").filter({ hasText: "Someone else changed this webhook since you opened it" });
+  await expect(changed).toBeVisible();
+  await expect(changed.getByRole("list", { name: "What they changed" })).toContainText("web.site.deleted");
+  await page.getByRole("button", { name: "Review the change" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // Their change stands.
+  const after = await (await page.request.get(path)).json();
+  expect(after.spec.events).toContain("web.site.deleted");
+  expect(after.spec.description ?? "").toBe("");
+
+  await changed.getByRole("button", { name: "Load the latest settings" }).click();
+  await expect(changed).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Description" }).fill("Mine");
+  await page.getByRole("button", { name: "Review the change" }).click();
+  const preview = page.getByRole("dialog", { name: `Change ${url}` });
+  await preview.getByRole("button", { name: "Apply" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: url })).toBeVisible();
+  const mine = await (await page.request.get(path)).json();
+  expect(mine.spec.description).toBe("Mine");
+  expect(mine.spec.events).toContain("web.site.deleted");
+  await deleteWebhook(page, url);
+});
+
+test("says a kept preview with a secret can't be applied, and where to make the change", async ({ page }) => {
+  const url = hookURL("kept");
+  await page.goto("/core/webhooks/new");
+  await page.getByRole("textbox", { name: "URL" }).fill(url);
+  await page.getByRole("button", { name: "Add to Events" }).click();
+  await page.getByRole("textbox", { name: "Events 1" }).fill("web.site.created");
+  await page.getByLabel("Signing secret").fill("end-to-end-signing-secret");
+  await page.getByRole("button", { name: "Review the change" }).click();
+  const preview = page.getByRole("dialog", { name: "Create the webhook" });
+  await expect(preview.getByText("Create webhook")).toBeVisible();
+  await preview.getByRole("button", { name: "Cancel" }).click();
+
+  // The preview stays among those not applied.
+  const previews = await (await page.request.get("/api/v1/changesets?previews=true&limit=200")).json();
+  const kept = previews.changeSets.find(
+    (cs: { changes?: { after?: { url?: string } }[] }) => cs.changes?.[0]?.after?.url === url,
+  );
+  expect(kept).toBeDefined();
+  await page.goto(`/changes/${kept.id}`);
+  await page.getByRole("button", { name: "Apply" }).click();
+  const refused = page.getByRole("alert").filter({ hasText: "The change couldn't be applied" });
+  await expect(refused).toContainText("carried secret values, which previews don't keep");
+  await refused.getByRole("link", { name: "Make the change again" }).click();
+  await expect(page).toHaveURL(/\/core\/webhooks\/new$/);
 });

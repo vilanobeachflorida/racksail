@@ -58,7 +58,7 @@ import {
 } from "./screens/resources/kinds";
 import { useKindsFor } from "./screens/resources/operations";
 import { useResource } from "./screens/resources/queries";
-import { minSearch, useResourceSearch } from "./screens/search/api";
+import { minSearch, useResourceSearch, useSettledText } from "./screens/search/api";
 import { useShell } from "./shell-state";
 import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
 
@@ -107,7 +107,8 @@ export default function CommandBar() {
   const shown = useShownResource();
   const text = query.trim();
   const searching = !slash && text.length >= minSearch;
-  const found = useResourceSearch(searching ? text : "", 5);
+  // The panel is asked once typing settles, as the search screen does.
+  const found = useResourceSearch(useSettledText(searching ? text : ""), 5);
   const kinds = useKinds().data ?? [];
   const recent = useMemo(
     () => (shell.commandOpen && general.rememberRecent ? loadRecent() : []),

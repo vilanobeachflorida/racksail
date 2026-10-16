@@ -3,7 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { History, Undo2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useIntl } from "react-intl";
-import { undoable, useChangeTracker } from "@/app/changes/tracker";
+import { mayUndo, useChangeTracker } from "@/app/changes/tracker";
+import { usePermission } from "@/app/modules";
 import { RiskBadge } from "@/design/components/change-preview";
 import { DataTable } from "@/design/components/data-table/data-table";
 import type { Column } from "@/design/components/data-table/model";
@@ -23,6 +24,22 @@ import { When } from "../resources/values";
 import { listChangeSets } from "./api";
 
 const states: ChangeSetState[] = ["planned", "applying", "applied", "failed", "undone"];
+
+/** Undo for a change, when the person may undo it. */
+function UndoButton({ changeSet }: { changeSet: ChangeSet }) {
+  const intl = useIntl();
+  const tracker = useChangeTracker();
+  const allowed = usePermission();
+  if (!mayUndo(changeSet, allowed)) {
+    return null;
+  }
+  return (
+    <Button variant="ghost" size="sm" onClick={() => void tracker.undo(changeSet.id)}>
+      <Undo2 aria-hidden="true" />
+      {intl.formatMessage(m.undo)}
+    </Button>
+  );
+}
 
 /** A change set's state, as a badge in the preview's words. */
 export function ChangeState({ state }: { state: ChangeSetState }) {
@@ -53,7 +70,6 @@ export default function ChangesScreen() {
   const intl = useIntl();
   const api = useApi();
   const queryClient = useQueryClient();
-  const tracker = useChangeTracker();
   const [previews, setPreviews] = useState(false);
   const changes = useInfiniteQuery({
     queryKey: ["changesets", "all", previews],
@@ -149,16 +165,10 @@ export default function ChangesScreen() {
         width: "7rem",
         align: "end",
         hideable: false,
-        cell: (cs) =>
-          undoable(cs) ? (
-            <Button variant="ghost" size="sm" onClick={() => void tracker.undo(cs.id)}>
-              <Undo2 aria-hidden="true" />
-              {intl.formatMessage(m.undo)}
-            </Button>
-          ) : null,
+        cell: (cs) => <UndoButton changeSet={cs} />,
       },
     ],
-    [intl, tracker],
+    [intl],
   );
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">

@@ -3,9 +3,9 @@ import type catalog from "./messages/en.json";
 
 const m = messageIds<typeof catalog>();
 
-// The core's kinds' words (core.kinds.<name>.<part>) are looked up by the
-// names the panel sends, so they have no descriptors here. The inbox is
-// on the home screen, so its words are the shell's.
+// The core's kinds' words (core.kinds.<name>.<part>), in a catalog of their
+// own under kinds/, are looked up by the names the panel sends, so they have
+// no descriptors here; the inbox's are in its own catalog.
 
 /** The change dialog's words. */
 export const changeMessages = {
@@ -54,6 +54,7 @@ export const changeListMessages = {
   undoOf: m("app.changeList.undoOf"),
   resources: m("app.changeList.resources"),
   snapshots: m("app.changeList.snapshots"),
+  redo: m("app.changeList.redo"),
 };
 
 /** The generic screens of resources: lists, details and their actions. */
@@ -77,6 +78,7 @@ export const resourceMessages = {
   actions: m("app.resource.actions"),
   copyID: m("app.resource.copyID"),
   copied: m("app.resource.copied"),
+  copyFailed: m("app.resource.copyFailed"),
   conditions: m("app.resource.conditions"),
   conditionType: m("app.resource.conditionType"),
   conditionStatus: m("app.resource.conditionStatus"),
@@ -155,6 +157,12 @@ export const formMessages = {
   settingsHelpUpdate: m("app.form.settingsHelpUpdate"),
   editCrumb: m("app.form.editCrumb"),
   editTitle: m("app.form.editTitle"),
+  changedTitle: m("app.form.changedTitle"),
+  changedBody: m("app.form.changedBody"),
+  changedFields: m("app.form.changedFields"),
+  reload: m("app.form.reload"),
+  deletedTitle: m("app.form.deletedTitle"),
+  deletedBody: m("app.form.deletedBody"),
 };
 
 /** A resource's history of settings. */

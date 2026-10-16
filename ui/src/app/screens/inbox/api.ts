@@ -5,11 +5,12 @@ import { useLiveEvents } from "@/lib/live";
 
 export type InboxItem = Schemas["InboxItem"];
 export type InboxAction = Schemas["InboxAction"];
+export type InboxProblem = Schemas["InboxProblem"];
 
 export interface Inbox {
   items: InboxItem[];
   dismissed: number;
-  unavailable: Schemas["InboxProblem"][];
+  unavailable: InboxProblem[];
   checking: string[];
 }
 
@@ -37,6 +38,10 @@ export async function dismissItem(api: ApiClient, id: string, until?: Date): Pro
   );
 }
 
+/**
+ * Brings back a dismissed item. One that was brought back already, as from
+ * another tab, stays as it is.
+ */
 export async function restoreItem(api: ApiClient, id: string): Promise<void> {
   await unwrap(api.DELETE("/api/v1/inbox/{id}/dismiss", { params: { path: { id } } }));
 }
