@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -70,8 +75,8 @@ func newStatusCommand(opts *ClientOptions) *cobra.Command {
 				return err
 			}
 			ctx := cmd.Context()
-			var health api.HealthReport
-			if _, err := c.Get(ctx, api.Prefix+"/health", &health); err != nil {
+			health, err := readHealth(ctx, c)
+			if err != nil {
 				return err
 			}
 			var version updates.BuildInfo
@@ -89,18 +94,45 @@ func newStatusCommand(opts *ClientOptions) *cobra.Command {
 				}
 			} else {
 				fmt.Fprintf(out, "%s: racksail %s (%s), %s\n", c.Server, version.Version, version.Channel, health.Status)
-				for _, check := range health.Checks {
-					line := fmt.Sprintf("  %-12s %s", check.Name, check.Status)
-					if check.Message != "" {
-						line += ": " + check.Message
-					}
-					fmt.Fprintln(out, line)
-				}
+				writeChecks(out, health.Checks)
 			}
 			if health.Status != "ok" {
 				return exitError{code: 2}
 			}
 			return nil
 		},
+	}
+}
+
+// readHealth asks a panel for its health. A panel whose checks don't all
+// pass answers 503 with the same report, which says what fails rather than
+// being an error of its own.
+func readHealth(ctx context.Context, c *cli.Client) (api.HealthReport, error) {
+	var health api.HealthReport
+	resp, err := c.Do(ctx, cli.Request{Method: http.MethodGet, Path: api.Prefix + "/health", Answers: []int{http.StatusServiceUnavailable}})
+	if err != nil {
+		return health, err
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&health); err != nil || health.Status == "" {
+		return health, fmt.Errorf("%s answered %s without a health report", c.Server, resp.Status)
+	}
+	return health, nil
+}
+
+// writeChecks lists health checks one to a line, their states lined up
+// after the longest name, such as a module's checks named
+// <module id>.<check>.
+func writeChecks(w io.Writer, checks []api.Check) {
+	width := 0
+	for _, check := range checks {
+		width = max(width, utf8.RuneCountInString(check.Name))
+	}
+	for _, check := range checks {
+		line := "  " + check.Name + strings.Repeat(" ", width-utf8.RuneCountInString(check.Name)) + " " + check.Status
+		if check.Message != "" {
+			line += ": " + check.Message
+		}
+		fmt.Fprintln(w, line)
 	}
 }
