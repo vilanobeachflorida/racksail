@@ -24,8 +24,17 @@
     },
     "homepage": { "type": "string", "format": "uri" },
     "source": { "type": "string", "format": "uri" },
-    "icon": { "type": "string" },
-    "categories": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9-]+$" } },
+    "icon": {
+      "description": "An SVG or PNG file in the item's directory. URLs aren't allowed: catalogs bundle what they show.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*\\.(svg|png)$"
+    },
+    "categories": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+    },
     "maintainers": {
       "type": "array",
       "minItems": 1,
@@ -58,7 +67,12 @@
     "inputs": { "type": "array", "items": { "$ref": "#/$defs/input" } },
     "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } },
     "downloads": { "type": "array", "items": { "$ref": "#/$defs/download" } },
-    "health": { "type": "array", "items": { "$ref": "#/$defs/healthCheck" } },
+    "health": {
+      "description": "How a panel tells that what it installed works. Official recipes have at least one check.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/healthCheck" }
+    },
+    "model": { "$ref": "#/$defs/model" },
     "upgrade": {
       "type": "object",
       "additionalProperties": false,
@@ -76,7 +90,7 @@
       }
     },
     "tests": {
-      "description": "Install test run in CI for official recipes.",
+      "description": "Install test run in CI for official recipes: the item is installed with these inputs on a fresh server, and its health checks must pass within the timeout.",
       "type": "object",
       "additionalProperties": false,
       "properties": { "inputs": { "type": "object" }, "timeoutSeconds": { "type": "integer", "minimum": 1 } }
@@ -145,15 +159,68 @@
       }
     },
     "healthCheck": {
+      "description": "http, tcp, dns and tls checks probe an address and unit checks a systemd unit. A resource check passes once a resource the recipe creates, named by its name, or the installed item itself, named by the recipe's id, is ready: its module applied it and its own checks pass.",
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "target"],
       "properties": {
-        "type": { "enum": ["http", "tcp", "dns", "tls", "unit"] },
-        "target": { "type": "string" },
-        "expect": { "type": "string" },
+        "type": { "enum": ["http", "tcp", "dns", "tls", "unit", "resource"] },
+        "target": {
+          "description": "A URL, host:port, DNS name or unit name, or for a resource check, the name of one of the recipe's resources or the recipe's id. It may use ${inputs.<name>}.",
+          "type": "string",
+          "minLength": 1
+        },
+        "expect": {
+          "description": "The expected status code, address, certificate name or unit state. Resource checks expect the resource to be ready.",
+          "type": "string"
+        },
         "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 600 }
+      },
+      "if": { "properties": { "type": { "const": "resource" } } },
+      "then": { "properties": { "expect": false } }
+    },
+    "model": {
+      "description": "What the model picker shows about an assistant model and how it chooses one for the server's memory.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "parameters", "format", "contextLength", "size"],
+      "properties": {
+        "family": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
+        "parameters": {
+          "description": "Parameter count, such as 8B or 0.6B.",
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?[MB]$"
+        },
+        "quantization": { "type": "string", "pattern": "^[A-Za-z0-9_]{1,32}$" },
+        "format": { "description": "The file format llama.cpp loads.", "enum": ["gguf"] },
+        "contextLength": { "type": "integer", "minimum": 512 },
+        "size": { "description": "The size class the picker recommends by memory.", "enum": ["small", "medium", "large"] },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["chat", "tools", "code", "vision", "embedding"] }
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "A model says what it is, which files to download and how much memory it needs.",
+      "if": { "properties": { "kind": { "const": "model" } } },
+      "then": {
+        "required": ["model", "downloads", "requires"],
+        "properties": {
+          "downloads": { "minItems": 1 },
+          "requires": { "required": ["memoryMB"] }
+        }
+      },
+      "else": { "not": { "required": ["model"] } }
+    },
+    {
+      "description": "Themes and add-ons are installed from their own package, theme.yaml or addon.yaml next to the recipe; everything else creates resources.",
+      "if": { "properties": { "kind": { "enum": ["theme", "addon"] } } },
+      "then": { "not": { "anyOf": [{ "required": ["resources"] }, { "required": ["inputs"] }] } },
+      "else": { "required": ["resources"], "properties": { "resources": { "minItems": 1 } } }
+    }
+  ]
 }

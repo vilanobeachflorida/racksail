@@ -1,0 +1,17 @@
+format: 1
+id: notes-addon
+name: Notes
+version: 1.2.0
+license: MIT
+source: https://notes.example.com/source
+author: Example
+description: Adds a notes tab to every site.
+apiVersions: [v1]
+hooks:
+  - {point: web.site.delete.applied, kind: observe}
+permissions:
+  hooks: [observe]
+  read: [{kind: web.site, fields: [domains]}]
+  resources: {cpu: 5%, memoryMB: 32}
+ui:
+  - {type: tab, label: Notes, kind: web.site, path: /tab}

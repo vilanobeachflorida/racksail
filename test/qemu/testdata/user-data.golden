@@ -1,0 +1,23 @@
+#cloud-config
+hostname: racksail-cloud
+users:
+  - name: admin
+    groups: [sudo, adm, systemd-journal]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEexampleEXAMPLEexampleEXAMPLEexample0 racksail-e2e
+write_files:
+  - path: /root/racksail-answers.yaml
+    permissions: "0600"
+    content: |
+      # Converting a running Debian 13 server, as the cloud image scenario does.
+      format: 1
+      mode: convert
+      hostname: racksail-cloud.example.test
+      channel: nightly
+runcmd:
+  - [curl, --fail, --silent, --show-error, --retry, "5", --output, /usr/local/bin/racksail, "http://10.0.2.2:8080/racksail"]
+  - [chmod, "0755", /usr/local/bin/racksail]
+  - [/usr/local/bin/racksail, install, --convert, --answers, /root/racksail-answers.yaml]

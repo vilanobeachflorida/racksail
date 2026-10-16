@@ -1,0 +1,13 @@
+# Advisories osv-scanner reports that don't affect Racksail, for make
+# vulncheck. Each says why, and lapses on a date so it gets looked at again:
+# after ignoreUntil the advisory fails the check until it is fixed or
+# reviewed.
+
+[[IgnoredVulns]]
+id = "GHSA-rj75-hqrm-r3gf"
+ignoreUntil = 2027-01-15
+reason = """postcss-selector-parser 6.1.4 reaches the docs site through its \
+code highlighting (@astrojs/starlight, expressive-code, postcss-nested 6) and \
+only parses the site's own CSS while it builds. The advisory is about parsing \
+untrusted selectors and says build-time use on trusted sources isn't \
+affected. The fix is in 7.1.6, which postcss-nested 7 uses."""

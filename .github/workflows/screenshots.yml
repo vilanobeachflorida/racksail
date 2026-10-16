@@ -1,0 +1,58 @@
+name: Screenshots
+
+# Renders the browser suite's visual baselines on the runner CI compares
+# them on, and commits them to the branch this runs on. Run it on a pull
+# request's branch when its screens change on purpose, and review the new
+# images in the pull request; CI then compares every later change with them.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Visual baselines
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A token of the project's bot makes the push run CI again; the
+          # workflow's own token pushes too, but doesn't.
+          token: ${{ secrets.RACKSAIL_BOT_TOKEN || github.token }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            test/e2e/package-lock.json
+      - run: cd test/e2e && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      - run: make e2e-screenshots
+      - name: Commit the baselines
+        run: |
+          git add --all test/e2e/specs/__screenshots__
+          if git diff --cached --quiet; then
+            echo "The visual baselines already match the screens."
+            exit 0
+          fi
+          git diff --cached --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --message "Update the visual baselines"
+          git push
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: screenshots
+          path: build/e2e-local
+          retention-days: 7

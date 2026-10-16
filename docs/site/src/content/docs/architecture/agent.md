@@ -7,7 +7,9 @@ The agent is the only part of Racksail that runs as root. The panel never change
 
 ## Operations
 
-Every operation is a typed function with an input that validates every field before anything runs. Paths must be absolute, clean and inside the locations Racksail manages; names must match strict patterns; sizes are bounded. The operations cover:
+Every operation is a typed function with an input that validates every field before anything runs. Paths must be absolute, clean and inside the locations Racksail manages; names must match strict patterns; sizes are bounded. Each operation has a name, such as `WriteFile`, `EnsureUser`, `EnsureUnit`, `InstallPackages` or `ApplyFirewall`. Modules add their own, prefixed with the module, such as `dns.ReloadZones`, and extend what file, unit and package operations may touch, such as allowing writes under `/etc/knot` for DNS. Those lists are fixed when the binary starts, and vendor package repositories are registered in the binary, so the panel can only name them. External programs always run with a fixed path and a list of arguments, never through a shell and never from a string put together at run time.
+
+The operations cover:
 
 - users and groups, including picking free account IDs;
 - files and directories, archives (tar, tar.gz, tar.zst and zip) packed and unpacked without following links out of the directory;
@@ -46,6 +48,18 @@ A network change that could cut the server off is applied on probation. Unless t
 
 ## Reaching other servers
 
-On the panel's own server, the panel talks to the agent over a Unix socket only the `racksail` group can reach. Other servers are reached with mutual TLS, with certificates from a CA the panel keeps. A certificate says who holds it, the panel or the agent of a named server, and both sides check that rather than host names.
+On the panel's own server, the panel calls the agent over HTTP and JSON on the Unix socket `/run/racksail/agent.sock`, which only the `racksail` group can reach. Other servers are reached with mutual TLS, with certificates from a CA the panel keeps. A certificate says who holds it, the panel or the agent of a named server, and both sides check that rather than host names.
 
 A server joins with `racksail agent join`, using a one-time token from the panel and the fingerprint of the panel's CA. Its agent then opens connections to the panel's hub and serves the panel over them, so the server needs no open management port, and it renews its certificate before it expires. A server removed from the cluster is cut off at once: its connections close, and it can neither connect again nor renew its certificate.
+
+## The simulated server
+
+Every operation works through the [system layer](../system-layer/), which has two implementations: `linux` for Debian 13, and `sim`, a simulated Debian 13 server held in memory. `racksail dev` and the tests use the simulated one, so every operation is tested without root. You can run a standalone agent against a simulated server, too:
+
+```sh
+racksail agent --sim
+```
+
+## Why it's built this way
+
+A panel faces the internet and is among the most attacked kinds of software. Keeping the panel unprivileged and the agent small and strict means a compromised panel still can't run what it likes on the machine: it can only ask for operations that pass validation, and every change it makes went through the pipeline and the audit log.

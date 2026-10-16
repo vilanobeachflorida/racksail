@@ -1,0 +1,129 @@
+name: Pins
+
+# install.sh trusts one cosign release and one Sigstore trusted root by their
+# checksums, and catalog recipes pin their downloads the same way.
+#
+# Dependency updates change versions but can't compute checksums. On the
+# update pull requests that bump a catalog download or the cosign release
+# install.sh trusts, this fetches the new files' checksums from upstream,
+# writes them in and pushes the result to the pull request. Other pull
+# requests that change install.sh are checked against what cosign and
+# Sigstore publish. Every day it also checks that install.sh pins Sigstore's
+# current trusted root, which nothing versions, and proposes the new one
+# when Sigstore publishes it; only these jobs follow Sigstore's schedule, so
+# a new trusted root never fails unrelated pull requests.
+on:
+  pull_request:
+    paths:
+      - catalog/**
+      - packaging/install.sh
+  schedule:
+    - cron: "20 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check the install script's pins
+    if: >-
+      github.event_name == 'pull_request' && !(github.event.pull_request.user.login == 'renovate[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$BASE"...HEAD -- packaging/install.sh; then
+            echo "The pull request doesn't change install.sh."
+            exit 0
+          fi
+          go run ./packaging/release check-pins
+
+  pin:
+    name: Pin checksums
+    if: github.event.pull_request.user.login == 'renovate[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          # A token of the project's bot makes the push run CI again; the
+          # workflow's own token pushes too, but doesn't.
+          token: ${{ secrets.RACKSAIL_BOT_TOKEN || github.token }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Pin catalog downloads
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Recipes the pull request removes have nothing left to pin.
+          mapfile -t recipes < <(git diff --name-only --diff-filter=d "$BASE"...HEAD -- 'catalog/**/recipe.yaml')
+          if [ ${#recipes[@]} -gt 0 ]; then
+            go run ./catalog/tool pin -write "${recipes[@]}"
+            go run ./catalog/tool validate -dir catalog
+          fi
+      - name: Pin the install script's cosign
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git diff --quiet "$BASE"...HEAD -- packaging/install.sh; then
+            go run ./packaging/release check-pins -write
+            go run ./packaging/release check-pins
+          fi
+      - name: Push
+        run: |
+          if git diff --quiet; then
+            echo "The checksums were already right."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --all --message "Pin the checksums of updated downloads"
+          git push
+
+  sigstore-root:
+    name: Sigstore's trusted root
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.RACKSAIL_BOT_TOKEN || github.token }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Propose the current trusted root
+        env:
+          GH_TOKEN: ${{ secrets.RACKSAIL_BOT_TOKEN || github.token }}
+        run: |
+          go run ./packaging/release check-pins -write
+          if git diff --quiet; then
+            echo "install.sh already pins Sigstore's current trusted root."
+            exit 0
+          fi
+          branch=pins/sigstore-trusted-root
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$branch"
+          git commit --all --message "Pin Sigstore's current trusted root"
+          git push --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --json number --jq '.[].number')" ]; then
+            gh pr create --head "$branch" --title "Pin Sigstore's current trusted root" \
+              --body "Sigstore published a new trusted root, which check-pins followed from packaging/release/sigstore-root.json through the signatures of Sigstore's TUF repository; the file now holds the newest TUF root it verified. install.sh checks signatures against the trusted root it pins when it installs through a mirror, and the release workflow checks every release against it before publishing. Mirrors serve it as sigstore/<checksum>.trusted_root.json."
+          fi

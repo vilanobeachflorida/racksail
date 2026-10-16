@@ -78,6 +78,7 @@ type Recipe struct {
 	Resources    []Resource    `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Downloads    []Download    `yaml:"downloads,omitempty" json:"downloads,omitempty"`
 	Health       []HealthCheck `yaml:"health,omitempty" json:"health,omitempty"`
+	Model        *Model        `yaml:"model,omitempty" json:"model,omitempty"`
 	Upgrade      Upgrade       `yaml:"upgrade,omitempty" json:"upgrade,omitzero"`
 	Uninstall    Uninstall     `yaml:"uninstall,omitempty" json:"uninstall,omitzero"`
 	Tests        Tests         `yaml:"tests,omitempty" json:"tests,omitzero"`
@@ -144,12 +145,30 @@ type Signature struct {
 	Key  string `yaml:"key,omitempty" json:"key,omitempty"`
 }
 
+// HealthResource is the type of health check that waits for a resource the
+// recipe creates, named by its name, or for the installed item itself,
+// named by the recipe's id, to be ready.
+const HealthResource = "resource"
+
 // HealthCheck verifies an installed recipe.
 type HealthCheck struct {
 	Type           string `yaml:"type" json:"type"`
 	Target         string `yaml:"target" json:"target"`
 	Expect         string `yaml:"expect,omitempty" json:"expect,omitempty"`
 	TimeoutSeconds int    `yaml:"timeoutSeconds,omitempty" json:"timeoutSeconds,omitempty"`
+}
+
+// Model describes an assistant model, so the model picker can show it and
+// recommend one that fits the server's memory.
+type Model struct {
+	Family string `yaml:"family" json:"family"`
+	// Parameters is the parameter count, such as 8B or 0.6B.
+	Parameters    string   `yaml:"parameters" json:"parameters"`
+	Quantization  string   `yaml:"quantization,omitempty" json:"quantization,omitempty"`
+	Format        string   `yaml:"format" json:"format"`
+	ContextLength int      `yaml:"contextLength" json:"contextLength"`
+	Size          string   `yaml:"size" json:"size"`
+	Capabilities  []string `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 }
 
 // Upgrade says how new versions are installed.
@@ -227,6 +246,16 @@ func (r *Recipe) check() error {
 			case m[1] != "inputs" && m[1] != "resources":
 				return ErrUnknownRef.New("ref", m[0])
 			}
+		}
+	}
+	for i, hc := range r.Health {
+		for _, m := range refPattern.FindAllStringSubmatch(hc.Target, -1) {
+			if !(m[1] == "inputs" && inputs[m[2]] && m[3] == "") && !(m[1] == "resources" && names[m[2]] && m[3] != "") {
+				return ErrUnknownRef.New("ref", m[0])
+			}
+		}
+		if hc.Type == HealthResource && !names[hc.Target] && hc.Target != r.ID {
+			return fmt.Errorf("recipe %s: health check %d waits for %s, which is neither one of its resources nor the recipe's id", r.ID, i+1, hc.Target)
 		}
 	}
 	if _, err := r.Order(); err != nil {
@@ -564,10 +593,26 @@ type IndexItem struct {
 	// Path locates the recipe file relative to the index.
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
+	// Icon locates the item's icon relative to the index.
+	Icon string `json:"icon,omitempty"`
+	// Requires repeats the recipe's requirements, so a fit check needs no
+	// other file.
+	Requires Requirements `json:"requires,omitzero"`
+	// Files lists every file of the item, the recipe included, so whatever
+	// a panel fetches can be checked against the signed index.
+	Files []IndexFile `json:"files,omitempty"`
 	// Featured, Broken and Unmaintained come from catalog maintenance.
 	Featured     bool `json:"featured,omitempty"`
 	Broken       bool `json:"broken,omitempty"`
 	Unmaintained bool `json:"unmaintained,omitempty"`
+}
+
+// IndexFile is one file of a catalog item.
+type IndexFile struct {
+	// Path locates the file relative to the index.
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
 }
 
 // VerifyIndex checks an index's Ed25519 signature with the key the admin
@@ -586,8 +631,17 @@ func VerifyIndex(data, signature []byte, key ed25519.PublicKey) (*Index, error) 
 		return nil, fmt.Errorf("catalog index format %d isn't supported", idx.Format)
 	}
 	for _, it := range idx.Items {
-		if strings.Contains(it.Path, "..") || strings.HasPrefix(it.Path, "/") {
-			return nil, fmt.Errorf("catalog item %s has an unsafe path %q", it.ID, it.Path)
+		paths := []string{it.Path}
+		if it.Icon != "" {
+			paths = append(paths, it.Icon)
+		}
+		for _, f := range it.Files {
+			paths = append(paths, f.Path)
+		}
+		for _, p := range paths {
+			if strings.Contains(p, "..") || strings.HasPrefix(p, "/") {
+				return nil, fmt.Errorf("catalog item %s has an unsafe path %q", it.ID, p)
+			}
 		}
 	}
 	return &idx, nil

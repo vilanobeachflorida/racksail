@@ -1,0 +1,80 @@
+#!/bin/sh
+# live-build runs this for "lb config". iso/build.sh sets RACKSAIL_ARCH,
+# RACKSAIL_VARIANT and the mirrors; everything else about the image is fixed
+# here, so every build of a commit makes the same image.
+set -eu
+
+: "${RACKSAIL_ARCH:?RACKSAIL_ARCH must be amd64 or arm64}"
+: "${RACKSAIL_VARIANT:?RACKSAIL_VARIANT must be standard or firmware}"
+mirror=${RACKSAIL_MIRROR:-http://deb.debian.org/debian/}
+security=${RACKSAIL_SECURITY_MIRROR:-http://deb.debian.org/debian-security/}
+
+case $RACKSAIL_ARCH in
+amd64)
+	# GRUB for BIOS and UEFI alike, so both show the same menu.
+	bootloaders="grub-pc grub-efi"
+	volume=RACKSAIL_AMD64
+	;;
+arm64)
+	bootloaders="grub-efi"
+	volume=RACKSAIL_ARM64
+	;;
+*)
+	echo "auto/config: the architecture is amd64 or arm64, not $RACKSAIL_ARCH" >&2
+	exit 1
+	;;
+esac
+
+# Both images carry the firmware Debian ships in main. The firmware image
+# adds non-free-firmware, which live-build installs completely.
+case $RACKSAIL_VARIANT in
+standard)
+	areas="main"
+	;;
+firmware)
+	areas="main non-free-firmware"
+	volume=${volume}_FIRMWARE
+	;;
+*)
+	echo "auto/config: the variant is standard or firmware, not $RACKSAIL_VARIANT" >&2
+	exit 1
+	;;
+esac
+
+lb config noauto \
+	--mode debian \
+	--distribution trixie \
+	--architecture "$RACKSAIL_ARCH" \
+	--archive-areas "$areas" \
+	--firmware-chroot true \
+	--firmware-binary false \
+	--binary-image iso-hybrid \
+	--bootloaders "$bootloaders" \
+	--uefi-secure-boot enable \
+	--linux-packages linux-image \
+	--debian-installer none \
+	--memtest none \
+	--initramfs live-boot \
+	--initsystem systemd \
+	--apt-recommends false \
+	--apt-indices false \
+	--apt-source-archives false \
+	--security true \
+	--updates true \
+	--backports false \
+	--mirror-bootstrap "$mirror" \
+	--mirror-chroot "$mirror" \
+	--mirror-binary "$mirror" \
+	--mirror-chroot-security "$security" \
+	--mirror-binary-security "$security" \
+	--bootappend-live "boot=live" \
+	--bootappend-live-failsafe none \
+	--chroot-squashfs-compression-type xz \
+	--checksums sha256 \
+	--image-name racksail \
+	--iso-application "Racksail installer" \
+	--iso-publisher "Racksail" \
+	--iso-preparer "live-build" \
+	--iso-volume "$volume" \
+	--zsync false \
+	"$@"

@@ -1,0 +1,23 @@
+format: 1
+kind: tuning-preset
+id: fast-site
+name: Fast PHP site
+version: "1.0.0"
+summary: Measured PHP and cache settings for busy PHP sites.
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [performance]
+maintainers: [{name: Example maintainers, github: example}]
+requires: {modules: [performance, web]}
+inputs:
+  - {name: site, type: resource, label: Site, kind: web.site, required: true}
+resources:
+  - name: preset
+    kind: performance.preset
+    spec: {site: "${inputs.site}", php: {opcache: {memoryMB: 256}, workers: auto}}
+health:
+  - {type: resource, target: preset}
+tests:
+  inputs: {site: site_01h455vb4pex5vsknk084sn02q}
+  timeoutSeconds: 120

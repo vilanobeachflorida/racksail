@@ -1,0 +1,24 @@
+format: 1
+kind: runtime
+id: php-runtime
+name: PHP 8.4
+version: "8.4.13"
+summary: PHP 8.4 with the extensions most sites need.
+license: PHP-3.01
+licenseClass: open-source
+icon: icon.svg
+categories: [runtime]
+maintainers: [{name: Example maintainers, github: example}]
+requires: {modules: [web, builder], diskMB: 120}
+resources:
+  - name: build
+    kind: builder.recipe
+    spec: {runtime: php, version: "8.4.13", extensions: [intl, mbstring, opcache]}
+downloads:
+  - url: https://downloads.example.com/php-runtime-8.4.13.tar.xz
+    sha256: a04a55aa3f5b37d9c4ab12bdc436a989618b7710b4f70afcc306b6160468652c
+    size: 13421772
+health:
+  - {type: resource, target: build}
+tests:
+  timeoutSeconds: 1800

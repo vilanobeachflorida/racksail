@@ -1,0 +1,11 @@
+# Lets the repository in racksail.sources provide Racksail's package and
+# nothing else, the way Racksail pins every vendor repository it adds.
+# Replace @HOST@ with the repository's host name and save the result as
+# /etc/apt/preferences.d/racksail.pref.
+Package: *
+Pin: origin @HOST@
+Pin-Priority: -1
+
+Package: racksail
+Pin: origin @HOST@
+Pin-Priority: 600

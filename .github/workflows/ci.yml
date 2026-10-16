@@ -4,52 +4,313 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+  # Every day, so newly published vulnerabilities in dependencies show up
+  # even when nothing changed, and to fuzz.
+  schedule:
+    - cron: "17 5 * * *"
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
-    name: make check (${{ matrix.os }})
+    name: make check (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - name: linux/amd64
+            runner: ubuntu-24.04
+          - name: linux/arm64
+            runner: ubuntu-24.04-arm
+          - name: macos/arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            ui/package-lock.json
+            sdk/ts/package-lock.json
+            test/e2e/package-lock.json
       - run: make check
 
   race:
     name: Go tests with the race detector
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: make test-race
 
+  fuzz-targets:
+    name: Fuzz targets
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: list
+        run: |
+          targets=$(make --no-print-directory -s fuzz-list | jq --raw-input . | jq --slurp --compact-output .)
+          echo "targets=$targets" >>"$GITHUB_OUTPUT"
+          echo "Fuzzing $targets"
+
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    # Every change replays the fuzz targets' seeds in make check; once a day
+    # each target also explores new inputs for a while, in a job of its own,
+    # so however many parsers get fuzz targets, none runs out of time.
+    needs: fuzz-targets
+    if: needs.fuzz-targets.outputs.targets != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        target: ${{ fromJSON(needs.fuzz-targets.outputs.targets) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make fuzz FUZZ_TARGET="$TARGET" FUZZ_TIME=5m
+        env:
+          TARGET: ${{ matrix.target }}
+      # The input that failed, to commit with the fix.
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-failures-${{ strategy.job-index }}
+          path: "**/testdata/fuzz/"
+          retention-days: 30
+
+  generated:
+    name: Generated files match the code
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: make gen-check
+
+  licenses:
+    name: Dependency licenses
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make licenses
+
+  vulnerabilities:
+    name: Known vulnerabilities
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make vulncheck
+
+  lint:
+    name: Workflows and shell scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make ci-lint
+
   docs:
     name: Documentation site
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: docs/site/package-lock.json
       - run: make docs
+
+  catalog:
+    name: Catalog
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make catalog-check
+      # An unsigned index here; the catalog workflow signs and publishes it.
+      - run: make catalog
+
+  packages:
+    name: Debian packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: make cross deb
+      - name: Inspect the packages
+        run: |
+          for deb in dist/*.deb; do
+            dpkg-deb --info "$deb"
+            dpkg-deb --contents "$deb"
+            dpkg-deb --contents "$deb" | grep -q ' ./usr/lib/systemd/system/racksail-panel.service$'
+          done
+      - name: Refuse a server the install script set up
+        run: |
+          sudo install -m 0755 /dev/null /usr/local/bin/racksail
+          if sudo apt-get install -y ./dist/racksail_*_amd64.deb; then
+            echo "the package installed beside the install script's /usr/local/bin/racksail"
+            exit 1
+          fi
+          # preinst refuses before dpkg unpacks anything.
+          test ! -e /usr/bin/racksail
+          sudo rm /usr/local/bin/racksail
+      - name: Install, remove, install again and purge the amd64 package
+        run: |
+          units=(racksail-agent.service racksail-panel.service racksail-edge.socket)
+          # The units are enabled and were started; whether the agent and the
+          # panel stay up on this Ubuntu runner doesn't matter here.
+          check() {
+            for unit in "${units[@]}"; do
+              state=$(systemctl is-enabled "$unit" || true)
+              if [ "$state" != enabled ]; then echo "$unit is $state after $1"; exit 1; fi
+              if [ "$(systemctl show --property=ActiveState --value "$unit")" = inactive ]; then echo "$unit wasn't started after $1"; exit 1; fi
+            done
+            systemctl is-active racksail-edge.socket
+          }
+          sudo apt-get install -y ./dist/racksail_*_amd64.deb
+          /usr/bin/racksail version
+          systemctl cat "${units[@]}"
+          getent passwd racksail racksail-edge
+          check "the install"
+          sudo apt-get remove -y racksail
+          for unit in "${units[@]}"; do
+            if systemctl is-active --quiet "$unit"; then echo "$unit still runs after the removal"; exit 1; fi
+          done
+          sudo apt-get install -y ./dist/racksail_*_amd64.deb
+          check "installing it again"
+          sudo apt-get purge -y racksail
+          left=$(sudo find /var/lib/systemd/deb-systemd-helper-enabled -name 'racksail*')
+          if [ -n "$left" ]; then echo "purging left the units' state behind: $left"; exit 1; fi
+
+  e2e-local:
+    name: End to end against racksail dev
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            test/e2e/package-lock.json
+      - run: cd test/e2e && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      # The browser suite also compares every screen with its visual
+      # baselines, which the Screenshots workflow renders on this runner.
+      - run: make e2e-local
+        env:
+          RACKSAIL_E2E_VISUAL: "1"
+      - name: Note missing visual baselines
+        run: |
+          if [ -z "$(git ls-files test/e2e/specs/__screenshots__)" ]; then
+            echo "::warning::The browser suite has no visual baselines yet, so it compared no screens; run the Screenshots workflow to add them."
+          fi
+      # The report has the expected, actual and differing screenshots of
+      # any screen that changed.
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-local
+          path: build/e2e-local
+          retention-days: 14
+
+  pseudo-locales:
+    name: Pseudo-locales and right to left
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            test/e2e/package-lock.json
+      - run: cd test/e2e && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      - run: make e2e-pseudo
+      # The report holds a screenshot of every screen in both pseudo-locales,
+      # for reviewing what a change does to them.
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pseudo-locales
+          path: build/e2e-pseudo
+          retention-days: 14

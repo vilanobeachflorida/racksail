@@ -1,0 +1,259 @@
+### copyright -rw-r--r--
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: racksail
+Source: https://github.com/vilanobeachflorida/racksail
+
+Files: *
+Copyright: The Racksail contributors
+License: AGPL-3.0-or-later
+Comment: The licenses of the software built into the binary are in
+ /usr/share/doc/racksail/third-party-licenses.txt.
+
+License: AGPL-3.0-or-later
+ License text.
+ .
+ Second paragraph.
+
+### scripts/postinst -rwxr-xr-x
+#!/bin/sh
+# Written by packaging/deb from the plan of racksail install --convert.
+set -e
+
+case "$1" in
+configure | abort-upgrade | abort-deconfigure | abort-remove) ;;
+*) exit 0 ;;
+esac
+
+systemd-sysusers ${DPKG_ROOT:+--root="$DPKG_ROOT"} racksail.conf
+systemd-tmpfiles ${DPKG_ROOT:+--root="$DPKG_ROOT"} --create racksail.conf
+
+# Packages built before removal stopped masking the units left masks behind.
+# deb-systemd-helper only lifts masks it set itself, never an administrator's.
+deb-systemd-helper unmask racksail-agent.service racksail-panel.service racksail-edge.socket racksail-edge.service >/dev/null || true
+# Enable each unit on the first install, and any unit a new version adds,
+# but leave the ones an administrator disabled as they are.
+for unit in racksail-agent.service racksail-panel.service racksail-edge.socket; do
+	if deb-systemd-helper --quiet was-enabled "$unit"; then
+		deb-systemd-helper enable "$unit" >/dev/null || true
+	else
+		deb-systemd-helper update-state "$unit" >/dev/null || true
+	fi
+done
+
+if [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
+	systemctl --system daemon-reload >/dev/null || true
+	# Over an earlier version, what runs restarts to run the new binary,
+	# while the edge's socket keeps listening.
+	if [ -n "$2" ]; then
+		deb-systemd-invoke try-restart racksail-agent.service racksail-panel.service racksail-edge.service >/dev/null || true
+	fi
+	# Then whatever is enabled and stopped starts, such as after the package
+	# was removed and is installed again; disabled units stay stopped.
+	deb-systemd-invoke start racksail-agent.service racksail-panel.service racksail-edge.socket >/dev/null || true
+fi
+
+### scripts/postrm -rwxr-xr-x
+#!/bin/sh
+# Written by packaging/deb from the plan of racksail install --convert.
+# Purging keeps /var/lib/racksail and /srv/racksail, which hold the panel's
+# state and the accounts' data.
+set -e
+
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	systemctl --system daemon-reload >/dev/null || true
+fi
+# On a purge, init-system-helpers may already be gone.
+if [ "$1" = purge ] && command -v deb-systemd-helper >/dev/null; then
+	deb-systemd-helper purge racksail-agent.service racksail-panel.service racksail-edge.socket racksail-edge.service >/dev/null || true
+	deb-systemd-helper unmask racksail-agent.service racksail-panel.service racksail-edge.socket racksail-edge.service >/dev/null || true
+fi
+
+### scripts/preinst -rwxr-xr-x
+#!/bin/sh
+# Written by packaging/deb from the plan of racksail install --convert.
+set -e
+
+if [ "$1" = install ]; then
+	converted=
+	[ ! -e "${DPKG_ROOT:-}/usr/local/bin/racksail" ] || converted=1
+	for unit in racksail.slice racksail-accounts.slice racksail-agent.service racksail-panel.service racksail-edge.socket racksail-edge.service; do
+		if grep -qsF /usr/local/bin/racksail "${DPKG_ROOT:-}/etc/systemd/system/$unit"; then
+			converted=1
+		fi
+	done
+	if [ -n "$converted" ]; then
+		cat >&2 <<'END'
+racksail: this server already runs Racksail from /usr/local/bin/racksail,
+which updates itself from the panel. Its services would keep running that
+binary while apt updated the package's, so the package doesn't install here:
+a server uses the package or the install script, not both.
+END
+		exit 1
+	fi
+fi
+
+### scripts/prerm -rwxr-xr-x
+#!/bin/sh
+# Written by packaging/deb from the plan of racksail install --convert.
+set -e
+
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	deb-systemd-invoke stop racksail-edge.service racksail-edge.socket racksail-panel.service racksail-agent.service >/dev/null || true
+fi
+
+### sysusers/racksail.conf -rw-r--r--
+# Written by packaging/deb from the plan of racksail install --convert.
+u racksail - "Racksail panel" /var/lib/racksail -
+u racksail-edge - "Racksail edge" /nonexistent -
+
+### tmpfiles/racksail.conf -rw-r--r--
+# Written by packaging/deb from the plan of racksail install --convert.
+d /etc/racksail 0755 root root -
+d /etc/racksail/generated 0755 root root -
+d /etc/racksail/certs 0755 root root -
+d /var/lib/racksail 0750 racksail racksail -
+d /srv/racksail 0755 root root -
+d /srv/racksail/accounts 0755 root root -
+d /opt/racksail 0755 root root -
+d /opt/racksail/runtimes 0755 root root -
+d /opt/racksail/modules 0755 root root -
+d /var/log/racksail 0750 root root -
+d /mnt/racksail 0755 root root -
+
+### units/racksail-accounts.slice -rw-r--r--
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail accounts
+Before=slices.target
+
+[Slice]
+
+### units/racksail-agent.service -rw-r--r--
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail agent
+Documentation=https://github.com/vilanobeachflorida/racksail
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/racksail agent
+Slice=racksail.slice
+Restart=on-failure
+RestartSec=2s
+RuntimeDirectory=racksail
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target
+
+### units/racksail-edge.service -rw-r--r--
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail edge
+Documentation=https://github.com/vilanobeachflorida/racksail
+Requires=racksail-edge.socket
+After=network-online.target racksail-edge.socket
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/racksail edge
+User=racksail-edge
+Group=racksail-edge
+Slice=racksail.slice
+Restart=on-failure
+RestartSec=2s
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+StateDirectory=racksail-edge
+StateDirectoryMode=0750
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+Also=racksail-edge.socket
+
+### units/racksail-edge.socket -rw-r--r--
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail edge admin socket
+Documentation=https://github.com/vilanobeachflorida/racksail
+
+[Socket]
+ListenStream=/run/racksail/edge.sock
+SocketUser=root
+SocketGroup=racksail
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target
+
+### units/racksail-panel.service -rw-r--r--
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail panel
+Documentation=https://github.com/vilanobeachflorida/racksail
+After=network-online.target racksail-agent.service
+Wants=network-online.target racksail-agent.service
+
+[Service]
+ExecStart=/usr/bin/racksail panel
+User=racksail
+Group=racksail
+Slice=racksail.slice
+Restart=on-failure
+RestartSec=2s
+StateDirectory=racksail
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/racksail
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
+
+### units/racksail.slice -rw-r--r--
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail platform services
+Before=slices.target
+
+[Slice]
+

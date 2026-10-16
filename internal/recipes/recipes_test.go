@@ -134,16 +134,27 @@ func TestValuesAreChecked(t *testing.T) {
 
 func TestBrokenRecipes(t *testing.T) {
 	broken := map[string]string{
-		"unknown input":    strings.Replace(wordpress, "${inputs.php}", "${inputs.ruby}", 1),
-		"unknown resource": strings.Replace(wordpress, "${resources.db.id}", "${resources.cache.id}", 1),
-		"bad dependency":   strings.Replace(wordpress, "dependsOn: [db]", "dependsOn: [cache]", 1),
-		"cycle":            strings.Replace(wordpress, "kind: databases.database\n", "kind: databases.database\n    dependsOn: [site]\n", 1),
-		"schema":           strings.Replace(wordpress, "licenseClass: open-source", "licenseClass: maybe", 1),
+		"unknown input":                    strings.Replace(wordpress, "${inputs.php}", "${inputs.ruby}", 1),
+		"unknown resource":                 strings.Replace(wordpress, "${resources.db.id}", "${resources.cache.id}", 1),
+		"bad dependency":                   strings.Replace(wordpress, "dependsOn: [db]", "dependsOn: [cache]", 1),
+		"cycle":                            strings.Replace(wordpress, "kind: databases.database\n", "kind: databases.database\n    dependsOn: [site]\n", 1),
+		"schema":                           strings.Replace(wordpress, "licenseClass: open-source", "licenseClass: maybe", 1),
+		"health check of an unknown input": wordpress + "health:\n  - {type: http, target: \"https://${inputs.host}/\"}\n",
+		"resource check of nothing":        wordpress + "health:\n  - {type: resource, target: cache}\n",
+		"resource check that expects":      wordpress + "health:\n  - {type: resource, target: site, expect: ready}\n",
+		"health check without a target":    wordpress + "health:\n  - {type: unit, target: \"\"}\n",
 	}
 	for name, doc := range broken {
 		if _, err := Parse([]byte(doc)); err == nil {
 			t.Errorf("%s: should fail", name)
 		}
+	}
+	// A resource check waits for one of the recipe's resources, or for the
+	// whole item, named by the recipe's id.
+	checked := wordpress + "health:\n  - {type: resource, target: site}\n  - {type: resource, target: wordpress}\n" +
+		"  - {type: http, target: \"https://${inputs.domain}/\", expect: \"200\"}\n"
+	if r, err := Parse([]byte(checked)); err != nil || len(r.Health) != 3 || r.Health[0].Type != HealthResource {
+		t.Errorf("health checks = %+v, %v", r, err)
 	}
 	unknown, _ := Parse([]byte(wordpress))
 	if _, err := unknown.Request(map[string]any{"domain": "a.example"}, store.ServerScope(), store.NewKindRegistry()); err == nil {
@@ -169,5 +180,9 @@ func TestVerifyIndex(t *testing.T) {
 	evil := []byte(strings.Replace(string(data), "apps/wordpress", "../../etc", 1))
 	if _, err := VerifyIndex(evil, ed25519.Sign(priv, evil), pub); err == nil {
 		t.Error("unsafe paths must be refused")
+	}
+	evilFile := []byte(strings.Replace(string(data), `"}]}`, `","files":[{"path":"/etc/passwd","sha256":"`+strings.Repeat("a", 64)+`","size":1}]}]}`, 1))
+	if _, err := VerifyIndex(evilFile, ed25519.Sign(priv, evilFile), pub); err == nil || !strings.Contains(err.Error(), "unsafe path") {
+		t.Errorf("unsafe file paths must be refused: %v", err)
 	}
 }

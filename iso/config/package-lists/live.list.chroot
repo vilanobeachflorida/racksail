@@ -1,0 +1,5 @@
+# live-boot finds and mounts the image. live-config, which live-build adds
+# when this file is missing, is left out: it would create a user with a
+# known password and log consoles in, and the installer image needs neither.
+live-boot
+systemd-sysv

@@ -1,0 +1,20 @@
+#cloud-config
+# Turns a new Debian 13 cloud server into a Racksail server on its first
+# boot. Give it as the server's user data when you create it, with the
+# hostname changed to the name the panel will have. The install script
+# verifies the release's signatures and checksums before anything runs.
+#
+# Follow the conversion with: journalctl -u cloud-final -f
+hostname: panel
+fqdn: panel.example.com
+prefer_fqdn_over_hostname: true
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+
+runcmd:
+  - [curl, --fail, --silent, --show-error, --location, --proto, "=https", --output, /root/racksail-install.sh, "https://github.com/vilanobeachflorida/racksail/releases/latest/download/install.sh"]
+  - [sh, /root/racksail-install.sh, --yes, --hostname, panel.example.com]
+  - [rm, -f, /root/racksail-install.sh]

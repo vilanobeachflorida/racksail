@@ -1,0 +1,35 @@
+format: 1
+kind: stack
+id: blog-stack
+name: Blog stack
+version: "2.3.0"
+summary: A blog with its database and an object cache.
+license: GPL-2.0-or-later AND BSD-3-Clause
+licenseClass: open-source
+icon: icon.svg
+categories: [blog, cms]
+maintainers: [{name: Example maintainers, github: example}, {name: Another maintainer}]
+requires: {modules: [web, databases], memoryMB: 256, diskMB: 200, arch: [amd64, arm64]}
+inputs:
+  - {name: domain, type: domain, label: Domain, required: true}
+  - {name: adminEmail, type: email, label: Admin email, required: true}
+  - {name: dbPassword, type: password, label: Database password, required: true}
+resources:
+  - name: db
+    kind: databases.database
+    spec: {name: blog, owner: {password: "${inputs.dbPassword}"}}
+  - name: site
+    kind: web.site
+    spec: {domains: ["${inputs.domain}"], database: "${resources.db.id}", adminEmail: "${inputs.adminEmail}"}
+    dependsOn: [db]
+downloads:
+  - url: https://downloads.example.com/blog-stack-2.3.0.tar.gz
+    sha256: 168ee38e4dc3fd3cd5163b066c888758c08af06896ac937b11a7e47f0af302b1
+    size: 24117248
+    signature: {type: gpg, url: "https://downloads.example.com/blog-stack-2.3.0.tar.gz.asc"}
+health:
+  - {type: http, target: "https://${inputs.domain}/", expect: "200"}
+  - {type: tls, target: "${inputs.domain}"}
+tests:
+  inputs: {domain: blog.example.test, adminEmail: admin@example.test, dbPassword: correct-horse-battery}
+  timeoutSeconds: 900

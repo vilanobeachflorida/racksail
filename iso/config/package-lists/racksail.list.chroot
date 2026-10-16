@@ -1,0 +1,51 @@
+# What racksail install needs on the live system.
+
+# Disks: partitioning, file systems, and finding RAID, LVM and encrypted
+# volumes an existing install left, so the installer can show them.
+btrfs-progs
+cryptsetup-bin
+dosfstools
+e2fsprogs
+gdisk
+lvm2
+mdadm
+nvme-cli
+parted
+smartmontools
+xfsprogs
+
+# Debian onto the disks, from the mirrors, verified with Debian's keys.
+ca-certificates
+debian-archive-keyring
+mmdebstrap
+
+# Restoring a server from a restic repository.
+restic
+rsync
+
+# The network: DHCP until the installer configures it, name resolution and
+# the clock, which TLS needs.
+ethtool
+iproute2
+iputils-ping
+systemd-resolved
+systemd-timesyncd
+
+# Consoles: keyboard layouts, fonts and colors, and the boot splash.
+console-setup
+kbd
+keyboard-configuration
+plymouth
+plymouth-label
+
+# Hardware, for the installer's checks and the rescue shell.
+efibootmgr
+pciutils
+usbutils
+
+# The rescue shell's tools.
+less
+nano
+vim-tiny
+xz-utils
+zstd

@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Racksail
+Description=The Racksail mark on navy, with a progress bar and room for messages and password prompts.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/racksail
+ScriptFile=/usr/share/plymouth/themes/racksail/racksail.script

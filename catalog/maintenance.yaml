@@ -1,0 +1,7 @@
+# Catalog maintenance: items to feature on the marketplace's front page, and
+# items that are broken or unmaintained. Broken and unmaintained items say
+# why and since when; items unmaintained for more than 180 days are left out
+# of the index. See README.md.
+featured: []
+broken: []
+unmaintained: []

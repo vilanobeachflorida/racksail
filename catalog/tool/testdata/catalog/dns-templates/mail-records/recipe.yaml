@@ -1,0 +1,27 @@
+format: 1
+kind: dns-template
+id: mail-records
+name: Example Mail
+version: "1"
+summary: The records Example Mail needs for a domain's email.
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [mail]
+maintainers: [{name: Example maintainers, github: example}]
+requires: {modules: [dns]}
+inputs:
+  - {name: zone, type: resource, label: Zone, kind: dns.zone, required: true}
+resources:
+  - name: mx
+    kind: dns.record
+    spec: {zone: "${inputs.zone}", type: MX, name: "@", value: "10 mx.mail.example.com."}
+  - name: spf
+    kind: dns.record
+    spec: {zone: "${inputs.zone}", type: TXT, name: "@", value: "v=spf1 include:spf.mail.example.com ~all"}
+health:
+  - {type: resource, target: mx}
+  - {type: resource, target: spf}
+tests:
+  inputs: {zone: zone_01h455vb4pex5vsknk084sn02q}
+  timeoutSeconds: 60

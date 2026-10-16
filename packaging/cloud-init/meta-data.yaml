@@ -1,0 +1,9 @@
+# The meta-data file of a NoCloud seed, for virtual machines started from
+# Debian's cloud images without a cloud provider: Proxmox, libvirt or QEMU.
+# Build the seed from it and one of the user-data files with
+#
+#   cloud-localds seed.iso user-data.yaml meta-data.yaml
+#
+# and attach seed.iso to the machine as a CD-ROM.
+instance-id: racksail-panel
+local-hostname: panel

@@ -1,0 +1,18 @@
+# An unattended install on one disk with DHCP, as the end-to-end harness
+# runs it. The harness puts its own SSH key in place of this one and matches
+# the disk names to the virtual machine it starts.
+format: 1
+mode: install
+hostname: racksail-e2e.example.test
+locale: en-US
+keyboard: us
+channel: nightly
+network: {mode: dhcp}
+disks:
+  layout: single
+  devices: [/dev/vda]
+  confirmWipe: true
+account:
+  username: admin
+  sshKeys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILOVCx0Utmhvafzmm0HYOckUK9zP6j0GTY3znySw9HGV e2e@racksail.test"]
+reboot: true

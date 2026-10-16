@@ -27,6 +27,7 @@ COMMIT_TIME := $(if $(VERSION),$(shell TZ=UTC0 git log -1 --date=format-local:%Y
 
 # go run builds the pinned version with the current toolchain and caches the
 # build, so a Go upgrade never leaves a stale binary behind.
+# renovate: datasource=go depName=honnef.co/go/tools
 STATICCHECK_VERSION := v0.8.2
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
@@ -63,6 +64,22 @@ help:
 	@echo "                 DEV_ADDR, DEV_EDGE_HTTP, DEV_EDGE_HTTPS and DEV_DATA choose where"
 	@echo "make docs        build the documentation site"
 	@echo "make clean       remove build output"
+	@echo ""
+	@echo "make release     build everything a release publishes into $(DIST)/; needs VERSION"
+	@echo "make deb         build the Debian packages into $(DIST)/"
+	@echo "make iso         build the installer ISO in a Debian container; ISO_ARCH, ISO_VARIANT"
+	@echo "make e2e         install the ISO on a QEMU machine and run the end-to-end suites; ISO, E2E_FLAGS"
+	@echo "make e2e-local   run the end-to-end suites against racksail dev on $(E2E_ADDR)"
+	@echo "make e2e-pseudo  check the UI in the pseudo-locales en-XA and ar-XB, right to left included"
+	@echo "make e2e-screenshots  rewrite the browser suite's visual baselines; Linux only, as CI renders them"
+	@echo "make cloud-image download Debian's cloud image for the end-to-end tests; CLOUD_ARCH"
+	@echo "make catalog     check the catalog and build its index into $(CATALOG_OUT)"
+	@echo "make licenses    check that every dependency's license is allowed"
+	@echo "make vulncheck   scan the Go code and every lockfile for known vulnerabilities"
+	@echo "make fuzz        run every fuzz target for FUZZ_TIME ($(FUZZ_TIME)) each, or FUZZ_TARGET=dir:FuzzName alone"
+	@echo "make fuzz-list   list the fuzz targets as dir:FuzzName, as CI's daily fuzzing runs them"
+	@echo "make gen-check   fail when the generated files differ from what make gen writes"
+	@echo "make sdk-check   test the add-on SDKs"
 
 $(UI_DEPS): ui/package.json ui/package-lock.json
 	cd ui && $(NPM) ci --no-audit --no-fund
@@ -160,3 +177,222 @@ docs: $(DOCS_DEPS)
 
 clean:
 	rm -rf $(BIN) internal/webui/dist/app docs/site/dist docs/site/.astro
+	rm -rf $(DIST) build sdk/ts/dist test/e2e/test-results test/e2e/playwright-report
+
+# Delivery: release artifacts, the Debian packages, the installer ISO, the
+# end-to-end tests, the catalog, and the checks CI runs beside make check.
+# Tools are run with go run at pinned versions, which Renovate keeps current.
+
+# renovate: datasource=go depName=golang.org/x/vuln
+GOVULNCHECK_VERSION := v1.8.0
+# renovate: datasource=go depName=github.com/google/osv-scanner/v2
+OSV_SCANNER_VERSION := v2.6.0
+# renovate: datasource=go depName=github.com/goreleaser/nfpm/v2
+NFPM_VERSION        := v2.47.0
+# renovate: datasource=go depName=github.com/anchore/syft
+SYFT_VERSION        := v1.52.0
+# renovate: datasource=go depName=github.com/rhysd/actionlint
+ACTIONLINT_VERSION  := v1.7.12
+GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+OSV_SCANNER := github.com/google/osv-scanner/v2/cmd/osv-scanner@$(OSV_SCANNER_VERSION)
+NFPM        := github.com/goreleaser/nfpm/v2/cmd/nfpm@$(NFPM_VERSION)
+SYFT        := github.com/anchore/syft/cmd/syft@$(SYFT_VERSION)
+ACTIONLINT  := github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+
+DIST            := dist
+RELEASE_VERSION  = $(or $(VERSION),0.0.0-dev)
+RELEASE_CHANNEL  = $(or $(CHANNEL),$(shell $(GO) run ./packaging/release channel $(VERSION) 2>/dev/null))
+DEB_MAINTAINER  ?= Racksail maintainers <vilanobeachflorida@users.noreply.github.com>
+
+ISO_ARCH    ?= amd64
+ISO_VARIANT ?= standard
+ISO_BUILDER ?= iso/in-container.sh
+ISO         ?= $(DIST)/racksail-$(RELEASE_VERSION)-$(ISO_ARCH)$(if $(filter firmware,$(ISO_VARIANT)),-firmware).iso
+
+# Where make e2e-local runs racksail dev, apart from make dev's instance.
+E2E_ADDR  ?= 127.0.0.1:7170
+E2E_DATA  ?= .dev-e2e
+E2E_FLAGS ?=
+E2E_DEPS  := test/e2e/node_modules/.package-lock.json
+SDK_TS_DEPS := sdk/ts/node_modules/.package-lock.json
+
+# Debian's cloud image, which the end-to-end tests convert or install the
+# Debian package on, checked against the checksums Debian publishes beside it.
+CLOUD_ARCH  ?= amd64
+CLOUD_URL   ?= https://cloud.debian.org/images/cloud/trixie/latest
+CLOUD_IMAGE := build/cloud/debian-13-genericcloud-$(CLOUD_ARCH).qcow2
+SHA512SUM   := $(if $(shell command -v sha512sum),sha512sum,shasum -a 512)
+
+CATALOG_OUT    ?= $(BIN)/catalog
+# CI signs the index with the key in the CATALOG_SIGNING_KEY environment
+# variable, which must belong to CATALOG_PUBLIC. Only the shell reads the
+# key: the secret holds a whole key file, newlines included, and make would
+# split a recipe it was expanded into.
+CATALOG_PUBLIC ?= catalog/keys/official.pub
+
+FUZZ_TIME ?= 1m
+
+.PHONY: release deb sbom notices iso e2e e2e-local e2e-pseudo e2e-screenshots e2e-check cloud-image catalog \
+	catalog-check catalog-publish licenses vulncheck fuzz fuzz-list gen-check sdk-check ci-lint
+
+check: sdk-check e2e-check
+
+$(E2E_DEPS): test/e2e/package.json test/e2e/package-lock.json
+	cd test/e2e && $(NPM) ci --no-audit --no-fund
+	@touch $@
+
+$(SDK_TS_DEPS): sdk/ts/package.json sdk/ts/package-lock.json
+	cd sdk/ts && $(NPM) ci --no-audit --no-fund
+	@touch $@
+
+release:
+	@test -n "$(VERSION)" || { echo "make release needs VERSION, such as make release VERSION=1.2.3"; exit 1; }
+	@test -n "$(RELEASE_CHANNEL)" || { echo "$(VERSION) isn't a release version"; exit 1; }
+	rm -rf $(DIST)
+	$(MAKE) cross VERSION=$(VERSION) CHANNEL=$(RELEASE_CHANNEL)
+	$(MAKE) deb sbom VERSION=$(VERSION) CHANNEL=$(RELEASE_CHANNEL)
+	cp $(BIN)/racksail-linux-amd64 $(BIN)/racksail-linux-arm64 packaging/install.sh $(DIST)/
+	cp build/deb/third-party-licenses.txt $(DIST)/
+	$(GO) run ./packaging/release checksums -dir $(DIST)
+	@echo "$(DIST)/ holds Racksail $(VERSION) on the $(RELEASE_CHANNEL) channel, unsigned; CI signs and publishes it"
+
+# The Debian packages, from the binaries make cross builds.
+deb: notices
+	@for p in $(PLATFORMS); do test -f $(BIN)/racksail-linux-$${p#*/} || { echo "run make cross first"; exit 1; }; done
+	rm -rf build/deb.new
+	$(GO) run ./packaging/deb -out build/deb.new -license LICENSE
+	mkdir -p build/deb.new/completions
+	$(GO) run ./cmd/racksail completion bash > build/deb.new/completions/racksail.bash
+	$(GO) run ./cmd/racksail completion zsh > build/deb.new/completions/racksail.zsh
+	$(GO) run ./cmd/racksail completion fish > build/deb.new/completions/racksail.fish
+	mv build/third-party-licenses.txt build/deb.new/
+	rm -rf build/deb && mv build/deb.new build/deb
+	mkdir -p $(DIST)
+	@# The file name keeps the release's version as it is; inside, Debian's
+	@# version puts a ~ before pre-releases so they sort first.
+	@for p in $(PLATFORMS); do arch=$${p#*/}; \
+		echo "$(DIST)/racksail_$(RELEASE_VERSION)_$$arch.deb"; \
+		VERSION=$(RELEASE_VERSION) DEB_ARCH=$$arch BINARY=$(BIN)/racksail-linux-$$arch NOTICES=build/deb/third-party-licenses.txt \
+		DEB_MAINTAINER="$(DEB_MAINTAINER)" $(GO) run $(NFPM) package --config packaging/nfpm.yaml --packager deb \
+			--target $(DIST)/racksail_$(RELEASE_VERSION)_$$arch.deb || exit 1; \
+	done
+
+notices: $(UI_DEPS)
+	mkdir -p build
+	$(GO) run ./packaging/licenses notices -out build/third-party-licenses.txt
+
+# Software bills of materials: the Go modules in each binary, and the npm
+# packages bundled into the web UI.
+sbom:
+	mkdir -p $(DIST)
+	@for p in $(PLATFORMS); do arch=$${p#*/}; \
+		$(GO) run $(SYFT) scan file:$(BIN)/racksail-linux-$$arch --source-name racksail --source-version $(RELEASE_VERSION) \
+			-o spdx-json=$(DIST)/racksail-linux-$$arch.spdx.json || exit 1; \
+	done
+	$(GO) run $(SYFT) scan dir:ui --exclude './node_modules/**' --source-name racksail-ui --source-version $(RELEASE_VERSION) \
+		-o spdx-json=$(DIST)/racksail-ui.spdx.json
+
+# The installer ISO. Docker or Podman runs live-build in a Debian 13
+# container; on Debian 13 itself, ISO_BUILDER="sudo iso/build.sh" builds
+# without one.
+iso:
+	@test -f $(BIN)/racksail-linux-$(ISO_ARCH) || { echo "run make cross first"; exit 1; }
+	$(ISO_BUILDER) --arch $(ISO_ARCH) --variant $(ISO_VARIANT) --binary $(BIN)/racksail-linux-$(ISO_ARCH) \
+		--version $(RELEASE_VERSION) --out $(DIST)
+
+# Installs the ISO on a QEMU machine and runs the suites against it; see
+# test/README.md for E2E_FLAGS, such as -firmware secureboot or -disks 2.
+e2e: $(E2E_DEPS)
+	@test -f $(ISO) || { echo "$(ISO) doesn't exist; run make iso, or give ISO=path"; exit 1; }
+	$(GO) run ./test/qemu -iso $(ISO) -version $(RELEASE_VERSION) $(E2E_FLAGS)
+
+e2e-local: build $(E2E_DEPS)
+	E2E_ADDR=$(E2E_ADDR) E2E_DATA=$(E2E_DATA) test/e2e/local.sh $(BIN)/racksail
+
+# The browser suite compares every screen with the baselines in
+# test/e2e/specs/__screenshots__ when RACKSAIL_E2E_VISUAL is set, as CI sets
+# it. This rewrites them from this machine's rendering; CI's are Linux's, so
+# its Screenshots workflow runs this and commits the result.
+e2e-screenshots: build $(E2E_DEPS)
+	@test "$$(uname -s)" = Linux || { echo "the visual baselines are rendered on Linux; run the Screenshots workflow on your branch instead"; exit 1; }
+	E2E_ADDR=$(E2E_ADDR) E2E_DATA=$(E2E_DATA) RACKSAIL_E2E_VISUAL=1 test/e2e/local.sh $(BIN)/racksail --update-snapshots=all specs/visual.spec.ts
+
+# Builds the UI with the pseudo-locales and checks every screen in them on a
+# desktop and a phone: text that skipped the message catalogs, layouts that
+# don't fit text a third longer, and right-to-left layouts that don't mirror.
+# Playwright's report, with a screenshot of every screen, goes to
+# build/e2e-pseudo.
+e2e-pseudo: $(UI_DEPS) $(E2E_DEPS)
+	cd test/e2e && RACKSAIL_E2E_REPORT=$(CURDIR)/build/e2e-pseudo/playwright-report \
+		RACKSAIL_E2E_RESULTS=$(CURDIR)/build/e2e-pseudo/playwright-results npx playwright test --config pseudo.config.ts
+
+# The end-to-end suites' own tools.
+e2e-check: $(E2E_DEPS)
+	cd test/e2e && node --test 'pseudo/*.test.mjs'
+
+cloud-image:
+	mkdir -p $(dir $(CLOUD_IMAGE))
+	curl --fail --silent --show-error --location --output $(dir $(CLOUD_IMAGE))SHA512SUMS $(CLOUD_URL)/SHA512SUMS
+	curl --fail --silent --show-error --location --output $(CLOUD_IMAGE) $(CLOUD_URL)/$(notdir $(CLOUD_IMAGE))
+	cd $(dir $(CLOUD_IMAGE)) && grep ' $(notdir $(CLOUD_IMAGE))$$' SHA512SUMS | $(SHA512SUM) --check
+
+catalog-check:
+	$(GO) run ./catalog/tool validate -dir catalog
+
+catalog:
+	rm -rf $(CATALOG_OUT) $(BIN)/catalog.tar.gz
+	$(GO) run ./catalog/tool index -dir catalog -out $(CATALOG_OUT) -archive $(BIN)/catalog.tar.gz \
+		$$(test -z "$$CATALOG_SIGNING_KEY" || echo -key-env CATALOG_SIGNING_KEY -public $(CATALOG_PUBLIC))
+
+catalog-publish:
+	@test -n "$$CATALOG_SIGNING_KEY" || { echo "publishing signs the index with CATALOG_SIGNING_KEY, which isn't set"; exit 1; }
+	@test -f $(CATALOG_PUBLIC) || { echo "$(CATALOG_PUBLIC) is missing; see catalog/keys/README.md"; exit 1; }
+	$(MAKE) catalog
+	$(GO) run ./catalog/tool verify -dir $(CATALOG_OUT) -public $(CATALOG_PUBLIC)
+
+licenses:
+	$(GO) run ./packaging/licenses check
+
+# Advisories that don't affect Racksail are listed, with their reasons, in
+# packaging/osv-scanner.toml.
+vulncheck:
+	$(GO) run $(GOVULNCHECK) ./...
+	cd sdk/go && $(GO) run $(GOVULNCHECK) ./...
+	$(GO) run $(OSV_SCANNER) scan source --config packaging/osv-scanner.toml $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
+
+# Every fuzz target in the code, as its package's directory and its name,
+# such as catalog/tool:FuzzCheckSVG; a nested module's targets count too.
+FUZZ_TARGETS = $(shell git grep -l '^func Fuzz' -- '*_test.go' | grep -v '^\.' | xargs -n 1 dirname | sort -u | \
+	while read -r dir; do sed -n "s|^func \(Fuzz[A-Za-z0-9_]*\).*|$$dir:\1|p" "$$dir"/*_test.go; done)
+FUZZ_TARGET ?=
+
+fuzz-list:
+	@printf '%s\n' $(FUZZ_TARGETS)
+
+# Runs every fuzz target, or FUZZ_TARGET alone, for FUZZ_TIME each, from its
+# package's directory so a nested module's targets run too. CI fuzzes every
+# target every day, each in a job of its own. An input that fails is saved in
+# the package's testdata/fuzz, from where go test replays it on every run:
+# commit it with the fix.
+fuzz:
+	@for t in $(or $(FUZZ_TARGET),$(FUZZ_TARGETS)); do \
+		dir=$${t%%:*}; target=$${t#*:}; \
+		echo "fuzzing $$target in $$dir for $(FUZZ_TIME)"; \
+		(cd "$$dir" && $(GO) test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZ_TIME) .) || exit 1; \
+	done
+
+# make gen rewrites the generated files; any difference means they were
+# committed out of date.
+gen-check: gen
+	@git diff --exit-code -- spec ui/src/lib/api/schema.d.ts ui/src/design/theme.css || \
+		{ echo "the generated files above are out of date; run make gen and commit them"; exit 1; }
+
+sdk-check: $(SDK_TS_DEPS)
+	cd sdk/go && $(GO) vet ./... && $(GO) run $(STATICCHECK) ./... && $(GO) test ./...
+	cd sdk/ts && $(NPM) run typecheck && $(NPM) test
+	cd sdk/python && PYTHONPATH=src python3 -B -m unittest discover -s tests
+
+# Lints the workflows and the shell scripts; CI runs it, with shellcheck.
+ci-lint:
+	$(GO) run $(ACTIONLINT)
+	shellcheck $$(git ls-files '*.sh' iso/auto/config 'iso/config/hooks/*' | grep -v '^\.')

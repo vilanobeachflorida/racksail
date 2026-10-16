@@ -1,0 +1,10 @@
+# Racksail's Debian package from your own apt repository or mirror.
+# Replace the @...@ values, save the result as
+# /etc/apt/sources.list.d/racksail.sources, put the repository's signing key
+# at /etc/apt/keyrings/racksail.asc and add racksail.pref next to it.
+Types: deb
+URIs: @URI@
+Suites: @SUITE@
+Components: @COMPONENT@
+Architectures: amd64 arm64
+Signed-By: /etc/apt/keyrings/racksail.asc

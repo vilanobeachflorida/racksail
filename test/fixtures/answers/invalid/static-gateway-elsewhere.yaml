@@ -1,0 +1,7 @@
+# The gateway must be on the network of the address.
+# want: the gateway 198.51.100.1 isn't on the network 203.0.113.0/24
+format: 1
+mode: install
+network: {mode: static, address: 203.0.113.10/24, gateway: 198.51.100.1}
+disks: {layout: single, devices: [/dev/vda], confirmWipe: true}
+account: {username: admin, githubKeys: racksail-e2e}

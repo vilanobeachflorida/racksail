@@ -1,0 +1,20 @@
+{
+  "name": "@racksail/e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "End-to-end tests of the Racksail panel in a browser.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@formatjs/icu-messageformat-parser": "3.5.21",
+    "@playwright/test": "1.64.1"
+  }
+}

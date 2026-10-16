@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0\\\ru\\72l(")

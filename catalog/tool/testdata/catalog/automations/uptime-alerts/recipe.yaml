@@ -1,0 +1,24 @@
+format: 1
+kind: automation
+id: uptime-alerts
+name: Uptime alerts
+version: "1.0.0"
+summary: Checks a site every minute and tells you when it stops answering.
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [monitoring]
+maintainers: [{name: Example maintainers, github: example}]
+requires: {modules: [automations, monitoring]}
+inputs:
+  - {name: site, type: resource, label: Site, kind: web.site, required: true}
+  - {name: interval, type: select, label: How often, default: "1m", options: [{value: "1m", label: Every minute}, {value: "5m", label: Every 5 minutes}]}
+resources:
+  - name: workflow
+    kind: automations.workflow
+    spec: {trigger: {schedule: "${inputs.interval}"}, steps: [{check: http, target: "${inputs.site}"}, {notify: owner, when: failed}]}
+health:
+  - {type: resource, target: workflow}
+tests:
+  inputs: {site: site_01h455vb4pex5vsknk084sn02q}
+  timeoutSeconds: 60

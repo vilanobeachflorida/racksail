@@ -1,0 +1,16 @@
+# Installing and then restoring a backup from a restic repository.
+format: 1
+mode: restore
+hostname: racksail-restore.example.test
+network: {mode: dhcp}
+disks:
+  layout: single
+  devices: [/dev/vda]
+  confirmWipe: true
+account:
+  username: admin
+  githubKeys: racksail-e2e
+restore:
+  repository: sftp:backup@backup.example.test:/srv/restic/racksail
+  snapshot: latest
+reboot: true

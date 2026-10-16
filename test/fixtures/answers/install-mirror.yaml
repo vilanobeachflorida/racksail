@@ -1,0 +1,13 @@
+# An unattended install on two disks in a Btrfs mirror.
+format: 1
+mode: install
+hostname: racksail-mirror.example.test
+network: {mode: dhcp, ipv6: {mode: auto}}
+disks:
+  layout: mirror
+  devices: [/dev/vda, /dev/vdb]
+  confirmWipe: true
+account:
+  username: admin
+  sshKeys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILOVCx0Utmhvafzmm0HYOckUK9zP6j0GTY3znySw9HGV e2e@racksail.test"]
+reboot: true

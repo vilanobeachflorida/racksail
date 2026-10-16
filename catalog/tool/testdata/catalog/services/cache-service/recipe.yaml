@@ -1,0 +1,28 @@
+format: 1
+kind: service
+id: cache-service
+name: Cache service
+version: "8.1.4"
+summary: An in-memory key-value store for caching.
+license: BSD-3-Clause
+licenseClass: open-source
+icon: icon.png
+categories: [cache]
+maintainers: [{name: Example maintainers, github: example}]
+requires: {modules: [databases], memoryMB: 64}
+inputs:
+  - {name: maxMemoryMB, type: integer, label: Memory limit in MB, default: 128, min: 16, max: 65536}
+resources:
+  - name: server
+    kind: databases.server
+    spec: {engine: valkey, maxMemoryMB: "${inputs.maxMemoryMB}"}
+downloads:
+  - url: https://downloads.example.com/cache-service-8.1.4.tar.gz
+    sha256: 7be5dc3e7c17c0127a5d07d5cd59d09f8ee9f199a6d7aa20a3a318d0ef729375
+    size: 3565158
+health:
+  - {type: unit, target: racksail-valkey.service}
+tests:
+  timeoutSeconds: 600
+upgrade: {strategy: snapshot-then-replace}
+uninstall: {keepData: true}

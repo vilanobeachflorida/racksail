@@ -34,7 +34,7 @@ Other commands that help during development:
 | `racksail theme spec` | Prints the built-in themes and the rules themes are checked against, as the UI's `themes.json` |
 | `racksail theme list`, `racksail theme mark [THEME]` | List the built-in themes; draw the mark in the terminal in a theme's console colors |
 | `go run ./brand/gen` | Writes every brand file from the artwork in `brand/gen`; `-check` writes nothing and lists stale files |
-| `racksail install --answers FILE --dry-run` | Shows the steps a convert-mode answers file would take on this server; `--sim` carries them out on a simulated server. Install and restore modes erase disks, so they only run from the installer image |
+| `racksail install --answers FILE --dry-run` | Shows the steps a convert-mode answers file would take on this server; `--convert` plans the same without a file, and `--sim` carries them out on a simulated server. Install and restore modes erase disks, so they only run from the installer image |
 | `racksail agent --sim` | Runs a standalone agent against a simulated server, without root. It listens in a directory of your own under `$XDG_RUNTIME_DIR` or the temporary directory, and `--socket` picks another path |
 | `racksail agent join HUB TOKEN --fingerprint FP` | Enrolls a server with a panel's hub; `--cluster-file` keeps the certificate somewhere other than `/var/lib/racksail-agent`, for trying it without root |
 | `racksail edge --state DIR` | Runs an edge by hand, keeping its certificates and routing table in `DIR` |

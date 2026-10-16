@@ -1,0 +1,22 @@
+qemu-system-aarch64 \
+  -name racksail-e2e \
+  -nodefaults \
+  -no-user-config \
+  -display none \
+  -monitor none \
+  -machine virt,gic-version=max,accel=tcg \
+  -cpu max \
+  -smp 2 \
+  -m 4096 \
+  -rtc base=utc \
+  -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.fd \
+  -drive if=pflash,format=raw,unit=1,file=work/vars.fd \
+  -device virtio-gpu-pci \
+  -device virtio-rng-pci \
+  -serial file:work/logs/serial.log \
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:18443-:8443,hostfwd=tcp:127.0.0.1:10022-:22 \
+  -device virtio-net-pci,netdev=net0 \
+  -drive file=work/disk0.qcow2,if=none,id=disk0,format=qcow2,discard=unmap \
+  -device virtio-blk-pci,drive=disk0,serial=racksail0,bootindex=1 \
+  -drive file=work/seed.img,if=none,id=seed,format=raw,readonly=on \
+  -device virtio-blk-pci,drive=seed

@@ -1,0 +1,30 @@
+qemu-system-x86_64 \
+  -name racksail-e2e \
+  -nodefaults \
+  -no-user-config \
+  -display none \
+  -monitor none \
+  -machine q35,accel=kvm \
+  -cpu host \
+  -smp 2 \
+  -m 4096 \
+  -rtc base=utc \
+  -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,unit=1,file=work/vars.fd \
+  -device VGA \
+  -device virtio-rng-pci \
+  -serial file:work/logs/serial.log \
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:18443-:8443,hostfwd=tcp:127.0.0.1:10022-:22 \
+  -device virtio-net-pci,netdev=net0 \
+  -device ahci,id=ahci \
+  -drive file=work/disk0.qcow2,if=none,id=disk0,format=qcow2,discard=unmap \
+  -device ide-hd,drive=disk0,bus=ahci.0,serial=racksail0 \
+  -drive file=work/disk1.qcow2,if=none,id=disk1,format=qcow2,discard=unmap \
+  -device ide-hd,drive=disk1,bus=ahci.1,serial=racksail1 \
+  -device virtio-scsi-pci,id=scsi0 \
+  -drive file=racksail.iso,if=none,id=cd0,media=cdrom,readonly=on,format=raw \
+  -device scsi-cd,drive=cd0,bus=scsi0.0,bootindex=0 \
+  -device qemu-xhci,id=xhci \
+  -drive file=work/answers.img,if=none,id=answers,format=raw,readonly=on \
+  -device usb-storage,bus=xhci.0,drive=answers,removable=on \
+  -no-reboot

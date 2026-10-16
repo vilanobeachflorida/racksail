@@ -16,6 +16,8 @@ Each SDK provides the same things:
 - reading the add-on's manifest, `addon.yaml` ([spec/schemas/addon.schema.json](../spec/schemas/addon.schema.json))
 - a local test harness that plays the panel, so hooks can be tested without a server
 
-The SDKs follow the hook API version of the protocol document. When it changes, every SDK supports the new version in the same release, and deprecated versions keep working for the published period.
+The SDKs follow the hook API version of the protocol document. When it changes, every SDK supports the new version in the same release, and deprecated versions keep working for the published period. Each SDK lists the versions it speaks, and a test in each keeps the newest equal to the protocol document's.
+
+`make sdk-check`, part of `make check`, runs the tests of all three: `go test` in [go/](go/), which is a Go module of its own, the type check and tests of [ts/](ts/) with Node.js, and the tests of [python/](python/) with the standard library's unittest.
 
 How hooks, permissions and manifests work is described in [docs/architecture/extensibility.md](../docs/architecture/extensibility.md).

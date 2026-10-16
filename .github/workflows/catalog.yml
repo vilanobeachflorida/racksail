@@ -1,0 +1,86 @@
+name: Catalog
+
+# Publishes the official catalog: its signed index and an archive of its
+# files, on the rolling "catalog" release and as an OCI artifact in the
+# GitHub Container Registry. It runs when the catalog changes on main, and
+# every day, so items unmaintained for too long drop out of the index. Pull
+# requests check the catalog in the CI workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - catalog/**
+      - internal/recipes/**
+      - spec/schemas/**
+      - .github/workflows/catalog.yml
+  schedule:
+    - cron: "50 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    environment: catalog
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - id: key
+        name: Find the signing key
+        env:
+          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
+        run: |
+          if [ -f catalog/keys/official.pub ] && [ -n "$CATALOG_SIGNING_KEY" ]; then
+            echo "ready=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "::warning::The catalog isn't published until its signing key exists; catalog/keys/README.md says how to create it."
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+            make catalog-check
+          fi
+      - name: Check, build and sign
+        if: steps.key.outputs.ready == 'true'
+        env:
+          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
+        run: make catalog-publish
+      - name: Attach to the catalog release
+        if: steps.key.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(bin/catalog/index.json bin/catalog/index.json.sig bin/catalog.tar.gz)
+          if gh release view catalog >/dev/null 2>&1; then
+            gh release upload catalog "${files[@]}" --clobber
+          else
+            gh release create catalog "${files[@]}" --title "Official catalog" --latest=false \
+              --notes "The official catalog's signed index, rebuilt whenever the catalog changes. Panels with the marketplace on fetch it daily."
+          fi
+      - if: steps.key.outputs.ready == 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+      - name: Push to the container registry
+        if: steps.key.outputs.ready == 'true'
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          echo "$REGISTRY_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}/catalog"
+          day=$(date -u +%Y%m%d)
+          cd bin || exit 1
+          oras push "$repo:latest,$day" \
+            --artifact-type application/vnd.racksail.catalog.v1 \
+            catalog/index.json:application/vnd.racksail.catalog.index.v1+json \
+            catalog/index.json.sig:application/vnd.racksail.catalog.signature.v1 \
+            catalog.tar.gz:application/vnd.racksail.catalog.archive.v1.tar+gzip
