@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 	"github.com/vilanobeachflorida/racksail/internal/system/sim"
 )
 
@@ -292,6 +294,28 @@ func TestUpdates(t *testing.T) {
 	}
 	if !slices.Equal(ids(items), []string{"updates:restart"}) || items[0].Code != "restart_needed" || items[0].Severity != events.SeverityWarning {
 		t.Errorf("after upgrading = %+v", items)
+	}
+}
+
+func TestSecurityUpdates(t *testing.T) {
+	debian := system.Package{Name: "sudo", Version: "1.9.17-1", Origin: "deb.debian.org"}
+	fix := system.Package{Name: "openssl", Version: "3.5.4-1~deb13u1", Origin: "security.debian.org"}
+	cases := []struct {
+		pkgs     []system.Package
+		severity events.Severity
+		all      string
+		message  string
+	}{
+		{[]system.Package{debian}, events.SeverityNotice, "", ""},
+		{[]system.Package{debian, fix}, events.SeverityWarning, "false", "One of them fixes security problems."},
+		{[]system.Package{fix}, events.SeverityWarning, "true", "It fixes security problems."},
+		{[]system.Package{fix, fix}, events.SeverityWarning, "true", "They all fix security problems."},
+	}
+	for _, c := range cases {
+		it := packagesItem(c.pkgs)
+		if it.Severity != c.severity || it.Params["all"] != c.all || it.Message != c.message || it.Params["count"] != strconv.Itoa(len(c.pkgs)) {
+			t.Errorf("%d packages = %+v", len(c.pkgs), it)
+		}
 	}
 }
 

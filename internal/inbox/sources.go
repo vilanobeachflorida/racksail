@@ -340,29 +340,9 @@ func (u Updates) Items(ctx context.Context, q Query) ([]Item, error) {
 		return nil, err
 	}
 	var out []Item
-	if n := len(plain.Packages); n > 0 {
-		security := 0
-		var names []string
-		for _, p := range plain.Packages {
-			if strings.Contains(strings.ToLower(p.Origin), "security") {
-				security++
-			}
-			names = append(names, p.Name+"="+p.Version)
-		}
-		it := Item{
-			ID: "updates:packages", Category: CategoryUpdate, Severity: events.SeverityNotice, Code: "updates_available",
-			Params: map[string]string{"count": strconv.Itoa(n), "security": strconv.Itoa(security)},
-			Title:  plural(n, "A package update is available", "%d package updates are available"),
-			Time:   q.Now, Scope: store.ServerScope(), Version: version(names...), Access: server,
-			Actions: []Action{docs},
-		}
-		if security > 0 {
-			it.Severity = events.SeverityWarning
-			it.Message = plural(security, "One of them fixes security problems.", "%d of them fix security problems.")
-			if security == n {
-				it.Message = plural(n, "It fixes security problems.", "They all fix security problems.")
-			}
-		}
+	if len(plain.Packages) > 0 {
+		it := packagesItem(plain.Packages)
+		it.Time, it.Access, it.Actions = q.Now, server, []Action{docs}
 		out = append(out, it)
 	}
 	for _, p := range full.Packages {
@@ -395,6 +375,36 @@ func (u Updates) Items(ctx context.Context, q Query) ([]Item, error) {
 		out = append(out, it)
 	}
 	return out, nil
+}
+
+// packagesItem describes the package updates waiting to be installed,
+// more urgent when some of them fix security problems.
+func packagesItem(pkgs []system.Package) Item {
+	n, security := len(pkgs), 0
+	names := make([]string, 0, n)
+	for _, p := range pkgs {
+		if strings.Contains(strings.ToLower(p.Origin), "security") {
+			security++
+		}
+		names = append(names, p.Name+"="+p.Version)
+	}
+	it := Item{
+		ID: "updates:packages", Category: CategoryUpdate, Severity: events.SeverityNotice, Code: "updates_available",
+		Params:  map[string]string{"count": strconv.Itoa(n), "security": strconv.Itoa(security)},
+		Title:   plural(n, "A package update is available", "%d package updates are available"),
+		Scope:   store.ServerScope(),
+		Version: version(names...),
+	}
+	if security > 0 {
+		it.Severity = events.SeverityWarning
+		it.Message = plural(security, "One of them fixes security problems.", "%d of them fix security problems.")
+		// Translations can't compare two numbers, so they're told.
+		it.Params["all"] = strconv.FormatBool(security == n)
+		if security == n {
+			it.Message = plural(n, "It fixes security problems.", "They all fix security problems.")
+		}
+	}
+	return it
 }
 
 // plural picks the singular text for one and fills the plural one with n
