@@ -157,6 +157,7 @@ const sidebar = [
       "community/code-of-conduct",
     ],
   },
+  { slug: "notifications" },
   { slug: "faq" },
 ];
 
