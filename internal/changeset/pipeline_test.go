@@ -785,7 +785,12 @@ func TestChangeSetsOutliveARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.wait(t, keyed)
+	// The first panel's queue is gone before the second starts, as across
+	// a restart: otherwise it can claim the second's job as it stops.
 	stop()
+	if err := first.jobs.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx2, cancel := context.WithCancel(context.Background())
 	defer cancel()
