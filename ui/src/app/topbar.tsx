@@ -29,19 +29,30 @@ import { useTheme } from "@/design/theme/provider";
 import { cn } from "@/lib/utils";
 import { BrandLogo, useBrandName } from "./brand";
 import { messages } from "./messages";
+import { usePageTitles } from "./page-title";
 import { useShell } from "./shell-state";
 import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
 
 /** The documentation site; the panel links to it but never loads anything from it. */
 export const docsURL = "https://vilanobeachflorida.github.io/racksail/";
 
-/** Where the page is: Home, then each route above it that names itself. */
+/**
+ * Where the page is: Home, then each route above it that names itself,
+ * with a message or, for pages such as a resource's, through its screen.
+ */
 export function Breadcrumbs() {
   const intl = useIntl();
   const matches = useMatches();
+  const titles = usePageTitles();
   const trail = matches
-    .filter((match) => match.staticData.title && match.pathname !== "/")
-    .filter((match, i, all) => all.findIndex((m) => m.pathname === match.pathname) === i);
+    .map((match) => ({
+      match,
+      title:
+        titles[match.id]?.crumb ??
+        (match.staticData.title ? intl.formatMessage(match.staticData.title) : ""),
+    }))
+    .filter(({ match, title }) => title !== "" && match.pathname !== "/")
+    .filter(({ match }, i, all) => all.findIndex((m) => m.match.pathname === match.pathname) === i);
   return (
     <nav aria-label={intl.formatMessage(messages.breadcrumb)} className="min-w-0">
       <ol className="flex min-w-0 items-center gap-1 text-sm">
@@ -53,8 +64,7 @@ export function Breadcrumbs() {
             {intl.formatMessage(messages.navHome)}
           </Link>
         </li>
-        {trail.map((match, i) => {
-          const title = match.staticData.title ? intl.formatMessage(match.staticData.title) : "";
+        {trail.map(({ match, title }, i) => {
           const last = i === trail.length - 1;
           return (
             // Phones only have room for the page itself.

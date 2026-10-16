@@ -6,6 +6,7 @@ import {
   availableLocales,
   isRightToLeft,
   loadMessages,
+  loadScreenMessages,
   locales,
   pickLocale,
   shellMessages,
@@ -45,9 +46,26 @@ describe("messages", () => {
     expect(shellMessages["error.core.not_found"]).toBe("{what} doesn't exist or was deleted.");
   });
 
+  it("load the screens' own catalogs apart from the shell's, sharing no ids", async () => {
+    const screens = await loadScreenMessages("en");
+    const inbox = await loadScreenMessages("en", "inbox");
+    expect(screens["app.resource.create"]).toBe("New {kind}");
+    expect(inbox["app.inbox.title"]).toBe("Needs your attention");
+    const ids = [shellMessages, screens, inbox].flatMap((catalog) => Object.keys(catalog));
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+    const pseudo = await loadScreenMessages("en-XA", "inbox");
+    expect(pseudo["app.inbox.title"]).toBe(pseudoMessage("Needs your attention", "en-XA"));
+    expect(await loadScreenMessages("eo")).toEqual(screens);
+  });
+
   it("are all valid messages", () => {
     const catalogs = import.meta.glob<Record<string, string>>(
-      ["../app/messages/*.json", "../modules/*/messages/*.json"],
+      [
+        "../app/messages/*.json",
+        "../app/screens/messages/*.json",
+        "../app/screens/inbox/messages/*.json",
+        "../modules/*/messages/*.json",
+      ],
       { eager: true, import: "default" },
     );
     const broken: string[] = [];
@@ -61,6 +79,7 @@ describe("messages", () => {
       }
     }
     expect(Object.keys(catalogs)).toContain("../app/messages/en.json");
+    expect(Object.keys(catalogs)).toContain("../app/screens/messages/en.json");
     expect(broken).toEqual([]);
   });
 });

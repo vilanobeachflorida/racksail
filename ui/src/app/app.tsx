@@ -42,6 +42,7 @@ import { createQueryClient } from "@/lib/query";
 import { loadModules, type ModuleId } from "@/modules/registry";
 import type { ModuleUI } from "@/modules/types";
 import { BootError } from "./errors";
+import { GeneralPreferencesProvider, useGeneralPreferences } from "./general";
 import { messages } from "./messages";
 import { type ModuleState, ModulesProvider } from "./modules";
 import { createAppRouter } from "./router";
@@ -95,14 +96,16 @@ export function App({ api, queryClient, locale, history, onIntlError, session, l
     <ApiProvider client={api}>
       <QueryClientProvider client={client}>
         <LiveProvider {...(live ? { client: live } : {})}>
-          <SessionPanel
-            api={api}
-            given={session}
-            locale={shown}
-            history={history}
-            onIntlError={onIntlError}
-            localeChoice={localeChoice}
-          />
+          <GeneralPreferencesProvider>
+            <SessionPanel
+              api={api}
+              given={session}
+              locale={shown}
+              history={history}
+              onIntlError={onIntlError}
+              localeChoice={localeChoice}
+            />
+          </GeneralPreferencesProvider>
         </LiveProvider>
       </QueryClientProvider>
     </ApiProvider>
@@ -263,6 +266,7 @@ function Panel({
   can: ((permission: string) => boolean) | undefined;
 }) {
   const queryClient = useQueryClient();
+  const { preferences: general } = useGeneralPreferences();
   const loaded = useQuery({
     queryKey: ["panel", locale],
     queryFn: () => load(locale),
@@ -287,7 +291,13 @@ function Panel({
     );
   }
   return (
-    <I18nProvider locale={locale} messages={loaded.data.messages} onError={onIntlError}>
+    <I18nProvider
+      locale={locale}
+      messages={loaded.data.messages}
+      onError={onIntlError}
+      {...(general.timeZone ? { timeZone: general.timeZone } : {})}
+      {...(general.hourCycle ? { hourCycle: general.hourCycle } : {})}
+    >
       <TooltipProvider delayDuration={400}>
         <ModulesProvider
           modules={loaded.data.modules}

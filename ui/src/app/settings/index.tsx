@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, Paintbrush, Palette } from "lucide-react";
+import { ChevronRight, Paintbrush, Palette, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { messages } from "../messages";
 import { useActiveModules, usePermission } from "../modules";
+import { generalMessages } from "../screens/messages";
 
 function Entry({
   to,
@@ -59,6 +60,12 @@ export default function SettingsIndex() {
           {intl.formatMessage(messages.settingsPanel)}
         </h2>
         <ul className="flex flex-col gap-2">
+          <Entry
+            to="/settings/general"
+            icon={<SlidersHorizontal aria-hidden="true" />}
+            title={intl.formatMessage(messages.generalTitle)}
+            description={intl.formatMessage(generalMessages.teaser)}
+          />
           <Entry
             to="/settings/appearance"
             icon={<Palette aria-hidden="true" />}

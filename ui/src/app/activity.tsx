@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Bell,
   CircleX,
@@ -26,7 +26,11 @@ import { ariaKeyShortcuts } from "./shortcuts";
 
 const shown = 8;
 
-const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }> = {
+/** How many quick actions the card offers before the command bar. */
+const quickActions = 6;
+
+/** How each severity looks: an icon, and the color that goes with it. */
+export const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }> = {
   info: { icon: Info, tone: "text-muted-foreground" },
   notice: { icon: Bell, tone: "text-info" },
   warning: { icon: TriangleAlert, tone: "text-warning" },
@@ -104,6 +108,9 @@ export function RecentActivity() {
             })}
           </ol>
         )}
+        <Button asChild variant="link" className="mt-3">
+          <Link to="/events">{intl.formatMessage(messages.activityAll)}</Link>
+        </Button>
       </CardContent>
     </Card>
   );
@@ -119,7 +126,7 @@ export function QuickActions() {
   const navigate = useNavigate();
   const modules = useActiveModules();
   const allowed = usePermission();
-  const actions = moduleCommands(modules, allowed).slice(0, 6);
+  const actions = moduleCommands(modules, allowed).slice(0, quickActions);
   return (
     <Card aria-labelledby="quick-actions-title">
       <CardHeader>

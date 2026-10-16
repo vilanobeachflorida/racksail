@@ -1,18 +1,30 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useMatches, useNavigate } from "@tanstack/react-router";
 import {
+  Boxes,
+  Clock,
   Contrast,
+  FileSearch,
+  History,
   House,
   Keyboard,
   ListChecks,
+  ListTree,
   Monitor,
   Moon,
   Palette,
+  Pencil,
+  Play,
+  Plus,
+  Search,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   Sun,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useIntl } from "react-intl";
 import {
   Command,
@@ -26,26 +38,81 @@ import {
 } from "@/design/components/ui/command";
 import { DialogOverlay } from "@/design/components/ui/dialog";
 import { useTheme } from "@/design/theme/provider";
+import { useChangeTracker } from "./changes/tracker";
+import { useGeneralPreferences } from "./general";
 import { messages } from "./messages";
-import { moduleCommands, navEntries, useActiveModules, usePermission } from "./modules";
+import { moduleCommands, navEntries, useActiveModules, useModules, usePermission } from "./modules";
+import { commandMessages as cm } from "./screens/messages";
+import { loadRecent } from "./screens/recent";
+import {
+  actionTitle,
+  kindAt,
+  kindNoun,
+  kindPath,
+  kindPlural,
+  kindTitle,
+  moduleName,
+  resourcePath,
+  resourceTitle,
+  useKinds,
+} from "./screens/resources/kinds";
+import { useKindsFor } from "./screens/resources/operations";
+import { useResource } from "./screens/resources/queries";
+import { minSearch, useResourceSearch } from "./screens/search/api";
 import { useShell } from "./shell-state";
 import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
 
+/** Who may see the event timeline, as internal/api checks it. */
+const eventReadPermission = "core.event.read";
+
+/** The resource the screen behind the bar shows, when it shows one through the generic screens. */
+function useShownResource() {
+  const matches = useMatches();
+  const params = (matches.at(-1)?.params ?? {}) as {
+    module?: string;
+    plural?: string;
+    id?: string;
+  };
+  const kinds = useKinds().data ?? [];
+  const kind =
+    params.module && params.plural ? kindAt(kinds, params.module, params.plural) : undefined;
+  const resource = useResource(params.id ? kind : undefined, params.id);
+  return kind && resource.data && !resource.data.deletedAt
+    ? { kind, resource: resource.data }
+    : null;
+}
+
 /**
- * The command bar (⌘K): go anywhere, run any action modules offer, change
- * the appearance, and, with the assistant on, ask a question or run one of
- * its / commands from the same input.
+ * The command bar (⌘K): go anywhere, find resources of any kind, start a
+ * new one, run what the screen's resource offers and the actions modules
+ * add, open what was opened recently, undo the last change, change the
+ * appearance, and, with the assistant on, ask a question or run one of its
+ * / commands from the same input.
  */
 export default function CommandBar() {
   const intl = useIntl();
   const shell = useShell();
   const navigate = useNavigate();
   const modules = useActiveModules();
+  const allModules = useModules();
   const allowed = usePermission();
+  const tracker = useChangeTracker();
   const { preferences, setPreferences } = useTheme();
+  const { preferences: general } = useGeneralPreferences();
   const [query, setQuery] = useState("");
   const assistant = shell.assistant;
   const slash = query.startsWith("/");
+  const listable = useKindsFor("list");
+  const creatable = useKindsFor("create");
+  const shown = useShownResource();
+  const text = query.trim();
+  const searching = !slash && text.length >= minSearch;
+  const found = useResourceSearch(searching ? text : "", 5);
+  const kinds = useKinds().data ?? [];
+  const recent = useMemo(
+    () => (shell.commandOpen && general.rememberRecent ? loadRecent() : []),
+    [shell.commandOpen, general.rememberRecent],
+  );
   const close = () => {
     shell.setCommandOpen(false);
     setQuery("");
@@ -63,6 +130,24 @@ export default function CommandBar() {
       .filter((p) => allowed(p.permission))
       .map((p) => ({ key: `${m.id}.${p.id}`, title: p.title, to: `/settings/${m.id}/${p.id}` })),
   );
+  const moduleTitle = (id: string) => moduleName(intl, allModules, id, messages.resourcesPanel);
+  const pages = [
+    { to: "/jobs", label: messages.jobsAll, icon: ListChecks, show: true },
+    {
+      to: "/events",
+      label: messages.eventsTitle,
+      icon: History,
+      show: allowed(eventReadPermission),
+    },
+    { to: "/changes", label: messages.changesTitle, icon: Undo2, show: true },
+    { to: "/resources", label: messages.resourcesTitle, icon: Boxes, show: true },
+    { to: "/search", label: messages.searchTitle, icon: FileSearch, show: true },
+  ].filter((p) => p.show);
+  const results = searching ? (found.data?.results ?? []) : [];
+  const may = (operation: string) => (shown ? allowed(`${shown.kind.name}.${operation}`) : false);
+  const shownName = shown ? resourceTitle(shown.kind, shown.resource) : "";
+  const shownPath = shown ? resourcePath(shown.kind, shown.resource.id) : "";
+  const last = tracker.last;
 
   return (
     <DialogPrimitive.Root
@@ -126,6 +211,97 @@ export default function CommandBar() {
               ) : null}
               {slash && assistant ? null : (
                 <>
+                  {results.length > 0 ? (
+                    <CommandGroup heading={intl.formatMessage(cm.resources)} forceMount>
+                      {results.map((r) => {
+                        const kind = kinds.find((k) => k.name === r.kind);
+                        return kind ? (
+                          <CommandItem
+                            key={r.id}
+                            value={`resource ${r.id}`}
+                            keywords={[r.title, r.subtitle ?? "", r.id]}
+                            forceMount
+                            onSelect={() => go(resourcePath(kind, r.id))}
+                          >
+                            <Search aria-hidden="true" />
+                            <span className="truncate">{r.title}</span>{" "}
+                            <span className="shrink-0 text-muted-foreground text-xs">
+                              {kindTitle(intl, kind)}
+                            </span>
+                          </CommandItem>
+                        ) : null;
+                      })}
+                      <CommandItem
+                        value="search everything"
+                        forceMount
+                        onSelect={() => {
+                          close();
+                          void navigate({ to: "/search", search: { q: text } });
+                        }}
+                      >
+                        <FileSearch aria-hidden="true" />
+                        {intl.formatMessage(cm.allResults, { q: text })}
+                      </CommandItem>
+                    </CommandGroup>
+                  ) : null}
+                  {shown ? (
+                    <CommandGroup
+                      heading={intl.formatMessage(cm.thisResource, { name: shownName })}
+                    >
+                      {may("update") ? (
+                        <CommandItem
+                          value={intl.formatMessage(cm.edit, { name: shownName })}
+                          onSelect={() => go(`${shownPath}/edit`)}
+                        >
+                          <Pencil aria-hidden="true" />
+                          {intl.formatMessage(cm.edit, { name: shownName })}
+                        </CommandItem>
+                      ) : null}
+                      {(shown.kind.actions ?? [])
+                        .filter((a) => may(a.name))
+                        .map((a) => (
+                          <CommandItem
+                            key={a.name}
+                            value={`${actionTitle(intl, shown.kind, a)} ${shownName}`}
+                            onSelect={() => {
+                              close();
+                              void navigate({ to: shownPath, search: { action: a.name } });
+                            }}
+                          >
+                            <Play aria-hidden="true" />
+                            {actionTitle(intl, shown.kind, a)}
+                          </CommandItem>
+                        ))}
+                      {may("delete") ? (
+                        <CommandItem
+                          value={intl.formatMessage(cm.delete, { name: shownName })}
+                          onSelect={() => {
+                            close();
+                            void navigate({ to: shownPath, search: { action: "delete" } });
+                          }}
+                        >
+                          <Trash2 aria-hidden="true" />
+                          {intl.formatMessage(cm.delete, { name: shownName })}
+                        </CommandItem>
+                      ) : null}
+                    </CommandGroup>
+                  ) : null}
+                  {recent.length > 0 ? (
+                    <CommandGroup heading={intl.formatMessage(cm.recent)}>
+                      {recent.map((r) => (
+                        <CommandItem
+                          key={r.path}
+                          value={`recent ${r.path}`}
+                          keywords={[r.title, r.what]}
+                          onSelect={() => go(r.path)}
+                        >
+                          <Clock aria-hidden="true" />
+                          <span className="truncate">{r.title}</span>{" "}
+                          <span className="shrink-0 text-muted-foreground text-xs">{r.what}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ) : null}
                   <CommandGroup heading={intl.formatMessage(messages.commandNavigation)}>
                     <CommandItem
                       value={intl.formatMessage(messages.navHome)}
@@ -147,9 +323,56 @@ export default function CommandBar() {
                         </span>
                       </CommandItem>
                     ))}
+                    {pages.map((p) => (
+                      <CommandItem
+                        key={p.to}
+                        value={intl.formatMessage(p.label)}
+                        onSelect={() => go(p.to)}
+                      >
+                        <p.icon aria-hidden="true" />
+                        {intl.formatMessage(p.label)}
+                      </CommandItem>
+                    ))}
+                    {listable.map((kind) => (
+                      <CommandItem
+                        key={kind.name}
+                        value={`list ${kind.name}`}
+                        keywords={[kindPlural(intl, kind), moduleTitle(kind.module)]}
+                        onSelect={() => go(kindPath(kind))}
+                      >
+                        <ListTree aria-hidden="true" />
+                        {kindPlural(intl, kind)}{" "}
+                        <span className="text-muted-foreground text-xs">
+                          {moduleTitle(kind.module)}
+                        </span>
+                      </CommandItem>
+                    ))}
                   </CommandGroup>
-                  {moduleCommands(modules, allowed).length > 0 ? (
+                  {creatable.length > 0 || moduleCommands(modules, allowed).length > 0 || last ? (
                     <CommandGroup heading={intl.formatMessage(messages.commandActions)}>
+                      {last ? (
+                        <CommandItem
+                          value={intl.formatMessage(cm.undoLast, { title: last.title })}
+                          onSelect={() => {
+                            close();
+                            void tracker.undo(last.id);
+                          }}
+                        >
+                          <Undo2 aria-hidden="true" />
+                          {intl.formatMessage(cm.undoLast, { title: last.title })}
+                        </CommandItem>
+                      ) : null}
+                      {creatable.map((kind) => (
+                        <CommandItem
+                          key={kind.name}
+                          value={`new ${kind.name}`}
+                          keywords={[intl.formatMessage(cm.create, { kind: kindNoun(intl, kind) })]}
+                          onSelect={() => go(`${kindPath(kind)}/new`)}
+                        >
+                          <Plus aria-hidden="true" />
+                          {intl.formatMessage(cm.create, { kind: kindNoun(intl, kind) })}
+                        </CommandItem>
+                      ))}
                       {moduleCommands(modules, allowed).map((c) => (
                         <CommandItem
                           key={c.key}
@@ -179,6 +402,13 @@ export default function CommandBar() {
                     >
                       <Settings aria-hidden="true" />
                       {intl.formatMessage(messages.navSettings)}
+                    </CommandItem>
+                    <CommandItem
+                      value={intl.formatMessage(messages.generalTitle)}
+                      onSelect={() => go("/settings/general")}
+                    >
+                      <SlidersHorizontal aria-hidden="true" />
+                      {intl.formatMessage(messages.generalTitle)}
                     </CommandItem>
                     <CommandItem
                       value={intl.formatMessage(messages.appearanceTitle)}

@@ -1,6 +1,8 @@
-import { Outlet, useMatches, useNavigate } from "@tanstack/react-router";
+import { Link, Outlet, useMatches, useNavigate } from "@tanstack/react-router";
+import { ListChecks } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useIntl } from "react-intl";
+import { Button } from "@/design/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/design/components/ui/dialog";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { Toaster } from "@/design/components/ui/toaster";
@@ -8,11 +10,14 @@ import { jobDone } from "@/lib/changes";
 import { useMediaQuery } from "@/lib/media";
 import { AssistantDock } from "./assistant-dock";
 import { BrandMark, useBrandName } from "./brand";
+import { ChangeTrackerProvider } from "./changes/tracker";
 import { RouteAnnouncer, useRouteFocus } from "./focus";
 import { useJobs } from "./jobs";
 import { messages } from "./messages";
 import { moduleCommands, useActiveModules, usePermission } from "./modules";
+import { PageTitleProvider, usePageTitles } from "./page-title";
 import { NavLinks, Rail } from "./rail";
+import { ScreenMessages } from "./screens/catalog";
 import { useShell } from "./shell-state";
 import { type Binding, useShortcuts } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
@@ -32,12 +37,26 @@ function useOpenedOnce(open: boolean): boolean {
   return opened || open;
 }
 
-/** Keeps the browser tab's title on the deepest route that names its page. */
+/**
+ * Keeps the browser tab's title on the deepest route that names its page,
+ * with a message or, for pages such as a resource's, through its screen.
+ */
 function useDocumentTitle() {
   const intl = useIntl();
   const matches = useMatches();
-  const title = matches.findLast((match) => match.staticData.title)?.staticData.title;
-  const page = title ? intl.formatMessage(title) : "";
+  const titles = usePageTitles();
+  let page = "";
+  for (const match of matches.toReversed()) {
+    const given = titles[match.id];
+    if (given) {
+      page = given.document ?? given.crumb;
+      break;
+    }
+    if (match.staticData.title) {
+      page = intl.formatMessage(match.staticData.title);
+      break;
+    }
+  }
   const name = useBrandName();
   useEffect(() => {
     document.title = page ? intl.formatMessage(messages.documentTitle, { page, name }) : name;
@@ -94,9 +113,21 @@ function MobileNav() {
 /**
  * The frame around every screen: skip links, the top bar, the icon rail,
  * the content, the assistant dock and the command bar, jobs drawer and
- * shortcut help they open.
+ * shortcut help they open, with the titles screens give their pages and
+ * the tracker that follows the changes people apply.
  */
 export function Shell() {
+  return (
+    <PageTitleProvider>
+      <ChangeTrackerProvider>
+        <Frame />
+      </ChangeTrackerProvider>
+    </PageTitleProvider>
+  );
+}
+
+function Frame() {
+  const intl = useIntl();
   const shell = useShell();
   const navigate = useNavigate();
   const modules = useActiveModules();
@@ -153,12 +184,26 @@ export function Shell() {
       <MobileNav />
       {commandShown ? (
         <Suspense fallback={null}>
-          <CommandBar />
+          <ScreenMessages fallback={null}>
+            <CommandBar />
+          </ScreenMessages>
         </Suspense>
       ) : null}
       {jobsShown ? (
         <Suspense fallback={null}>
-          <Jobs open={shell.jobsOpen} onOpenChange={shell.setJobsOpen} />
+          <Jobs
+            open={shell.jobsOpen}
+            onOpenChange={shell.setJobsOpen}
+            focusJob={shell.focusedJob}
+            footer={
+              <Button asChild variant="outline" className="mt-auto self-start">
+                <Link to="/jobs" onClick={() => shell.setJobsOpen(false)}>
+                  <ListChecks aria-hidden="true" />
+                  {intl.formatMessage(messages.jobsAll)}
+                </Link>
+              </Button>
+            }
+          />
         </Suspense>
       ) : null}
       <ShortcutsHelp />

@@ -6,17 +6,10 @@ import { Button } from "@/design/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/design/components/ui/choice";
 import { Label } from "@/design/components/ui/field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/design/components/ui/select";
 import { type Preferences, preferenceOptions } from "@/design/theme/prefs";
 import { useTheme } from "@/design/theme/provider";
-import { availableLocales, useLocaleChoice } from "@/lib/i18n";
 import { messages } from "../messages";
+import { ThemeLayers } from "./theme-layers";
 
 type Option<K extends keyof Preferences> = {
   value: Preferences[K];
@@ -65,12 +58,13 @@ function Choice<K extends keyof Preferences>({
   );
 }
 
-/** Personal display settings: mode, contrast, density, text size, motion and language. */
+/**
+ * Personal display settings, the top theme layer: mode, contrast, density,
+ * text size and motion, over the themes the server and reseller set.
+ */
 export default function AppearanceSettings() {
   const intl = useIntl();
   const t = (d: MessageDescriptor) => intl.formatMessage(d);
-  const [locale, setLocale] = useLocaleChoice();
-  const languageId = useId();
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex flex-col gap-1">
@@ -144,28 +138,7 @@ export default function AppearanceSettings() {
           ),
         }))}
       />
-      <Card aria-labelledby={`${languageId}-title`}>
-        <CardHeader>
-          <CardTitle id={`${languageId}-title`}>{t(messages.appearanceLanguage)}</CardTitle>
-          <CardDescription>{t(messages.appearanceLanguageHelp)}</CardDescription>
-        </CardHeader>
-        <Select
-          value={locale ?? "browser"}
-          onValueChange={(v) => setLocale(v === "browser" ? null : v)}
-        >
-          <SelectTrigger className="max-w-xs" aria-labelledby={`${languageId}-title`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="browser">{t(messages.languageBrowser)}</SelectItem>
-            {availableLocales().map((l) => (
-              <SelectItem key={l.tag} value={l.tag}>
-                {l.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Card>
+      <ThemeLayers />
       <Card>
         <CardHeader>
           <CardTitle>{t(messages.themeEditorTitle)}</CardTitle>
