@@ -101,19 +101,26 @@ func (m *Memory) History(ctx context.Context, id ID) ([]Version, error) {
 }
 
 // Write implements Store. Writes are serialized; fn sees its own changes and
-// nothing is visible to others until it returns without an error.
+// nothing is visible to others until it returns without an error. A panic in
+// fn writes nothing and leaves the store free for the next write.
 func (m *Memory) Write(ctx context.Context, meta WriteMeta, fn func(tx Tx) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	tx := &memTx{kinds: m.kinds, state: m.state.clone(), meta: meta, now: m.now().UTC()}
-	err := fn(tx)
-	tx.closed = true
-	if err == nil {
-		m.state = tx.state
-	}
-	m.mu.Unlock()
+	tx := &memTx{kinds: m.kinds, meta: meta, now: m.now().UTC()}
+	err := func() error {
+		m.mu.Lock()
+		defer func() {
+			tx.closed = true
+			m.mu.Unlock()
+		}()
+		tx.state = m.state.clone()
+		err := fn(tx)
+		if err == nil {
+			m.state = tx.state
+		}
+		return err
+	}()
 	if err != nil {
 		return err
 	}

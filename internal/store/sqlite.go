@@ -265,9 +265,8 @@ func (s *SQLite) Write(ctx context.Context, meta WriteMeta, fn func(tx Tx) error
 	var tx *sqliteTx
 	err := s.db.Write(ctx, func(sqlTx *sql.Tx) error {
 		tx = &sqliteTx{tx: sqlTx, kinds: s.kinds, meta: meta, now: s.now().UTC()}
-		err := fn(tx)
-		tx.closed = true
-		return err
+		defer func() { tx.closed = true }()
+		return fn(tx)
 	})
 	if err != nil {
 		return err
