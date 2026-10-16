@@ -804,8 +804,10 @@ func TestJobReconcilesAreNotRetried(t *testing.T) {
 	ctx := context.Background()
 	r, s, h, _, release := holdSetup(t)
 	close(release)
-	run(t, r, time.Hour)
+	// The note is there before the queue starts: its first pass lists what
+	// is stored then, and the next is an hour away.
 	id := createNote(t, s, "fails")
+	run(t, r, time.Hour)
 	// The queue's first pass reconciles it once.
 	waitFor(t, "reconciled the note", func() bool { st := r.Stats(); return st.Reconciles >= 1 && st.Running == 0 && st.Queued == 0 })
 	h.fail.Store(true)
