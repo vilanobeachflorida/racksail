@@ -63,10 +63,26 @@ func (b *syncBuffer) String() string {
 }
 
 // people is the directory of users of a panel, which says who is turned
-// off.
+// off, and which sessions and tokens ended.
 type people struct {
-	mu  sync.Mutex
-	off map[store.ID]bool
+	mu    sync.Mutex
+	off   map[store.ID]bool
+	ended map[string]bool
+}
+
+func (p *people) SignedIn(ctx context.Context, actor *auth.Actor) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if actor.Type == auth.ActorToken {
+		return !p.ended[string(actor.ID)]
+	}
+	return !p.ended[actor.SessionID]
+}
+
+func (p *people) end(what string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ended[what] = true
 }
 
 func (p *people) User(ctx context.Context, id store.ID) (auth.DirectoryUser, error) {
@@ -81,12 +97,22 @@ func (p *people) Members(ctx context.Context, account store.ID) ([]auth.Director
 
 func (p *people) SSHKeys(ctx context.Context, user store.ID) ([]auth.SSHKey, error) { return nil, nil }
 
-// signedIn signs in requests with the session cookie of one person.
-type signedIn struct{ actor *auth.Actor }
+// signedIn signs in requests with the session cookie of one person, and
+// with tokens, when it has some, as they are.
+type signedIn struct {
+	actor  *auth.Actor
+	tokens map[string]*auth.Actor
+}
 
 const adaSession = "racksail_session=ada"
 
 func (s signedIn) Authenticate(ctx context.Context, r *http.Request) (*auth.Actor, error) {
+	if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		if a, ok := s.tokens[bearer]; ok {
+			return a.Clone(), nil
+		}
+		return nil, auth.ErrTokenInvalid.New()
+	}
 	if r.Header.Get("Cookie") != adaSession {
 		return nil, nil
 	}
@@ -167,12 +193,15 @@ upstream: []
 	return srvAPI.Handler(), logs
 }
 
-// openScreen opens a screen, with a session cookie when given one, and
-// returns the frame the panel sends it to.
+// openScreen opens a screen, with a session cookie, or a token as
+// "Bearer <token>", when given one, and returns the frame the panel sends
+// it to.
 func openScreen(t *testing.T, h http.Handler, path, cookie string) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	if cookie != "" {
+	if bearer, ok := strings.CutPrefix(cookie, "Bearer "); ok {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	} else if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
 	rec := httptest.NewRecorder()
@@ -243,8 +272,8 @@ func TestAddonScreensOpenInFrames(t *testing.T) {
 // again.
 func TestFramesCloseForPeopleTurnedOff(t *testing.T) {
 	ada := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "ada", Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleCollaborator, Scope: store.ServerScope()}}}
-	dir := &people{off: map[store.ID]bool{}}
-	h, logs := withAddon(t, signedIn{ada}, dir)
+	dir := &people{off: map[store.ID]bool{}, ended: map[string]bool{}}
+	h, logs := withAddon(t, signedIn{actor: ada}, dir)
 	frame := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html", adaSession)
 	load := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
@@ -274,5 +303,45 @@ func TestFramesCloseForPeopleTurnedOff(t *testing.T) {
 	dir.mu.Unlock()
 	if rec := load(); rec.Code != http.StatusNotFound {
 		t.Errorf("the frame once they're back = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// A frame works only as long as what its person opened it with does: it
+// closes once the session ends, when they sign out or their sessions are
+// ended, or once the API token it was opened with is revoked, and it stays
+// closed.
+func TestFramesCloseWithTheirSignIn(t *testing.T) {
+	ada := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "ada", Source: auth.SourceUI, SessionID: "sess_ada",
+		Grants: []auth.Grant{{Role: auth.RoleCollaborator, Scope: store.ServerScope()}}}
+	token := &auth.Actor{Type: auth.ActorToken, ID: store.NewID("tok"), Name: "scripts", User: ada.ID, Source: auth.SourceAPI,
+		Grants: []auth.Grant{{Role: auth.RoleCollaborator, Scope: store.ServerScope()}}}
+	dir := &people{off: map[store.ID]bool{}, ended: map[string]bool{}}
+	h, _ := withAddon(t, signedIn{actor: ada, tokens: map[string]*auth.Actor{"rst_scripts": token}}, dir)
+	load := func(frame string) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, frame, nil))
+		return rec.Code
+	}
+	bySession := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html", adaSession)
+	byToken := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html", "Bearer rst_scripts")
+	if load(bySession) != http.StatusOK || load(byToken) != http.StatusOK {
+		t.Fatal("the frames don't work")
+	}
+	dir.end("sess_ada")
+	if code := load(bySession); code != http.StatusNotFound {
+		t.Errorf("the frame of a session that ended = %d", code)
+	}
+	if code := load(byToken); code != http.StatusOK {
+		t.Errorf("the frame of the token, which still works = %d", code)
+	}
+	dir.end(string(token.ID))
+	if code := load(byToken); code != http.StatusNotFound {
+		t.Errorf("the frame of a token revoked = %d", code)
+	}
+	dir.mu.Lock()
+	dir.ended = map[string]bool{}
+	dir.mu.Unlock()
+	if load(bySession) != http.StatusNotFound || load(byToken) != http.StatusNotFound {
+		t.Error("a frame closed opens again")
 	}
 }

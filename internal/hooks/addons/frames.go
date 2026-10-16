@@ -32,19 +32,32 @@ const (
 	// request, and FrameLifetime how long it works at most.
 	FrameIdle     = 30 * time.Minute
 	FrameLifetime = 12 * time.Hour
-	// maxFrames bounds the frames kept; the least recently used go first.
-	maxFrames = 4096
+	// maxFrames bounds the frames kept, and framesPerPerson those of one
+	// person: opening another closes their own least recently used. When
+	// the frames of many people fill the table, whoever holds the most
+	// gives one up, so opening screens never closes those of someone who
+	// holds few.
+	maxFrames       = 4096
+	framesPerPerson = 16
 )
 
 // ErrFrameGone answers a request at a frame's address once it stopped
 // working, or for an add-on that no longer runs.
 var ErrFrameGone = i18n.Define("addons.frame_gone", http.StatusNotFound, "This screen of {addon} was left too long, or the add-on stopped. Open it again from the panel.")
 
-// frame is one screen someone opened.
+// frame is one screen someone opened; owner says who, as framesOf counts
+// them.
 type frame struct {
 	instance     string
 	actor        *auth.Actor
+	owner        string
 	opened, used time.Time
+}
+
+// frameOwner tells apart the people frames are opened for: the person or
+// token, and who views the panel as them.
+func frameOwner(a *auth.Actor) string {
+	return string(a.Type) + ":" + string(a.ID) + ":" + string(a.Impersonator)
 }
 
 // frames are the frames open, by the hash of their token, which is all the
@@ -81,23 +94,45 @@ func (r *Runtime) OpenFrame(inst string, actor *auth.Actor) (string, error) {
 		return "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	owner := frameOwner(actor)
 	f := &r.frames
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := f.now()
-	var oldest string
+	held := map[string][]string{}
 	for key, fr := range f.open {
 		if fr.done(now) {
 			delete(f.open, key)
-		} else if oldest == "" || fr.used.Before(f.open[oldest].used) {
+			continue
+		}
+		held[fr.owner] = append(held[fr.owner], key)
+	}
+	switch {
+	case len(held[owner]) >= framesPerPerson:
+		f.closeLeastUsed(held[owner])
+	case len(f.open) >= maxFrames:
+		most := ""
+		for o, keys := range held {
+			if most == "" || len(keys) > len(held[most]) {
+				most = o
+			}
+		}
+		f.closeLeastUsed(held[most])
+	}
+	f.open[frameKey(token)] = &frame{instance: inst, actor: actor.Clone(), owner: owner, opened: now, used: now}
+	return FrameBase(inst, token), nil
+}
+
+// closeLeastUsed closes the frame of keys whose last request was longest
+// ago. f.mu is held.
+func (f *frames) closeLeastUsed(keys []string) {
+	oldest := ""
+	for _, key := range keys {
+		if oldest == "" || f.open[key].used.Before(f.open[oldest].used) {
 			oldest = key
 		}
 	}
-	if len(f.open) >= maxFrames {
-		delete(f.open, oldest)
-	}
-	f.open[frameKey(token)] = &frame{instance: inst, actor: actor.Clone(), opened: now, used: now}
-	return FrameBase(inst, token), nil
+	delete(f.open, oldest)
 }
 
 func (fr *frame) done(now time.Time) bool {

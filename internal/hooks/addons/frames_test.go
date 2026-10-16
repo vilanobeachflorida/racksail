@@ -2,6 +2,7 @@ package addons
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -149,4 +150,70 @@ func TestScreenFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	gone(open+"ui/tab", "a frame of an add-on turned off")
+}
+
+// Opening screens never closes those of someone who holds few: one person
+// keeps framesPerPerson frames at most, their own least recently used going
+// first, and when many people's frames fill the table, whoever holds the
+// most gives one up.
+func TestFramesPerPerson(t *testing.T) {
+	e := newEnv(t)
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "core.addon", Scope: store.ServerScope(), Spec: spec(t, withKinds(t, guardManifest))}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing: %v %+v", err, cs)
+	}
+	now := time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)
+	e.runtime.frames.now = func() time.Time {
+		now = now.Add(time.Millisecond)
+		return now
+	}
+	person := func(name string) *auth.Actor {
+		return &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: name, Source: auth.SourceUI}
+	}
+	open := func(a *auth.Actor) string {
+		t.Helper()
+		base, err := e.runtime.OpenFrame("site-guard", a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSuffix(strings.TrimPrefix(base, "/api/v1/addons/site-guard/frames/"), "/")
+	}
+	works := func(token string) bool { return e.runtime.FrameOf(token) != nil }
+	kept := func() int {
+		e.runtime.frames.mu.Lock()
+		defer e.runtime.frames.mu.Unlock()
+		return len(e.runtime.frames.open)
+	}
+
+	ada := open(person("ada"))
+	for i := range (maxFrames - 1) / framesPerPerson {
+		p := person(fmt.Sprintf("p%d", i))
+		for range framesPerPerson {
+			open(p)
+		}
+	}
+	mallory := person("mallory")
+	var hers []string
+	for kept() < maxFrames {
+		hers = append(hers, open(mallory))
+	}
+	// The table is full: a frame more takes one of someone who holds the
+	// most, never ada's, though hers was used longest ago.
+	for range framesPerPerson + 1 - len(hers) {
+		hers = append(hers, open(mallory))
+	}
+	if !works(ada) {
+		t.Error("filling the table closed the frame of someone who holds one")
+	}
+	if n := kept(); n != maxFrames {
+		t.Errorf("%d frames are kept", n)
+	}
+	held := 0
+	for _, token := range hers {
+		if works(token) {
+			held++
+		}
+	}
+	if held != framesPerPerson || works(hers[0]) || !works(hers[len(hers)-1]) {
+		t.Errorf("mallory holds %d frames, her first open %v and her last %v", held, works(hers[0]), works(hers[len(hers)-1]))
+	}
 }

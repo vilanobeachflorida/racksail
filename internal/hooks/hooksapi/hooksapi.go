@@ -458,9 +458,11 @@ func addonFrames(svc *modules.Services) http.Handler {
 	})
 }
 
-// current is a person as they are now: turned off or gone, nobody, and
-// otherwise with the grants they have now. Without the directory of users,
-// they are as they were.
+// current is a person as they are now: signed out, turned off or gone,
+// nobody, and otherwise with the grants they have now. Signed out means the
+// session they opened the frame with ended, or the API token they opened it
+// with was revoked or expired. Without the directory of users, they are as
+// they were.
 func current(ctx context.Context, svc *modules.Services, actor *auth.Actor) *auth.Actor {
 	person := actor.User
 	if actor.Type == auth.ActorUser {
@@ -468,6 +470,9 @@ func current(ctx context.Context, svc *modules.Services, actor *auth.Actor) *aut
 	}
 	if svc.Identity == nil || person == "" {
 		return actor
+	}
+	if signIns, ok := svc.Identity.(auth.SignInChecker); ok && !signIns.SignedIn(ctx, actor) {
+		return nil
 	}
 	u, err := svc.Identity.User(ctx, person)
 	if err != nil || u.Disabled {

@@ -569,6 +569,58 @@ func (d directory) Members(ctx context.Context, acct store.ID) ([]auth.Directory
 	return out, nil
 }
 
+var _ auth.SignInChecker = directory{}
+
+// SignedIn implements auth.SignInChecker as Authenticate would find the
+// actor's session or token now: still there, neither expired nor idle too
+// long, its person neither gone nor turned off, and a session viewing as
+// someone still with the session it started from. Asking counts as a use of
+// it, so a session that acts this way doesn't go idle meanwhile. An actor
+// signed in without either, as racksail dev signs in its developer, has
+// nothing to sign out of.
+func (d directory) SignedIn(ctx context.Context, actor *auth.Actor) bool {
+	s := d.s
+	if actor == nil {
+		return false
+	}
+	now := s.now()
+	active := func(id store.ID) bool {
+		u, err := s.User(ctx, id)
+		return err == nil && !u.Disabled
+	}
+	switch {
+	case actor.Type == auth.ActorToken:
+		t, err := s.opts.Store.Token(ctx, actor.ID)
+		if err != nil || t.Expired(now) || !active(t.User) {
+			return false
+		}
+		if s.due(string(t.ID), now) {
+			if err := s.opts.Store.TouchToken(ctx, t.ID, now, t.LastUsedIP); err != nil && !store.ErrNotFound.Is(err) {
+				s.opts.Log.Warn("recording a token's use", "token", t.ID, "error", err)
+			}
+		}
+		return true
+	case actor.SessionID != "":
+		x, err := s.opts.Store.Session(ctx, store.ID(actor.SessionID))
+		if err != nil || now.After(x.ExpiresAt) || now.After(x.LastSeenAt.Add(s.Policy().Idle())) || !active(x.User) {
+			return false
+		}
+		if x.Impersonator != "" {
+			parent, err := s.opts.Store.Session(ctx, x.Parent)
+			if err != nil || now.After(parent.ExpiresAt) {
+				return false
+			}
+		}
+		if s.due(string(x.ID), now) {
+			if err := s.opts.Store.TouchSession(ctx, x.ID, now, x.IP); err != nil && !store.ErrNotFound.Is(err) {
+				s.opts.Log.Warn("recording a session's use", "session", x.ID, "error", err)
+			}
+		}
+		return true
+	}
+	return actor.Type == auth.ActorUser
+}
+
 func (d directory) SSHKeys(ctx context.Context, user store.ID) ([]auth.SSHKey, error) {
 	u, err := d.s.User(ctx, user)
 	if err != nil {

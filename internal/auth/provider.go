@@ -118,6 +118,15 @@ type SSHKey struct {
 	PublicKey   string   `json:"publicKey" doc:"The key as an authorized_keys line, without options"`
 }
 
+// SignInChecker says whether what an actor signed in with still works: the
+// session it came with, or the API token it is. What goes on acting for a
+// person after the request that signed them in, as the frames of add-ons'
+// screens do, asks it, so signing out, ending the session or revoking the
+// token ends that too. The panel's directory of users is one.
+type SignInChecker interface {
+	SignedIn(ctx context.Context, actor *Actor) bool
+}
+
 // Directory answers what modules need to know about the panel's users,
 // such as which SSH keys may reach an account's files.
 type Directory interface {
