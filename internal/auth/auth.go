@@ -129,6 +129,10 @@ type Actor struct {
 	// SteppedUpAt is when the actor last confirmed their identity again for a
 	// sensitive action.
 	SteppedUpAt time.Time `json:"-"`
+	// Pending is what a signed-in person must do before anything else, such
+	// as choosing a new password; the API refuses everything else until
+	// they do.
+	Pending string `json:"-"`
 }
 
 // String describes the actor for logs and audit records, such as
@@ -307,7 +311,7 @@ var RolePermissions = map[Role][]string{
 
 // serverOnly are permissions that only server-wide grants carry, even when a
 // reseller or owner pattern would match.
-var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storage.*", "cluster.*", "core.reseller.*", "core.auth_policy.*"}
+var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storage.*", "cluster.*", "core.reseller.*", "core.signin_policy.*", "core.signin_provider.*"}
 
 // ServerOnly reports whether only grants on the whole server carry perm.
 func ServerOnly(perm Permission) bool { return matchAny(serverOnly, string(perm)) }
@@ -609,6 +613,10 @@ func levelsText(levels []store.ScopeLevel) string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }
 
+// ValidPattern reports whether p is a permission name or a pattern of
+// them, such as web.* or *.read.
+func ValidPattern(p string) bool { return validPattern(p) }
+
 func validPattern(p string) bool {
 	if p == "*" {
 		return true
@@ -710,6 +718,29 @@ func (r *RoleAuthorizer) covers(ctx context.Context, grant, target store.Scope) 
 	return false, nil
 }
 
+// NarrowLimit returns the patterns a grant already limited to limit is
+// narrowed to by more: those of more that limit covers. An empty limit is
+// no limit. ok is false when nothing is left.
+func NarrowLimit(limit, more []string) (out []string, ok bool) {
+	if len(more) == 0 {
+		return slices.Clone(limit), true
+	}
+	if len(limit) == 0 {
+		return slices.Clone(more), true
+	}
+	for _, p := range more {
+		if coveredBy(limit, p) {
+			out = append(out, p)
+		}
+	}
+	for _, p := range limit {
+		if coveredBy(more, p) && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out, len(out) > 0
+}
+
 // Patterns returns what an actor may do somewhere, as permission names and
 // patterns, for the UI to decide what to show. The server still checks
 // every request against the scope it is about.
@@ -769,4 +800,27 @@ type NoAuthenticator struct{}
 // Authenticate implements Authenticator.
 func (NoAuthenticator) Authenticate(ctx context.Context, r *http.Request) (*Actor, error) {
 	return nil, nil
+}
+
+// Client is where a request comes from, as the API worked it out: the
+// address of the person's browser or program, behind the edge as well, and
+// what it says it is.
+type Client struct {
+	IP        string
+	UserAgent string
+	// Secure says the request reached the panel over HTTPS.
+	Secure bool
+}
+
+type clientKey struct{}
+
+// WithClient returns a context carrying where the request comes from.
+func WithClient(ctx context.Context, c Client) context.Context {
+	return context.WithValue(ctx, clientKey{}, c)
+}
+
+// ClientFrom returns where the request carried by ctx comes from.
+func ClientFrom(ctx context.Context) Client {
+	c, _ := ctx.Value(clientKey{}).(Client)
+	return c
 }

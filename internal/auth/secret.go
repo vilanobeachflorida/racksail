@@ -99,3 +99,12 @@ func NewRecoveryCodes() []string {
 	}
 	return codes
 }
+
+// Cookies the panel sets. Both are HTTP-only, Secure and SameSite=Strict.
+const (
+	// SessionCookie holds the secret of the browser's session.
+	SessionCookie = "racksail_session"
+	// DeviceCookie holds the secret of a device someone chose to trust, so
+	// it skips the second sign-in step.
+	DeviceCookie = "racksail_device"
+)
