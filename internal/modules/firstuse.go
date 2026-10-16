@@ -163,9 +163,11 @@ func (m *Manager) FirstUse(ctx context.Context, id string) ([]Software, error) {
 			if client == nil {
 				break
 			}
-			if _, err := agent.StatPath.Call(ctx, client, agent.PathInput{Path: RuntimeDir(u.ID, "")}, agent.CallOptions{}); err == nil {
-				sw.Installed = true
+			info, err := agent.StatPath.Call(ctx, client, agent.PathInput{Path: RuntimeDir(u.ID, "")}, agent.CallOptions{})
+			if err != nil {
+				return nil, err
 			}
+			sw.Installed = info.Exists
 		}
 		out = append(out, sw)
 	}

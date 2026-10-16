@@ -387,7 +387,10 @@ func (m *Manager) installed(ctx context.Context, ex reconcile.Executor, man *Man
 				found = append(found, owners[i])
 			}
 		default:
-			found = append(found, owners[i])
+			var info agent.PathInfo
+			if json.Unmarshal(results[0].Output, &info) == nil && info.Exists {
+				found = append(found, owners[i])
+			}
 		}
 	}
 	return found, nil
