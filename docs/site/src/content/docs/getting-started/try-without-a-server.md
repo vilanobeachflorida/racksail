@@ -3,7 +3,7 @@ title: "Try it without a server"
 description: "Run the whole panel on your own computer against a simulated server with racksail dev."
 ---
 
-`racksail dev` runs the panel, the agent and the edge in one process on your own computer, against a simulated Debian 13 server. Nothing touches your machine: the simulated server and everything the panel holds live in memory, so every start begins with a freshly installed server. It works on macOS and Linux, needs no root, and is how Racksail is developed.
+`racksail dev` runs the panel, the agent and the edge in one process on your own computer, against a simulated Debian 13 server. Nothing touches your machine: the simulated server, the panel's database and secrets, and the edge's certificates are all kept in its data directory, so a restart carries on where you left off. It works on macOS and Linux, needs no root, and is how Racksail is developed.
 
 ## Run it
 
@@ -22,7 +22,7 @@ To work on Racksail itself, `make dev` runs the same thing plus the UI's develop
 
 ## What's simulated
 
-The simulated server looks like a fresh install with a few empty disks and a network interface. When the panel installs a package, writes a file, starts a service or creates a disk pool, the simulated server changes the way a real one would, so previews, jobs, health checks and undo all behave as they do on a server. What reaches the outside world, such as certificates and email delivery, is simulated too.
+The simulated server looks like a fresh install with a few empty disks and a network interface. When the panel installs a package, writes a file, starts a service or creates a disk pool, the simulated server changes the way a real one would, so previews, jobs, health checks and undo all behave as they do on a server. It also takes about as long as a small real server to install packages and start services. What reaches the outside world, such as certificates and email delivery, is simulated too.
 
 ## Options
 
@@ -30,7 +30,8 @@ The simulated server looks like a fresh install with a few empty disks and a net
 |---|---|
 | `--addr` | Where the panel listens, 127.0.0.1:7070 by default |
 | `--edge-http`, `--edge-https` | Where the edge serves sites once a module adds a route; port 0 picks free ports |
-| `--data` | The directory for its sockets and working files, `.dev` by default |
+| `--data` | The directory it keeps the simulated server, the panel's state and its sockets in, `.dev` by default |
+| `--fresh` | Starts over with a newly installed server and no saved state; deleting the data directory does the same |
 
 To run two instances side by side, give each its own addresses and data directory:
 

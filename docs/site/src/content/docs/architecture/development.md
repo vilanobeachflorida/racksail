@@ -53,7 +53,7 @@ Pull requests also need every commit signed off, which CI checks; see [Contribut
 
 ## Generated files
 
-Some files are generated from the code and committed: the OpenAPI documents in `spec/`, the UI's API types and its theme CSS. After changing an API operation, an agent operation, the add-on protocol or the default theme, run `make gen` and commit the result. Tests fail when they drift.
+Some files are generated from the code and committed: the OpenAPI documents in `spec/`, the UI's API types, its theme CSS and the built-in themes it offers, the built-in themes' `theme.yaml` in the catalog, and the logo, icons and terminal marks drawn from the artwork in `brand/gen`. After changing an API operation, an agent operation, the add-on protocol, a built-in theme or the artwork, run `make gen` and commit the result. Tests fail when they drift.
 
 Renderers have golden files in `testdata/` directories. After an intended change to what they render, rewrite them with `go test ./path/to/package -update` and review the difference.
 
@@ -111,6 +111,7 @@ Releases are signed and published by CI, never from a laptop: tag `v1.2.3` on `m
 | `internal/` | The core: store, change pipeline, agent, system adapters, API, hooks and the rest |
 | `modules/<id>/` | One package per module |
 | `ui/` | The web UI |
+| `brand/` | The logo, icons and terminal marks, and the program that draws them |
 | `spec/` | The OpenAPI documents and the JSON Schemas of the files people write |
 | `catalog/` | The official catalog and the tool that checks and signs it |
 | `sdk/` | The add-on SDKs for Go, TypeScript and Python |
