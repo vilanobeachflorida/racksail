@@ -32,6 +32,9 @@ func JSONSchemaFields(prefix string, err error) []FieldError {
 	if len(out) == 0 {
 		out = append(out, SchemaField(locationPath(prefix, ve.InstanceLocation), ""))
 	}
+	// By path, so a document's findings always come in the same order,
+	// whatever order the validator checked its fields in.
+	slices.SortStableFunc(out, func(a, b FieldError) int { return strings.Compare(a.Path, b.Path) })
 	return out
 }
 

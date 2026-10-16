@@ -209,6 +209,19 @@ func TestRuleSchemaFindingsAreWorded(t *testing.T) {
 	}
 }
 
+// A stored rule its schema refuses, as one a later version's schema no
+// longer takes, can't be attached, and says why in the same words.
+func TestRuleSchemaFindingsOfStoredRules(t *testing.T) {
+	_, err := compileRule(hooks.PolicySpec{Name: "Quiet", Type: hooks.PolicyValidate, Expression: "true", Kinds: []string{"Web.Site"}}, DefaultCostLimit)
+	if err == nil {
+		t.Fatal("the rule compiles")
+	}
+	want := "The rule can't be used: kinds[0]: it isn't in the form this field takes; message: this field is required."
+	if got := ErrBadRule.Wrap(err, "reason", err.Error()).Message; got != want {
+		t.Errorf("problem = %q, want %q", got, want)
+	}
+}
+
 func TestValidateRules(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)

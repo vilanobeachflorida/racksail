@@ -148,7 +148,22 @@ func (e *fieldError) invalid(prefix string) error {
 	return i18n.Invalid(i18n.Field(path, i18n.ErrBadValue, "reason", e.reason))
 }
 
-func (e *fieldError) Error() string { return e.path + ": " + e.reason }
+func (e *fieldError) Error() string {
+	if e.schema != nil {
+		// Written to go inside rules.bad_rule's sentence.
+		var found []string
+		for _, f := range i18n.JSONSchemaFields("", e.schema) {
+			what, ok := f.Params["reason"].(string)
+			if !ok {
+				what = strings.TrimSuffix(f.Message, ".")
+				what = strings.ToLower(what[:1]) + what[1:]
+			}
+			found = append(found, f.Path+": "+what)
+		}
+		return strings.Join(found, "; ")
+	}
+	return e.path + ": " + e.reason
+}
 
 // compiled is a rule ready to run.
 type compiled struct {
@@ -166,7 +181,7 @@ type compiledDefault struct {
 // compileRule checks a rule and compiles its expressions.
 func compileRule(spec hooks.PolicySpec, limit uint64) (*compiled, error) {
 	if err := spec.Validate(); err != nil {
-		return nil, &fieldError{reason: schemaReason(err), schema: err}
+		return nil, &fieldError{schema: err}
 	}
 	e, err := celEnv()
 	if err != nil {
@@ -204,15 +219,6 @@ func compileRule(spec hooks.PolicySpec, limit uint64) (*compiled, error) {
 		}
 	}
 	return c, nil
-}
-
-// schemaReason shortens a schema validation error to what is wrong.
-func schemaReason(err error) string {
-	msg := err.Error()
-	if i := strings.LastIndex(msg, ": "); i >= 0 && i < len(msg)-2 {
-		return strings.TrimSpace(msg[i+2:])
-	}
-	return msg
 }
 
 // points returns the hook points, or patterns, a rule attaches to.
