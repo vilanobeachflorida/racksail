@@ -21,15 +21,24 @@ export type ChangeRequest = (dryRun: boolean) => Promise<unknown>;
 interface Pending {
   preview: ChangeSet;
   request: ChangeRequest;
-  /** The change carries secret values, which a preview can't keep. */
-  secrets: boolean;
+  /** Applying sends the request again rather than the preview's ID. */
+  resend: boolean;
+}
+
+export interface PreviewOptions {
+  /**
+   * Apply by sending the request again: for changes that carry secret
+   * values, which the panel doesn't keep for a preview, and for requests
+   * the panel authorizes as they are sent, such as a person's own
+   * notification preferences.
+   */
+  resend?: boolean;
 }
 
 /**
  * Runs a change the way every change runs: a preview first, applied only
- * when the person agrees. A preview without secrets is applied as it was
- * shown; one with secrets is sent again, since the panel keeps no secret it
- * only previewed.
+ * when the person agrees. A preview is applied as it was shown, or sent
+ * again when the request asks for that.
  */
 export function useChangeFlow({ onApplied }: { onApplied?: () => void } = {}) {
   const api = useApi();
@@ -38,11 +47,11 @@ export function useChangeFlow({ onApplied }: { onApplied?: () => void } = {}) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const preview = async (request: ChangeRequest, options: { secrets?: boolean } = {}) => {
+  const preview = async (request: ChangeRequest, options: PreviewOptions = {}) => {
     setBusy(true);
     try {
       const cs = (await request(true)) as ChangeSet;
-      setPending({ preview: cs, request, secrets: options.secrets ?? false });
+      setPending({ preview: cs, request, resend: options.resend ?? false });
     } catch (error) {
       toast.error(errorMessage(intl, error));
     } finally {
@@ -56,7 +65,7 @@ export function useChangeFlow({ onApplied }: { onApplied?: () => void } = {}) {
     }
     setBusy(true);
     try {
-      if (pending.secrets) {
+      if (pending.resend) {
         await pending.request(false);
       } else {
         await unwrap(

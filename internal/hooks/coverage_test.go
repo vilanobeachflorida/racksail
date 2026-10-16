@@ -30,7 +30,6 @@ var outsidePipeline = map[string]string{
 	"enableHook":                 "switches a hook back on in the hook pipeline itself; the audit log records it",
 	"enterSafeMode":              "takes add-ons out of the hook pipeline, which can't wait for their hooks; the audit log records it",
 	"leaveSafeMode":              "lets add-ons back into the hook pipeline; the audit log records it",
-	"setNotificationPreferences": "keeps one person's own preferences, which aren't a resource; the audit log records it",
 	"sendTestNotification":       "sends the signed-in person a message and changes nothing",
 }
 

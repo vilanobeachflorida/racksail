@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollText, Webhook } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
-import { useIntl } from "react-intl";
+import { type MessageDescriptor, useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
 import {
   Card,
@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/design/components/ui/select";
+import { Skeleton } from "@/design/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/design/components/ui/states";
 import {
   Table,
@@ -31,16 +32,156 @@ import {
   TableRow,
 } from "@/design/components/ui/table";
 import { toast } from "@/design/components/ui/toaster";
+import type { ApiClient } from "@/lib/api/client";
 import { type Schemas, unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
 import { messages as m } from "../messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
+import { useResourceUpdates, useTimelineUpdates } from "./live";
 
 type PolicySpec = Schemas["PolicySpec"];
 type TestResult = Schemas["TestResult"];
 type HookInfo = Schemas["HookInfo"];
 type SafeModeSource = Schemas["SafeModeSource"];
+type Scope = Schemas["Scope"];
+type Level = Scope["level"];
+
+/** Whose rules are shown and saved: the server's, a reseller's or an account's. */
+interface Owner {
+  level: Level;
+  /** The reseller's or account's ID. */
+  id: string;
+}
+
+const levels: Level[] = ["server", "reseller", "account"];
+
+function scopeOf(owner: Owner): Scope {
+  return owner.level === "server"
+    ? { level: "server" }
+    : { level: owner.level, id: owner.id.trim() };
+}
+
+function complete(owner: Owner): boolean {
+  return owner.level === "server" || owner.id.trim() !== "";
+}
+
+/** A rule of any owner, as the list shows it. */
+interface Rule {
+  id: string;
+  revision: number;
+  spec: PolicySpec;
+}
+
+const policyKinds = ["core.policy", "core.reseller_policy", "core.account_policy"];
+
+/** The rules an owner has; each owner's are a kind of their own. */
+async function listRules(api: ApiClient, owner: Owner): Promise<Rule[]> {
+  const scope = `${owner.level}:${owner.id.trim()}`;
+  switch (owner.level) {
+    case "reseller":
+      return (
+        (await unwrap(api.GET("/api/v1/core/reseller-policies", { params: { query: { scope } } })))
+          .items ?? []
+      );
+    case "account":
+      return (
+        (await unwrap(api.GET("/api/v1/core/account-policies", { params: { query: { scope } } })))
+          .items ?? []
+      );
+    default:
+      return (await unwrap(api.GET("/api/v1/core/policies"))).items ?? [];
+  }
+}
+
+/** Saves a new rule for an owner, as a preview when dryRun is set. */
+function createRule(api: ApiClient, owner: Owner, spec: PolicySpec, dryRun: boolean) {
+  const params = { params: { query: { dryRun } } };
+  switch (owner.level) {
+    case "reseller":
+      return unwrap(
+        api.POST("/api/v1/core/reseller-policies", {
+          ...params,
+          body: { spec, scope: scopeOf(owner) },
+        }),
+      );
+    case "account":
+      return unwrap(
+        api.POST("/api/v1/core/account-policies", {
+          ...params,
+          body: { spec, scope: scopeOf(owner) },
+        }),
+      );
+    default:
+      return unwrap(api.POST("/api/v1/core/policies", { ...params, body: { spec } }));
+  }
+}
+
+/** Changes an owner's rule, as a preview when dryRun is set. */
+function updateRule(api: ApiClient, owner: Owner, rule: Rule, spec: PolicySpec, dryRun: boolean) {
+  const params = { params: { path: { id: rule.id }, query: { dryRun } } };
+  const body = { spec, revision: rule.revision };
+  switch (owner.level) {
+    case "reseller":
+      return unwrap(api.PUT("/api/v1/core/reseller-policies/{id}", { ...params, body }));
+    case "account":
+      return unwrap(api.PUT("/api/v1/core/account-policies/{id}", { ...params, body }));
+    default:
+      return unwrap(api.PUT("/api/v1/core/policies/{id}", { ...params, body }));
+  }
+}
+
+/** Picks an owner: the server, or a reseller or an account by its ID. */
+function OwnerFields({
+  id,
+  label,
+  idLabel = m.rulesOwnerId,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  /** Names the field of the reseller's or account's ID, by the level chosen. */
+  idLabel?: MessageDescriptor;
+  value: Owner;
+  onChange: (owner: Owner) => void;
+}) {
+  const intl = useIntl();
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="flex min-w-48 flex-col gap-1.5">
+        <Label htmlFor={`${id}-level`}>{label}</Label>
+        <Select
+          value={value.level}
+          onValueChange={(v) => onChange({ ...value, level: v as Level })}
+        >
+          <SelectTrigger id={`${id}-level`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {levels.map((level) => (
+              <SelectItem key={level} value={level}>
+                {intl.formatMessage(m.rulesOwnerValue, { level })}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {value.level !== "server" ? (
+        <div className="flex min-w-60 flex-1 flex-col gap-1.5">
+          <Label htmlFor={`${id}-id`}>{intl.formatMessage(idLabel, { level: value.level })}</Label>
+          <Input
+            id={`${id}-id`}
+            className="font-mono"
+            placeholder={value.level === "reseller" ? "rsl_..." : "acct_..."}
+            value={value.id}
+            onChange={(e) => onChange({ ...value, id: e.target.value })}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** Splits a comma-separated list, leaving out empty entries. */
 function list(text: string): string[] {
@@ -68,35 +209,46 @@ function parseJSON(text: string): unknown {
   return text.trim() === "" ? undefined : JSON.parse(text);
 }
 
-function RuleList() {
+function RuleList({ owner }: { owner: Owner }) {
   const intl = useIntl();
   const api = useApi();
   const flow = useChangeFlow();
+  const ready = complete(owner);
   const rules = useQuery({
-    queryKey: ["rules"],
-    queryFn: () => unwrap(api.GET("/api/v1/core/policies")),
+    queryKey: ["rules", owner.level, owner.id.trim()],
+    queryFn: () => listRules(api, owner),
+    enabled: ready,
   });
-  const toggle = (rule: Schemas["CorePolicy"]) =>
+  useResourceUpdates(policyKinds, [["rules"]]);
+  const toggle = (rule: Rule) =>
     flow.preview((dryRun) =>
-      unwrap(
-        api.PUT("/api/v1/core/policies/{id}", {
-          params: { path: { id: rule.id }, query: { dryRun } },
-          body: { spec: { ...rule.spec, enabled: !rule.spec.enabled }, revision: rule.revision },
-        }),
-      ),
+      updateRule(api, owner, rule, { ...rule.spec, enabled: !rule.spec.enabled }, dryRun),
     );
   if (rules.isError) {
     return <ErrorState title={intl.formatMessage(m.rulesLoadFailed)} error={rules.error} />;
   }
-  const items = rules.data?.items ?? [];
+  const items = rules.data ?? [];
   return (
     <Card aria-labelledby="rules-list">
       <CardHeader>
-        <CardTitle id="rules-list">{intl.formatMessage(m.rulesListTitle)}</CardTitle>
-        <CardDescription>{intl.formatMessage(m.rulesListHelp)}</CardDescription>
+        <CardTitle id="rules-list">
+          {intl.formatMessage(m.rulesListTitle, { level: owner.level })}
+        </CardTitle>
+        <CardDescription>
+          {intl.formatMessage(m.rulesListHelp, { level: owner.level })}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        {items.length === 0 && !rules.isPending ? (
+        {!ready ? (
+          <p className="text-muted-foreground text-sm">
+            {intl.formatMessage(m.rulesOwnerMissing, { level: owner.level })}
+          </p>
+        ) : rules.isPending ? (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <Skeleton className="h-8" />
+            <Skeleton className="h-8" />
+          </div>
+        ) : items.length === 0 ? (
           <EmptyState icon={ScrollText} title={intl.formatMessage(m.rulesNone)} />
         ) : (
           <Table>
@@ -195,11 +347,14 @@ function Result({ result }: { result: TestResult }) {
   );
 }
 
-function Tester() {
+function Tester({ owner }: { owner: Owner }) {
   const intl = useIntl();
   const api = useApi();
   const flow = useChangeFlow();
   const id = useId();
+  // Whose resource the change is about; the rule's owner's own by default.
+  const [resourceOwner, setResourceOwner] = useState<Owner | null>(null);
+  const belongsTo = resourceOwner ?? owner;
   const [rule, setRule] = useState({
     name: "",
     type: "validate" as PolicySpec["type"],
@@ -234,10 +389,10 @@ function Tester() {
         api.POST("/api/v1/rules/test", {
           body: {
             rule: spec(),
-            owner: { level: "server" },
+            owner: scopeOf(owner),
             operation: change.operation,
             kind: change.kind,
-            scope: { level: "server" },
+            scope: scopeOf(belongsTo),
             spec: parseJSON(change.spec),
             oldSpec: parseJSON(change.oldSpec),
           },
@@ -256,15 +411,7 @@ function Tester() {
     }
   };
 
-  const save = () =>
-    flow.preview((dryRun) =>
-      unwrap(
-        api.POST("/api/v1/core/policies", {
-          params: { query: { dryRun } },
-          body: { spec: spec() },
-        }),
-      ),
-    );
+  const save = () => flow.preview((dryRun) => createRule(api, owner, spec(), dryRun));
 
   return (
     <Card aria-labelledby={`${id}-title`}>
@@ -361,6 +508,18 @@ function Tester() {
           </fieldset>
           <fieldset className="grid gap-3 md:grid-cols-2">
             <legend className="mb-2 font-semibold">{intl.formatMessage(m.rulesChange)}</legend>
+            <div className="md:col-span-2">
+              <OwnerFields
+                id={`${id}-scope`}
+                label={intl.formatMessage(m.rulesChangeScope)}
+                idLabel={m.rulesChangeScopeId}
+                value={belongsTo}
+                onChange={setResourceOwner}
+              />
+              <p className="mt-1 text-muted-foreground text-xs">
+                {intl.formatMessage(m.rulesChangeScopeHelp)}
+              </p>
+            </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor={`${id}-kind`}>{intl.formatMessage(m.rulesChangeKind)}</Label>
               <Input
@@ -400,16 +559,16 @@ function Tester() {
             </div>
           </fieldset>
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" busy={busy}>
+            <Button type="submit" busy={busy} disabled={!complete(owner) || !complete(belongsTo)}>
               {intl.formatMessage(m.rulesTry)}
             </Button>
             <Button
               type="button"
               variant="outline"
-              disabled={rule.name === "" || flow.busy}
+              disabled={rule.name === "" || flow.busy || !complete(owner)}
               onClick={save}
             >
-              {intl.formatMessage(m.rulesSave)}
+              {intl.formatMessage(m.rulesSave, { level: owner.level })}
             </Button>
           </div>
           {problem ? <Alert tone="danger" title={problem} /> : null}
@@ -432,9 +591,30 @@ function Hooks() {
     queryFn: () => unwrap(api.GET("/api/v1/hooks")),
     retry: false,
   });
+  // Hooks come and go with add-ons, rules and the circuit breaker.
+  useTimelineUpdates(["core.hook.disabled", "core.safe_mode.*"], [["hooks"], ["hook-points"]]);
+  useResourceUpdates(
+    ["core.addon", "core.account_addon", ...policyKinds],
+    [["hooks"], ["hook-points"]],
+  );
   // Without core.hook.read the server says no; the card is for those who may see it.
-  if (hooks.isError || !hooks.data) {
+  if (hooks.isError) {
     return null;
+  }
+  if (hooks.isPending) {
+    return (
+      <Card aria-labelledby="hooks-title" aria-busy="true">
+        <CardHeader>
+          <CardTitle id="hooks-title">{intl.formatMessage(m.hooksTitle)}</CardTitle>
+          <CardDescription>{intl.formatMessage(m.hooksHelp)}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <Skeleton className="h-8" />
+          <Skeleton className="h-8" />
+          <Skeleton className="h-8" />
+        </CardContent>
+      </Card>
+    );
   }
   const enable = async (hook: HookInfo) => {
     const key = `${hook.owner} ${hook.point}`;
@@ -477,10 +657,15 @@ function Hooks() {
               {list.map((h) => (
                 <TableRow key={`${h.owner} ${h.point} ${h.kind} ${h.label ?? ""}`}>
                   <TableCell>
-                    <div className="flex flex-col">
+                    <div className="flex flex-col items-start gap-0.5">
                       <span className="font-medium">{h.label || h.owner}</span>
                       {h.label ? (
                         <span className="font-mono text-muted-foreground text-xs">{h.owner}</span>
+                      ) : null}
+                      {h.override ? (
+                        <Badge variant="danger" title={intl.formatMessage(m.hooksOverrideHelp)}>
+                          {intl.formatMessage(m.hooksOverride)}
+                        </Badge>
                       ) : null}
                     </div>
                   </TableCell>
@@ -563,7 +748,12 @@ function Points() {
             onChange={(e) => setPrefix(e.target.value.trim())}
           />
         </div>
-        {all.length === 0 && !points.isPending ? (
+        {points.isPending ? (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <Skeleton className="h-10" />
+            <Skeleton className="h-10" />
+          </div>
+        ) : all.length === 0 ? (
           <p className="text-muted-foreground text-sm">{intl.formatMessage(m.pointsNone)}</p>
         ) : (
           <ul
@@ -643,8 +833,13 @@ function SafeMode() {
     queryFn: () => unwrap(api.GET("/api/v1/safe-mode")),
     retry: false,
   });
-  if (status.isError || !status.data) {
+  // Safe mode also comes on from the console and when add-ons crash.
+  useTimelineUpdates(["core.safe_mode.*"], [["safe-mode"]]);
+  if (status.isError) {
     return null;
+  }
+  if (status.isPending) {
+    return <Skeleton className="h-32" aria-busy="true" />;
   }
   const run = async (on: boolean) => {
     setBusy(true);
@@ -727,17 +922,28 @@ function SafeMode() {
   );
 }
 
-/** The server's rules, the tester that tries a rule before it is saved, the hooks and safe mode. */
+/** The rules of the server, a reseller or an account, the tester that tries a rule before it is saved, the hooks and safe mode. */
 export default function RulesSettings() {
   const intl = useIntl();
+  const id = useId();
+  const [owner, setOwner] = useState<Owner>({ level: "server", id: "" });
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="font-semibold text-2xl">{intl.formatMessage(m.rulesTitle)}</h1>
         <p className="text-muted-foreground">{intl.formatMessage(m.rulesDescription)}</p>
       </div>
-      <RuleList />
-      <Tester />
+      <div className="flex flex-col gap-1.5">
+        <OwnerFields
+          id={`${id}-owner`}
+          label={intl.formatMessage(m.rulesOwner)}
+          value={owner}
+          onChange={setOwner}
+        />
+        <p className="text-muted-foreground text-sm">{intl.formatMessage(m.rulesOwnerHelp)}</p>
+      </div>
+      <RuleList owner={owner} />
+      <Tester owner={owner} />
       <Hooks />
       <Points />
       <SafeMode />

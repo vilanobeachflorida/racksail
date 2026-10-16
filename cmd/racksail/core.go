@@ -245,7 +245,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			return nil, err
 		}
 	}
-	for _, h := range append(manager.Hooks(), addonRuntime.Hooks()...) {
+	for _, h := range slices.Concat(manager.Hooks(), addonRuntime.Hooks(), notifier.Hooks()) {
 		if err := hookReg.Register(h); err != nil {
 			return nil, err
 		}

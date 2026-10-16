@@ -34,9 +34,9 @@ const MigrationOwner = "core.notifications"
 // ErrDeliveryNotFound is returned for a delivery that doesn't exist.
 var ErrDeliveryNotFound = i18n.Define("notify.delivery_not_found", http.StatusNotFound, "There is no notification {delivery}.")
 
-// NewSQL returns a service that keeps its deliveries, its place in the
-// timeline and people's preferences in the panel database, after bringing
-// its tables up to date.
+// NewSQL returns a service that keeps its deliveries and its place in the
+// timeline in the panel database, after bringing its tables up to date.
+// People's preferences are resources of their own kind.
 func NewSQL(ctx context.Context, db *store.DB, opts Options) (*Service, error) {
 	if err := db.Migrate(ctx, MigrationOwner, Migrations()); err != nil {
 		return nil, err
@@ -272,52 +272,3 @@ func (s *sqlStorage) prune(ctx context.Context, before time.Time) error {
 	})
 }
 
-func (s *sqlStorage) preferences(ctx context.Context, person store.ID) (NotificationPreferences, error) {
-	var raw string
-	err := s.db.Reader().QueryRowContext(ctx, `SELECT preferences FROM notify_preferences WHERE person = ?`, person).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return NotificationPreferences{}, nil
-	}
-	if err != nil {
-		return NotificationPreferences{}, err
-	}
-	var p NotificationPreferences
-	if err := json.Unmarshal([]byte(raw), &p); err != nil {
-		return NotificationPreferences{}, fmt.Errorf("notify: reading the preferences of %s: %w", person, err)
-	}
-	return p, nil
-}
-
-func (s *sqlStorage) allPreferences(ctx context.Context) (map[store.ID]*NotificationPreferences, error) {
-	rows, err := s.db.Reader().QueryContext(ctx, `SELECT person, preferences FROM notify_preferences`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[store.ID]*NotificationPreferences{}
-	for rows.Next() {
-		var person, raw string
-		if err := rows.Scan(&person, &raw); err != nil {
-			return nil, err
-		}
-		var p NotificationPreferences
-		if err := json.Unmarshal([]byte(raw), &p); err != nil {
-			return nil, fmt.Errorf("notify: reading the preferences of %s: %w", person, err)
-		}
-		out[store.ID(person)] = &p
-	}
-	return out, rows.Err()
-}
-
-func (s *sqlStorage) setPreferences(ctx context.Context, person store.ID, p NotificationPreferences) error {
-	raw, err := json.Marshal(p)
-	if err != nil {
-		return err
-	}
-	return s.db.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO notify_preferences (person, preferences, updated_at) VALUES (?, ?, ?)
-			ON CONFLICT (person) DO UPDATE SET preferences = excluded.preferences, updated_at = excluded.updated_at`,
-			person, string(raw), store.FormatTime(*p.UpdatedAt))
-		return err
-	})
-}

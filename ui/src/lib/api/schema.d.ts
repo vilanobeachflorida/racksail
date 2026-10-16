@@ -636,7 +636,7 @@ export interface paths {
         put?: never;
         /**
          * Run the recipe's health checks now
-         * @description Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         * @description Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. Installs and upgrades end with it, waiting for the checks to pass, so a change set that applies is one that works. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
          */
         post: operations["checkCoreInstallation"];
         delete?: never;
@@ -820,7 +820,7 @@ export interface paths {
         put?: never;
         /**
          * Uninstall the module's software, and delete its data unless it is kept
-         * @description Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, which POST /api/v1/modules/{module}/remove does. Removing needs the module's name typed as confirmation. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         * @description Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, which POST /api/v1/modules/{id}/actions/remove does. Removing needs the module's name typed as confirmation. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
          */
         post: operations["removeCoreModule"];
         delete?: never;
@@ -860,7 +860,7 @@ export interface paths {
         put?: never;
         /**
          * Turn the module on
-         * @description Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. The modules it needs must be on. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         * @description Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. The modules it needs must be on; POST /api/v1/modules/{id}/actions/turn_on turns them on with it. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
          */
         post: operations["turnOnCoreModule"];
         delete?: never;
@@ -973,6 +973,78 @@ export interface paths {
          * @description Returns every recorded version of the notification channel's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreNotificationChannelHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification preferences
+         * @description What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences. Lists the notification preferences you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreNotificationPreferences"];
+        put?: never;
+        /**
+         * Create a notification preferences
+         * @description What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreNotificationPreferences"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-preferences/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a notification preferences
+         * @description Returns one notification preferences: its settings (spec), and what Racksail last saw of it (status). What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences.
+         */
+        get: operations["getCoreNotificationPreferences"];
+        /**
+         * Change a notification preferences
+         * @description Replaces the notification preferences's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreNotificationPreferences"];
+        post?: never;
+        /**
+         * Delete a notification preferences
+         * @description Deletes the notification preferences and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreNotificationPreferences"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-preferences/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a notification preferences's history
+         * @description Returns every recorded version of the notification preferences's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreNotificationPreferencesHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1188,7 +1260,7 @@ export interface paths {
         put?: never;
         /**
          * Run the recipe's health checks now
-         * @description Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         * @description Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. Installs and upgrades end with it, waiting for the checks to pass, so a change set that applies is one that works. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
          */
         post: operations["checkCoreServerInstallation"];
         delete?: never;
@@ -1938,6 +2010,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/modules/{id}/actions/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a module
+         * @description Turns a module off and uninstalls its software, as one change set. With keepData its resources and their data stay, and come back when it is turned on again; without it they are deleted in the same change set, after a snapshot. The person removing it types its name to confirm, and GET /api/v1/modules/{id}/export keeps a copy of its resources first.
+         */
+        post: operations["removeModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/{id}/actions/turn_off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a module off
+         * @description Stops a module and hides it, keeping its software, resources, settings and data, as a change set. A module that resources use can only be turned off when it can keep them dormant.
+         */
+        post: operations["turnOffModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/{id}/actions/turn_on": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a module on, with the modules it needs
+         * @description Turns on a module and the modules it needs that are off, dependencies first, as one change set. The preview lists what the module does once something uses it: the software it downloads then, from where and how large, its packages, services and ports, and its memory and disk.
+         */
+        post: operations["turnOnModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a module's resources
+         * @description Every resource of the module's kinds with its settings and labels, as a JSON file to keep before removing the module with its data. Fields that refer to secrets are left out and named, since secret values never leave the panel this way.
+         */
+        get: operations["exportModule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/{id}/software": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List what a module installs
+         * @description The software a module installs the first time something needs it: where each comes from, when it is installed, the packages it brings in, how much it downloads and takes on disk, and whether it is installed already. The server's package index gives the sizes where it can, and the module's manifest otherwise.
+         */
+        get: operations["listModuleSoftware"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications": {
         parameters: {
             query?: never;
@@ -1972,7 +2144,7 @@ export interface paths {
         get: operations["getNotificationPreferences"];
         /**
          * Change your notification preferences
-         * @description Replaces your notification preferences. They are yours alone, so they take effect at once rather than through a change set.
+         * @description Replaces your notification preferences, as a change set like any other: previewed with dryRun, recorded in the audit log and undone by an admin. Your preferences are a core.notification_preferences resource that only you change.
          */
         put: operations["setNotificationPreferences"];
         post?: never;
@@ -2509,6 +2681,10 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "failing";
+        };
+        CheckInput: {
+            /** @description Wait for the checks to pass, up to each one's timeout, and fail when one doesn't, as installs and upgrades do */
+            wait?: boolean;
         };
         CheckOutput: {
             /** @description The release to update to; empty when the server is up to date */
@@ -3069,6 +3245,80 @@ export interface components {
                 [key: string]: string;
             };
             spec: components["schemas"]["ChannelSpec"];
+        };
+        /** @description Notification preferences: What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences. */
+        CoreNotificationPreferences: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["PreferencesSpec"];
+            status?: components["schemas"]["PreferencesStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new notification preferences. */
+        CoreNotificationPreferencesCreateRequest: {
+            /** @description An ID chosen up front, starting with npref_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["PreferencesSpec"];
+        };
+        /** @description One page of notification preferences. */
+        CoreNotificationPreferencesList: {
+            items: components["schemas"]["CoreNotificationPreferences"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a notification preferences. */
+        CoreNotificationPreferencesUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["PreferencesSpec"];
         };
         /** @description Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. */
         CorePolicy: {
@@ -3691,6 +3941,31 @@ export interface components {
         EventTypesOutputBody: {
             types: components["schemas"]["EventType"][] | null;
         };
+        Export: {
+            /**
+             * Format: date-time
+             * @description When the export was made
+             */
+            exported: string;
+            /** @description The module's id */
+            module: string;
+            resources: components["schemas"]["ExportedResource"][] | null;
+            /** @description The module's version */
+            version: string;
+        };
+        ExportedResource: {
+            /** Format: date-time */
+            createdAt: string;
+            id: string;
+            kind: string;
+            labels?: {
+                [key: string]: string;
+            };
+            scope: components["schemas"]["Scope"];
+            spec: unknown;
+            /** @description Fields that refer to secrets, which the export leaves out */
+            withheld?: string[] | null;
+        };
         Failure: {
             code: string;
             message: string;
@@ -4112,7 +4387,7 @@ export interface components {
             enabled: boolean;
             /** @description Why the module didn't start */
             error?: string;
-            /** @description Whether the module's data can be exported before removing it, which needs the backups module */
+            /** @description Whether the module has resources to export before it is removed with its data */
             exportable?: boolean;
             /** @description Why the module can't be turned on on this server */
             hardwareProblems?: string[] | null;
@@ -4120,6 +4395,8 @@ export interface components {
             manifest: components["schemas"]["Manifest"];
             /** @description Modules it needs that are off */
             needs?: string[] | null;
+            /** @description Whether the module was removed, its software uninstalled until something needs it again */
+            removed?: boolean;
             /** @description The module's core.module resource */
             resource?: string;
             /** @enum {string} */
@@ -4141,6 +4418,8 @@ export interface components {
             module: string;
             /** @description Optional software the module may install, by its id in the manifest */
             optIn?: string[] | null;
+            /** @description Whether the module was removed: off, with its software uninstalled until something needs it again */
+            removed?: boolean;
             /** @description The module's settings, as its manifest's settings schema describes them */
             settings?: {
                 [key: string]: unknown;
@@ -4174,8 +4453,30 @@ export interface components {
              * @enum {string}
              */
             state?: "off" | "on" | "active" | "stopping" | "removing";
+            /** @description Whether the software of a removed module was uninstalled */
+            uninstalled?: boolean;
             /** @description What uses the module */
             usage: components["schemas"]["Usage"];
+        };
+        MyPreferences: {
+            /** @description Send notifications to my email address */
+            email: boolean;
+            /** @description Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty */
+            events?: string[] | null;
+            /**
+             * @description Only send events at least this urgent; warning when empty
+             * @enum {string}
+             */
+            minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description Event types never to send, as patterns */
+            muted?: string[] | null;
+            /** @description Hold back what can wait, and send it as one summary when quiet hours end */
+            quietHours?: components["schemas"]["QuietHours"];
+            /**
+             * Format: date-time
+             * @description When they were last changed
+             */
+            readonly updatedAt?: string;
         };
         Notice: {
             /** @description The change set that made the write, if one did */
@@ -4242,8 +4543,6 @@ export interface components {
             muted?: string[] | null;
             /** @description Hold back what can wait, and send it as one summary when quiet hours end */
             quietHours?: components["schemas"]["QuietHours"];
-            /** Format: date-time */
-            readonly updatedAt?: string;
         };
         OSStatus: {
             codename: string;
@@ -4406,6 +4705,36 @@ export interface components {
             port: number;
             /** @enum {string} */
             protocol: "tcp" | "udp";
+        };
+        PreferencesSpec: {
+            /** @description Send notifications to my email address */
+            email: boolean;
+            /** @description Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty */
+            events?: string[] | null;
+            /**
+             * @description Only send events at least this urgent; warning when empty
+             * @enum {string}
+             */
+            minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description Event types never to send, as patterns */
+            muted?: string[] | null;
+            /** @description The person the preferences belong to */
+            person: string;
+            /** @description Hold back what can wait, and send it as one summary when quiet hours end */
+            quietHours?: components["schemas"]["QuietHours"];
+        };
+        PreferencesStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         Problem: {
             /**
@@ -4758,6 +5087,37 @@ export interface components {
             path: string;
             /** @description The subvolume, such as /srv/racksail */
             source: string;
+        };
+        Software: {
+            /** Format: int64 */
+            diskBytes?: number;
+            /** Format: int64 */
+            diskMB?: number;
+            /** Format: int64 */
+            downloadBytes?: number;
+            /** Format: int64 */
+            downloadMB?: number;
+            homepage?: string;
+            id: string;
+            install: string;
+            installed: boolean;
+            license: string;
+            name: string;
+            optIn?: boolean;
+            packages?: components["schemas"]["SoftwarePackage"][] | null;
+            source: components["schemas"]["UpstreamSource"];
+        };
+        SoftwareOutputBody: {
+            software: components["schemas"]["Software"][] | null;
+        };
+        SoftwarePackage: {
+            /** Format: int64 */
+            downloadBytes?: number;
+            /** Format: int64 */
+            installedBytes?: number;
+            name: string;
+            origin?: string;
+            version: string;
         };
         Source: {
             hook?: string;
@@ -7023,7 +7383,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckInput"];
+            };
+        };
         responses: {
             /** @description The change set: of a dry run, or once the action is done, with its output */
             200: {
@@ -8128,6 +8492,273 @@ export interface operations {
             };
         };
     };
+    listCoreNotificationPreferences: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, person, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose person is this value */
+                person?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of notification preferences */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreNotificationPreferencesList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreNotificationPreferences: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreNotificationPreferencesCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreNotificationPreferences: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The notification preferences's ID, which starts with npref_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notification preferences */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreNotificationPreferences"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreNotificationPreferences: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The notification preferences's ID, which starts with npref_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreNotificationPreferencesUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreNotificationPreferences: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the notification preferences since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The notification preferences's ID, which starts with npref_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the notification preferences from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreNotificationPreferencesHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notification preferences's ID, which starts with npref_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listCorePolicies: {
         parameters: {
             query?: {
@@ -8911,7 +9542,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckInput"];
+            };
+        };
         responses: {
             /** @description The change set: of a dry run, or once the action is done, with its output */
             200: {
@@ -10627,6 +11262,189 @@ export interface operations {
             };
         };
     };
+    removeModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's id, such as mail */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    turnOffModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's id, such as web */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    turnOnModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's id, such as web */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exportModule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The module's id, such as web */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Export"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listModuleSoftware: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The module's id, such as web */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listNotifications: {
         parameters: {
             query?: {
@@ -10680,7 +11498,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotificationPreferences"];
+                    "application/json": components["schemas"]["MyPreferences"];
                 };
             };
             /** @description Error */
@@ -10696,8 +11514,14 @@ export interface operations {
     };
     setNotificationPreferences: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10713,7 +11537,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotificationPreferences"];
+                    "application/json": components["schemas"]["ChangeSet"];
                 };
             };
             /** @description Error */

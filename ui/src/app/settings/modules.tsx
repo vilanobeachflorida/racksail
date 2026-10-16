@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Blocks, Cpu, HardDrive, MemoryStick } from "lucide-react";
+import { Blocks, Cpu, Download, HardDrive, MemoryStick } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
@@ -12,7 +12,14 @@ import {
   CardTitle,
 } from "@/design/components/ui/card";
 import { Checkbox } from "@/design/components/ui/choice";
-import { Alert, Badge } from "@/design/components/ui/display";
+import { ConfirmDialog } from "@/design/components/ui/confirm-dialog";
+import {
+  Alert,
+  Badge,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/design/components/ui/display";
 import { Label } from "@/design/components/ui/field";
 import { Input } from "@/design/components/ui/input";
 import {
@@ -24,11 +31,14 @@ import {
 } from "@/design/components/ui/select";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { EmptyState, ErrorState, type Status, StatusDot } from "@/design/components/ui/states";
+import { toast } from "@/design/components/ui/toaster";
 import { type Schemas, unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
+import { errorMessage } from "@/lib/errors";
 import { useFormat } from "@/lib/format";
 import { messages as m } from "../messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
+import { saveJSON, useResourceUpdates } from "./live";
 
 type ModuleInfo = Schemas["ModuleInfo"];
 type ModuleState = ModuleInfo["state"];
@@ -49,6 +59,150 @@ const stateLabel = {
   removing: m.modulesStateRemoving,
 } as const;
 
+/** Software a module brings along rather than installs: built in or already on the server. */
+const bundled = new Set(["embedded", "present"]);
+
+/** What a module installs the first time something needs it, asked of the server when opened. */
+function SoftwareList({ id }: { id: string }) {
+  const intl = useIntl();
+  const api = useApi();
+  const f = useFormat();
+  const software = useQuery({
+    queryKey: ["modules", id, "software"],
+    queryFn: () => unwrap(api.GET("/api/v1/modules/{id}/software", { params: { path: { id } } })),
+  });
+  if (software.isPending) {
+    return (
+      <div className="flex flex-col gap-2" aria-busy="true">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+      </div>
+    );
+  }
+  if (software.isError) {
+    return (
+      <Alert tone="warning" title={intl.formatMessage(m.modulesSoftwareFailed)}>
+        {errorMessage(intl, software.error)}
+      </Alert>
+    );
+  }
+  const list = (software.data.software ?? []).filter((s) => !bundled.has(s.source.type));
+  if (list.length === 0) {
+    return <p className="text-muted-foreground">{intl.formatMessage(m.modulesSoftwareNone)}</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {list.map((s) => (
+        <li key={s.id} className="flex flex-col gap-0.5">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{s.name}</span>
+            {s.installed ? (
+              <Badge variant="outline">{intl.formatMessage(m.modulesSoftwareInstalled)}</Badge>
+            ) : null}
+            {s.optIn ? (
+              <Badge variant="outline">{intl.formatMessage(m.modulesSoftwareOptIn)}</Badge>
+            ) : null}
+          </span>
+          <span className="text-muted-foreground text-xs">
+            {intl.formatMessage(m.modulesSoftwareSizes, {
+              download: f.bytes(s.downloadBytes ?? 0),
+              disk: f.bytes(s.diskBytes ?? 0),
+              license: s.license,
+            })}
+          </span>
+          {s.install ? <span className="text-muted-foreground text-xs">{s.install}</span> : null}
+          {(s.packages ?? []).length > 0 ? (
+            <span className="font-mono text-muted-foreground text-xs">
+              {intl.formatList(
+                (s.packages ?? []).map((p) => `${p.name} ${p.version}`),
+                { type: "unit" },
+              )}
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Asks before removing a module: whether to keep its data, offering to
+ * download its resources first when they'd be deleted, and its name
+ * typed to confirm. Confirming previews the removal.
+ */
+function RemoveDialog({
+  info,
+  open,
+  onOpenChange,
+  onRemove,
+}: {
+  info: ModuleInfo;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRemove: (confirm: string, keepData: boolean) => Promise<void>;
+}) {
+  const intl = useIntl();
+  const api = useApi();
+  const id = useId();
+  const [keepData, setKeepData] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const man = info.manifest;
+  const resources = info.usage.resources ?? 0;
+  const download = async () => {
+    setExporting(true);
+    try {
+      const data = await unwrap(
+        api.GET("/api/v1/modules/{id}/export", { params: { path: { id: man.id } } }),
+      );
+      const file = `racksail-${man.id}-${data.exported.slice(0, 10)}.json`;
+      saveJSON(file, data);
+      toast.success(intl.formatMessage(m.modulesExported, { file }));
+    } catch (error) {
+      toast.error(errorMessage(intl, error));
+    } finally {
+      setExporting(false);
+    }
+  };
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setKeepData(true);
+        }
+        onOpenChange(next);
+      }}
+      title={intl.formatMessage(m.modulesRemoveTitle, { name: man.name })}
+      description={intl.formatMessage(m.modulesRemoveBody, { name: man.name })}
+      confirmLabel={intl.formatMessage(m.modulesRemovePreview)}
+      // The button only works once the name typed matches, so the name is
+      // what the person typed.
+      typedConfirmation={man.name}
+      onConfirm={() => onRemove(man.name, keepData)}
+    >
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={`${id}-keep`}
+          checked={keepData}
+          onCheckedChange={(v) => setKeepData(v === true)}
+        />
+        <Label htmlFor={`${id}-keep`}>{intl.formatMessage(m.modulesKeepData)}</Label>
+      </div>
+      {!keepData && info.exportable ? (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>{intl.formatMessage(m.modulesRemoveDeletes, { count: resources })}</p>
+          <div>
+            <Button variant="outline" size="sm" busy={exporting} onClick={download}>
+              <Download aria-hidden="true" />
+              {intl.formatMessage(m.modulesExport)}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </ConfirmDialog>
+  );
+}
+
 /** One module: what it is, what it costs, what it needs and what it can't do here. */
 function ModuleCard({
   info,
@@ -61,17 +215,18 @@ function ModuleCard({
   busy: boolean;
   onTurnOn: () => void;
   onTurnOff: () => void;
-  onRemove: (keepData: boolean) => void;
+  onRemove: () => void;
 }) {
   const intl = useIntl();
   const f = useFormat();
   const id = useId();
-  const [keepData, setKeepData] = useState(true);
+  const [showSoftware, setShowSoftware] = useState(false);
   const man = info.manifest;
   const on = info.state === "on" || info.state === "active";
   const problems = info.hardwareProblems ?? [];
   const resources = info.usage.resources ?? 0;
   const mb = (n: number) => f.bytes(n * 1024 * 1024, { binary: true });
+  const installs = (man.upstream ?? []).filter((u) => !bundled.has(u.source.type));
   return (
     <Card aria-labelledby={`${id}-name`} data-module={man.id}>
       <CardHeader className="gap-2">
@@ -84,6 +239,9 @@ function ModuleCard({
           />
           {man.required ? (
             <Badge variant="outline">{intl.formatMessage(m.modulesRequired)}</Badge>
+          ) : null}
+          {info.removed && info.state === "off" ? (
+            <Badge variant="outline">{intl.formatMessage(m.modulesRemoved)}</Badge>
           ) : null}
         </div>
         <CardDescription>{man.description}</CardDescription>
@@ -127,6 +285,21 @@ function ModuleCard({
             })}
           </p>
         ) : null}
+        {installs.length > 0 ? (
+          <Collapsible open={showSoftware} onOpenChange={setShowSoftware}>
+            <CollapsibleTrigger>
+              {intl.formatMessage(m.modulesSoftware, {
+                names: intl.formatList(
+                  installs.map((u) => u.name),
+                  { type: "conjunction" },
+                ),
+              })}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              {showSoftware ? <SoftwareList id={man.id} /> : null}
+            </CollapsibleContent>
+          </Collapsible>
+        ) : null}
         {problems.length > 0 ? (
           <Alert tone="warning" title={intl.formatMessage(m.modulesCantRun)}>
             <ul className="list-disc ps-4">
@@ -152,28 +325,17 @@ function ModuleCard({
             {intl.formatMessage(m.modulesTurnOff)}
           </Button>
         ) : (
-          <Button disabled={busy || problems.length > 0 || !info.resource} onClick={onTurnOn}>
+          <Button
+            disabled={busy || problems.length > 0 || !info.resource || info.state !== "off"}
+            onClick={onTurnOn}
+          >
             {intl.formatMessage(m.modulesTurnOn)}
           </Button>
         )}
         {info.state === "off" && ((info.installed ?? []).length > 0 || resources > 0) ? (
-          <>
-            <Button
-              variant="destructive"
-              disabled={busy || !info.resource}
-              onClick={() => onRemove(keepData)}
-            >
-              {intl.formatMessage(m.modulesRemove)}
-            </Button>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id={`${id}-keep`}
-                checked={keepData}
-                onCheckedChange={(v) => setKeepData(v === true)}
-              />
-              <Label htmlFor={`${id}-keep`}>{intl.formatMessage(m.modulesKeepData)}</Label>
-            </div>
-          </>
+          <Button variant="destructive" disabled={busy || !info.resource} onClick={onRemove}>
+            {intl.formatMessage(m.modulesRemove)}
+          </Button>
         ) : null}
       </CardFooter>
     </Card>
@@ -188,6 +350,7 @@ export default function ModulesSettings() {
   const [query, setQuery] = useState("");
   const [profile, setProfile] = useState<string>("");
   const [skipped, setSkipped] = useState<Schemas["ProfileChange"]["skipped"]>(null);
+  const [removing, setRemoving] = useState<ModuleInfo | null>(null);
   const searchId = useId();
   const list = useQuery({
     queryKey: ["modules"],
@@ -197,6 +360,8 @@ export default function ModulesSettings() {
     queryKey: ["modules", "profiles"],
     queryFn: () => unwrap(api.GET("/api/v1/modules/profiles")),
   });
+  // States change as resources come to use a module and as changes apply.
+  useResourceUpdates(["core.module"], [["modules"]]);
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -216,20 +381,31 @@ export default function ModulesSettings() {
     return [...byCategory.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [list.data, query]);
 
-  const action = (info: ModuleInfo, name: "turn_on" | "turn_off") => () =>
-    flow.preview((dryRun) => {
-      const params = { params: { path: { id: info.resource ?? "" }, query: { dryRun } } };
-      return name === "turn_on"
-        ? unwrap(api.POST("/api/v1/core/modules/{id}/actions/turn_on", params))
-        : unwrap(api.POST("/api/v1/core/modules/{id}/actions/turn_off", params));
-    });
-
-  const remove = (info: ModuleInfo) => (keepData: boolean) =>
+  // The module manager turns a module on with the modules it needs.
+  const turnOn = (info: ModuleInfo) => () =>
     flow.preview((dryRun) =>
       unwrap(
-        api.POST("/api/v1/core/modules/{id}/actions/remove", {
-          params: { path: { id: info.resource ?? "" }, query: { dryRun } },
-          body: { confirm: info.manifest.id, keepData },
+        api.POST("/api/v1/modules/{id}/actions/turn_on", {
+          params: { path: { id: info.manifest.id }, query: { dryRun } },
+        }),
+      ),
+    );
+
+  const turnOff = (info: ModuleInfo) => () =>
+    flow.preview((dryRun) =>
+      unwrap(
+        api.POST("/api/v1/modules/{id}/actions/turn_off", {
+          params: { path: { id: info.manifest.id }, query: { dryRun } },
+        }),
+      ),
+    );
+
+  const remove = (info: ModuleInfo) => (confirm: string, keepData: boolean) =>
+    flow.preview((dryRun) =>
+      unwrap(
+        api.POST("/api/v1/modules/{id}/actions/remove", {
+          params: { path: { id: info.manifest.id }, query: { dryRun } },
+          body: { confirm, keepData },
         }),
       ),
     );
@@ -312,7 +488,7 @@ export default function ModulesSettings() {
       </div>
 
       {list.isPending ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2" aria-busy="true">
           <Skeleton className="h-48" />
           <Skeleton className="h-48" />
         </div>
@@ -336,15 +512,27 @@ export default function ModulesSettings() {
                   key={info.manifest.id}
                   info={info}
                   busy={flow.busy}
-                  onTurnOn={action(info, "turn_on")}
-                  onTurnOff={action(info, "turn_off")}
-                  onRemove={remove(info)}
+                  onTurnOn={turnOn(info)}
+                  onTurnOff={turnOff(info)}
+                  onRemove={() => setRemoving(info)}
                 />
               ))}
             </div>
           </section>
         ))
       )}
+      {removing ? (
+        <RemoveDialog
+          key={removing.manifest.id}
+          info={removing}
+          open
+          onOpenChange={(open) => (open ? undefined : setRemoving(null))}
+          onRemove={async (confirm, keepData) => {
+            await remove(removing)(confirm, keepData);
+            setRemoving(null);
+          }}
+        />
+      ) : null}
       <ChangeDialog flow={flow} />
     </div>
   );

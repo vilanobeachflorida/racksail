@@ -965,6 +965,16 @@
         ],
         "type": "object"
       },
+      "CheckInput": {
+        "additionalProperties": false,
+        "properties": {
+          "wait": {
+            "description": "Wait for the checks to pass, up to each one's timeout, and fail when one doesn't, as installs and upgrades do",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "CheckOutput": {
         "additionalProperties": false,
         "properties": {
@@ -2209,6 +2219,161 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ChannelSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationPreferences": {
+        "additionalProperties": false,
+        "description": "Notification preferences: What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PreferencesSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PreferencesStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationPreferencesCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new notification preferences.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with npref_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PreferencesSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationPreferencesList": {
+        "additionalProperties": false,
+        "description": "One page of notification preferences.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreNotificationPreferences"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationPreferencesUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a notification preferences.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PreferencesSpec"
           }
         },
         "required": [
@@ -3660,6 +3825,83 @@
         ],
         "type": "object"
       },
+      "Export": {
+        "additionalProperties": false,
+        "properties": {
+          "exported": {
+            "description": "When the export was made",
+            "format": "date-time",
+            "type": "string"
+          },
+          "module": {
+            "description": "The module's id",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ExportedResource"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "The module's version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "version",
+          "exported",
+          "resources"
+        ],
+        "type": "object"
+      },
+      "ExportedResource": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "spec": {},
+          "withheld": {
+            "description": "Fields that refer to secrets, which the export leaves out",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "scope",
+          "spec",
+          "createdAt"
+        ],
+        "type": "object"
+      },
       "Failure": {
         "additionalProperties": false,
         "properties": {
@@ -5096,7 +5338,7 @@
             "type": "string"
           },
           "exportable": {
-            "description": "Whether the module's data can be exported before removing it, which needs the backups module",
+            "description": "Whether the module has resources to export before it is removed with its data",
             "type": "boolean"
           },
           "hardwareProblems": {
@@ -5130,6 +5372,10 @@
               "array",
               "null"
             ]
+          },
+          "removed": {
+            "description": "Whether the module was removed, its software uninstalled until something needs it again",
+            "type": "boolean"
           },
           "resource": {
             "description": "The module's core.module resource",
@@ -5203,6 +5449,10 @@
               "array",
               "null"
             ]
+          },
+          "removed": {
+            "description": "Whether the module was removed: off, with its software uninstalled until something needs it again",
+            "type": "boolean"
           },
           "settings": {
             "additionalProperties": {},
@@ -5291,6 +5541,10 @@
             ],
             "type": "string"
           },
+          "uninstalled": {
+            "description": "Whether the software of a removed module was uninstalled",
+            "type": "boolean"
+          },
           "usage": {
             "$ref": "#/components/schemas/Usage",
             "description": "What uses the module"
@@ -5298,6 +5552,62 @@
         },
         "required": [
           "usage"
+        ],
+        "type": "object"
+      },
+      "MyPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Send notifications to my email address",
+            "type": "boolean"
+          },
+          "events": {
+            "description": "Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "minSeverity": {
+            "description": "Only send events at least this urgent; warning when empty",
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "muted": {
+            "description": "Event types never to send, as patterns",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "quietHours": {
+            "$ref": "#/components/schemas/QuietHours",
+            "description": "Hold back what can wait, and send it as one summary when quiet hours end"
+          },
+          "updatedAt": {
+            "description": "When they were last changed",
+            "format": "date-time",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
         ],
         "type": "object"
       },
@@ -5492,11 +5802,6 @@
           "quietHours": {
             "$ref": "#/components/schemas/QuietHours",
             "description": "Hold back what can wait, and send it as one summary when quiet hours end"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "readOnly": true,
-            "type": "string"
           }
         },
         "required": [
@@ -5982,6 +6287,99 @@
           "protocol",
           "description"
         ],
+        "type": "object"
+      },
+      "PreferencesSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Send notifications to my email address",
+            "type": "boolean"
+          },
+          "events": {
+            "description": "Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "minSeverity": {
+            "description": "Only send events at least this urgent; warning when empty",
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "muted": {
+            "description": "Event types never to send, as patterns",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "person": {
+            "description": "The person the preferences belong to",
+            "type": "string"
+          },
+          "quietHours": {
+            "$ref": "#/components/schemas/QuietHours",
+            "description": "Hold back what can wait, and send it as one summary when quiet hours end"
+          }
+        },
+        "required": [
+          "person",
+          "email"
+        ],
+        "type": "object"
+      },
+      "PreferencesStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Problem": {
@@ -6890,6 +7288,114 @@
         "required": [
           "source",
           "path"
+        ],
+        "type": "object"
+      },
+      "Software": {
+        "additionalProperties": false,
+        "properties": {
+          "diskBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "diskMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloadMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "homepage": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "install": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "license": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "optIn": {
+            "type": "boolean"
+          },
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/SoftwarePackage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/UpstreamSource"
+          }
+        },
+        "required": [
+          "installed",
+          "id",
+          "name",
+          "license",
+          "source",
+          "install"
+        ],
+        "type": "object"
+      },
+      "SoftwareOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "software": {
+            "items": {
+              "$ref": "#/components/schemas/Software"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "software"
+        ],
+        "type": "object"
+      },
+      "SoftwarePackage": {
+        "additionalProperties": false,
+        "properties": {
+          "downloadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "installedBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
         ],
         "type": "object"
       },
@@ -11782,7 +12288,7 @@
     },
     "/api/v1/core/installations/{id}/actions/check": {
       "post": {
-        "description": "Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "description": "Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. Installs and upgrades end with it, waiting for the checks to pass, so a change set that applies is one that works. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
         "operationId": "checkCoreInstallation",
         "parameters": [
           {
@@ -11812,6 +12318,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -13012,7 +13528,7 @@
     },
     "/api/v1/core/modules/{id}/actions/remove": {
       "post": {
-        "description": "Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, which POST /api/v1/modules/{module}/remove does. Removing needs the module's name typed as confirmation. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "description": "Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, which POST /api/v1/modules/{id}/actions/remove does. Removing needs the module's name typed as confirmation. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
         "operationId": "removeCoreModule",
         "parameters": [
           {
@@ -13190,7 +13706,7 @@
     },
     "/api/v1/core/modules/{id}/actions/turn_on": {
       "post": {
-        "description": "Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. The modules it needs must be on. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "description": "Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. The modules it needs must be on; POST /api/v1/modules/{id}/actions/turn_on turns them on with it. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
         "operationId": "turnOnCoreModule",
         "parameters": [
           {
@@ -13938,6 +14454,534 @@
         "x-racksail-kind": "core.notification_channel",
         "x-racksail-operation": "history",
         "x-racksail-permission": "core.notification_channel.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/notification-preferences": {
+      "get": {
+        "description": "What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences. Lists the notification preferences you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreNotificationPreferences",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, person, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose person is this value",
+            "in": "query",
+            "name": "person",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreNotificationPreferencesList"
+                }
+              }
+            },
+            "description": "A page of notification preferences"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List notification preferences",
+        "tags": [
+          "NotificationPreferences"
+        ],
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.notification_preferences.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreNotificationPreferences",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreNotificationPreferencesCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a notification preferences",
+        "tags": [
+          "NotificationPreferences"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.notification_preferences.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/notification-preferences/{id}": {
+      "delete": {
+        "description": "Deletes the notification preferences and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreNotificationPreferences",
+        "parameters": [
+          {
+            "description": "The notification preferences's ID, which starts with npref_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the notification preferences since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the notification preferences from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a notification preferences",
+        "tags": [
+          "NotificationPreferences"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.notification_preferences.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      },
+      "get": {
+        "description": "Returns one notification preferences: its settings (spec), and what Racksail last saw of it (status). What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences.",
+        "operationId": "getCoreNotificationPreferences",
+        "parameters": [
+          {
+            "description": "The notification preferences's ID, which starts with npref_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreNotificationPreferences"
+                }
+              }
+            },
+            "description": "The notification preferences"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a notification preferences",
+        "tags": [
+          "NotificationPreferences"
+        ],
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.notification_preferences.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the notification preferences's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreNotificationPreferences",
+        "parameters": [
+          {
+            "description": "The notification preferences's ID, which starts with npref_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreNotificationPreferencesUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a notification preferences",
+        "tags": [
+          "NotificationPreferences"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.notification_preferences.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/notification-preferences/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the notification preferences's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreNotificationPreferencesHistory",
+        "parameters": [
+          {
+            "description": "The notification preferences's ID, which starts with npref_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a notification preferences's history",
+        "tags": [
+          "NotificationPreferences"
+        ],
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.notification_preferences.read",
         "x-racksail-risk": "read"
       }
     },
@@ -15464,7 +16508,7 @@
     },
     "/api/v1/core/server-installations/{id}/actions/check": {
       "post": {
-        "description": "Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "description": "Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. Installs and upgrades end with it, waiting for the checks to pass, so a change set that applies is one that works. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
         "operationId": "checkCoreServerInstallation",
         "parameters": [
           {
@@ -15494,6 +16538,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -18826,6 +19880,369 @@
         "x-racksail-risk": "read"
       }
     },
+    "/api/v1/modules/{id}/actions/remove": {
+      "post": {
+        "description": "Turns a module off and uninstalls its software, as one change set. With keepData its resources and their data stay, and come back when it is turned on again; without it they are deleted in the same change set, after a snapshot. The person removing it types its name to confirm, and GET /api/v1/modules/{id}/export keeps a copy of its resources first.",
+        "operationId": "removeModule",
+        "parameters": [
+          {
+            "description": "The module's id, such as mail",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The module's id, such as mail",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove a module",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "remove",
+        "x-racksail-permission": "core.module.remove",
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/modules/{id}/actions/turn_off": {
+      "post": {
+        "description": "Stops a module and hides it, keeping its software, resources, settings and data, as a change set. A module that resources use can only be turned off when it can keep them dormant.",
+        "operationId": "turnOffModule",
+        "parameters": [
+          {
+            "description": "The module's id, such as web",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The module's id, such as web",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn a module off",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "turn_off",
+        "x-racksail-permission": "core.module.turn_off",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/modules/{id}/actions/turn_on": {
+      "post": {
+        "description": "Turns on a module and the modules it needs that are off, dependencies first, as one change set. The preview lists what the module does once something uses it: the software it downloads then, from where and how large, its packages, services and ports, and its memory and disk.",
+        "operationId": "turnOnModule",
+        "parameters": [
+          {
+            "description": "The module's id, such as web",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The module's id, such as web",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn a module on, with the modules it needs",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "turn_on",
+        "x-racksail-permission": "core.module.turn_on",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/modules/{id}/export": {
+      "get": {
+        "description": "Every resource of the module's kinds with its settings and labels, as a JSON file to keep before removing the module with its data. Fields that refer to secrets are left out and named, since secret values never leave the panel this way.",
+        "operationId": "exportModule",
+        "parameters": [
+          {
+            "description": "The module's id, such as web",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The module's id, such as web",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Export a module's resources",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "export",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/modules/{id}/software": {
+      "get": {
+        "description": "The software a module installs the first time something needs it: where each comes from, when it is installed, the packages it brings in, how much it downloads and takes on disk, and whether it is installed already. The server's package index gives the sizes where it can, and the module's manifest otherwise.",
+        "operationId": "listModuleSoftware",
+        "parameters": [
+          {
+            "description": "The module's id, such as web",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The module's id, such as web",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoftwareOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List what a module installs",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "software",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "description": "Notifications sent, being sent, held back by quiet hours or given up on, newest first, without their messages.",
@@ -18930,7 +20347,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotificationPreferences"
+                  "$ref": "#/components/schemas/MyPreferences"
                 }
               }
             },
@@ -18962,8 +20379,30 @@
         "x-racksail-risk": "read"
       },
       "put": {
-        "description": "Replaces your notification preferences. They are yours alone, so they take effect at once rather than through a change set.",
+        "description": "Replaces your notification preferences, as a change set like any other: previewed with dryRun, recorded in the audit log and undone by an admin. Your preferences are a core.notification_preferences resource that only you change.",
         "operationId": "setNotificationPreferences",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -18979,7 +20418,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotificationPreferences"
+                  "$ref": "#/components/schemas/ChangeSet"
                 }
               }
             },
@@ -19008,6 +20447,11 @@
         "tags": [
           "Notifications"
         ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_preferences",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.notification_preferences.update",
+        "x-racksail-reversible": true,
         "x-racksail-risk": "low"
       }
     },

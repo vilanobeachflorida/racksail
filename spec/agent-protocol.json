@@ -9747,7 +9747,7 @@
     },
     "/v1/ops/InstallRelease": {
       "post": {
-        "description": "Downloads a release's binary, checks its checksum and its Sigstore signature by Racksail's release workflow against the trusted root the agent pins, snapshots the system, keeps the running binary for a rollback, puts the new one in its place and restarts Racksail's services onto it. A guard rolls the release back unless it confirms it works within fifteen minutes.",
+        "description": "Downloads a release's binary, checks its checksum and its Sigstore signature by Racksail's release workflow against the trusted root the agent pins, snapshots the system, keeps the running binary and a copy of the panel's database for a rollback, puts the new binary in its place and restarts Racksail's services onto it. A guard rolls the release back unless it confirms it works within fifteen minutes.",
         "operationId": "InstallRelease",
         "parameters": [
           {

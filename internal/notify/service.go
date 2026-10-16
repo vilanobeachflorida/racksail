@@ -232,7 +232,7 @@ func (s *Service) route(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		prefs, err := s.db.allPreferences(ctx)
+		prefs, err := s.allPreferences(ctx)
 		if err != nil {
 			return err
 		}
@@ -696,7 +696,7 @@ func (s *Service) Send(ctx context.Context, to Recipient, msg Message) (*Notific
 		}
 		d.Channel, quiet = c.ID, c.Spec.QuietHours
 	case to.Person != "":
-		p, err := s.db.preferences(ctx, to.Person)
+		p, err := s.Preferences(ctx, to.Person)
 		if err != nil {
 			return nil, err
 		}
@@ -807,21 +807,4 @@ func (s *Service) Notification(ctx context.Context, id store.ID) (*Notification,
 	return s.db.get(ctx, id)
 }
 
-// Preferences returns a person's preferences; a person who never chose
-// gets none.
-func (s *Service) Preferences(ctx context.Context, person store.ID) (NotificationPreferences, error) {
-	return s.db.preferences(ctx, person)
-}
 
-// SetPreferences stores a person's preferences.
-func (s *Service) SetPreferences(ctx context.Context, person store.ID, p NotificationPreferences) (NotificationPreferences, error) {
-	if err := p.Check(); err != nil {
-		return NotificationPreferences{}, err
-	}
-	now := s.opts.Now().UTC()
-	p.UpdatedAt = &now
-	if err := s.db.setPreferences(ctx, person, p); err != nil {
-		return NotificationPreferences{}, err
-	}
-	return p, nil
-}

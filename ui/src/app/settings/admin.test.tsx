@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shellMessages } from "@/lib/i18n";
 import { axeViolations } from "@/test/axe";
-import { fakeApi, json, renderShell } from "@/test/render";
+import { fakeApi, fakeLive, json, renderShell } from "@/test/render";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -82,7 +82,7 @@ describe("the modules page", () => {
             },
           ],
         }),
-      "POST /api/v1/core/modules/mod_notes/actions/turn_on": (request) => {
+      "POST /api/v1/modules/notes/actions/turn_on": (request) => {
         calls.push(`turn_on ${new URL(request.url).search}`);
         return json(preview("Turn on Notes"));
       },
@@ -112,6 +112,138 @@ describe("the modules page", () => {
     await user.click(within(dialog).getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(calls).toEqual(["turn_on ?dryRun=true", "apply"]));
     expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("asks for the module's name, and offers its resources, before removing it", async () => {
+    const user = userEvent.setup();
+    let sent: Record<string, unknown> | undefined;
+    let exported = 0;
+    const save = vi.fn();
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      save();
+      return "blob:export";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/modules": () =>
+        json({
+          modules: [
+            {
+              manifest: manifest("notes", {
+                upstream: [
+                  {
+                    id: "notesd",
+                    name: "Notesd",
+                    license: "MIT",
+                    source: { type: "debian", packages: ["notesd"] },
+                    install: "With the first note.",
+                  },
+                ],
+              }),
+              enabled: false,
+              state: "off",
+              usage: { resources: 2 },
+              installed: ["notesd"],
+              resource: "mod_notes",
+              exportable: true,
+            },
+          ],
+        }),
+      "GET /api/v1/modules/profiles": () => json({ profiles: [] }),
+      "GET /api/v1/modules/notes/software": () =>
+        json({
+          software: [
+            {
+              id: "notesd",
+              name: "Notesd",
+              license: "MIT",
+              source: { type: "debian", packages: ["notesd"] },
+              install: "With the first note.",
+              installed: true,
+              downloadBytes: 3_000_000,
+              diskBytes: 9_000_000,
+              packages: [{ name: "notesd", version: "1.2-1" }],
+            },
+          ],
+        }),
+      "GET /api/v1/modules/notes/export": () => {
+        exported++;
+        return json({
+          module: "notes",
+          version: "0.1.0",
+          exported: "2026-10-16T08:00:00Z",
+          resources: [],
+        });
+      },
+      "POST /api/v1/modules/notes/actions/remove": async (request) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return json(preview("Remove Notes", { risk: "high" }));
+      },
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/modules" });
+    const notes = await screen.findByRole("region", { name: "Notes" });
+
+    // What it installs, as the server says.
+    await user.click(
+      within(notes).getByRole("button", { name: "Installs once something needs it: Notesd" }),
+    );
+    expect(await within(notes).findByText("notesd 1.2-1")).toBeInTheDocument();
+    expect(within(notes).getByText("Installed")).toBeInTheDocument();
+
+    await user.click(within(notes).getByRole("button", { name: "Remove" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const confirm = within(dialog).getByRole("button", { name: "Preview removing it" });
+    expect(confirm).toBeDisabled();
+    // Without its data, its resources are offered first.
+    expect(within(dialog).queryByRole("button", { name: "Download its resources" })).toBeNull();
+    await user.click(within(dialog).getByRole("checkbox", { name: "Keep its data" }));
+    await user.click(within(dialog).getByRole("button", { name: "Download its resources" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(exported).toBe(1);
+    // The name has to be typed as it is.
+    const typed = within(dialog).getByRole("textbox");
+    await user.type(typed, "notes");
+    expect(confirm).toBeDisabled();
+    await user.clear(typed);
+    await user.type(typed, "Notes");
+    await user.click(confirm);
+    expect(await screen.findByText("Remove Notes")).toBeInTheDocument();
+    expect(sent).toEqual({ confirm: "Notes", keepData: false });
+  });
+
+  it("follows modules as their states change", async () => {
+    const { live, sources } = fakeLive();
+    let state = "on";
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/modules": () =>
+        json({
+          modules: [
+            {
+              manifest: manifest("notes"),
+              enabled: true,
+              state,
+              usage: { resources: state === "active" ? 1 : 0 },
+              resource: "mod_notes",
+            },
+          ],
+        }),
+      "GET /api/v1/modules/profiles": () => json({ profiles: [] }),
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/modules", live });
+    const notes = await screen.findByRole("region", { name: "Notes" });
+    expect(within(notes).getByText("On")).toBeInTheDocument();
+    const stream = await waitFor(() => {
+      const found = sources.find((s) => s.url.startsWith("/api/v1/resources/stream"));
+      expect(found).toBeDefined();
+      return found;
+    });
+    expect(stream?.url).toBe("/api/v1/resources/stream?kind=core.module");
+    state = "active";
+    stream?.emit("notice", { op: "status", id: "mod_notes", kind: "core.module", phase: "ready" });
+    expect(await within(notes).findByText("Active")).toBeInTheDocument();
   });
 });
 
@@ -306,6 +438,92 @@ describe("the rules page", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps and tries the rules of a reseller or an account", async () => {
+    const user = userEvent.setup();
+    let listed = "";
+    let sent: Record<string, unknown> | undefined;
+    let created: Record<string, unknown> | undefined;
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/core/policies": () => json({ items: [] }),
+      "GET /api/v1/core/account-policies": (request) => {
+        listed = new URL(request.url).searchParams.get("scope") ?? "";
+        return json({
+          items: [
+            {
+              id: "apol_1",
+              kind: "core.account_policy",
+              revision: 1,
+              generation: 1,
+              scope: { level: "account", id: "acct_1" },
+              createdAt: "2026-10-15T12:00:00Z",
+              updatedAt: "2026-10-15T12:00:00Z",
+              spec: { name: "Small mailboxes", type: "default", enabled: true },
+            },
+          ],
+        });
+      },
+      "POST /api/v1/rules/test": async (request) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return json({ applies: false, cost: 0, costLimit: 100000 });
+      },
+      "POST /api/v1/core/account-policies": async (request) => {
+        created = (await request.json()) as Record<string, unknown>;
+        return json(preview("Create account rule"));
+      },
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/rules" });
+    await screen.findByRole("heading", { level: 2, name: "Server rules" });
+    const [owner] = screen.getAllByRole("combobox", { name: "Rules of" });
+    if (!owner) {
+      throw new Error("no owner field");
+    }
+    await user.click(owner);
+    await user.click(await screen.findByRole("option", { name: "An account" }));
+    expect(screen.getByText("Give the account's ID to see its rules.")).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "The account's ID" }), "acct_1");
+    expect(await screen.findByText("Small mailboxes")).toBeInTheDocument();
+    expect(listed).toBe("account:acct_1");
+    expect(
+      screen.getByRole("heading", { level: 2, name: "The account's rules" }),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Quota");
+    await user.type(screen.getByRole("textbox", { name: "Kind" }), "mail.mailbox");
+    await user.click(screen.getByRole("button", { name: "Try it" }));
+    expect(await screen.findByText("The rule doesn't apply to this change.")).toBeInTheDocument();
+    expect(sent?.owner).toEqual({ level: "account", id: "acct_1" });
+    expect(sent?.scope).toEqual({ level: "account", id: "acct_1" });
+    await user.click(screen.getByRole("button", { name: "Save as the account's rule" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(created?.scope).toEqual({ level: "account", id: "acct_1" });
+  });
+
+  it("marks the hooks that hold core.override", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/core/policies": () => json({ items: [] }),
+      "GET /api/v1/hooks": () =>
+        json({
+          hooks: [
+            {
+              owner: "addon:cdn",
+              label: "CDN 2.0.0",
+              kind: "system",
+              point: "system.caddy.config",
+              priority: 0,
+              override: true,
+            },
+            { owner: "module:web", kind: "system", point: "system.caddy.config", priority: 0 },
+          ],
+        }),
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/rules" });
+    const hooks = await screen.findByRole("region", { name: "Hooks" });
+    expect(await within(hooks).findByText("CDN 2.0.0")).toBeInTheDocument();
+    expect(within(hooks).getAllByText("Holds core.override")).toHaveLength(1);
+  });
+
   it("says safe mode from the boot option lasts until the server starts without it", async () => {
     const api = fakeApi({
       ...shell,
@@ -337,12 +555,17 @@ describe("the notifications page", () => {
   it("saves your preferences and lists the server's channels", async () => {
     const user = userEvent.setup();
     let saved: Record<string, unknown> | undefined;
+    const puts: string[] = [];
     const api = fakeApi({
       ...shell,
       "GET /api/v1/notifications/preferences": () => json({ email: false }),
       "PUT /api/v1/notifications/preferences": async (request) => {
+        const dryRun = new URL(request.url).searchParams.get("dryRun") === "true";
+        puts.push(dryRun ? "preview" : "apply");
         saved = (await request.json()) as Record<string, unknown>;
-        return json({ ...saved, updatedAt: "2026-10-15T12:00:00Z" });
+        return dryRun
+          ? json(preview("Change notification preferences", { risk: "low" }))
+          : json({ ...preview("Change notification preferences"), dryRun: false }, 202);
       },
       "GET /api/v1/core/notification-channels": () =>
         json({
@@ -379,10 +602,14 @@ describe("the notifications page", () => {
     await user.type(events, "*.failed, security.*");
     await user.click(screen.getByRole("switch", { name: "Quiet hours" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(saved).toBeDefined());
+    // Like every change, it is previewed first, then sent again to apply.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Change notification preferences")).toBeInTheDocument();
     expect(saved?.email).toBe(true);
     expect(saved?.events).toEqual(["*.failed", "security.*"]);
     expect(saved?.quietHours).toMatchObject({ start: "22:00", end: "07:00" });
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(puts).toEqual(["preview", "apply"]));
   });
 
   it("says when personal notifications aren't available, and hides what you may not see", async () => {

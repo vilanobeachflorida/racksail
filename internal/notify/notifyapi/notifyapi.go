@@ -70,10 +70,11 @@ type deliveryOutput struct {
 }
 
 type preferencesOutput struct {
-	Body notify.NotificationPreferences
+	Body notify.MyPreferences
 }
 
 type preferencesInput struct {
+	api.ChangeParams
 	Body notify.NotificationPreferences
 }
 
@@ -187,26 +188,40 @@ func register(a huma.API, svc *modules.Services) {
 
 	op = huma.Operation{
 		OperationID: "setNotificationPreferences", Method: http.MethodPut, Path: api.Prefix + "/notifications/preferences", Tags: tags, Security: api.Protected,
-		Summary:     "Change your notification preferences",
-		Description: "Replaces your notification preferences. They are yours alone, so they take effect at once rather than through a change set.",
+		Summary: "Change your notification preferences",
+		Description: "Replaces your notification preferences, as a change set like any other: previewed with dryRun, recorded in the audit log " +
+			"and undone by an admin. Your preferences are a core.notification_preferences resource that only you change.",
 	}
-	api.Describe(&op, api.Info{Risk: store.RiskLow})
-	huma.Register(a, op, func(ctx context.Context, in *preferencesInput) (*preferencesOutput, error) {
+	api.Describe(&op, api.Info{
+		Kind: notify.PreferencesKind.Name(), Operation: "update", Permission: string(auth.KindPermission(notify.PreferencesKind.Name(), "update")),
+		Risk: store.RiskLow, DryRun: true, Reversible: true,
+	})
+	huma.Register(a, op, func(ctx context.Context, in *preferencesInput) (*api.ChangeSetOutput, error) {
 		s, person, err := me(ctx, svc)
 		if err != nil {
 			return nil, err
 		}
-		p, err := s.SetPreferences(ctx, person, in.Body)
+		if svc.Pipeline == nil {
+			return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
+		}
+		actor, err := api.Actor(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if actor, err := api.Actor(ctx); err == nil && svc.Audit != nil {
-			svc.Audit.Record(ctx, events.AuditRecord{
-				Actor: *actor, Action: "core.notification_preferences.update", Scope: store.ServerScope(), Outcome: events.OutcomeSuccess,
-				Summary: "Changed their notification preferences", RequestID: events.RequestID(ctx),
-			})
+		req, err := s.PreferencesRequest(ctx, person, in.Body)
+		if err != nil {
+			return nil, err
 		}
-		return &preferencesOutput{Body: p}, nil
+		req.Actor, req.DryRun, req.IdempotencyKey = notify.PreferencesActor(actor), in.DryRun, in.IdempotencyKey
+		cs, err := svc.Pipeline.Submit(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		status := http.StatusAccepted
+		if cs.DryRun {
+			status = http.StatusOK
+		}
+		return &api.ChangeSetOutput{Status: status, Body: cs}, nil
 	})
 
 	op = huma.Operation{

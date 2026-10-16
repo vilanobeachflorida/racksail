@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,13 +12,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
+	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/notify"
 	"github.com/vilanobeachflorida/racksail/internal/notify/notifyapi"
+	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -45,29 +52,83 @@ func do(t *testing.T, h http.Handler, method, path string, body any) (int, []byt
 	return rec.Code, out
 }
 
+// panel is the API with notifications and the change pipeline.
+type panel struct {
+	h        http.Handler
+	svc      *notify.Service
+	pipeline *changeset.Engine
+	jobs     *jobs.Manager
+}
+
 func server(t *testing.T, actor *auth.Actor) (http.Handler, *notify.Service) {
+	p := newPanel(t, actor)
+	return p.h, p.svc
+}
+
+func newPanel(t *testing.T, actor *auth.Actor) *panel {
 	t.Helper()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	db, err := store.OpenDB(ctx, filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{notify.ChannelKind, notify.RelayKind} {
+	for _, k := range []store.Kind{notify.ChannelKind, notify.RelayKind, notify.PreferencesKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
 	}
 	st := store.NewMemory(kinds)
 	log := events.NewMemory(100)
-	svc, err := notify.NewSQL(ctx, db, notify.Options{Store: st, Log: log, Logger: slog.New(slog.DiscardHandler)})
+	discard := slog.New(slog.DiscardHandler)
+	svc, err := notify.NewSQL(ctx, db, notify.Options{Store: st, Log: log, Logger: discard})
 	if err != nil {
 		t.Fatal(err)
 	}
-	services := &modules.Services{Store: st, Kinds: kinds, Events: log, Audit: log, Authorizer: auth.NewRoleAuthorizer(nil), Notify: svc}
-	srv := api.New(api.Options{Auth: signedIn{actor}, Services: services, Log: slog.New(slog.DiscardHandler)})
-	return srv.Handler(), svc
+	reg := hooks.NewRegistry()
+	for _, k := range kinds.All() {
+		reg.DeclareKind(k)
+	}
+	for _, h := range svc.Hooks() {
+		if err := reg.Register(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := jobs.NewMemory(ctx, jobs.MemoryOptions{Log: discard})
+	t.Cleanup(func() { q.Stop(context.Background()) })
+	authz := auth.NewRoleAuthorizer(nil)
+	pipeline, err := changeset.NewEngine(changeset.Options{
+		Store: st, Kinds: kinds, Runner: &reconcile.Runner{Store: st, Registry: reconcile.NewRegistry(), Events: log, Log: discard},
+		Jobs: q, Events: log, Audit: log, Hooks: &hooks.Runner{Registry: reg, Log: discard}, Authorizer: authz, Log: discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.Start()
+	services := &modules.Services{Store: st, Kinds: kinds, Events: log, Audit: log, Authorizer: authz, Notify: svc, Pipeline: pipeline, Jobs: q}
+	srv := api.New(api.Options{Auth: signedIn{actor}, Services: services, Log: discard})
+	return &panel{h: srv.Handler(), svc: svc, pipeline: pipeline, jobs: q}
+}
+
+// wait waits for a change set's job and returns how it ended.
+func (p *panel) wait(t *testing.T, body []byte) *changeset.ChangeSet {
+	t.Helper()
+	var cs changeset.ChangeSet
+	if err := json.Unmarshal(body, &cs); err != nil {
+		t.Fatalf("not a change set: %s", body)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.jobs.Wait(ctx, cs.Job); err != nil {
+		t.Fatal(err)
+	}
+	final, err := p.pipeline.Get(ctx, cs.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return final
 }
 
 func TestChannelTypes(t *testing.T) {
@@ -94,24 +155,61 @@ func TestChannelTypes(t *testing.T) {
 }
 
 func TestPreferences(t *testing.T) {
+	ctx := context.Background()
 	acct := store.NewID("acct")
 	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}}
-	h, svc := server(t, owner)
+	p := newPanel(t, owner)
+	h, svc := p.h, p.svc
 	code, body := do(t, h, http.MethodGet, "/api/v1/notifications/preferences", nil)
 	if code != http.StatusOK || !strings.Contains(string(body), `"email":false`) {
 		t.Fatalf("before = %d %s", code, body)
 	}
+
+	// Preferences change through the change pipeline, so they can be
+	// previewed first, and are audited and undone like every change.
 	prefs := notify.NotificationPreferences{Email: true, Events: []string{"*.failed"}, QuietHours: &notify.QuietHours{Start: "22:00", End: "07:00", TimeZone: "Europe/Madrid"}}
-	if code, body := do(t, h, http.MethodPut, "/api/v1/notifications/preferences", prefs); code != http.StatusOK {
+	code, body = do(t, h, http.MethodPut, "/api/v1/notifications/preferences?dryRun=true", prefs)
+	if code != http.StatusOK || !strings.Contains(string(body), `"dryRun":true`) || !strings.Contains(string(body), `"kind":"core.notification_preferences"`) {
+		t.Fatalf("preview = %d %s", code, body)
+	}
+	if stored, _ := svc.Preferences(ctx, owner.ID); stored.Email {
+		t.Error("a preview changed the preferences")
+	}
+	code, body = do(t, h, http.MethodPut, "/api/v1/notifications/preferences", prefs)
+	if code != http.StatusAccepted {
 		t.Fatalf("set = %d %s", code, body)
 	}
-	stored, err := svc.Preferences(context.Background(), owner.ID)
+	if cs := p.wait(t, body); cs.State != changeset.StateApplied || cs.Actor.ID != owner.ID {
+		t.Fatalf("set = %s %s by %v", cs.State, cs.Error, cs.Actor)
+	}
+	stored, err := svc.Preferences(ctx, owner.ID)
 	if err != nil || !stored.Email || stored.QuietHours == nil || stored.UpdatedAt == nil {
 		t.Errorf("stored = %+v, %v", stored, err)
+	}
+	// Changing them again updates the same resource.
+	prefs.Muted = []string{"dns.*"}
+	code, body = do(t, h, http.MethodPut, "/api/v1/notifications/preferences", prefs)
+	if cs := p.wait(t, body); code != http.StatusAccepted || cs.State != changeset.StateApplied || cs.Changes[0].Op != changeset.OpUpdate {
+		t.Fatalf("again = %d %s", code, body)
 	}
 	prefs.QuietHours.TimeZone = "Mars/Olympus"
 	if code, body := do(t, h, http.MethodPut, "/api/v1/notifications/preferences", prefs); code != http.StatusUnprocessableEntity || !strings.Contains(string(body), "quietHours.timeZone") {
 		t.Errorf("a bad time zone = %d %s", code, body)
+	}
+
+	// Nobody else changes them, whatever grants they carry.
+	other := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI}
+	req, err := svc.PreferencesRequest(ctx, owner.ID, notify.NotificationPreferences{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Actor = notify.PreferencesActor(other)
+	if _, err := p.pipeline.Submit(ctx, req); !errors.Is(err, hooks.ErrDenied) || !strings.Contains(i18n.From(err).Message, "belong to their person") {
+		t.Errorf("someone else changing them: %v", err)
+	}
+	req.Actor = other
+	if _, err := p.pipeline.Submit(ctx, req); !errors.Is(err, i18n.ErrForbidden) && !store.ErrNotFound.Is(err) {
+		t.Errorf("someone else without the grant: %v", err)
 	}
 	// An account owner doesn't see the server's channels or their log.
 	if code, _ := do(t, h, http.MethodGet, "/api/v1/notifications/types", nil); code != http.StatusForbidden {

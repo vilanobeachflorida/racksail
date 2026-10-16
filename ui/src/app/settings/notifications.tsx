@@ -40,10 +40,15 @@ import type { UIHints } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { messages as m } from "../messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
+import { useResourceUpdates } from "./live";
 
 type Severity = "info" | "notice" | "warning" | "error" | "critical";
 const severities: Severity[] = ["info", "notice", "warning", "error", "critical"];
 type Preferences = Schemas["NotificationPreferences"];
+
+// Sending a notification records how it went in its channel's or the
+// relay's status, so their notices also say the log changed.
+const channelKinds = ["core.notification_channel", "core.smtp_relay"];
 type QuietHours = NonNullable<Preferences["quietHours"]>;
 
 function patterns(text: string): string[] {
@@ -165,13 +170,15 @@ function MyPreferences() {
     queryFn: () => unwrap(api.GET("/api/v1/notifications/preferences")),
     retry: false,
   });
+  const flow = useChangeFlow();
   const [draft, setDraft] = useState<Preferences | null>(null);
   const [events, setEvents] = useState("");
   const [muted, setMuted] = useState("");
-  const [busy, setBusy] = useState(false);
+  useResourceUpdates(["core.notification_preferences"], [["notifications", "preferences"]]);
   useEffect(() => {
     if (prefs.data && draft === null) {
-      setDraft(prefs.data);
+      const { updatedAt: _, ...current } = prefs.data;
+      setDraft(current);
       setEvents((prefs.data.events ?? []).join(", "));
       setMuted((prefs.data.muted ?? []).join(", "));
     }
@@ -186,23 +193,19 @@ function MyPreferences() {
   if (!draft) {
     return null;
   }
-  const save = async (event: FormEvent) => {
+  // Preferences change as every change does, previewed first. Their
+  // preview is sent again to apply it, since only this request carries
+  // the person's grant on their own preferences.
+  const save = (event: FormEvent) => {
     event.preventDefault();
-    setBusy(true);
-    try {
-      const body: Preferences = {
-        ...draft,
-        events: patterns(events),
-        muted: patterns(muted),
-        updatedAt: undefined,
-      };
-      setDraft(await unwrap(api.PUT("/api/v1/notifications/preferences", { body })));
-      toast.success(intl.formatMessage(m.notifyMineSaved));
-    } catch (error) {
-      toast.error(errorMessage(intl, error));
-    } finally {
-      setBusy(false);
-    }
+    const body: Preferences = { ...draft, events: patterns(events), muted: patterns(muted) };
+    void flow.preview(
+      (dryRun) =>
+        unwrap(
+          api.PUT("/api/v1/notifications/preferences", { params: { query: { dryRun } }, body }),
+        ),
+      { resend: true },
+    );
   };
   const test = async () => {
     try {
@@ -265,7 +268,7 @@ function MyPreferences() {
             onChange={(q) => setDraft({ ...draft, quietHours: q })}
           />
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" busy={busy}>
+            <Button type="submit" busy={flow.busy}>
               {intl.formatMessage(m.notifySave)}
             </Button>
             <Button type="button" variant="outline" disabled={!draft.email} onClick={test}>
@@ -274,6 +277,7 @@ function MyPreferences() {
           </div>
         </form>
       </CardContent>
+      <ChangeDialog flow={flow} />
     </Card>
   );
 }
@@ -319,7 +323,7 @@ function AddChannel({ onDone }: { onDone: () => void }) {
             },
           }),
         ),
-      { secrets: Object.keys(secrets).length > 0 },
+      { resend: Object.keys(secrets).length > 0 },
     );
   return (
     <Card aria-labelledby={`${id}-title`}>
@@ -392,6 +396,7 @@ function Channels() {
     queryFn: () => unwrap(api.GET("/api/v1/core/notification-channels")),
     retry: false,
   });
+  useResourceUpdates(channelKinds, [["notifications", "channels"]]);
   if (channels.isError && forbidden(channels.error)) {
     return null;
   }
@@ -505,6 +510,7 @@ function Relay() {
     queryFn: () => unwrap(api.GET("/api/v1/core/mail-relays")),
     retry: false,
   });
+  useResourceUpdates(["core.smtp_relay"], [["notifications", "relay"]]);
   const current = relays.data?.items?.[0];
   const [spec, setSpec] = useState<Schemas["RelaySpec"]>({
     host: "",
@@ -544,7 +550,7 @@ function Relay() {
                 body: { spec: body, secrets },
               }),
             ),
-      { secrets: secrets !== undefined },
+      { resend: secrets !== undefined },
     );
   };
   const test = async () => {
@@ -690,6 +696,7 @@ function Log() {
     queryFn: () => unwrap(api.GET("/api/v1/notifications", { params: { query: { limit: 50 } } })),
     retry: false,
   });
+  useResourceUpdates(channelKinds, [["notifications", "log"]]);
   const sent = log.data?.notifications ?? [];
   if (log.isError || sent.length === 0) {
     return null;

@@ -76,7 +76,7 @@ func newPanel(t *testing.T, opts Options) *panel {
 	}
 	t.Cleanup(func() { db.Close() })
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{ChannelKind, RelayKind} {
+	for _, k := range []store.Kind{ChannelKind, RelayKind, PreferencesKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -118,9 +118,17 @@ func newPanel(t *testing.T, opts Options) *panel {
 		}
 	}
 	runner := &reconcile.Runner{Store: st, Registry: recs, Secrets: p.vault, Events: log}
+	for _, k := range kinds.All() {
+		p.registry.DeclareKind(k)
+	}
+	for _, h := range p.svc.Hooks() {
+		if err := p.registry.Register(h); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p.engine, err = changeset.NewEngine(changeset.Options{
 		Store: st, Kinds: kinds, Runner: runner, Jobs: q, Events: log, Audit: log, Secrets: p.vault, Storage: storage,
-		Authorizer: auth.NewRoleAuthorizer(nil),
+		Hooks: &hooks.Runner{Registry: p.registry}, Authorizer: auth.NewRoleAuthorizer(nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -235,11 +243,14 @@ func TestRoutingEventsToChannels(t *testing.T) {
 		ds := p.deliveries(t, DeliveryFilter{Channel: id})
 		return len(ds) == 2 && ds[0].State == DeliverySent && ds[1].State == DeliverySent
 	})
-	c, err := ChannelKind.Get(context.Background(), p.store, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Status.LastSent == nil || c.Status.Phase != store.PhaseReady {
+	// The channel's status is written after the delivery it reports on.
+	var c *store.Object[ChannelSpec, ChannelStatus]
+	waitFor(t, "noted the channel works", func() bool {
+		var err error
+		c, err = ChannelKind.Get(context.Background(), p.store, id)
+		return err == nil && c.Status.LastSent != nil
+	})
+	if c.Status.Phase != store.PhaseReady {
 		t.Errorf("status = %+v", c.Status)
 	}
 	d, err := p.svc.Notification(context.Background(), p.deliveries(t, DeliveryFilter{Channel: id})[0].ID)
@@ -344,11 +355,28 @@ func TestPeopleByPreference(t *testing.T) {
 		t.Fatalf("relay: %+v", cs.Error)
 	}
 	ctx := context.Background()
-	if _, err := p.svc.SetPreferences(ctx, alice.ID, NotificationPreferences{Email: true, Events: []string{"bad pattern!"}}); !errors.Is(err, i18n.ErrInvalid) {
+	set := func(prefs NotificationPreferences) (*changeset.ChangeSet, error) {
+		req, err := p.svc.PreferencesRequest(ctx, alice.ID, prefs)
+		if err != nil {
+			return nil, err
+		}
+		req.Actor = PreferencesActor(alice.Actor)
+		cs, err := p.engine.Submit(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if _, err := p.jobs.Wait(wctx, cs.Job); err != nil {
+			return nil, err
+		}
+		return p.engine.Get(ctx, cs.ID)
+	}
+	if _, err := set(NotificationPreferences{Email: true, Events: []string{"bad pattern!"}}); !errors.Is(err, i18n.ErrInvalid) || !strings.Contains(string(mustJSON(i18n.From(err))), "spec.events[0]") {
 		t.Errorf("bad preferences are refused: %v", err)
 	}
-	if _, err := p.svc.SetPreferences(ctx, alice.ID, NotificationPreferences{Email: true, Muted: []string{"dns.*"}}); err != nil {
-		t.Fatal(err)
+	if cs, err := set(NotificationPreferences{Email: true, Muted: []string{"dns.*"}}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("setting alice's preferences: %v %+v", err, cs)
 	}
 	p.publish(t, "web.site.failed", events.SeverityError, store.AccountScope(theirs))
 	p.publish(t, "dns.zone.failed", events.SeverityError, store.AccountScope(mine))

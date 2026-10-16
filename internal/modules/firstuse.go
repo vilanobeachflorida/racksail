@@ -121,7 +121,7 @@ type Software struct {
 	Upstream
 	// Packages are the Debian packages installing it brings in, with their
 	// sizes, for software the manifest names exactly.
-	Packages []system.Package `json:"packages,omitempty"`
+	Packages []SoftwarePackage `json:"packages,omitempty"`
 	// DownloadBytes and DiskBytes are what installing it takes: from the
 	// package index when it can tell, from the manifest otherwise.
 	DownloadBytes int64 `json:"downloadBytes,omitempty"`
@@ -164,6 +164,17 @@ func manifestSoftware(man *Manifest) []Software {
 	return out
 }
 
+// SoftwarePackage is a Debian package installing a module's software
+// brings in.
+type SoftwarePackage struct {
+	Name           string `json:"name"`
+	Version        string `json:"version"`
+	DownloadBytes  int64  `json:"downloadBytes,omitempty"`
+	InstalledBytes int64  `json:"installedBytes,omitempty"`
+	// Origin is the repository the version comes from.
+	Origin string `json:"origin,omitempty"`
+}
+
 // FirstUse describes what a module installs when something first needs
 // it, asking the agent about the packages it names exactly. What it finds
 // is what previews of turning the module on list for a while after.
@@ -201,9 +212,9 @@ func (m *Manager) firstUse(ctx context.Context, id string) ([]Software, error) {
 			}
 			sw.Installed = len(q.Installed) > 0 && len(q.Candidates) == 0
 			if len(q.Candidates) > 0 {
-				sw.Packages = q.Candidates
 				sw.DownloadBytes, sw.DiskBytes = 0, 0
 				for _, p := range q.Candidates {
+					sw.Packages = append(sw.Packages, SoftwarePackage{Name: p.Name, Version: p.Version, DownloadBytes: p.DownloadBytes, InstalledBytes: p.InstalledBytes, Origin: p.Origin})
 					sw.DownloadBytes += p.DownloadBytes
 					sw.DiskBytes += p.InstalledBytes
 				}

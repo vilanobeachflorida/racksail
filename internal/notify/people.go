@@ -62,7 +62,13 @@ type NotificationPreferences struct {
 	// Muted are event types never sent, whatever Events says.
 	Muted      []string    `json:"muted,omitempty" maxItems:"64" doc:"Event types never to send, as patterns"`
 	QuietHours *QuietHours `json:"quietHours,omitempty" doc:"Hold back what can wait, and send it as one summary when quiet hours end"`
-	UpdatedAt  *time.Time  `json:"updatedAt,omitempty" readOnly:"true"`
+}
+
+// MyPreferences are a person's preferences as they see them, with when
+// they last changed them.
+type MyPreferences struct {
+	NotificationPreferences
+	UpdatedAt *time.Time `json:"updatedAt,omitempty" readOnly:"true" doc:"When they were last changed"`
 }
 
 // DefaultEvents are what people hear about until they choose: failures,
@@ -79,27 +85,32 @@ func (f DirectoryFunc) Person(ctx context.Context, id store.ID) (*Person, error)
 
 // Check returns what is wrong with preferences.
 func (p *NotificationPreferences) Check() error {
+	if fields := p.check(""); len(fields) > 0 {
+		return i18n.Invalid(fields...)
+	}
+	return nil
+}
+
+// check lists what is wrong with preferences, at paths under prefix.
+func (p *NotificationPreferences) check(prefix string) []i18n.FieldError {
 	var fields []i18n.FieldError
 	for i, pat := range p.Events {
 		if !events.ValidPattern(pat) {
-			fields = append(fields, i18n.Field(fmt.Sprintf("events[%d]", i), i18n.ErrBadValue, "reason", "use lowercase event type names, dots and the wildcards * and ?"))
+			fields = append(fields, i18n.Field(fmt.Sprintf("%sevents[%d]", prefix, i), i18n.ErrBadValue, "reason", "use lowercase event type names, dots and the wildcards * and ?"))
 		}
 	}
 	for i, pat := range p.Muted {
 		if !events.ValidPattern(pat) {
-			fields = append(fields, i18n.Field(fmt.Sprintf("muted[%d]", i), i18n.ErrBadValue, "reason", "use lowercase event type names, dots and the wildcards * and ?"))
+			fields = append(fields, i18n.Field(fmt.Sprintf("%smuted[%d]", prefix, i), i18n.ErrBadValue, "reason", "use lowercase event type names, dots and the wildcards * and ?"))
 		}
 	}
 	if p.MinSeverity != "" && !p.MinSeverity.Valid() {
-		fields = append(fields, i18n.Field("minSeverity", i18n.ErrBadValue, "reason", "use info, notice, warning, error or critical"))
+		fields = append(fields, i18n.Field(prefix+"minSeverity", i18n.ErrBadValue, "reason", "use info, notice, warning, error or critical"))
 	}
 	if p.QuietHours != nil {
-		fields = append(fields, p.QuietHours.check("quietHours")...)
+		fields = append(fields, p.QuietHours.check(prefix+"quietHours")...)
 	}
-	if len(fields) > 0 {
-		return i18n.Invalid(fields...)
-	}
-	return nil
+	return fields
 }
 
 // Wants reports whether the person wants to hear about an event.

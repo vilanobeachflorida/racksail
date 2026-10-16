@@ -30,6 +30,7 @@ import { errorMessage } from "@/lib/errors";
 import { useFormat } from "@/lib/format";
 import { messages as m } from "../messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
+import { useResourceUpdates } from "./live";
 
 type Settings = Schemas["CoreUpdateSettings"];
 type Spec = Schemas["SettingsSpec"];
@@ -452,6 +453,9 @@ export default function UpdateSettings() {
     queryKey: ["updates"],
     queryFn: () => unwrap(api.GET("/api/v1/core/update-settings")),
   });
+  // Checks, installs and package upgrades report in the settings' status
+  // as they go.
+  useResourceUpdates(["core.update_settings"], [["updates"]]);
   const current = settings.data?.items?.[0];
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -460,7 +464,10 @@ export default function UpdateSettings() {
         <p className="text-muted-foreground">{intl.formatMessage(m.updatesDescription)}</p>
       </div>
       {settings.isPending ? (
-        <Skeleton className="h-40" />
+        <div className="flex flex-col gap-6" aria-busy="true">
+          <Skeleton className="h-40" />
+          <Skeleton className="h-64" />
+        </div>
       ) : settings.isError ? (
         <ErrorState title={intl.formatMessage(m.updatesLoadFailed)} error={settings.error} />
       ) : !current ? (
