@@ -41,7 +41,12 @@ export type AddonEntry = Schemas["UIEntry"];
 /** Where in the panel an entry goes, such as ui.nav. */
 export type AddonPoint = AddonEntry["point"];
 
-const entriesKey = ["addons", "entries"] as const;
+/**
+ * The query of the add-ons' entries, which the columns' values go under:
+ * read again once add-ons change, as installing, turning off or removing
+ * one does, and as safe mode does.
+ */
+export const addonEntriesKey = ["addons", "entries"] as const;
 const noEntries: AddonEntry[] = [];
 
 /**
@@ -51,7 +56,7 @@ const noEntries: AddonEntry[] = [];
 export function useAddonEntries(point?: AddonPoint): AddonEntry[] {
   const api = useApi();
   const entries = useQuery({
-    queryKey: entriesKey,
+    queryKey: addonEntriesKey,
     queryFn: async () => {
       try {
         return (await unwrap(api.GET("/api/v1/addons/entries"))).entries ?? [];
@@ -236,7 +241,7 @@ export function useAddonColumns(kind: string | undefined, ids: readonly string[]
   const sorted = useMemo(() => [...ids].sort(), [ids]);
   const values = useQueries({
     queries: entries.map((entry) => ({
-      queryKey: [...entriesKey, "column", entry.addon, trimmed(entry.ui.path), sorted],
+      queryKey: [...addonEntriesKey, "column", entry.addon, trimmed(entry.ui.path), sorted],
       queryFn: () => columnValues(api, entry, sorted),
       enabled: sorted.length > 0,
       staleTime: 30_000,

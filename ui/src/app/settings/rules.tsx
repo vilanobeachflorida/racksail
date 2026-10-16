@@ -36,6 +36,7 @@ import type { ApiClient } from "@/lib/api/client";
 import { type Schemas, unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
+import { addonEntriesKey } from "../addons";
 import { messages } from "../messages";
 import { ruleSettingsMessages as m } from "../screens/messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
@@ -843,8 +844,9 @@ function SafeMode() {
     queryFn: () => unwrap(api.GET("/api/v1/safe-mode")),
     retry: false,
   });
-  // Safe mode also comes on from the console and when add-ons crash.
-  useTimelineUpdates(["core.safe_mode.*"], [["safe-mode"]]);
+  // Safe mode also comes on from the console and when add-ons crash, and
+  // takes away what add-ons add to the panel until it's off.
+  useTimelineUpdates(["core.safe_mode.*"], [["safe-mode"], addonEntriesKey]);
   if (status.isError) {
     return null;
   }
@@ -859,9 +861,11 @@ function SafeMode() {
         : await unwrap(api.DELETE("/api/v1/safe-mode"));
       queryClient.setQueryData(["safe-mode"], next);
       setReason("");
-      // Add-ons' hooks leave the pipeline in safe mode and come back after it.
+      // Add-ons' hooks, and what they add to the panel, go in safe mode and
+      // come back after it.
       await queryClient.invalidateQueries({ queryKey: ["hooks"] });
       await queryClient.invalidateQueries({ queryKey: ["hook-points"] });
+      await queryClient.invalidateQueries({ queryKey: addonEntriesKey });
     } catch (error) {
       toast.error(errorMessage(intl, error));
     } finally {
