@@ -98,6 +98,35 @@ func TestPathsAreFixed(t *testing.T) {
 	}
 }
 
+// The agent and the edge listen in /run/racksail on a server: their units
+// and the add-ons' sandboxes only know those sockets, and the edge takes
+// the one systemd passes it, so a socket the file moved would cut the panel
+// off from the edge and leave the agent's socket where add-ons reach it.
+func TestSocketsAreFixed(t *testing.T) {
+	for _, tc := range []struct{ setting, file string }{
+		{"agent.socket", "[agent]\nsocket = \"/srv/agent.sock\"\n"},
+		{"edge.socket", "[edge]\nsocket = \"/srv/edge.sock\"\nhttp = \"[::]:8080\"\n"},
+	} {
+		_, err := Parse([]byte(tc.file))
+		if err == nil || !strings.Contains(err.Error(), tc.setting) || !strings.Contains(err.Error(), "can't set") || strings.Contains(err.Error(), "unknown") {
+			t.Errorf("%s: %v", tc.setting, err)
+		}
+	}
+	_, err := Parse([]byte("[agent]\nsocket = \"/srv/agent.sock\"\n[edge]\nsocket = \"/srv/edge.sock\"\n[paths]\nstate = \"/srv/state\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "agent.socket, edge.socket") || !strings.Contains(err.Error(), "paths.state") {
+		t.Errorf("both sockets and a path are named: %v", err)
+	}
+	c, err := Parse([]byte("[agent]\n[edge]\nhttp = \"[::]:8080\"\n"))
+	if err != nil || c.Agent.Socket != "/run/racksail/agent.sock" || c.Edge.Socket != "/run/racksail/edge.sock" || c.Edge.HTTP != "[::]:8080" {
+		t.Errorf("the edge's addresses are still settings, and the sockets stay where they are: %+v %+v, %v", c.Agent, c.Edge, err)
+	}
+	dir := t.TempDir()
+	dev, err := Dev(dir, DevAddresses{})
+	if err != nil || !strings.HasPrefix(dev.Agent.Socket, dir) || !strings.HasPrefix(dev.Edge.Socket, dir) {
+		t.Errorf("racksail dev keeps its sockets in its data directory: %+v %+v, %v", dev.Agent, dev.Edge, err)
+	}
+}
+
 func TestAPIAndRetention(t *testing.T) {
 	c := Default()
 	if c.API.RateLimit != 600 || c.API.AnonymousRateLimit != 120 || time.Duration(c.Retention.Audit) != 400*24*time.Hour {

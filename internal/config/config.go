@@ -145,16 +145,30 @@ type Panel struct {
 	Insecure bool `toml:"-"`
 }
 
-// Agent configures the agent role.
+// Agent configures the agent role. The file sets nothing here.
 type Agent struct {
-	Socket string `toml:"socket"`
+	// Socket is the agent's Unix socket. On a server it is
+	// /run/racksail/agent.sock, and the edge's /run/racksail/edge.sock, in
+	// the directory of decision D1: the agent's unit makes that directory,
+	// the edge's socket unit listens there, and the add-ons' sandboxes hide
+	// those two paths from every add-on. A socket the file moved would be
+	// left out of the sandboxes, so an add-on could reach the agent, and
+	// the edge, which takes the socket systemd passes it, would never hear
+	// from a panel calling the moved one. So the file can't set
+	// agent.socket or edge.socket; racksail dev puts them under its data
+	// directory (Dev).
+	Socket string `toml:"-"`
 }
 
 // Edge configures the edge role.
 type Edge struct {
-	HTTP   string `toml:"http"`
-	HTTPS  string `toml:"https"`
-	Socket string `toml:"socket"`
+	// HTTP and HTTPS are where the edge serves sites, [::]:80 and [::]:443
+	// by default.
+	HTTP  string `toml:"http"`
+	HTTPS string `toml:"https"`
+	// Socket is the edge's admin socket, where the panel sends it routes;
+	// the file can't set it either (Agent.Socket).
+	Socket string `toml:"-"`
 }
 
 // Paths are where Racksail keeps its files. On a server they are always the
@@ -291,13 +305,16 @@ func Parse(data []byte) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("reading racksail.toml: %w", err)
 	}
-	var unknown, paths []string
+	var unknown, paths, sockets []string
 	for _, k := range md.Undecoded() {
 		switch {
 		case len(k) > 0 && k[0] == "paths":
 			if len(k) > 1 {
 				paths = append(paths, k.String())
 			}
+		case k.String() == "agent.socket" || k.String() == "edge.socket":
+			// Agent.Socket says why these are fixed.
+			sockets = append(sockets, k.String())
 		default:
 			unknown = append(unknown, k.String())
 		}
@@ -312,6 +329,10 @@ func Parse(data []byte) (Config, error) {
 		}
 		errs = append(errs, fmt.Errorf("racksail.toml can't set %s: Racksail keeps its files where the agent, the installer and the systemd units expect them, such as %s; remove the setting",
 			strings.Join(paths, ", "), system.StateDir))
+	}
+	if len(sockets) > 0 {
+		errs = append(errs, fmt.Errorf("racksail.toml can't set %s: the agent and the edge listen where their systemd units and the add-ons' sandboxes expect them, %s and %s; remove the setting",
+			strings.Join(sockets, ", "), system.AgentSocket, system.EdgeSocket))
 	}
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)

@@ -28,7 +28,9 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 		// process.
 		os.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 		root := newRootCommand()
-		root.SetArgs([]string{"edge", "--config", config, "--state", filepath.Join(filepath.Dir(config), "state")})
+		// Were the edge to create a socket of its own, it would be in own.
+		own := filepath.Join(filepath.Dir(config), "own", "edge.sock")
+		root.SetArgs([]string{"edge", "--config", config, "--state", filepath.Join(filepath.Dir(config), "state"), "--socket", own})
 		if err := root.Execute(); err != nil {
 			t.Fatal(err)
 		}
@@ -46,10 +48,9 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	// Were the edge to create a socket of its own, it would be here.
 	own := filepath.Join(dir, "own", "edge.sock")
 	config := filepath.Join(dir, "racksail.toml")
-	toml := "[edge]\nsocket = \"" + own + "\"\nhttp = \"127.0.0.1:0\"\nhttps = \"127.0.0.1:0\"\n[log]\nformat = \"text\"\n"
+	toml := "[edge]\nhttp = \"127.0.0.1:0\"\nhttps = \"127.0.0.1:0\"\n[log]\nformat = \"text\"\n"
 	if err := os.WriteFile(config, []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
 	}

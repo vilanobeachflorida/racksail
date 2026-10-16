@@ -32,7 +32,7 @@ func newAgentCommand() *cobra.Command {
 		Use:   "agent",
 		Short: "Run the agent, which changes the machine on the panel's behalf",
 		Long: "Runs the agent as root. It accepts typed operations from a fixed allowlist on its Unix socket, " +
-			"agent.socket in racksail.toml (/run/racksail/agent.sock by default), which only the racksail group can reach, " +
+			"/run/racksail/agent.sock, which only the racksail group can reach, " +
 			"and records every call in /var/log/racksail-agent/audit.jsonl, which only root can read. A server that joined a cluster with " +
 			"`racksail agent join` also connects out to the panel's hub and serves the panel over those connections; " +
 			"--listen-tls additionally accepts the panel directly with mutual TLS. " +
@@ -48,6 +48,11 @@ func newAgentCommand() *cobra.Command {
 			log := newLogger(os.Stderr, cfg.Log)
 			if err := checkRegistries(); err != nil {
 				return err
+			}
+			if socket != "" && !simulated {
+				// The panel, the agent's unit and the add-ons' sandboxes only
+				// know the standard socket.
+				return fmt.Errorf("--socket goes with --sim; the agent listens on %s, where the panel and the add-ons' sandboxes expect it", system.AgentSocket)
 			}
 			var backend *system.Backend
 			var audit agent.Auditor
@@ -142,7 +147,7 @@ func newAgentCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &configPath)
 	cmd.Flags().BoolVar(&simulated, "sim", false, "act on a simulated server")
-	cmd.Flags().StringVar(&socket, "socket", "", "Unix socket to listen on instead of agent.socket from racksail.toml")
+	cmd.Flags().StringVar(&socket, "socket", "", "with --sim, the Unix socket to listen on instead of one in a directory of your own")
 	cmd.Flags().StringVar(&listenTLS, "listen-tls", "", "also accept the panel with mutual TLS on this address, such as [::]:8445")
 	cmd.Flags().StringVar(&clusterFile, "cluster-file", system.AgentClusterFile, "where `racksail agent join` keeps the hub and certificate")
 	cmd.AddCommand(newAgentJoinCommand())
