@@ -1,9 +1,11 @@
 import { lazy, Suspense } from "react";
 import { useIntl } from "react-intl";
+import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { HomeCard, LazyComponent } from "@/modules/types";
 import { QuickActions, RecentActivity } from "./activity";
+import { AddonFrame, addonEntryKey, useAddonEntries } from "./addons";
 import { messages } from "./messages";
 import { homeCards, useActiveModules, usePermission } from "./modules";
 import { PanelStatus } from "./status";
@@ -35,12 +37,14 @@ const spans: Record<NonNullable<HomeCard["size"]>, string> = {
 
 /**
  * The home screen: what needs the person's attention first, then the
- * panel's status, quick actions, recent activity and the cards modules add.
+ * panel's status, quick actions, recent activity and the cards modules and
+ * add-ons add.
  */
 export function Home() {
   const intl = useIntl();
   const modules = useActiveModules();
   const allowed = usePermission();
+  const addonCards = useAddonEntries("ui.card");
   const loading = <Skeleton className="h-40 w-full rounded-lg" />;
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -64,6 +68,21 @@ export function Home() {
             </div>
           );
         })}
+        {addonCards.map((entry) => (
+          <Card key={addonEntryKey(entry)} aria-label={entry.ui.label}>
+            <CardHeader>
+              <CardTitle>{entry.ui.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AddonFrame
+                addon={entry.addon}
+                path={entry.ui.path ?? ""}
+                title={entry.ui.label}
+                className="h-48"
+              />
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   );
