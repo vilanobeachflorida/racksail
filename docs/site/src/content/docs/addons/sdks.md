@@ -43,7 +43,7 @@ It answers with:
 | Kind | Answer |
 |---|---|
 | validate | `{}` to let the change through, or `{"deny": true, "reason": "…"}` to refuse it with a reason the person making it sees |
-| modify | `{"changeSet": …}`: the change set it was sent, with new settings for the changes it is about and any changes or effects it adds |
+| modify | `{"changeSet": …}`: the change set it was sent, with new settings for the changes it is about and any changes or effects it adds. An update it adds holds the resource's settings as the add-on reads them, with its changes; the panel takes only [what it may write](../permissions/#how-the-panel-holds-an-add-on-to-them) |
 | observe | Anything; the panel doesn't wait for it to finish its work |
 | system | `{"config": …}`: the patched configuration |
 

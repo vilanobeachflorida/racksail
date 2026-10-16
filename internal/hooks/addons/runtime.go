@@ -559,7 +559,7 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 			if err != nil {
 				return err
 			}
-			return g.Merge(c.ChangeSet, reply.ChangeSet, mine)
+			return g.Merge(ctx, r.opts.Store, c.ChangeSet, reply.ChangeSet, mine)
 		}
 	case hooks.Observe:
 		h.OnObserve = func(ctx context.Context, c *hooks.Context) {
@@ -853,11 +853,11 @@ func (r *Runtime) record(ctx context.Context, actor *auth.Actor, action, summary
 }
 
 // Hooks are the runtime's own hooks: an add-on that changes something
-// through the API may only make the changes its permissions allow, the
-// fields they name and deleting, actions and labels only as far as they
-// say; only a server admin approves what only a server admin may grant;
-// and an add-on from a catalog, as every account's add-on is, must be what
-// the catalog offers.
+// through the API, or adds a change through its modify hook, may only make
+// the changes its permissions allow, the fields they name and deleting,
+// actions and labels only as far as they say; only a server admin approves
+// what only a server admin may grant; and an add-on from a catalog, as
+// every account's add-on is, must be what the catalog offers.
 func (r *Runtime) Hooks() []hooks.Registration {
 	const owner = hooks.OwnerCore + ":addons"
 	var out []hooks.Registration
@@ -878,7 +878,22 @@ func (r *Runtime) Hooks() []hooks.Registration {
 	return append(out, hooks.Registration{
 		Point: "*.*.*.validate", Kind: hooks.Validate, Owner: owner, Security: true, Priority: -900,
 		OnValidate: func(ctx context.Context, c *hooks.Context) error {
-			if c.Actor == nil || c.Actor.Type != auth.ActorAddon || c.Change == nil {
+			if c.Change == nil {
+				return nil
+			}
+			// What a modify hook added is checked again as the pipeline
+			// planned it, with the resource's own scope and state, which
+			// the person's grants alone don't hold the add-on to.
+			if src := c.Change.Source; src.Type == hooks.OwnerAddon {
+				_, man, g, _, ok := r.Running(src.Name)
+				if !ok {
+					return ErrUnknown.New("addon", src.Name)
+				}
+				if err := g.CheckAdded(man.Name, *c.Change); err != nil {
+					return err
+				}
+			}
+			if c.Actor == nil || c.Actor.Type != auth.ActorAddon {
 				return nil
 			}
 			inst := r.instanceOf(c.Actor.ID)

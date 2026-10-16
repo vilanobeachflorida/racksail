@@ -92,6 +92,9 @@ type fakeAddon struct {
 	kindCalls   []kindCall
 	stray       bool
 	failDeletes bool
+	// adds are changes its modify hook's answers add, as JSON objects, so
+	// they say exactly what an add-on's process could.
+	adds []map[string]any
 }
 
 // kindCall is one plan or apply the fake add-on was asked for.
@@ -124,7 +127,7 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 		}
 		f.mu.Lock()
 		f.calls = append(f.calls, call)
-		notes := f.notes
+		notes, adds := f.notes, slices.Clone(f.adds)
 		f.mu.Unlock()
 		var reply hooks.HookReply
 		switch call.Kind {
@@ -148,6 +151,18 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 				cs.Changes[i].After, _ = json.Marshal(spec)
 			}
 			reply.ChangeSet = cs
+			if len(adds) > 0 {
+				raw, _ := json.Marshal(cs)
+				var answer map[string]any
+				json.Unmarshal(raw, &answer)
+				changes, _ := answer["changes"].([]any)
+				for _, a := range adds {
+					changes = append(changes, a)
+				}
+				answer["changes"] = changes
+				json.NewEncoder(w).Encode(map[string]any{"changeSet": answer})
+				return
+			}
 		}
 		json.NewEncoder(w).Encode(reply)
 	})
