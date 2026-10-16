@@ -42,17 +42,17 @@ A second step means a stolen password isn't enough to sign in. People set theirs
 - **Passkeys**, up to 20 per person.
 - **Second steps add-ons provide**, such as approving a sign-in on a phone, when an admin has connected one.
 
-Setting up the first second step gives the person 10 **recovery codes**. Each signs in once in place of the second step, for when the phone is lost; keep them apart from the phone, and make new ones under **Settings → Security** when they run low.
+Setting up the first second step gives the person 10 **recovery codes**. Each signs in once in place of the second step, for when the phone is lost; keep them apart from the phone, and make new ones under **Settings → Security** when they run low. The panel keeps only keyed hashes of them, with a key of the person's in the encrypted secrets store, so the panel's database alone can't be used to guess them.
 
 The sign-in policy can require a second step for some roles. Someone with such a role who has none yet must set one up right after signing in, before anything else in the panel works.
 
 ### Trusted browsers
 
-**Trust this browser**, on the second step, skips the second step in that browser for the number of days the sign-in policy says, 30 to start with. Trusted browsers are listed under **Settings → Security**, where you can stop trusting any of them.
+**Trust this browser**, on the second step, skips the second step in that browser for the number of days the sign-in policy says, 30 to start with, signing in with a password and through an outside provider's page alike. Trusted browsers are listed under **Settings → Security**, where you can stop trusting any of them.
 
 ## Sessions
 
-A session lives in a cookie the browser keeps for the panel only: it's `HttpOnly`, so scripts can't read it, `Secure` over HTTPS, and `SameSite=Strict`, so other sites can't use it. The panel gives the session a new secret whenever the person signs in, confirms it's them, or starts or stops viewing the panel as someone else, and when their roles change, so a session always acts with what its person may do now. Requests already on their way with the secret before still go through for 30 seconds.
+A session lives in a cookie the browser keeps for the panel only: it's `HttpOnly`, so scripts can't read it, `Secure` over HTTPS, and `SameSite=Strict`, so other sites can't use it. The panel gives the session a new secret whenever the person signs in, confirms it's them, or starts or stops viewing the panel as someone else, and when their roles change, so a session always acts with what its person may do now. When roles change, requests already on their way with the secret before still go through for 30 seconds, and of several at the same moment only one gives the session its new secret, so the browser never ends up with one the panel doesn't know. Confirming it's you ends the secret before at once, so a copy of the old cookie gains nothing from it.
 
 A session ends after an hour without activity, or 12 hours after signing in however active the person is; the sign-in policy changes both. **Settings → Where you're signed in** lists every session with its browser, address and when it was last used, and signs out any of them, or all but the current one. Changing your password can sign you out everywhere else too.
 
@@ -63,19 +63,21 @@ Requests that change something must come from the panel's own pages: the panel r
 Sensitive changes ask the person to confirm it's them, with their password, an authenticator code or a passkey, unless they did in the last 10 minutes. They are:
 
 - changes to how someone signs in: second steps, passkeys, API tokens, SSH keys, outside sign-ins and where security alerts go;
-- adding, changing and deleting users, and helping them back in;
+- adding, changing and deleting users, opening an account with an owner, and helping users back in;
 - viewing the panel as someone else;
 - changes the change pipeline rates critical, such as deleting an account.
 
-API tokens never ask: they can only do what they were given, and can't change how anyone signs in at all.
+A preview never asks: only an operation that answers `dryRun=true` with a preview counts as one, and asking any other operation for a dry run changes nothing about what it needs.
+
+API tokens never ask either, since they can only do what they were given. A token can't change how its own person signs in at all, whatever its permissions: their password, second steps, passkeys, other API tokens, SSH keys, email address, outside sign-ins or security alerts. It can only revoke itself. With permissions to manage other users, such as `core.user.add_ssh_key` or `core.user.reset`, it changes theirs as you could in the panel, and they get an alert about SSH keys someone else added.
 
 ## Lockouts and rate limits
 
-Ten failed sign-ins in a row lock a user out for 15 minutes, and the person gets an alert. Wrong passwords count the same whether the panel checks them or an outside directory does, and a lockout stops the directory's password too. Failed sign-ins at the same moment each count, so guessing in parallel doesn't get more tries. Passkeys still sign a locked-out user in, so someone guessing at a password can't keep its owner out. Each address may also try to sign in, use a sign-in link or confirm it's someone only so often: 20 tries at once, then one every six seconds. An admin can end a lockout early by helping the user back in.
+Ten failed sign-ins in a row lock a user out for 15 minutes, and the person gets an alert. Wrong passwords count the same whether the panel checks them or an outside directory does, and a lockout stops the directory's password too. Failed sign-ins at the same moment each count, so guessing in parallel doesn't get more tries. Passkeys still sign a locked-out user in, so someone guessing at a password can't keep its owner out. Each address may also try to sign in, use a sign-in link or confirm it's someone only so often: 20 tries at once, then one every six seconds. Past that, the panel answers `core.rate_limited` with the seconds to wait, in the answer and in its `Retry-After` header, as the API's own rate limit does. Signing in as someone who has no password, or with a name nobody has, takes as long as a wrong password does, so how long the answer takes doesn't say which names exist. An admin can end a lockout early by helping the user back in.
 
 ## Alerts
 
-People choose under **Settings → Security** where their security alerts go, such as an email channel: sign-ins from a device they haven't used before (or every sign-in, or none, as the sign-in policy says), lockouts, recovery codes used, and new or changed passwords, second steps, passkeys, API tokens and SSH keys. Each alert says what happened and from where, so a change they didn't make stands out.
+People choose under **Settings → Security** where their security alerts go, such as an email channel: sign-ins from a device they haven't used before (or every sign-in, or none, as the sign-in policy says), lockouts, recovery codes used, and new or changed passwords, second steps, passkeys, API tokens and SSH keys. Each alert says what happened and from where, so a change they didn't make stands out. The channels to choose from are the notification channel types the panel has, from Racksail's notifications and from add-ons that send notifications; until there is one, alerts have nowhere to go, and the security settings say so.
 
 ## Getting back in
 

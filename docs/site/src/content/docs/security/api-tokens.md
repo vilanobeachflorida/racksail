@@ -39,20 +39,22 @@ or give it to each command in `RACKSAIL_TOKEN`.
 
 ## What tokens can't do
 
-Tokens are for using the panel, not for changing who can use it. Whatever its permissions, a token can't:
+Tokens are for using the panel, not for changing how you get in. Whatever its permissions, a token can't:
 
-- change how anyone signs in: passwords, second steps, passkeys, API tokens, SSH keys, outside sign-ins and where security alerts go;
-- change your name, email address, language or display preferences;
-- sign out sessions or forget trusted browsers;
+- change how you sign in: your password, second steps, passkeys, API tokens, SSH keys, username, email address, the addresses you may sign in from, outside sign-ins and where your security alerts go;
+- change your name, language or display preferences;
+- sign out your sessions or forget your trusted browsers;
 - view the panel as someone else.
 
-These answer `auth.panel_only`; do them in the panel. Tokens also never need to confirm it's you, since they can only do what they were given.
+These answer `auth.panel_only`; do them in the panel. Tokens also never need to confirm it's you, since they can only do what they were given. A token with permissions to manage other users, such as `core.user.reset` or `core.user.add_ssh_key`, can help them back in or change their SSH keys as you could in the panel, so give those only to tokens that need them; the users get an alert about SSH keys someone else added.
+
+A token kept to some permissions, such as `web.*`, or to some accounts, sees no more of your own user than that: its details, sessions, tokens and keys are out of its reach unless its permissions include reading users. `GET /api/v1/session`, which says who a token signs in as, always answers.
 
 One thing a token can always do is revoke itself, whatever its permissions, so a token that leaked can be stopped by whoever has it, such as with `racksail logout --revoke`. It can't revoke your other tokens.
 
 ## Keep track of tokens
 
-**Settings → API tokens** lists your tokens with what each may do, when it expires, and when and from where it was last used. A token you don't recognise, or one that's no longer used, is worth revoking: **Revoke** stops it at once, for every program that has it. Making a token also sends you a security alert, so one you didn't make doesn't go unnoticed.
+**Settings → API tokens** lists your tokens with what each may do, when it expires, and when and from where it was last used. A token you don't recognize, or one that's no longer used, is worth revoking: **Revoke** stops it at once, for every program that has it. Making a token also sends you a security alert, so one you didn't make doesn't go unnoticed.
 
 Admins, resellers and account owners see the tokens of the users they manage on each user's page, and can revoke them. Turning a user off stops all their tokens until they're turned back on; helping a user back in can revoke them for good.
 

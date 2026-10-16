@@ -26,7 +26,7 @@ Under **Settings → Sign-in**, tick the roles that need a **second step**. Thei
 
 Passkeys are the strongest second step, since they can't be phished or typed into the wrong site. Encourage people to add two, on different devices, and to keep their recovery codes apart from their phone.
 
-## Sign in with your organisation's accounts
+## Sign in with your organization's accounts
 
 When people already have accounts in a company directory or a single sign-on provider, connect it with the [LDAP or OpenID Connect add-on](../outside-providers/), so leaving the company, a password reset or a second step required there applies to the panel too. Keep **Match** at *None* unless the provider's usernames or verified email addresses are yours to give out; people then link their accounts themselves, and admins of the whole server always do.
 

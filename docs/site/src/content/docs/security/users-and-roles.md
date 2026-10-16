@@ -45,7 +45,7 @@ Empty means no limit. Changing the limits, like any change, shows a preview firs
 | Collaborator | See what they're given, and do only what their permissions say: on a whole account, or on single resources | Anywhere |
 | Read-only | See everything their grant reaches, and change nothing | Anywhere |
 
-A user can have several roles in different places, such as owner of one account and collaborator on another. **Settings → Roles and permissions** shows the permission matrix: every permission, and how far each role reaches with it.
+A user can have several roles in different places, such as owner of one account and collaborator on another. **Settings → Roles and permissions** shows the permission matrix: every permission, and how far each role reaches with it where the permission applies. One that is only about the whole server, such as reading the panel's metrics or changing webhooks, is out of reach of a reseller's or an owner's grant, however much their role carries.
 
 ### Collaborators
 
@@ -67,11 +67,11 @@ Nobody can give more than they have: you can only give a role somewhere if you h
 
 When someone's roles change, their sessions get a new secret on their next request, carrying what they may do now; nobody keeps acting with roles they lost.
 
-Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user.
+Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user. Their username, email address, SSH keys and the addresses they may sign in from change only in their own session in the panel: not with an API token of theirs, whatever its permissions, and not by someone viewing the panel as them, since any of those could become a way in that outlasts the token or the viewing.
 
 ## Users
 
-Add users under **Users → Add a user**. Each user **belongs** somewhere, the whole server, a reseller or an account, which decides who manages them: an account's users are managed by its owner, its reseller and the server's admins. Where a user belongs is set when they're added.
+Add users under **Users → Add a user**, or with **Add a user** in the command bar (⌘K), which also reaches every screen on this page. Each user **belongs** somewhere, the whole server, a reseller or an account, which decides who manages them: an account's users are managed by its owner, its reseller and the server's admins. Where a user belongs is set when they're added.
 
 Users are changes like any other: adding one, changing their details or roles, and removing one show a preview first, go through the same checks, hooks and rules as every change, are recorded in the audit log, and can be undone. Only who someone is and what they may do is in such a change. How they sign in, their password, passkeys, second steps, sessions and API tokens, is theirs alone and never part of one, so it doesn't show in previews or history, and undoing a change never brings back an old password.
 
@@ -95,10 +95,10 @@ On a user's page you can change their details and roles, see where they're signe
 
 To see what a customer sees, someone with `core.impersonate` opens the customer's user and chooses **View as them**. They need the permission where that user belongs and every role the user has; admins of the whole server can't be viewed as. While it lasts:
 
-- a banner across the top of every screen says whose panel it is, in colours no theme can change;
+- a banner across the top of every screen says whose panel it is, in colors no theme can change, its button included;
 - everything done is recorded with both names;
-- what the person uses to sign in, their password, second steps, passkeys and tokens, stays out of reach;
-- it ends after an hour at most, or with **Stop viewing as** in the banner.
+- what the person signs in with, their password, second steps, passkeys, tokens, SSH keys and email address, stays out of reach;
+- it ends after an hour at most, or with **Stop viewing as** in the banner or the command bar.
 
 ## The audit log
 
