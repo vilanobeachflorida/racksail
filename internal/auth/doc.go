@@ -13,9 +13,11 @@
 // scope: the whole server, a reseller, an account or a single resource.
 //
 // RoleAuthorizer is the Authorizer the panel uses. It also lists the
-// resources grants on single resources reach (ObjectAuthorizer), and learns
-// which accounts belong to which reseller from the Ownership the module that
-// keeps resellers provides.
+// resources grants on single resources reach (ObjectAuthorizer) and the
+// scopes grants on whole scopes reach (ScopeAuthorizer), and learns which
+// accounts belong to which reseller from the Ownership the module that keeps
+// resellers provides; when that Ownership can also list a reseller's
+// accounts (AccountLister), lists reach those accounts too.
 //
 // Users, accounts, sessions, passkeys, TOTP, recovery codes and API tokens
 // are built on these types.

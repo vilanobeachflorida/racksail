@@ -15,7 +15,6 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api"
-	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 )
 
@@ -34,20 +33,21 @@ func newPanelCommand() *cobra.Command {
 			}
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
-			log.Warn("this build keeps the panel's resources, change sets and secrets in memory, so they are lost when the panel stops")
 			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edge.DialAdmin(cfg.Edge.Socket))
 			if err != nil {
 				return err
 			}
 			defer c.stop(context.WithoutCancel(ctx))
-			apiServer, err := c.apiServer(auth.NoAuthenticator{})
+			// No authenticator yet: the API refuses what needs a signed-in
+			// user rather than serving it to anyone.
+			apiServer, err := c.apiServer(nil, false)
 			if err != nil {
 				return err
 			}
 			if len(cfg.Panel.AllowFrom) > 0 {
 				log.Info("the panel only accepts requests from panel.allow_from", "networks", cfg.Panel.AllowFrom)
 			}
-			srv := newHTTPServer(cfg.Panel.Listen, apiServer.Handler(), log)
+			srv := newHTTPServer(cfg.Panel.Listen, apiServer, log)
 			if cfg.Panel.Insecure {
 				return serveUntilDone(ctx, srv, false)
 			}
@@ -109,5 +109,11 @@ func serveUntilDone(ctx context.Context, srv *http.Server, secure bool) error {
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdown)
+	if err := srv.Shutdown(shutdown); err != nil {
+		// Whatever is still going on is cut off, so nothing is left
+		// answering once the panel's database closes.
+		srv.Close()
+		return fmt.Errorf("shutting down %s: %w", srv.Addr, err)
+	}
+	return nil
 }

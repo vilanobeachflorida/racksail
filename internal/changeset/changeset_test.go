@@ -232,10 +232,10 @@ func (f *fakeHooks) Applied(ctx context.Context, point string, cs *ChangeSet, ch
 
 type env struct {
 	engine  *Engine
-	store   *store.Memory
+	store   store.Store
 	sim     *sim.Machine
-	bus     *events.Memory
-	jobs    *jobs.Memory
+	bus     *events.Log
+	jobs    *jobs.Manager
 	hooks   *fakeHooks
 	secrets *secrets.Memory
 	owner   *auth.Actor
@@ -243,36 +243,85 @@ type env struct {
 }
 
 func newEnv(t *testing.T, retention Retention, now func() time.Time) *env {
+	return buildEnv(t, envConfig{retention: retention, now: now})
+}
+
+// envConfig says how to build a test environment. With db set, everything
+// the panel keeps is kept in that database, as in the panel.
+type envConfig struct {
+	retention Retention
+	now       func() time.Time
+	db        *store.DB
+	machine   *sim.Machine
+	vault     *secrets.Memory
+	ctx       context.Context
+	// audit, when set, wraps the audit log the engine writes to.
+	audit func(events.AuditLog) events.AuditLog
+}
+
+func buildEnv(t *testing.T, cfg envConfig) *env {
 	t.Helper()
-	ctx := context.Background()
+	ctx := cfg.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{pageKind, menuKind} {
+	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
 	}
-	st := store.NewMemory(kinds)
-	m := sim.New(sim.Options{})
+	var st store.Store = store.NewMemory(kinds)
+	bus := events.NewMemory(100)
+	q := jobs.NewMemory(ctx, jobs.MemoryOptions{Workers: 2})
+	var storage Storage
+	if cfg.db != nil {
+		var err error
+		if st, err = store.NewSQLite(ctx, cfg.db, kinds); err != nil {
+			t.Fatal(err)
+		}
+		if bus, err = events.NewSQL(ctx, cfg.db, events.Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if q, err = jobs.NewSQL(ctx, cfg.db, jobs.ManagerOptions{Workers: 2}); err != nil {
+			t.Fatal(err)
+		}
+		if storage, err = NewSQLStorage(ctx, cfg.db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := cfg.machine
+	if m == nil {
+		m = sim.New(sim.Options{})
+	}
 	recs := reconcile.NewRegistry()
-	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{})} {
+	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{}), reconcile.Typed(ticketKind, ticketReconciler{}), reconcile.Typed(gateKind, gateReconciler{})} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}
 	}
-	key, _ := secrets.NewKey()
-	box, _ := secrets.NewBox(key)
-	vault := secrets.NewMemory(box)
-	bus := events.NewMemory(100)
-	q := jobs.NewMemory(ctx, jobs.MemoryOptions{Workers: 2})
+	vault := cfg.vault
+	if vault == nil {
+		key, _ := secrets.NewKey()
+		box, _ := secrets.NewBox(key)
+		vault = secrets.NewMemory(box)
+	}
 	hooks := &fakeHooks{}
+	var audit events.AuditLog = bus
+	if cfg.audit != nil {
+		audit = cfg.audit(bus)
+	}
 	engine, err := NewEngine(Options{
-		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: bus, Hooks: hooks, Secrets: vault,
+		Store: st, Kinds: kinds, Jobs: q, Events: bus, Audit: audit, Hooks: hooks, Secrets: vault, Storage: storage,
 		Runner:     &reconcile.Runner{Store: st, Agent: agent.NewLocal(m.Backend(), nil), Registry: recs, Secrets: vault},
-		Authorizer: auth.NewRoleAuthorizer(nil), Retention: retention, Now: now,
+		Authorizer: auth.NewRoleAuthorizer(nil), Retention: cfg.retention, Now: cfg.now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	q.Start()
+	// The queue stops before the database it may be writing to closes.
+	t.Cleanup(func() { q.Stop(context.Background()) })
 	acct := store.NewID("acct")
 	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}}
 	return &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault, owner: owner, acct: acct}
@@ -492,19 +541,51 @@ func TestActionsAndValidation(t *testing.T) {
 		t.Errorf("an action that changed no settings can't be undone: %v", err)
 	}
 
-	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpCreate, Kind: "test.page", Scope: store.AccountScope(e.acct), Spec: json.RawMessage(`{"content":"x"}`)}}}); !errors.Is(err, i18n.ErrInvalid) {
+	// Changes that don't go through are in the audit log too: refused ones
+	// as denied, allowed ones that couldn't be made as failed.
+	outcome := func(actor *auth.Actor, action string) events.Outcome {
+		t.Helper()
+		records, _, _ := e.bus.QueryAudit(ctx, events.Query{Actor: actor.ID, Types: []string{action}, Limit: 1})
+		if len(records) == 0 {
+			return ""
+		}
+		return records[0].Outcome
+	}
+	invalid := Change{Op: OpCreate, Kind: "test.page", Scope: store.AccountScope(e.acct), Spec: json.RawMessage(`{"content":"x"}`)}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{invalid}, DryRun: true}); !errors.Is(err, i18n.ErrInvalid) {
+		t.Errorf("kind validation of a preview: %v", err)
+	}
+	if got := outcome(e.owner, "test.page.create"); got == events.OutcomeFailed {
+		t.Error("a preview that fails isn't recorded")
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{invalid}}); !errors.Is(err, i18n.ErrInvalid) {
 		t.Errorf("kind validation: %v", err)
+	}
+	if got := outcome(e.owner, "test.page.create"); got != events.OutcomeFailed {
+		t.Errorf("a change with settings that aren't valid is recorded as failed, not %q", got)
 	}
 	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner}); !errors.Is(err, ErrEmpty) {
 		t.Errorf("a request without changes: %v", err)
 	}
-	stranger := &auth.Actor{Type: auth.ActorUser, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(store.NewID("acct"))}}}
-	if _, err := e.engine.Submit(ctx, Request{Actor: stranger, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, i18n.ErrForbidden) {
+	// Someone who can't see the page is told it doesn't exist, as reads are;
+	// someone who can see it but not delete it is told they may not.
+	stranger := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(store.NewID("acct"))}}}
+	if _, err := e.engine.Submit(ctx, Request{Actor: stranger, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("another account's owner: %v", err)
 	}
+	if got := outcome(stranger, "test.page.delete"); got != events.OutcomeDenied {
+		t.Errorf("the stranger's attempt is recorded as denied, not %q", got)
+	}
+	reader := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(e.acct)}}}
+	if _, err := e.engine.Submit(ctx, Request{Actor: reader, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, i18n.ErrForbidden) {
+		t.Errorf("a reader of the account: %v", err)
+	}
 	e.hooks.deny = true
-	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}}); !errors.Is(err, i18n.ErrForbidden) {
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}, DryRun: true}); !errors.Is(err, i18n.ErrForbidden) {
 		t.Errorf("a validate hook should deny: %v", err)
+	}
+	if got := outcome(e.owner, "test.page.delete"); got != events.OutcomeDenied {
+		t.Errorf("a change a validate hook refused is recorded as denied, even in a preview, not %q", got)
 	}
 	if e.hooks.validate[len(e.hooks.validate)-1] != "test.page.delete.validate" {
 		t.Errorf("hook points = %v", e.hooks.validate)

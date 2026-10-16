@@ -212,11 +212,29 @@ type ObjectAuthorizer interface {
 	Objects(ctx context.Context, actor *Actor, perm Permission, scope *store.Scope) ([]store.ID, error)
 }
 
+// ScopeAuthorizer is implemented by authorizers that can say which scopes
+// an actor's grants on whole scopes cover, so a list of every scope can be
+// narrowed to those instead of filtering what it reads.
+type ScopeAuthorizer interface {
+	// Scopes returns the scopes the actor's grants on whole scopes cover
+	// for perm, or for any permission when perm is empty, sorted: a
+	// reseller's grant covers the reseller and, when the ownership can list
+	// them, its customers' accounts. all says a grant covers every scope.
+	Scopes(ctx context.Context, actor *Actor, perm Permission) (scopes []store.Scope, all bool, err error)
+}
+
 // Ownership answers questions about tenancy the authorizer needs.
 type Ownership interface {
 	// ResellerOf returns the reseller an account belongs to, or "" when the
 	// account belongs directly to the server.
 	ResellerOf(ctx context.Context, account store.ID) (store.ID, error)
+}
+
+// AccountLister is implemented by an Ownership that can also list the
+// accounts that belong to a reseller, which lists, the timeline and the
+// audit log need to show a reseller their customers' records.
+type AccountLister interface {
+	AccountsOf(ctx context.Context, reseller store.ID) ([]store.ID, error)
 }
 
 // RolePermissions lists the permission patterns of each role. Patterns are
@@ -244,6 +262,7 @@ type RoleAuthorizer struct {
 var (
 	_ Authorizer       = (*RoleAuthorizer)(nil)
 	_ ObjectAuthorizer = (*RoleAuthorizer)(nil)
+	_ ScopeAuthorizer  = (*RoleAuthorizer)(nil)
 )
 
 // NewRoleAuthorizer returns an authorizer that asks owners about tenancy.
@@ -317,6 +336,45 @@ func (r *RoleAuthorizer) Objects(ctx context.Context, actor *Actor, perm Permiss
 	}
 	slices.Sort(out)
 	return slices.Compact(out), nil
+}
+
+// Scopes implements ScopeAuthorizer.
+func (r *RoleAuthorizer) Scopes(ctx context.Context, actor *Actor, perm Permission) ([]store.Scope, bool, error) {
+	if actor == nil {
+		return nil, false, i18n.ErrUnauthenticated.New()
+	}
+	var out []store.Scope
+	add := func(sc store.Scope) {
+		if !slices.Contains(out, sc) {
+			out = append(out, sc)
+		}
+	}
+	for _, g := range actor.Grants {
+		if g.Object != "" || !g.Role.Valid() || (perm != "" && !permits(g, perm)) {
+			continue
+		}
+		switch g.Scope.Level {
+		case store.ScopeServer:
+			return nil, true, nil
+		case store.ScopeReseller:
+			add(g.Scope)
+			if lister, ok := r.ownership().(AccountLister); ok {
+				accounts, err := lister.AccountsOf(ctx, g.Scope.ID)
+				if err != nil {
+					return nil, false, err
+				}
+				for _, a := range accounts {
+					add(store.AccountScope(a))
+				}
+			}
+		case store.ScopeAccount:
+			add(g.Scope)
+		}
+	}
+	slices.SortFunc(out, func(a, b store.Scope) int {
+		return strings.Compare(a.String(), b.String())
+	})
+	return out, false, nil
 }
 
 func permits(g Grant, perm Permission) bool {

@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 )
 
@@ -89,9 +91,11 @@ func (a Action) EventName(kind string) string {
 }
 
 // Index declares a spec field that the store indexes, so lists can filter on
-// it and, when Unique is set, two resources can't share a value.
+// it, sort by it and search it, and, when Unique is set, two resources can't
+// share a value.
 type Index struct {
-	// Name identifies the index in queries, for example "domain".
+	// Name identifies the index in queries, for example "domain". It is a
+	// camelCase word, and lists take it as a query parameter of its own.
 	Name string
 	// Path is the field path in the spec, with dots for nested objects. When
 	// the field is an array every element is indexed.
@@ -230,6 +234,7 @@ type Kind interface {
 type KindOf[S, T any] struct {
 	info      KindInfo
 	err       error
+	spec      *huma.Schema
 	defaults  func(ctx context.Context, obj *Object[S, T]) error
 	validator func(ctx context.Context, obj, old *Object[S, T]) error
 }
@@ -256,7 +261,23 @@ func Define[S, T any](info KindInfo) *KindOf[S, T] {
 	if k.info.Risks.Delete == "" {
 		k.info.Risks.Delete = RiskHigh
 	}
-	k.err = checkKind(&k.info, reflect.TypeFor[S](), reflect.TypeFor[T]())
+	errs := []error{checkKind(&k.info, reflect.TypeFor[S](), reflect.TypeFor[T]())}
+	if spec, err := generateSchema(reflect.TypeFor[S](), k.info.Title+"Spec"); err != nil {
+		errs = append(errs, fmt.Errorf("kind %q: %w", info.Name, err))
+	} else {
+		k.spec = spec
+	}
+	for _, a := range k.info.Actions {
+		if a.Input == nil {
+			continue
+		}
+		if t := reflect.TypeOf(a.Input); t.Kind() != reflect.Struct {
+			errs = append(errs, fmt.Errorf("kind %q: action %q: the input must be a struct, not %s", info.Name, a.Name, t))
+		} else if _, err := generateSchema(t, a.Name+"Input"); err != nil {
+			errs = append(errs, fmt.Errorf("kind %q: action %q: %w", info.Name, a.Name, err))
+		}
+	}
+	k.err = errors.Join(errs...)
 	return k
 }
 
@@ -380,8 +401,9 @@ func (k *KindOf[S, T]) Default(ctx context.Context, r *Resource) error {
 	return nil
 }
 
-// Validate implements Kind. It checks the scope and labels, that the spec
-// decodes into S, and then runs the kind's own validator.
+// Validate implements Kind. It checks the scope and labels, then the spec
+// against the JSON Schema of S and that it decodes into S, and finally runs
+// the kind's own validator.
 func (k *KindOf[S, T]) Validate(ctx context.Context, r, old *Resource) error {
 	var fields []i18n.FieldError
 	if r.Scope.Level != k.info.Scope {
@@ -392,12 +414,15 @@ func (k *KindOf[S, T]) Validate(ctx context.Context, r, old *Resource) error {
 	if err := ValidateLabels(r.Labels); err != nil {
 		fields = append(fields, i18n.Field("labels", i18n.ErrBadValue, "reason", err.Error()))
 	}
-	obj, err := k.Decode(r)
-	if err != nil {
-		fields = append(fields, i18n.Field("spec", i18n.ErrBadValue, "reason", "the spec doesn't match the kind's schema"))
-	}
 	if len(fields) > 0 {
 		return i18n.Invalid(fields...)
+	}
+	if fields := validateDocument(k.spec, r.Spec, "spec"); len(fields) > 0 {
+		return i18n.Invalid(fields...)
+	}
+	obj, err := k.Decode(r)
+	if err != nil {
+		return i18n.Invalid(i18n.Field("spec", i18n.ErrBadValue, "reason", "the spec doesn't match the kind's schema"))
 	}
 	if k.validator == nil {
 		return nil
@@ -432,8 +457,21 @@ var (
 	kindNamePattern      = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
 	pluralPattern        = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	actionNamePattern    = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	reservedActions      = map[string]bool{"create": true, "update": true, "delete": true, "get": true, "list": true, "read": true}
-	statusType           = reflect.TypeFor[Status]()
+	indexNamePattern     = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`)
+	// Actions named like the operations every kind has would be confused
+	// with them, in the API and in hook points.
+	reservedActions = map[string]bool{
+		"create": true, "update": true, "delete": true, "get": true, "list": true, "read": true,
+		"history": true, "fail": true, "drift": true,
+	}
+	// Verbs of the events every kind emits, which no action may produce.
+	reservedEventVerbs = map[string]bool{"created": true, "updated": true, "deleted": true, "failed": true, "drifted": true}
+	// Lists take every index as a query parameter, next to these.
+	reservedIndexNames = map[string]bool{
+		"cursor": true, "limit": true, "sort": true, "scope": true, "label": true, "phase": true, "q": true,
+		"fields": true, "includeDeleted": true, "server": true, "id": true, "ids": true,
+	}
+	statusType = reflect.TypeFor[Status]()
 )
 
 func checkKind(info *KindInfo, spec, status reflect.Type) error {
@@ -468,7 +506,9 @@ func checkKind(info *KindInfo, spec, status reflect.Type) error {
 		}
 	}
 	seen := map[string]bool{}
+	emitted := map[string]string{}
 	for _, a := range info.Actions {
+		verb := strings.TrimPrefix(a.EventName(info.Name), info.Name+".")
 		switch {
 		case !actionNamePattern.MatchString(a.Name):
 			bad("action %q must be lowercase words joined by underscores", a.Name)
@@ -482,15 +522,26 @@ func checkKind(info *KindInfo, spec, status reflect.Type) error {
 			bad("action %q needs a summary", a.Name)
 		case a.Past != "" && !actionNamePattern.MatchString(a.Past):
 			bad("action %q: past tense %q must be lowercase words joined by underscores", a.Name, a.Past)
+		case reservedEventVerbs[verb]:
+			bad("action %q: its event %s.%s is one every kind emits; set Past to another word", a.Name, info.Name, verb)
+		case emitted[verb] != "":
+			bad("actions %q and %q both emit %s.%s; set Past on one of them", emitted[verb], a.Name, info.Name, verb)
 		}
 		seen[a.Name] = true
+		if emitted[verb] == "" {
+			emitted[verb] = a.Name
+		}
 	}
 	indexes := map[string]bool{}
 	for _, ix := range info.Indexes {
-		if ix.Name == "" || ix.Path == "" {
+		switch {
+		case ix.Name == "" || ix.Path == "":
 			bad("indexes need a name and a path")
-		}
-		if indexes[ix.Name] {
+		case !indexNamePattern.MatchString(ix.Name):
+			bad("index name %q must be a camelCase word", ix.Name)
+		case reservedIndexNames[ix.Name]:
+			bad("index name %q is taken by a list parameter", ix.Name)
+		case indexes[ix.Name]:
 			bad("index %q is declared twice", ix.Name)
 		}
 		indexes[ix.Name] = true

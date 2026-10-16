@@ -11,10 +11,12 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/config"
+	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/notify"
+	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 
 	_ "github.com/vilanobeachflorida/racksail/modules/all"
@@ -62,10 +64,10 @@ func newRootCommand() *cobra.Command {
 }
 
 // checkRegistries reports problems found while packages registered error
-// codes, operations, job types, notification channels and modules. A binary
-// with such problems refuses to run.
+// codes, operations, kinds, event and job types, notification channels and
+// modules. A binary with such problems refuses to run.
 func checkRegistries() error {
-	return errors.Join(i18n.Err(), agent.Err(), jobs.Err(), notify.Err(), modules.Default().Err())
+	return errors.Join(i18n.Err(), agent.Err(), store.Err(), events.Err(), jobs.Err(), notify.Err(), modules.Default().Err())
 }
 
 // newLogger builds the logger for a role from its configuration.

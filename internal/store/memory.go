@@ -4,24 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
-	"reflect"
 	"slices"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 )
 
-// Memory is a Store that keeps everything in memory. It backs development
-// mode and tests, and is the reference for how every Store behaves.
+// Memory is a Store that keeps everything in memory. It backs tests and
+// tools that need a store for a moment, and behaves exactly as the SQLite
+// store does; the same conformance tests run against both.
 type Memory struct {
 	kinds *KindRegistry
 	now   func() time.Time
+	hub   hub
 
 	mu    sync.RWMutex
 	state memState
@@ -110,16 +107,22 @@ func (m *Memory) Write(ctx context.Context, meta WriteMeta, fn func(tx Tx) error
 		return err
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	tx := &memTx{kinds: m.kinds, state: m.state.clone(), meta: meta, now: m.now().UTC()}
 	err := fn(tx)
 	tx.closed = true
+	if err == nil {
+		m.state = tx.state
+	}
+	m.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	m.state = tx.state
+	m.hub.publish(tx.changes)
 	return nil
 }
+
+// Watch implements Store.
+func (m *Memory) Watch(f WatchFilter, buffer int) *Watcher { return m.hub.watch(f, buffer) }
 
 // Close implements Store.
 func (m *Memory) Close() error { return nil }
@@ -127,11 +130,12 @@ func (m *Memory) Close() error { return nil }
 var errTxClosed = errors.New("store: transaction already finished")
 
 type memTx struct {
-	kinds  *KindRegistry
-	state  memState
-	meta   WriteMeta
-	now    time.Time
-	closed bool
+	kinds   *KindRegistry
+	state   memState
+	meta    WriteMeta
+	now     time.Time
+	closed  bool
+	changes []Notice
 }
 
 func (tx *memTx) Get(ctx context.Context, id ID) (*Resource, error) {
@@ -157,10 +161,8 @@ func (tx *memTx) Create(ctx context.Context, r *Resource) error {
 		return i18n.ErrUnknownName.New("what", "kind", "name", r.Kind)
 	}
 	info := k.Info()
-	if r.ID == "" {
-		r.ID = NewID(info.Prefix)
-	} else if !r.ID.Valid() || r.ID.Prefix() != info.Prefix {
-		return i18n.Invalid(i18n.Field("id", i18n.ErrBadValue, "reason", fmt.Sprintf("a %s id starts with %q", info.Title, info.Prefix+"_")))
+	if err := checkNewID(info, r); err != nil {
+		return err
 	}
 	if _, exists := tx.state.resources[r.ID]; exists {
 		return ErrExists.New("what", string(r.ID))
@@ -182,14 +184,24 @@ func (tx *memTx) Create(ctx context.Context, r *Resource) error {
 	if err != nil {
 		return err
 	}
+	h := tx.state.history[r.ID]
+	if err := CheckReuse(h, r, tx.meta.UndoOf); err != nil {
+		return err
+	}
 	if err := tx.claim(info, keys, r.ID); err != nil {
 		return err
 	}
+	// A resource brought back under its ID, as when a delete is undone,
+	// carries on from the generations it had.
 	r.Generation, r.Revision = 1, 1
+	if len(h) > 0 {
+		r.Generation = h[len(h)-1].Generation + 1
+	}
 	r.CreatedAt, r.UpdatedAt, r.DeletedAt = tx.now, tx.now, nil
 	stored := r.Clone()
 	tx.state.resources[r.ID] = stored
 	tx.record(stored, false)
+	tx.changes = append(tx.changes, noticeOf(NoticeCreated, stored, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -230,12 +242,12 @@ func (tx *memTx) Update(ctx context.Context, r *Resource) error {
 		return err
 	}
 	for _, key := range oldKeys {
-		delete(tx.state.unique, key)
+		delete(tx.state.unique, key.String())
 	}
 	if err := tx.claim(info, newKeys, cur.ID); err != nil {
 		// Keep the transaction consistent in case the caller carries on.
 		for _, key := range oldKeys {
-			tx.state.unique[key] = cur.ID
+			tx.state.unique[key.String()] = cur.ID
 		}
 		return err
 	}
@@ -256,6 +268,7 @@ func (tx *memTx) Update(ctx context.Context, r *Resource) error {
 	}
 	r.Meta = next.Meta
 	r.Labels = maps.Clone(next.Labels)
+	tx.changes = append(tx.changes, noticeOf(NoticeUpdated, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -267,9 +280,13 @@ func (tx *memTx) UpdateStatus(ctx context.Context, id ID, status json.RawMessage
 	if !ok {
 		return ErrNotFound.New("what", string(id))
 	}
+	if len(status) > 0 && !json.Valid(status) {
+		return i18n.Invalid(i18n.Field("status", i18n.ErrBadValue, "reason", "it isn't valid JSON"))
+	}
 	next := cur.Clone()
 	next.Status = slices.Clone(status)
 	tx.state.resources[id] = next
+	tx.changes = append(tx.changes, noticeOf(NoticeStatus, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -292,6 +309,7 @@ func (tx *memTx) Delete(ctx context.Context, id ID, revision int64) error {
 	next.UpdatedAt = now
 	tx.state.resources[id] = next
 	tx.record(next, true)
+	tx.changes = append(tx.changes, noticeOf(NoticeDeleted, next, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -309,12 +327,13 @@ func (tx *memTx) Purge(ctx context.Context, id ID) error {
 			return err
 		}
 		for _, key := range keys {
-			if tx.state.unique[key] == id {
-				delete(tx.state.unique, key)
+			if tx.state.unique[key.String()] == id {
+				delete(tx.state.unique, key.String())
 			}
 		}
 	}
 	delete(tx.state.resources, id)
+	tx.changes = append(tx.changes, noticeOf(NoticePurged, cur, tx.meta.ChangeSet))
 	return nil
 }
 
@@ -327,18 +346,14 @@ func (tx *memTx) live(id ID) (*Resource, error) {
 	return cur, nil
 }
 
-func (tx *memTx) claim(info *KindInfo, keys []string, id ID) error {
+func (tx *memTx) claim(info *KindInfo, keys []uniqueKey, id ID) error {
 	for _, key := range keys {
-		if owner, taken := tx.state.unique[key]; taken && owner != id {
-			index, value := splitUniqueKey(key)
-			if ix := findIndex(info, index); ix != nil && ix.Conflict != nil {
-				return ix.Conflict.New("value", value)
-			}
-			return ErrExists.New("what", fmt.Sprintf("%s with %s %s", info.Title, index, value))
+		if owner, taken := tx.state.unique[key.String()]; taken && owner != id {
+			return uniqueConflict(info, key)
 		}
 	}
 	for _, key := range keys {
-		tx.state.unique[key] = id
+		tx.state.unique[key.String()] = id
 	}
 	return nil
 }
@@ -346,8 +361,11 @@ func (tx *memTx) claim(info *KindInfo, keys []string, id ID) error {
 func (tx *memTx) record(r *Resource, deleted bool) {
 	v := Version{
 		Generation: r.Generation,
+		Kind:       r.Kind,
+		Scope:      r.Scope,
 		Spec:       slices.Clone(r.Spec),
 		Labels:     maps.Clone(r.Labels),
+		Server:     r.Server,
 		ChangeSet:  tx.meta.ChangeSet,
 		Actor:      tx.meta.Actor,
 		Time:       tx.now,
@@ -356,25 +374,6 @@ func (tx *memTx) record(r *Resource, deleted bool) {
 	// Copy before appending so the committed state never shares an array
 	// with a transaction that might be thrown away.
 	tx.state.history[r.ID] = append(slices.Clone(tx.state.history[r.ID]), v)
-}
-
-func checkMeta(info *KindInfo, r *Resource) error {
-	var fields []i18n.FieldError
-	if r.Scope.Level != info.Scope {
-		fields = append(fields, i18n.Field("scope.level", i18n.ErrBadValue, "reason", fmt.Sprintf("%s resources are owned at %s level", info.Title, info.Scope)))
-	} else if err := r.Scope.Validate(); err != nil {
-		fields = append(fields, i18n.Field("scope", i18n.ErrBadValue, "reason", err.Error()))
-	}
-	if err := ValidateLabels(r.Labels); err != nil {
-		fields = append(fields, i18n.Field("labels", i18n.ErrBadValue, "reason", err.Error()))
-	}
-	if r.Server != "" && !r.Server.Valid() {
-		fields = append(fields, i18n.Field("server", i18n.ErrBadValue, "reason", "not a valid id"))
-	}
-	if len(fields) > 0 {
-		return i18n.Invalid(fields...)
-	}
-	return nil
 }
 
 func get(s memState, id ID) (*Resource, error) {
@@ -386,196 +385,15 @@ func get(s memState, id ID) (*Resource, error) {
 }
 
 func list(reg *KindRegistry, s memState, q Query) (*Page, error) {
-	k, ok := reg.Get(q.Kind)
-	if !ok {
-		return nil, i18n.ErrUnknownName.New("what", "kind", "name", q.Kind)
-	}
-	info := k.Info()
-	for name := range q.Index {
-		if findIndex(info, name) == nil {
-			return nil, i18n.ErrUnknownName.New("what", "index", "name", name)
-		}
-	}
-	var after ID
-	if q.Cursor != "" {
-		id, err := DecodeCursor(q.Cursor)
-		if err != nil {
-			return nil, err
-		}
-		after = id
+	info, sorting, err := checkQuery(reg, q)
+	if err != nil {
+		return nil, err
 	}
 	var matched []*Resource
 	for _, r := range s.resources {
-		if (after != "" && r.ID <= after) || !queryMatches(info, r, q) {
-			continue
-		}
-		matched = append(matched, r)
-	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
-	limit := q.EffectiveLimit()
-	page := &Page{}
-	if len(matched) > limit {
-		matched = matched[:limit]
-		page.Next = EncodeCursor(matched[limit-1].ID)
-	}
-	page.Items = make([]*Resource, len(matched))
-	for i, r := range matched {
-		page.Items[i] = r.Clone()
-	}
-	return page, nil
-}
-
-// queryMatches reports whether r is one of the resources q selects, apart
-// from the cursor.
-func queryMatches(info *KindInfo, r *Resource, q Query) bool {
-	switch {
-	case r.Kind != q.Kind:
-		return false
-	case r.Deleted() && !q.IncludeDeleted:
-		return false
-	case q.Scope != nil && r.Scope != *q.Scope:
-		return false
-	case q.Server != nil && r.Server != *q.Server:
-		return false
-	case len(q.IDs) > 0 && !slices.Contains(q.IDs, r.ID):
-		return false
-	}
-	return labelsMatch(r.Labels, q.Labels) && indexMatch(info, r, q.Index)
-}
-
-func labelsMatch(have, want map[string]string) bool {
-	for k, v := range want {
-		if got, ok := have[k]; !ok || got != v {
-			return false
+		if queryMatches(info, r, q) {
+			matched = append(matched, r)
 		}
 	}
-	return true
-}
-
-func indexMatch(info *KindInfo, r *Resource, want map[string]string) bool {
-	for name, value := range want {
-		ix := findIndex(info, name)
-		values, err := indexValues(r.Spec, ix)
-		if err != nil {
-			return false
-		}
-		if ix.Fold {
-			value = strings.ToLower(value)
-		}
-		if !slices.Contains(values, value) {
-			return false
-		}
-	}
-	return true
-}
-
-func findIndex(info *KindInfo, name string) *Index {
-	for i := range info.Indexes {
-		if info.Indexes[i].Name == name {
-			return &info.Indexes[i]
-		}
-	}
-	return nil
-}
-
-func uniqueKeys(info *KindInfo, r *Resource) ([]string, error) {
-	var keys []string
-	for i := range info.Indexes {
-		ix := &info.Indexes[i]
-		if !ix.Unique {
-			continue
-		}
-		values, err := indexValues(r.Spec, ix)
-		if err != nil {
-			return nil, err
-		}
-		scope := ""
-		if ix.PerScope {
-			scope = r.Scope.String()
-		}
-		seen := map[string]bool{}
-		for _, v := range values {
-			if seen[v] {
-				return nil, i18n.Invalid(i18n.Field("spec."+ix.Path, i18n.ErrBadValue, "reason", fmt.Sprintf("%q appears more than once", v)))
-			}
-			seen[v] = true
-			keys = append(keys, strings.Join([]string{info.Name, scope, ix.Name, v}, "\x00"))
-		}
-	}
-	return keys, nil
-}
-
-func splitUniqueKey(key string) (index, value string) {
-	parts := strings.SplitN(key, "\x00", 4)
-	if len(parts) != 4 {
-		return "", key
-	}
-	return parts[2], parts[3]
-}
-
-// indexValues extracts the values of an indexed field from a spec.
-func indexValues(spec json.RawMessage, ix *Index) ([]string, error) {
-	var doc any
-	if len(spec) > 0 {
-		if err := json.Unmarshal(spec, &doc); err != nil {
-			return nil, fmt.Errorf("decoding spec: %w", err)
-		}
-	}
-	nodes := []any{doc}
-	for _, part := range strings.Split(ix.Path, ".") {
-		var next []any
-		for _, n := range flatten(nodes) {
-			if m, ok := n.(map[string]any); ok {
-				if v, ok := m[part]; ok {
-					next = append(next, v)
-				}
-			}
-		}
-		nodes = next
-	}
-	var out []string
-	for _, n := range flatten(nodes) {
-		var s string
-		switch v := n.(type) {
-		case string:
-			s = v
-		case float64:
-			s = strconv.FormatFloat(v, 'f', -1, 64)
-		case bool:
-			s = strconv.FormatBool(v)
-		default:
-			continue
-		}
-		if s == "" {
-			continue
-		}
-		if ix.Fold {
-			s = strings.ToLower(s)
-		}
-		out = append(out, s)
-	}
-	return out, nil
-}
-
-func flatten(nodes []any) []any {
-	var out []any
-	for _, n := range nodes {
-		if arr, ok := n.([]any); ok {
-			out = append(out, flatten(arr)...)
-			continue
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-func jsonEqual(a, b json.RawMessage) bool {
-	var x, y any
-	if err := json.Unmarshal(a, &x); err != nil {
-		return false
-	}
-	if err := json.Unmarshal(b, &y); err != nil {
-		return false
-	}
-	return reflect.DeepEqual(x, y)
+	return pageOf(info, sorting, matched, q)
 }

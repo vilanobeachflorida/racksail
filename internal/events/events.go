@@ -2,17 +2,19 @@ package events
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -39,6 +41,9 @@ var severityRank = map[Severity]int{SeverityInfo: 0, SeverityNotice: 1, Severity
 // AtLeast reports whether s is as urgent as min.
 func (s Severity) AtLeast(min Severity) bool { return severityRank[s] >= severityRank[min] }
 
+// Valid reports whether s is a known severity.
+func (s Severity) Valid() bool { _, ok := severityRank[s]; return ok }
+
 // Event is something that happened.
 type Event struct {
 	ID       store.ID  `json:"id"`
@@ -46,8 +51,8 @@ type Event struct {
 	Time     time.Time `json:"time"`
 	Severity Severity  `json:"severity" enum:"info,notice,warning,error,critical"`
 	// Subject is the resource the event is about.
-	Subject store.ID    `json:"subject,omitempty"`
-	Kind    string      `json:"kind,omitempty"`
+	Subject store.ID    `json:"subject,omitempty" doc:"The resource the event is about"`
+	Kind    string      `json:"kind,omitempty" doc:"The kind of the subject"`
 	Scope   store.Scope `json:"scope"`
 	Actor   *auth.Actor `json:"actor,omitempty"`
 	// ChangeSet and Job link the event to what caused it.
@@ -56,6 +61,10 @@ type Event struct {
 	// Message is an English summary; the UI renders its own from the type.
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
+	// Seq orders events as the timeline stored them. It is set when an
+	// event is published and never reused, so it is what followers of the
+	// timeline, such as webhooks and live streams, keep their place by.
+	Seq int64 `json:"-"`
 }
 
 var typePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*){2,}$`)
@@ -73,14 +82,17 @@ type Type struct {
 }
 
 // KindTypes returns the event types every kind has: created, updated,
-// deleted, one per action, and failed for when its reconciler fails.
+// deleted, failed for when its reconciler fails, drifted for when the machine
+// stopped matching it, and one per action.
 func KindTypes(k store.Kind) []Type {
 	info := k.Info()
+	title := strings.ToLower(info.Title)
 	types := []Type{
 		{Name: info.Name + ".created", Description: info.Title + " created.", Severity: SeverityInfo},
 		{Name: info.Name + ".updated", Description: info.Title + " changed.", Severity: SeverityInfo},
 		{Name: info.Name + ".deleted", Description: info.Title + " deleted.", Severity: SeverityNotice},
-		{Name: info.Name + ".failed", Description: "Applying a " + strings.ToLower(info.Title) + " failed.", Severity: SeverityError},
+		{Name: info.Name + ".failed", Description: "Applying a " + title + " failed.", Severity: SeverityError},
+		{Name: info.Name + ".drifted", Description: "The server no longer matched a " + title + "'s settings, and Racksail put them back.", Severity: SeverityWarning, Data: Drift{}},
 	}
 	for _, a := range info.Actions {
 		types = append(types, Type{Name: a.EventName(info.Name), Description: a.Summary, Severity: SeverityInfo, Data: a.Output})
@@ -88,27 +100,51 @@ func KindTypes(k store.Kind) []Type {
 	return types
 }
 
+// Drift is the data of <kind>.drifted events.
+type Drift struct {
+	// Source is resync when a periodic reconcile found and corrected the
+	// drift, or agent when the agent reported it.
+	Source string `json:"source" enum:"resync,agent" doc:"What noticed the drift"`
+	// Corrected says whether Racksail has put the settings back yet.
+	Corrected bool `json:"corrected" doc:"Whether the settings were put back"`
+	// Changes lists what was put back, or what the agent saw change.
+	Changes []string `json:"changes,omitempty" doc:"What differed"`
+}
+
 // Filter selects events.
 type Filter struct {
 	// Types are glob patterns such as "web.site.*".
-	Types       []string
-	Scope       *store.Scope
+	Types []string
+	Scope *store.Scope
+	// Scopes keeps events of any of these owners when it isn't empty.
+	Scopes      []store.Scope
 	Subject     store.ID
 	MinSeverity Severity
 }
 
+// matchType reports whether an event type matches a glob pattern. A
+// pattern ending in .* also matches any deeper type.
+func matchType(pattern, name string) bool {
+	ok, _ := path.Match(pattern, name)
+	return ok || (strings.HasSuffix(pattern, ".*") && strings.HasPrefix(name, strings.TrimSuffix(pattern, "*")))
+}
+
+// MatchTypes reports whether name matches one of the patterns, or whether
+// there are none.
+func MatchTypes(patterns []string, name string) bool {
+	return len(patterns) == 0 || slices.ContainsFunc(patterns, func(p string) bool { return matchType(p, name) })
+}
+
 // Match reports whether e passes the filter.
 func (f Filter) Match(e Event) bool {
-	if len(f.Types) > 0 && !slices.ContainsFunc(f.Types, func(p string) bool {
-		ok, _ := path.Match(p, e.Type)
-		return ok || (strings.HasSuffix(p, ".*") && strings.HasPrefix(e.Type, strings.TrimSuffix(p, "*")))
-	}) {
+	switch {
+	case !MatchTypes(f.Types, e.Type):
 		return false
-	}
-	if f.Scope != nil && e.Scope != *f.Scope {
+	case f.Scope != nil && e.Scope != *f.Scope:
 		return false
-	}
-	if f.Subject != "" && e.Subject != f.Subject {
+	case len(f.Scopes) > 0 && !slices.Contains(f.Scopes, e.Scope):
+		return false
+	case f.Subject != "" && e.Subject != f.Subject:
 		return false
 	}
 	return f.MinSeverity == "" || e.Severity.AtLeast(f.MinSeverity)
@@ -157,9 +193,9 @@ type AuditRecord struct {
 	Time  time.Time  `json:"time"`
 	Actor auth.Actor `json:"actor"`
 	// Action is a permission name such as web.site.update or auth.login.
-	Action    string      `json:"action"`
+	Action    string      `json:"action" doc:"What was done, named like the permission it needs, such as web.site.update"`
 	Kind      string      `json:"kind,omitempty"`
-	Subject   store.ID    `json:"subject,omitempty"`
+	Subject   store.ID    `json:"subject,omitempty" doc:"The resource acted on"`
 	Scope     store.Scope `json:"scope"`
 	ChangeSet store.ID    `json:"changeSet,omitempty"`
 	Outcome   Outcome     `json:"outcome" enum:"success,denied,failed"`
@@ -168,6 +204,9 @@ type AuditRecord struct {
 	Summary string `json:"summary"`
 	// Details holds a redacted summary of what changed.
 	Details json.RawMessage `json:"details,omitempty"`
+	// RequestID is the API request the action came through, when it came
+	// through one, so the record can be matched with the access log.
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // AuditLog stores audit records. Hooks can't turn it off.
@@ -186,102 +225,24 @@ type Query struct {
 	Since   time.Time
 	Until   time.Time
 	Subject store.ID
+	Kind    string
 	Scope   *store.Scope
+	// Scopes keeps entries of any of these owners when it isn't empty.
+	Scopes    []store.Scope
+	ChangeSet store.ID
+	// Job keeps events of one job; audit records have none.
+	Job store.ID
 	// Types or actions as glob patterns.
-	Types  []string
-	Cursor string
-	Limit  int
-}
-
-// Memory is an in-memory bus, timeline and audit log with bounded retention.
-type Memory struct {
-	mu     sync.RWMutex
-	subs   map[*Subscription]bool
-	events []Event
-	audit  []AuditRecord
-	retain int
-	now    func() time.Time
-}
-
-// NewMemory keeps the last retain events and audit records.
-func NewMemory(retain int) *Memory {
-	if retain <= 0 {
-		retain = 10000
-	}
-	return &Memory{subs: map[*Subscription]bool{}, retain: retain, now: time.Now}
-}
-
-// Publish implements Bus and records the event in the timeline. Events are
-// handed to subscribers under the lock that Close also takes, so a
-// subscription is never closed while an event is being sent to it, and every
-// subscriber sees events in the order of the timeline. Sending never blocks,
-// so holding the lock costs little.
-func (m *Memory) Publish(ctx context.Context, e Event) error {
-	if !ValidType(e.Type) {
-		return fmt.Errorf("events: invalid event type %q", e.Type)
-	}
-	if e.ID == "" {
-		e.ID = store.NewID(EventPrefix)
-	}
-	if e.Time.IsZero() {
-		e.Time = m.now().UTC()
-	}
-	if e.Severity == "" {
-		e.Severity = SeverityInfo
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.events = append(m.events, e)
-	if len(m.events) > m.retain {
-		m.events = slices.Clone(m.events[len(m.events)-m.retain:])
-	}
-	for s := range m.subs {
-		if !s.filter.Match(e) {
-			continue
-		}
-		select {
-		case s.ch <- e:
-		default:
-			s.dropped.Add(1)
-		}
-	}
-	return nil
-}
-
-// Subscribe implements Bus.
-func (m *Memory) Subscribe(f Filter, buffer int) *Subscription {
-	if buffer <= 0 {
-		buffer = 64
-	}
-	ch := make(chan Event, buffer)
-	s := &Subscription{C: ch, ch: ch, filter: f}
-	s.close = func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		delete(m.subs, s)
-		close(ch)
-	}
-	m.mu.Lock()
-	m.subs[s] = true
-	m.mu.Unlock()
-	return s
-}
-
-// Record implements AuditLog.
-func (m *Memory) Record(ctx context.Context, r AuditRecord) error {
-	if r.ID == "" {
-		r.ID = store.NewID(AuditPrefix)
-	}
-	if r.Time.IsZero() {
-		r.Time = m.now().UTC()
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.audit = append(m.audit, r)
-	if len(m.audit) > m.retain {
-		m.audit = slices.Clone(m.audit[len(m.audit)-m.retain:])
-	}
-	return nil
+	Types []string
+	// MinSeverity keeps events at least this urgent.
+	MinSeverity Severity
+	// Actor keeps audit records of what this user, token, automation or
+	// add-on did, or did for this user.
+	Actor store.ID
+	// Outcome keeps audit records with this outcome.
+	Outcome Outcome
+	Cursor  string
+	Limit   int
 }
 
 func (q Query) limit() int {
@@ -291,60 +252,84 @@ func (q Query) limit() int {
 	return q.Limit
 }
 
-func (q Query) matches(id store.ID, t time.Time, subject store.ID, scope store.Scope, name string) bool {
-	if q.Cursor != "" {
-		before, err := store.DecodeCursor(q.Cursor)
-		if err != nil || id >= before {
-			return false
-		}
+// before returns the sequence number the cursor continues from: entries
+// older than it.
+func (q Query) before() (int64, error) {
+	if q.Cursor == "" {
+		return 0, nil
 	}
-	if !q.Since.IsZero() && t.Before(q.Since) {
-		return false
-	}
-	if !q.Until.IsZero() && !t.Before(q.Until) {
-		return false
-	}
-	if q.Subject != "" && subject != q.Subject {
-		return false
-	}
-	if q.Scope != nil && scope != *q.Scope {
-		return false
-	}
-	return len(q.Types) == 0 || (Filter{Types: q.Types}).Match(Event{Type: name})
+	return decodeSeq(q.Cursor)
 }
 
-// QueryEvents implements Timeline.
-func (m *Memory) QueryEvents(ctx context.Context, q Query) ([]Event, string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []Event
-	for i := len(m.events) - 1; i >= 0; i-- {
-		e := m.events[i]
-		if q.matches(e.ID, e.Time, e.Subject, e.Scope, e.Type) {
-			out = append(out, e)
-		}
-	}
-	return page(out, q.limit(), func(e Event) store.ID { return e.ID })
+// CheckCursor refuses a cursor queries wouldn't accept, for callers that
+// must refuse it before they start answering, such as an export that
+// streams.
+func CheckCursor(cursor string) error {
+	_, err := Query{Cursor: cursor}.before()
+	return err
 }
 
-// QueryAudit implements AuditLog.
-func (m *Memory) QueryAudit(ctx context.Context, q Query) ([]AuditRecord, string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []AuditRecord
-	for i := len(m.audit) - 1; i >= 0; i-- {
-		r := m.audit[i]
-		if q.matches(r.ID, r.Time, r.Subject, r.Scope, r.Action) {
-			out = append(out, r)
-		}
-	}
-	return page(out, q.limit(), func(r AuditRecord) store.ID { return r.ID })
+func encodeSeq(seq int64) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(seq, 10)))
 }
 
-func page[T any](items []T, limit int, id func(T) store.ID) ([]T, string, error) {
-	if len(items) <= limit {
-		return items, "", nil
+func decodeSeq(cursor string) (int64, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err == nil {
+		if seq, err := strconv.ParseInt(string(raw), 10, 64); err == nil && seq > 0 {
+			return seq, nil
+		}
 	}
-	items = items[:limit]
-	return items, store.EncodeCursor(id(items[limit-1])), nil
+	return 0, i18n.ErrBadRequest.New("reason", "the cursor is malformed")
+}
+
+// matchEvent reports whether an event passes a query, apart from the cursor.
+func (q Query) matchEvent(e Event) bool {
+	switch {
+	case !q.Since.IsZero() && e.Time.Before(q.Since):
+		return false
+	case !q.Until.IsZero() && !e.Time.Before(q.Until):
+		return false
+	case q.Subject != "" && e.Subject != q.Subject:
+		return false
+	case q.Kind != "" && e.Kind != q.Kind:
+		return false
+	case q.Scope != nil && e.Scope != *q.Scope:
+		return false
+	case len(q.Scopes) > 0 && !slices.Contains(q.Scopes, e.Scope):
+		return false
+	case q.ChangeSet != "" && e.ChangeSet != q.ChangeSet:
+		return false
+	case q.Job != "" && e.Job != q.Job:
+		return false
+	case q.MinSeverity != "" && !e.Severity.AtLeast(q.MinSeverity):
+		return false
+	}
+	return MatchTypes(q.Types, e.Type)
+}
+
+// matchAudit reports whether an audit record passes a query, apart from the
+// cursor.
+func (q Query) matchAudit(r AuditRecord) bool {
+	switch {
+	case !q.Since.IsZero() && r.Time.Before(q.Since):
+		return false
+	case !q.Until.IsZero() && !r.Time.Before(q.Until):
+		return false
+	case q.Subject != "" && r.Subject != q.Subject:
+		return false
+	case q.Kind != "" && r.Kind != q.Kind:
+		return false
+	case q.Scope != nil && r.Scope != *q.Scope:
+		return false
+	case len(q.Scopes) > 0 && !slices.Contains(q.Scopes, r.Scope):
+		return false
+	case q.ChangeSet != "" && r.ChangeSet != q.ChangeSet:
+		return false
+	case q.Actor != "" && r.Actor.ID != q.Actor && r.Actor.User != q.Actor:
+		return false
+	case q.Outcome != "" && r.Outcome != q.Outcome:
+		return false
+	}
+	return MatchTypes(q.Types, r.Action)
 }

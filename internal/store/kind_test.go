@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -303,5 +304,128 @@ func TestValidateLabels(t *testing.T) {
 	}
 	if err := ValidateLabels(map[string]string{"k": strings.Repeat("v", 256)}); err == nil {
 		t.Error("long label values should be rejected")
+	}
+}
+
+type strictSpec struct {
+	Name    string            `json:"name" minLength:"1" maxLength:"20"`
+	Mode    string            `json:"mode,omitempty" enum:"fast,slow"`
+	Workers int               `json:"workers,omitempty" minimum:"1" maximum:"8"`
+	Tags    []string          `json:"tags,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+func TestSpecsAreValidatedAgainstTheirSchema(t *testing.T) {
+	k := Define[strictSpec, Status](KindInfo{
+		Name: "test.strict", Prefix: "strict", Scope: ScopeServer, Title: "Strict", Plural: "stricts", Description: "A kind with a strict schema.",
+	})
+	if err := k.Err(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	check := func(spec string) []i18n.FieldError {
+		t.Helper()
+		err := k.Validate(ctx, &Resource{Meta: Meta{Kind: "test.strict", Scope: ServerScope()}, Spec: json.RawMessage(spec)}, nil)
+		if err == nil {
+			return nil
+		}
+		var e *i18n.Error
+		if !errors.As(err, &e) || e.Code != i18n.ErrInvalid.Code {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		return e.Fields
+	}
+	if fields := check(`{"name":"web","mode":"fast","workers":4,"tags":["a"],"env":{"A":"1"}}`); fields != nil {
+		t.Errorf("a valid spec: %+v", fields)
+	}
+	for spec, want := range map[string]string{
+		`{}`:                            "spec.name",
+		`{"name":""}`:                   "spec.name",
+		`{"name":"web","mode":"warp"}`:  "spec.mode",
+		`{"name":"web","workers":9}`:    "spec.workers",
+		`{"name":"web","workers":"4"}`:  "spec.workers",
+		`{"name":"web","colour":"red"}`: "spec.colour",
+		`{"name":"web","tags":[1]}`:     "spec.tags[0]",
+	} {
+		fields := check(spec)
+		if len(fields) == 0 {
+			t.Errorf("%s should be refused", spec)
+			continue
+		}
+		if fields[0].Path != want {
+			t.Errorf("%s: problem at %s, want %s (%+v)", spec, fields[0].Path, want, fields)
+		}
+	}
+	if fields := check(`{}`); fields[0].Code != i18n.ErrRequired.Code {
+		t.Errorf("a missing field is reported as required: %+v", fields)
+	}
+	if fields := check(`{"name": "web"`); len(fields) != 1 || fields[0].Path != "spec" {
+		t.Errorf("a spec that isn't JSON: %+v", fields)
+	}
+}
+
+type resizeInput struct {
+	Size  int    `json:"size" minimum:"1"`
+	Grow  bool   `json:"grow,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+func (in resizeInput) Validate() error {
+	if in.Label == "forbidden" {
+		return errors.New("that label is taken")
+	}
+	return nil
+}
+
+func TestActionInputs(t *testing.T) {
+	a := Action{Name: "resize", Summary: "Resize.", Risk: RiskMedium, Input: resizeInput{}}
+	for input, ok := range map[string]bool{
+		`{"size":2}`:                     true,
+		`{"size":2,"grow":true}`:         true,
+		`{"size":0}`:                     false,
+		`{}`:                             false,
+		`{"size":2,"shrink":true}`:       false,
+		`{"size":"2"}`:                   false,
+		`{"size":2,"label":"forbidden"}`: false,
+	} {
+		err := ValidateActionInput(a, json.RawMessage(input))
+		if (err == nil) != ok {
+			t.Errorf("%s: %v", input, err)
+		}
+		if err != nil && !errors.Is(err, i18n.ErrInvalid) {
+			t.Errorf("%s: problems with inputs are invalid values: %v", input, err)
+		}
+	}
+	none := Action{Name: "touch", Summary: "Touch.", Risk: RiskLow}
+	for _, input := range []string{``, `{}`, `null`} {
+		if err := ValidateActionInput(none, json.RawMessage(input)); err != nil {
+			t.Errorf("%q for an action without input: %v", input, err)
+		}
+	}
+	if err := ValidateActionInput(none, json.RawMessage(`{"x":1}`)); err == nil {
+		t.Error("an action without input refuses one")
+	}
+}
+
+func TestKindRulesForIndexesAndEvents(t *testing.T) {
+	define := func(info KindInfo) error {
+		info.Name, info.Prefix, info.Scope, info.Title, info.Plural, info.Description = "test.thing", "thing", ScopeServer, "Thing", "things", "A thing."
+		return Define[testSiteSpec, Status](info).Err()
+	}
+	for name, info := range map[string]KindInfo{
+		"index name":         {Indexes: []Index{{Name: "Domain", Path: "domains"}}},
+		"index with a dash":  {Indexes: []Index{{Name: "do-main", Path: "domains"}}},
+		"reserved index":     {Indexes: []Index{{Name: "sort", Path: "domains"}}},
+		"reserved action":    {Actions: []Action{{Name: "history", Summary: "x", Risk: RiskLow}}},
+		"generated event":    {Actions: []Action{{Name: "make", Summary: "x", Risk: RiskLow, Past: "created"}}},
+		"same event twice":   {Actions: []Action{{Name: "stop", Summary: "x", Risk: RiskLow}, {Name: "halt", Summary: "x", Risk: RiskLow, Past: "stopped"}}},
+		"input not a struct": {Actions: []Action{{Name: "go", Summary: "x", Risk: RiskLow, Input: "fast"}}},
+	} {
+		if err := define(info); err == nil {
+			t.Errorf("%s should be refused", name)
+		}
+	}
+	if err := define(KindInfo{Indexes: []Index{{Name: "domainName", Path: "domains"}}}); err != nil {
+		t.Errorf("a camelCase index name: %v", err)
 	}
 }

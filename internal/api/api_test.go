@@ -39,8 +39,36 @@ func do(t *testing.T, h http.Handler, method, path string, header map[string]str
 	return rec.Result(), string(b)
 }
 
+// newServer builds a server whose authenticator finds nobody signed in.
 func newServer(health ...HealthCheck) *Server {
-	return New(Options{Health: health, Log: slog.New(slog.DiscardHandler), UI: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ui") })})
+	return New(Options{Auth: auth.NoAuthenticator{}, Health: health, Log: slog.New(slog.DiscardHandler), UI: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ui") })})
+}
+
+func TestWithoutAnAuthenticator(t *testing.T) {
+	type out struct{ Body struct{ OK bool } }
+	register := func(s *Server) {
+		huma.Register(s.API(), huma.Operation{OperationID: "secret", Method: "GET", Path: "/api/v1/secret", Summary: "Secret", Security: Protected},
+			func(ctx context.Context, _ *struct{}) (*out, error) { return &out{}, nil })
+	}
+	panel := New(Options{Log: slog.New(slog.DiscardHandler)})
+	register(panel)
+	resp, body := do(t, panel.Handler(), "GET", "/api/v1/secret", nil)
+	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, "api.no_sign_in") {
+		t.Errorf("a panel that can't sign anyone in refuses: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ := do(t, panel.Handler(), "GET", "/api/v1/health", nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("public operations still answer: %d", resp.StatusCode)
+	}
+
+	var logged strings.Builder
+	dev := New(Options{Dev: true, Log: slog.New(slog.NewTextHandler(&logged, nil))})
+	register(dev)
+	if resp, _ := do(t, dev.Handler(), "GET", "/api/v1/secret", nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("development mode signs every request in: %d", resp.StatusCode)
+	}
+	if !strings.Contains(logged.String(), "signed in as the developer") || !strings.Contains(logged.String(), `actor="user:developer`) {
+		t.Errorf("and says so in the log: %s", logged.String())
+	}
 }
 
 func TestHealthAndVersion(t *testing.T) {
@@ -392,6 +420,14 @@ func (f pipelineFunc) Get(ctx context.Context, id store.ID) (*changeset.ChangeSe
 
 func (f pipelineFunc) Undo(ctx context.Context, req changeset.UndoRequest) (*changeset.ChangeSet, error) {
 	return nil, changeset.ErrNotApplied.New()
+}
+
+func (f pipelineFunc) Apply(ctx context.Context, req changeset.ApplyRequest) (*changeset.ChangeSet, error) {
+	return nil, changeset.ErrNotPreview.New("title", "The change")
+}
+
+func (f pipelineFunc) List(ctx context.Context, q changeset.ListQuery) ([]*changeset.ChangeSet, string, error) {
+	return nil, "", nil
 }
 
 func TestChangeOperations(t *testing.T) {

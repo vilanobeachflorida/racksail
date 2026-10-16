@@ -2,7 +2,6 @@ package changeset
 
 import (
 	"context"
-	"sort"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -10,20 +9,20 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// Retention bounds the change sets an Engine keeps. Change sets live in the
-// engine's memory, so Get and Undo reach only the ones kept here, and none
-// survive a restart of the panel. The snapshots taken before a change set was
-// applied are deleted with it.
+// Retention bounds the change sets an Engine keeps. Get, Undo and Apply
+// reach only the ones kept here. The snapshots taken before a change set was
+// applied, and the secret versions only it used, are deleted with it.
 type Retention struct {
-	// Previews is how long dry runs stay available. The default is an hour.
+	// Previews is how long dry runs stay available to be applied. The
+	// default is an hour.
 	Previews time.Duration
-	// MaxPreviews caps the number of dry runs kept. The default is 200.
+	// MaxPreviews caps the number of dry runs kept. The default is 1000.
 	MaxPreviews int
 	// Finished is how long applied, failed and undone change sets stay
-	// available. The default is seven days.
+	// available. The default is thirty days.
 	Finished time.Duration
 	// MaxFinished caps the number of finished change sets kept. The default
-	// is 1000.
+	// is 10,000.
 	MaxFinished int
 }
 
@@ -32,25 +31,19 @@ func (r Retention) withDefaults() Retention {
 		r.Previews = time.Hour
 	}
 	if r.MaxPreviews <= 0 {
-		r.MaxPreviews = 200
+		r.MaxPreviews = 1000
 	}
 	if r.Finished <= 0 {
-		r.Finished = 7 * 24 * time.Hour
+		r.Finished = 30 * 24 * time.Hour
 	}
 	if r.MaxFinished <= 0 {
-		r.MaxFinished = 1000
+		r.MaxFinished = 10_000
 	}
 	return r
 }
 
-// IdempotencyWindow is how long an Idempotency-Key keeps answering with the
-// change set it first produced, as long as that change set is kept.
-const IdempotencyWindow = 24 * time.Hour
-
-type idemEntry struct {
-	// set is empty while the first request is still being processed.
-	set  store.ID
-	time time.Time
+func finished(s State) bool {
+	return s == StateApplied || s == StateFailed || s == StateUndone
 }
 
 func idempotencyKey(op string, actor *auth.Actor, key string) string {
@@ -66,117 +59,87 @@ func (e *Engine) reserve(ctx context.Context, key string) (*ChangeSet, error) {
 	if key == "" {
 		return nil, nil
 	}
-	now := e.opts.Now()
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if ent, ok := e.idem[key]; ok && now.Sub(ent.time) <= IdempotencyWindow {
-		if ent.set == "" {
-			return nil, ErrDuplicateRequest.New()
-		}
-		if cs, ok := e.sets[ent.set]; ok {
-			return cs.Clone(), nil
-		}
+	earlier, busy, err := e.storage.ReserveKey(ctx, key, e.opts.Now())
+	switch {
+	case err != nil:
+		return nil, err
+	case busy:
+		return nil, ErrDuplicateRequest.New()
+	case earlier != "":
+		return e.storage.Get(ctx, earlier)
 	}
-	e.idem[key] = idemEntry{time: now}
 	return nil, nil
 }
 
 // settle records what a request with an idempotency key produced; an empty
 // id releases the key, so a retry after a failure runs again.
-func (e *Engine) settle(key string, id store.ID) {
+func (e *Engine) settle(ctx context.Context, key string, id store.ID) {
 	if key == "" {
 		return
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if id == "" {
-		delete(e.idem, key)
-		return
+	if err := e.storage.SettleKey(context.WithoutCancel(ctx), key, id, e.opts.Now()); err != nil {
+		e.opts.Log.Warn("recording an idempotency key", "error", err)
 	}
-	e.idem[key] = idemEntry{set: id, time: e.opts.Now()}
 }
 
-// save keeps a copy of cs, then drops what has outlived the retention and
-// deletes the secret versions only dropped change sets used, and the
-// snapshots taken for them.
-func (e *Engine) save(ctx context.Context, cs *ChangeSet) {
-	now := e.opts.Now()
-	e.mu.Lock()
-	e.sets[cs.ID] = cs.Clone()
-	evicted := e.prune(now)
-	var candidates, kept map[secrets.Ref]bool
-	if e.opts.Secrets != nil && len(evicted) > 0 {
-		if candidates = e.secretsOf(evicted, true); len(candidates) > 0 {
-			kept = e.secretsOf(e.retained(), false)
+// save keeps a change set, then drops what has outlived the retention, with
+// the secret versions only dropped change sets used and the snapshots taken
+// for them. Those live outside the database, so they go once the change
+// sets' removal is committed.
+func (e *Engine) save(ctx context.Context, cs *ChangeSet, request *StoredRequest) error {
+	ctx = context.WithoutCancel(ctx)
+	if err := e.storage.Save(ctx, cs, request); err != nil {
+		return err
+	}
+	evicted, err := e.storage.Prune(ctx, e.retention, e.opts.Now(), e.claimed)
+	if err != nil {
+		e.opts.Log.Warn("dropping old change sets", "error", err)
+		return nil
+	}
+	if len(evicted) == 0 {
+		return nil
+	}
+	e.afterCommit(ctx, func() {
+		if e.opts.Secrets != nil {
+			e.collectSecrets(ctx, e.secretsOf(evicted))
 		}
-	}
-	e.mu.Unlock()
-	if len(candidates) > 0 {
-		e.collectSecrets(ctx, candidates, kept)
-	}
-	for _, old := range evicted {
-		e.dropSnapshots(ctx, old.Snapshots)
-	}
+		for _, old := range evicted {
+			e.dropSnapshots(ctx, old.Snapshots)
+		}
+	})
+	return nil
 }
 
-// update changes the kept copy of a change set.
-func (e *Engine) update(id store.ID, fn func(cs *ChangeSet)) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if cs, ok := e.sets[id]; ok {
+// update changes a kept change set, whatever becomes of ctx.
+func (e *Engine) update(ctx context.Context, id store.ID, fn func(cs *ChangeSet)) {
+	_, err := e.storage.Update(context.WithoutCancel(ctx), id, func(cs *ChangeSet) error {
 		fn(cs)
+		return nil
+	})
+	if err != nil {
+		e.opts.Log.Warn("updating a change set", "changeSet", id, "error", err)
 	}
 }
 
-func (e *Engine) retained() []*ChangeSet {
-	out := make([]*ChangeSet, 0, len(e.sets))
-	for _, cs := range e.sets {
-		out = append(out, cs)
-	}
-	return out
-}
-
-func finished(s State) bool {
-	return s == StateApplied || s == StateFailed || s == StateUndone
-}
-
-// prune drops dry runs and finished change sets that are too old or over
-// their cap, oldest first, along with their idempotency keys. Change sets
-// still being applied or undone are kept. e.mu must be held.
-func (e *Engine) prune(now time.Time) []*ChangeSet {
-	var previews, done []*ChangeSet
-	for _, cs := range e.sets {
-		switch {
-		case e.undoing[cs.ID]:
-		case cs.DryRun:
-			previews = append(previews, cs)
-		case finished(cs.State):
-			done = append(done, cs)
-		}
-	}
-	var evicted []*ChangeSet
-	drop := func(list []*ChangeSet, ttl time.Duration, max int) {
-		// IDs sort by creation time.
-		sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
-		n := 0
-		for n < len(list) && (now.Sub(list[n].CreatedAt) > ttl || len(list)-n > max) {
-			n++
-		}
-		for _, cs := range list[:n] {
-			delete(e.sets, cs.ID)
-			evicted = append(evicted, cs)
-		}
-	}
-	drop(previews, e.retention.Previews, e.retention.MaxPreviews)
-	drop(done, e.retention.Finished, e.retention.MaxFinished)
-	for key, ent := range e.idem {
-		if now.Sub(ent.time) > IdempotencyWindow {
-			delete(e.idem, key)
+// secretsOf lists the secret versions the pipeline stored that the changes
+// of the given change sets refer to.
+func (e *Engine) secretsOf(sets []*ChangeSet) map[secrets.Ref]bool {
+	out := map[secrets.Ref]bool{}
+	for _, cs := range sets {
+		if cs.DryRun {
 			continue
 		}
-		if _, ok := e.sets[ent.set]; ent.set != "" && !ok {
-			delete(e.idem, key)
+		for _, c := range cs.Changes {
+			k, ok := e.opts.Kinds.Get(c.Kind)
+			if !ok {
+				continue
+			}
+			for _, ref := range append(secretRefs(k.Info(), c.Before), secretRefs(k.Info(), c.After)...) {
+				if pipelineSecret(ref) {
+					out[ref] = true
+				}
+			}
 		}
 	}
-	return evicted
+	return out
 }

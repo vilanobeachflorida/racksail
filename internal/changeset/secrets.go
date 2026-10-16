@@ -238,35 +238,17 @@ func (e *Engine) dropSecrets(ctx context.Context, refs []secrets.Ref) {
 	}
 }
 
-// secretsOf lists the pipeline's secrets that the changes of the given
-// change sets refer to.
-func (e *Engine) secretsOf(sets []*ChangeSet, onlyPipeline bool) map[secrets.Ref]bool {
-	out := map[secrets.Ref]bool{}
-	for _, cs := range sets {
-		if cs.DryRun {
-			continue
-		}
-		for _, c := range cs.Changes {
-			k, ok := e.opts.Kinds.Get(c.Kind)
-			if !ok {
-				continue
-			}
-			for _, ref := range append(secretRefs(k.Info(), c.Before), secretRefs(k.Info(), c.After)...) {
-				if !onlyPipeline || pipelineSecret(ref) {
-					out[ref] = true
-				}
-			}
-		}
-	}
-	return out
-}
-
 // collectSecrets deletes the secret versions that evicted change sets
 // stored, unless a kept change set or the owner's current spec still
 // refers to them.
-func (e *Engine) collectSecrets(ctx context.Context, candidates, kept map[secrets.Ref]bool) {
+func (e *Engine) collectSecrets(ctx context.Context, candidates map[secrets.Ref]bool) {
 	for ref := range candidates {
-		if kept[ref] {
+		used, err := e.storage.Mentions(ctx, string(ref))
+		if err != nil {
+			e.opts.Log.Warn("checking whether a secret is still used", "ref", ref, "error", err)
+			continue
+		}
+		if used {
 			continue
 		}
 		owner, _, err := ref.Parse()

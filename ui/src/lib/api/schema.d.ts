@@ -4,6 +4,342 @@
  */
 
 export interface paths {
+    "/api/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the audit log
+         * @description Lists who did what, newest first, with the person, what acted for them (the panel, the racksail command, an API token, an automation, an add-on or the assistant) and the request it came through. Every change is there, as success. So is every attempt that was refused, as denied: a change, a read or a job's cancel or retry the person wasn't allowed, or a change a policy hook stopped. A change that was allowed but couldn't be made, such as one with settings that aren't valid, is failed.
+         */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the audit log
+         * @description Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, up to 100,000 records, or as many as limit says; narrow the time window, or start after a cursor, for more. In the CSV, text that starts like a spreadsheet formula gets a leading apostrophe, so opening the file never runs it.
+         */
+        get: operations["exportAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changesets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List changes
+         * @description Lists the change sets you can see, newest first: what changed, who changed it, and whether it can still be undone. With previews=true it lists previews that can still be applied. You see the change sets you made and those whose every resource you may read; core.changeset.read on the server shows all of them.
+         */
+        get: operations["listChangeSets"];
+        put?: never;
+        /**
+         * Make several changes at once
+         * @description Plans several changes to resources as one change set, previewed, applied and undone together: creating a database and the site that uses it, say. Choose IDs for new resources up front to refer to them from later changes; an ID a deleted resource had can't be used again. With dryRun=true the answer is the preview.
+         */
+        post: operations["submitChangeSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changesets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a change
+         * @description Returns a change set: the changes with their field-level differences, what they do to the server, what hooks and add-ons added, and how applying it went, change by change.
+         */
+        get: operations["getChangeSet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changesets/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a preview
+         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.
+         */
+        post: operations["applyChangeSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changesets/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a change
+         * @description Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.
+         */
+        post: operations["undoChangeSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List webhooks
+         * @description Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. Lists the webhooks you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreWebhooks"];
+        put?: never;
+        /**
+         * Create a webhook
+         * @description Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a webhook
+         * @description Returns one webhook: its settings (spec), and what Racksail last saw of it (status). Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log.
+         */
+        get: operations["getCoreWebhook"];
+        /**
+         * Change a webhook
+         * @description Replaces the webhook's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreWebhook"];
+        post?: never;
+        /**
+         * Delete a webhook
+         * @description Deletes the webhook and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreWebhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks/{id}/actions/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send an earlier delivery again
+         * @description Sends the event of an earlier delivery once more, as a new delivery that is tried again on the usual schedule if it fails. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["redeliverCoreWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks/{id}/actions/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test event to the webhook
+         * @description Sends a core.webhook.ping event to the webhook right away and reports how the receiver answered. Test deliveries aren't tried again. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["testCoreWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a webhook's deliveries
+         * @description Lists the events sent, or being sent, to a webhook, newest first, with how many attempts each took and how the last one went.
+         */
+        get: operations["listCoreWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks/{id}/deliveries/{delivery}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a webhook delivery
+         * @description Returns one delivery with the body that was sent and every attempt: when, how the receiver answered, and the start of its answer.
+         */
+        get: operations["getCoreWebhookDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/webhooks/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a webhook's history
+         * @description Returns every recorded version of the webhook's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreWebhookHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List events
+         * @description Lists what happened, newest first: resources created, changed, deleted and failing, actions done, drift put back and more, from the event timeline.
+         */
+        get: operations["listEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow events
+         * @description Streams events as Server-Sent Events as they happen. Each carries its ID; a client that reconnects with Last-Event-ID first gets what it missed, for as long as the timeline keeps it.
+         */
+        get: operations["streamEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List event types
+         * @description Lists every type of event Racksail publishes, with what it means, how urgent it is and the schema of its data, for choosing what webhooks and automations react to.
+         */
+        get: operations["listEventTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -16,6 +352,246 @@ export interface paths {
          * @description Runs the panel's health checks, such as whether the agent answers, and those of every module that is on. Answers 200 when every check passes and 503 when one fails, so load balancers and uptime monitors can use it. It needs no sign-in.
          */
         get: operations["getHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List jobs
+         * @description Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why. You see the jobs you started, and those of the owners you hold core.job.read on.
+         */
+        get: operations["listJobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a job
+         * @description Returns a job: its state, its progress, what it returned and, when it failed, why. Any job you started, or one of an owner you hold core.job.read on.
+         */
+        get: operations["getJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a job
+         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
+         */
+        post: operations["cancelJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a job's log
+         * @description Returns the lines of a job's log, numbered from 1. Pass after to get only the lines after the ones you have.
+         */
+        get: operations["getJobLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry a job
+         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
+         */
+        post: operations["retryJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow a job
+         * @description Streams a job as Server-Sent Events: a job event with its state and progress whenever they change, and a log event for every line of its log, starting with the lines written so far. The stream ends after the job finishes. Log events carry their line number as their ID, so a client that reconnects with Last-Event-ID misses nothing.
+         */
+        get: operations["streamJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the kinds of resources
+         * @description Describes every kind of resource this panel manages: its operations, actions with their risks, indexes, events and the hints screens are built from.
+         */
+        get: operations["listKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kinds/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe a kind of resource
+         * @description Describes one kind of resource, with the JSON Schemas of its settings, its status and its actions' inputs and outputs, so forms can be built from them.
+         */
+        get: operations["getKind"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the panel's metrics
+         * @description Reports how the panel's own machinery is doing, in the Prometheus text format: jobs waiting and running, the reconcile queue and its failures, webhook deliveries, and requests refused by the rate limits. Monitoring tools can scrape it with an API token that has the core.metrics.read permission.
+         */
+        get: operations["getMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the API's operations
+         * @description Lists every operation of the API with the kind it is about, the permission it needs, how risky it is and how it behaves. The racksail command and the assistant build their commands and tools from it; the same details are in the API document as x-racksail extensions.
+         */
+        get: operations["listOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/resources/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow changes to resources
+         * @description Streams a notice, as Server-Sent Events, every time a resource you can see is created, changed, deleted or purged, or its status changes, so screens stay current without asking again. Notices name the resource and its new phase; read it again for the rest. After a reconnect, or a resync event, which says the client fell behind and missed notices, read the lists again.
+         */
+        get: operations["streamResources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/resources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get any resource by its ID
+         * @description Returns the resource an ID names, whatever its kind; the ID's prefix says the kind. Handy for links and mentions that carry only an ID.
+         */
+        get: operations["getResource"];
         put?: never;
         post?: never;
         delete?: never;
@@ -48,6 +624,58 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActionInfo: {
+            description?: string;
+            destructive?: boolean;
+            /** @description The event it emits once it is done */
+            event: string;
+            hasInput?: boolean;
+            long?: boolean;
+            name: string;
+            reversible?: boolean;
+            /** @enum {string} */
+            risk: "read" | "low" | "medium" | "high" | "critical";
+            summary: string;
+            title?: string;
+        };
+        Actor: {
+            id?: string;
+            impersonator?: string;
+            ip?: string;
+            name: string;
+            source: string;
+            type: string;
+            user?: string;
+        };
+        AuditListBody: {
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+            records: components["schemas"]["AuditRecord"][] | null;
+        };
+        AuditRecord: {
+            /** @description What was done, named like the permission it needs, such as web.site.update */
+            action: string;
+            actor: components["schemas"]["Actor"];
+            changeSet?: string;
+            details?: unknown;
+            id: string;
+            kind?: string;
+            /** @enum {string} */
+            outcome: "success" | "denied" | "failed";
+            reason?: string;
+            requestId?: string;
+            scope: components["schemas"]["Scope"];
+            /** @description The resource acted on */
+            subject?: string;
+            summary: string;
+            /** Format: date-time */
+            time: string;
+        };
+        BackupInfo: {
+            covered: boolean;
+            /** @description Why the kind isn't backed up */
+            reason?: string;
+        };
         BuildInfo: {
             arch: string;
             /**
@@ -71,6 +699,72 @@ export interface components {
              */
             version: string;
         };
+        CatalogOutputBody: {
+            operations: components["schemas"]["Operation"][] | null;
+        };
+        Change: {
+            /** @description The action to run, for action changes */
+            action?: string;
+            /** @description The resource; on create, an ID chosen up front so later changes can refer to it */
+            id?: string;
+            /** @description The action's input */
+            input?: unknown;
+            /** @description The kind of the resource, such as web.site */
+            kind: string;
+            /** @description Labels that replace the resource's own; left out, an update keeps them */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * @description What to do
+             * @enum {string}
+             */
+            op: "create" | "update" | "delete" | "action";
+            /**
+             * Format: int64
+             * @description The revision the change was made against; a newer one makes the change fail with a conflict
+             */
+            revision?: number;
+            /** @description The owner of a new resource */
+            scope?: components["schemas"]["Scope"];
+            /** @description Values for the kind's secret fields, by field path; they are stored apart and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server a new resource is placed on; empty for the panel's own server */
+            server?: string;
+            /** @description The desired state, for create and update */
+            spec?: unknown;
+        };
+        ChangeSet: {
+            actor?: components["schemas"]["Actor"];
+            /** Format: date-time */
+            appliedAt?: string;
+            changes: components["schemas"]["ResourceChange"][] | null;
+            conflicts?: components["schemas"]["Conflict"][] | null;
+            contributions?: components["schemas"]["Contribution"][] | null;
+            /** Format: date-time */
+            createdAt: string;
+            dryRun?: boolean;
+            effects: components["schemas"]["Effect"][] | null;
+            error?: string;
+            estimate: components["schemas"]["Estimate"];
+            id: string;
+            job?: string;
+            /** @enum {string} */
+            risk: "read" | "low" | "medium" | "high" | "critical";
+            snapshot?: boolean;
+            snapshots?: components["schemas"]["Snapshot"][] | null;
+            /** @enum {string} */
+            state: "planned" | "applying" | "applied" | "failed" | "undone";
+            title: string;
+            undoOf?: string;
+        };
+        ChangeSetListBody: {
+            changeSets: components["schemas"]["ChangeSet"][] | null;
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
         Check: {
             message?: string;
             /** @example agent */
@@ -80,6 +774,272 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "failing";
+        };
+        Column: {
+            field: string;
+            format?: string;
+        };
+        Condition: {
+            code?: string;
+            /** Format: date-time */
+            lastTransitionTime: string;
+            /** @description English explanation */
+            message?: string;
+            /** Format: int64 */
+            observedGeneration?: number;
+            /** @description Machine-readable reason in CamelCase */
+            reason?: string;
+            /** @enum {string} */
+            status: "true" | "false" | "unknown";
+            /** @description What the condition is about, in CamelCase */
+            type: string;
+        };
+        Conflict: {
+            message: string;
+            path: string;
+            resource: string;
+            sources: components["schemas"]["Source"][] | null;
+        };
+        Contribution: {
+            changes?: number[] | null;
+            effects?: number[] | null;
+            source: components["schemas"]["Source"];
+            summary: string;
+        };
+        /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
+        CoreWebhook: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["WebhookSpec"];
+            status?: components["schemas"]["WebhookStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new webhook. */
+        CoreWebhookCreateRequest: {
+            /** @description An ID chosen up front, starting with whk_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: secret */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["WebhookSpec"];
+        };
+        /** @description One page of webhooks. */
+        CoreWebhookList: {
+            items: components["schemas"]["CoreWebhook"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a webhook. */
+        CoreWebhookUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: secret */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["WebhookSpec"];
+        };
+        DeliveriesOutputBody: {
+            deliveries: components["schemas"]["Delivery"][] | null;
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        Delivery: {
+            /**
+             * Format: int64
+             * @description How many times it was sent
+             */
+            attemptCount: number;
+            attempts?: components["schemas"]["DeliveryAttempt"][] | null;
+            /** Format: date-time */
+            createdAt: string;
+            event?: string;
+            /** @description The type of the event delivered */
+            eventType: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @description Also sent as the webhook-id header, the same for every attempt */
+            id: string;
+            /** @description Why the last attempt failed */
+            lastError?: string;
+            /**
+             * Format: int64
+             * @description The HTTP status of the last answer
+             */
+            lastStatus?: number;
+            /**
+             * Format: date-time
+             * @description When it is sent again, while it is pending
+             */
+            nextAttempt?: string;
+            /** @description The body sent, the event as JSON */
+            payload?: unknown;
+            /** @description The delivery this one sends again */
+            redeliveryOf?: string;
+            /** @enum {string} */
+            state: "pending" | "succeeded" | "failed";
+            test?: boolean;
+            webhook: string;
+        };
+        DeliveryAttempt: {
+            /**
+             * Format: int64
+             * @description How long the receiver took, in milliseconds
+             */
+            durationMs: number;
+            /** @description Why the attempt failed */
+            error?: string;
+            /** Format: int64 */
+            number: number;
+            /** @description The first kilobyte of the answer */
+            response?: string;
+            /**
+             * Format: int64
+             * @description The HTTP status of the answer, when there was one
+             */
+            status?: number;
+            /** Format: date-time */
+            time: string;
+        };
+        Effect: {
+            /** @description What happens, for example install, open, start or write */
+            action: string;
+            /** @description Who added this effect when it wasn't the requested change itself */
+            contributor?: string;
+            destructive?: boolean;
+            /** @description Extra detail such as a version */
+            detail?: string;
+            /**
+             * Format: int64
+             * @description Estimated disk use in bytes
+             */
+            diskBytes?: number;
+            /**
+             * Format: int64
+             * @description Bytes downloaded
+             */
+            downloadBytes?: number;
+            /**
+             * Format: int64
+             * @description Estimated memory use in bytes
+             */
+            memoryBytes?: number;
+            /** @description Where a download comes from */
+            source?: string;
+            /** @description What changes: a package, a port such as tcp/443, a unit or a path */
+            target: string;
+            /** @description What kind of change this is */
+            type: string;
+        };
+        Estimate: {
+            /** Format: int64 */
+            diskBytes: number;
+            /** Format: int64 */
+            downloadBytes: number;
+            /** Format: int64 */
+            memoryBytes: number;
+        };
+        Event: {
+            actor?: components["schemas"]["Actor"];
+            changeSet?: string;
+            data?: unknown;
+            id: string;
+            job?: string;
+            /** @description The kind of the subject */
+            kind?: string;
+            message: string;
+            scope: components["schemas"]["Scope"];
+            /** @enum {string} */
+            severity: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description The resource the event is about */
+            subject?: string;
+            /** Format: date-time */
+            time: string;
+            /** @description <kind>.<past-tense verb>, such as web.site.created */
+            type: string;
+        };
+        EventListBody: {
+            events: components["schemas"]["Event"][] | null;
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        EventType: {
+            /** @description The JSON Schema of the event's data */
+            data?: unknown;
+            description: string;
+            name: string;
+            /** @enum {string} */
+            severity: "info" | "notice" | "warning" | "error" | "critical";
+        };
+        EventTypesOutputBody: {
+            types: components["schemas"]["EventType"][] | null;
+        };
+        Failure: {
+            code: string;
+            message: string;
+        };
+        FieldDiff: {
+            after?: unknown;
+            before?: unknown;
+            /** @enum {string} */
+            op: "add" | "remove" | "replace";
+            path: string;
+            sensitive?: boolean;
+        };
+        FieldGroup: {
+            advanced?: boolean;
+            fields: string[] | null;
+            name: string;
+        };
+        FieldHint: {
+            advanced?: boolean;
+            createOnly?: boolean;
+            /** Format: int64 */
+            order?: number;
+            placeholder?: string;
+            sensitive?: boolean;
+            widget?: string;
         };
         FieldProblem: {
             /** @description Stable error code */
@@ -97,6 +1057,24 @@ export interface components {
             /** @description The offending value, when it's safe to show */
             value?: unknown;
         };
+        HealthCheck: {
+            /** @description The expected status code, unit state, address or certificate name */
+            expect?: string;
+            /** @description What the check confirms, such as the site answering */
+            name: string;
+            /** @description A URL, host:port, unit name or DNS name */
+            target: string;
+            /**
+             * Format: int64
+             * @description How long the check keeps trying, in nanoseconds
+             */
+            timeout?: number;
+            /**
+             * @description How the check works
+             * @enum {string}
+             */
+            type: "http" | "tcp" | "unit" | "dns" | "tls";
+        };
         HealthReport: {
             checks: components["schemas"]["Check"][] | null;
             /**
@@ -105,6 +1083,162 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "degraded";
+        };
+        HistoryBody: {
+            versions: components["schemas"]["Version"][] | null;
+        };
+        IndexInfo: {
+            name: string;
+            path: string;
+            unique?: boolean;
+        };
+        Job: {
+            actor?: components["schemas"]["Actor"];
+            /** Format: int64 */
+            attempt: number;
+            changeSet?: string;
+            /** Format: date-time */
+            createdAt: string;
+            error?: components["schemas"]["Failure"];
+            /** Format: date-time */
+            finishedAt?: string;
+            id: string;
+            progress: components["schemas"]["Progress"];
+            resource?: string;
+            result?: unknown;
+            /** @description The job this one retries */
+            retryOf?: string;
+            /** Format: date-time */
+            runAfter?: string;
+            scope: components["schemas"]["Scope"];
+            /** Format: date-time */
+            startedAt?: string;
+            /** @enum {string} */
+            state: "queued" | "running" | "succeeded" | "failed" | "canceled";
+            title: string;
+            /** @description What kind of work it is, such as changeset.apply */
+            type: string;
+        };
+        JobListBody: {
+            jobs: components["schemas"]["Job"][] | null;
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        JobLogsOutputBody: {
+            lines: components["schemas"]["LogLine"][] | null;
+        };
+        KindDescription: {
+            actions: components["schemas"]["ActionInfo"][] | null;
+            backup: components["schemas"]["BackupInfo"];
+            description: string;
+            /** @description The event types the kind emits */
+            events: string[] | null;
+            indexes: components["schemas"]["IndexInfo"][] | null;
+            /** @description The JSON Schemas of the actions' inputs, by action */
+            inputs?: {
+                [key: string]: unknown;
+            };
+            module: string;
+            /** @description <module>.<name> */
+            name: string;
+            /** @description The JSON Schemas of the actions' outputs, by action */
+            outputs?: {
+                [key: string]: unknown;
+            };
+            /** @description Where its operations are */
+            path: string;
+            plural: string;
+            /** @description What its IDs start with, before the underscore */
+            prefix: string;
+            risks: components["schemas"]["KindRisks"];
+            /**
+             * @description Who owns resources of the kind
+             * @enum {string}
+             */
+            scope: "server" | "reseller" | "account";
+            /** @description At most one per owner */
+            singleton?: boolean;
+            /** @description The JSON Schema of the settings */
+            spec?: unknown;
+            /** @description The JSON Schema of the status */
+            status?: unknown;
+            title: string;
+            ui: components["schemas"]["UIHints"];
+        };
+        KindRisks: {
+            create: string;
+            delete: string;
+            update: string;
+        };
+        KindsOutputBody: {
+            kinds: components["schemas"]["KindDescription"][] | null;
+        };
+        LogLine: {
+            attrs?: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            level: "DEBUG" | "INFO" | "WARN" | "ERROR";
+            message: string;
+            /** Format: int64 */
+            seq: number;
+            /** Format: date-time */
+            time: string;
+        };
+        Notice: {
+            /** @description The change set that made the write, if one did */
+            changeSet?: string;
+            /** Format: int64 */
+            generation: number;
+            id: string;
+            kind: string;
+            /**
+             * @description What the write did
+             * @enum {string}
+             */
+            op: "created" | "updated" | "status" | "deleted" | "purged";
+            /** @enum {string} */
+            phase: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** Format: int64 */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+        };
+        Operation: {
+            description?: string;
+            /** @description Whether it removes data, and so needs a typed confirmation */
+            destructive?: boolean;
+            /** @description Whether the operation takes dryRun and answers with a change set */
+            dryRun?: boolean;
+            /** @description The operation's ID in the API document */
+            id: string;
+            /** @description The kind the operation is about */
+            kind?: string;
+            /** @description Whether the work runs as a job the answer names */
+            long?: boolean;
+            method: string;
+            /** @description Whether the operation changes anything */
+            mutating: boolean;
+            /** @description list, get, create, update, delete, history, or an action's name */
+            operation?: string;
+            output?: string;
+            path: string;
+            /** @description The permission the operation needs */
+            permission?: string;
+            /** @description Whether it works without signing in */
+            public?: boolean;
+            request?: string;
+            response?: string;
+            /** @description Whether it can be undone */
+            reversible?: boolean;
+            /**
+             * @description How much harm the operation can do
+             * @enum {string}
+             */
+            risk: "read" | "low" | "medium" | "high" | "critical";
+            /** @description Whether it answers with Server-Sent Events */
+            stream?: boolean;
+            summary: string;
+            tags?: string[] | null;
         };
         Problem: {
             /**
@@ -146,6 +1280,223 @@ export interface components {
              */
             type: string;
         };
+        Progress: {
+            /**
+             * Format: int64
+             * @description Units of work done
+             */
+            done: number;
+            /** @description What the job is doing now */
+            message?: string;
+            /**
+             * Format: int64
+             * @description Units of work in all; zero when unknown
+             */
+            total: number;
+        };
+        RedeliverInput: {
+            /** @description The delivery to send again */
+            delivery: string;
+        };
+        Resource: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: unknown;
+            status?: unknown;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ResourceChange: {
+            action?: string;
+            after?: unknown;
+            before?: unknown;
+            checks?: components["schemas"]["HealthCheck"][] | null;
+            diff?: components["schemas"]["FieldDiff"][] | null;
+            id: string;
+            input?: unknown;
+            kind: string;
+            labels?: {
+                [key: string]: string;
+            };
+            labelsBefore?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            op: "create" | "update" | "delete" | "action";
+            /** @description What the action returned, once it was applied */
+            output?: unknown;
+            /** Format: int64 */
+            revision?: number;
+            scope: components["schemas"]["Scope"];
+            server?: string;
+            source: components["schemas"]["Source"];
+            /**
+             * @description How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts
+             * @enum {string}
+             */
+            state?: "started" | "done";
+            steps?: components["schemas"]["Step"][] | null;
+        };
+        ResyncNotice: {
+            /**
+             * @description Why to read the lists again: lagging, the client didn't keep up
+             * @enum {string}
+             */
+            reason: "lagging";
+        };
+        Scope: {
+            /** @description The owning reseller or account; empty for server-wide resources */
+            id?: string;
+            /**
+             * @description Who owns the resource
+             * @enum {string}
+             */
+            level: "server" | "reseller" | "account";
+        };
+        Snapshot: {
+            /** @description Where the snapshot is */
+            path: string;
+            /** @description The subvolume, such as /srv/racksail */
+            source: string;
+        };
+        Source: {
+            hook?: string;
+            name?: string;
+            /** @enum {string} */
+            type: "request" | "hook" | "rule" | "addon" | "module";
+        };
+        Step: {
+            /** @description The operation's input */
+            input: unknown;
+            /** @description Operation name */
+            op: string;
+            /** @description What the step does, for progress logs */
+            title?: string;
+        };
+        SubmitInputBody: {
+            /** @description The changes, planned in order: each sees what the ones before it create, change or delete */
+            changes: components["schemas"]["Change"][] | null;
+            /** @description What the change set does; made up from the changes when left out */
+            title?: string;
+        };
+        UIHints: {
+            columns?: components["schemas"]["Column"][] | null;
+            fields?: {
+                [key: string]: components["schemas"]["FieldHint"];
+            };
+            groups?: components["schemas"]["FieldGroup"][] | null;
+            hidden?: boolean;
+            icon?: string;
+            subtitleField?: string;
+            titleField?: string;
+        };
+        Version: {
+            /** @description Who made the change, and what acted for them */
+            actor?: string;
+            /** @description The change set that wrote this version */
+            changeSet?: string;
+            /** @description Set on the version recorded when the resource was deleted */
+            deleted?: boolean;
+            /**
+             * Format: int64
+             * @description The generation this version of the spec had
+             */
+            generation: number;
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Who the resource belonged to */
+            scope?: components["schemas"]["Scope"];
+            /** @description The cluster server the resource was placed on; empty for the panel's own server */
+            server?: string;
+            /** @description The desired state as it was; secret fields hold references, never values */
+            spec: unknown;
+            /** Format: date-time */
+            time: string;
+        };
+        WebhookSpec: {
+            /** @description What the webhook is for */
+            description?: string;
+            /** @description Stops sending events until the webhook is enabled again */
+            disabled?: boolean;
+            /**
+             * @description Event types to send, as patterns such as web.site.* or *.failed; * sends every event
+             * @example [
+             *       "web.site.*",
+             *       "*.failed"
+             *     ]
+             */
+            events: string[] | null;
+            /**
+             * @description Only send events at least this urgent
+             * @enum {string}
+             */
+            minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description Only send events about the resources of this reseller or account */
+            owner?: components["schemas"]["Scope"];
+            /** @description The signing secret. Send its value in the change's secrets, as secret; receivers use the same value to check signatures */
+            secret?: string;
+            /**
+             * Format: uri
+             * @description Where events are sent, with POST. Use https, so the events can't be read on the way
+             * @example https://hooks.example.com/racksail
+             */
+            url: string;
+        };
+        WebhookStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /**
+             * Format: int64
+             * @description Attempts in a row that didn't get a 2xx answer
+             */
+            consecutiveFailures?: number;
+            /**
+             * Format: date-time
+             * @description When an event was last sent
+             */
+            lastDelivery?: string;
+            /**
+             * Format: int64
+             * @description The HTTP status of the last answer
+             */
+            lastResponse?: number;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+        };
     };
     responses: never;
     parameters: never;
@@ -155,6 +1506,886 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAudit: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those about this resource */
+                subject?: string;
+                /** @description Only those about resources of this kind */
+                kind?: string;
+                /** @description Only those of this change set */
+                changeSet?: string;
+                /** @description Only those from this time on */
+                since?: string;
+                /** @description Only those before this time */
+                until?: string;
+                /** @description Only these actions, as patterns such as web.site.*; repeat it for several */
+                action?: string[] | null;
+                /** @description Only what this user, token, automation or add-on did, or did for this user */
+                actor?: string;
+                /** @description Only records with this outcome */
+                outcome?: "success" | "denied" | "failed";
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exportAudit: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those about this resource */
+                subject?: string;
+                /** @description Only those about resources of this kind */
+                kind?: string;
+                /** @description Only those of this change set */
+                changeSet?: string;
+                /** @description Only those from this time on */
+                since?: string;
+                /** @description Only those before this time */
+                until?: string;
+                /** @description Only these actions, as patterns such as web.site.*; repeat it for several */
+                action?: string[] | null;
+                /** @description Only what this user, token, automation or add-on did, or did for this user */
+                actor?: string;
+                /** @description Only records with this outcome */
+                outcome?: "success" | "denied" | "failed";
+                /** @description Start after the record a page of the audit log ended with, as its next cursor says */
+                cursor?: string;
+                /** @description Export at most this many records; up to 100,000 when left out */
+                limit?: number;
+                /** @description csv for spreadsheets, or json for one record per line */
+                format?: "csv" | "json";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson": string;
+                    "text/csv": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listChangeSets: {
+        parameters: {
+            query?: {
+                /** @description Only change sets in this state */
+                state?: "planned" | "applying" | "applied" | "failed" | "undone";
+                /** @description Only change sets that touched this resource */
+                resource?: string;
+                /** @description Only change sets this user, token or automation made, or that were made for this user */
+                actor?: string;
+                /** @description List previews, dry runs that can still be applied, instead of applied change sets */
+                previews?: boolean;
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSetListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    submitChangeSet: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitInputBody"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the rest */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getChangeSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The change set's ID, which starts with chg_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    applyChangeSet: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying it again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The preview's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set, applied to the settings; its job carries out the rest */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undoChangeSet: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The change set to undo */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The undo's change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The undo's change set, applied to the settings; its job carries out the rest */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreWebhooks: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, url, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose url is this value */
+                url?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of webhooks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreWebhookList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreWebhook: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreWebhookCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreWebhook: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The webhook's ID, which starts with whk_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreWebhook"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreWebhook: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The webhook's ID, which starts with whk_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreWebhookUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreWebhook: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the webhook since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The webhook's ID, which starts with whk_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the webhook from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redeliverCoreWebhook: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The webhook's ID, which starts with whk_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeliverInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    testCoreWebhook: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The webhook's ID, which starts with whk_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreWebhookDeliveries: {
+        parameters: {
+            query?: {
+                /** @description Only deliveries in this state */
+                state?: "pending" | "succeeded" | "failed";
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The webhook's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveriesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook's ID */
+                id: string;
+                /** @description The delivery's ID, which starts with dlv_ */
+                delivery: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Delivery"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreWebhookHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook's ID, which starts with whk_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listEvents: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those about this resource */
+                subject?: string;
+                /** @description Only those about resources of this kind */
+                kind?: string;
+                /** @description Only those of this change set */
+                changeSet?: string;
+                /** @description Only those from this time on */
+                since?: string;
+                /** @description Only those before this time */
+                until?: string;
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
+                /** @description Only events of these types, as patterns such as web.site.*; repeat it for several */
+                type?: string[] | null;
+                /** @description Only the events of this job */
+                job?: string;
+                /** @description Only events at least this urgent */
+                minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    streamEvents: {
+        parameters: {
+            query?: {
+                /** @description Only events of these types, as patterns such as web.site.*; repeat it for several */
+                type?: string[] | null;
+                /** @description Only events of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only events about this resource */
+                subject?: string;
+                /** @description Only events at least this urgent */
+                minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            };
+            header?: {
+                /** @description Resume after this event, as browsers do when they reconnect */
+                "Last-Event-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stream of Server-Sent Events, one JSON document per event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": {
+                        data: components["schemas"]["Event"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "event";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    }[];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listEventTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventTypesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -180,6 +2411,448 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthReport"];
+                };
+            };
+        };
+    };
+    listJobs: {
+        parameters: {
+            query?: {
+                /** @description Only jobs in this state */
+                state?: "queued" | "running" | "succeeded" | "failed" | "canceled";
+                /** @description Only jobs of this type, such as changeset.apply */
+                type?: string;
+                /** @description Only the jobs of this change set */
+                changeSet?: string;
+                /** @description Only the jobs about this resource */
+                resource?: string;
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The job's ID, which starts with job_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancelJob: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string. Canceling a job again changes nothing, so a repeat is safe with or without it */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The job's ID, which starts with job_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getJobLogs: {
+        parameters: {
+            query?: {
+                /** @description Only lines after the one with this number */
+                after?: number;
+                /** @description How many lines to return; all of them when left out */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The job's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobLogsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    retryJob: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string; a repeat of the request with the same key, within a day, answers with the job the first one queued instead of refusing */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The job's ID, which starts with job_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new job */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    streamJob: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Resume after this log line, as browsers do when they reconnect */
+                "Last-Event-ID"?: string;
+            };
+            path: {
+                /** @description The job's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stream of Server-Sent Events, one JSON document per event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": ({
+                        data: components["schemas"]["Job"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "job";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    } | {
+                        data: components["schemas"]["LogLine"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "log";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    })[];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KindsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The kind's name, such as web.site */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KindDescription"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The metrics, one per line with its help and type */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listOperations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    streamResources: {
+        parameters: {
+            query?: {
+                /** @description Only resources of these kinds; repeat it for several */
+                kind?: string[] | null;
+                /** @description Only resources of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only these resources; repeat it for several */
+                id?: string[] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stream of Server-Sent Events, one JSON document per event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": ({
+                        data: components["schemas"]["Notice"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "notice";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    } | {
+                        data: components["schemas"]["ResyncNotice"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "resync";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    })[];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getResource: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The resource's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Resource"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

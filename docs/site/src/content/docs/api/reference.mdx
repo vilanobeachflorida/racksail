@@ -1,0 +1,28 @@
+---
+title: "API reference"
+description: "Every operation of the panel API, from its OpenAPI document."
+tableOfContents: false
+---
+
+import ApiOperations from "../../../components/ApiOperations.astro";
+
+Every operation of the panel API, built from the OpenAPI document the panel serves at `/api/v1/openapi.json`. That document is generated from the code, so it's the final word on your version, with the JSON Schema of every request and answer; the same document is `spec/openapi.json` in the source repository. [Using the API](../overview/) explains what the operations have in common: signing in, errors, dry runs, idempotency keys, pages and live updates.
+
+Each module's resources get the same operations, under `/api/v1/<module>/<plural>`: list, get, create, change, delete, history and one per action. They're grouped here by module, and the core's own operations by what they're about. On your own panel, `GET /api/v1/operations` lists the same operations with the permission each needs and how risky it is.
+
+The `x-racksail-` extensions on each operation in the document say the same in a form programs read:
+
+| Extension | Says |
+|---|---|
+| `x-racksail-kind` | The kind of resource the operation is about, such as `web.site` |
+| `x-racksail-operation` | What it does to it: `list`, `get`, `create`, `update`, `delete`, `history` or an action's name |
+| `x-racksail-permission` | The permission it needs, such as `web.site.create` |
+| `x-racksail-risk` | `read`, `low`, `medium`, `high` or `critical` |
+| `x-racksail-dry-run` | It takes `dryRun=true` and answers with a preview |
+| `x-racksail-long` | It runs as a job and answers `202` at once |
+| `x-racksail-destructive` | It deletes data, so the panel asks you to type a confirmation |
+| `x-racksail-reversible` | It can be undone |
+| `x-racksail-stream` | It answers with Server-Sent Events |
+| `x-racksail-output` | The schema of what an action returns in its change set's `output` |
+
+<ApiOperations />

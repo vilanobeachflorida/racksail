@@ -12,7 +12,7 @@ go test ./internal/store     # one package
 go test ./internal/system -update   # rewrite golden files after an intended change
 ```
 
-`racksail dev` puts its directories under `.dev/` (or `--data`): `etc/`, `state/` and `run/`, where the simulated agent and the edge have their sockets. The simulated server and everything the panel holds live in memory, so every start begins with a freshly installed server. Everyone who reaches it is signed in as the admin, which is why it refuses to listen on anything but loopback addresses. The panel listens on `--addr` (127.0.0.1:7070 by default), and the edge on `--edge-http` and `--edge-https` (127.0.0.1:7080 and 127.0.0.1:7443) once a module adds a route. The simulated agent and the edge also answer on their Unix sockets when the path is short enough for one.
+`racksail dev` puts its directories under `.dev/` (or `--data`): `etc/`, `state/` and `run/`, where the simulated agent and the edge have their sockets. The panel keeps its state in `state/state.db`, so resources, change sets, jobs and the timeline are still there after a restart. The simulated server lives in memory and starts freshly installed every time; the panel's first reconcile sets it up again from the resources. Delete the data directory to start from scratch. Everyone who reaches it is signed in as the developer, an admin, which the log says when it starts and with every request, and which is why it refuses to listen on anything but loopback addresses. Its webhooks may send to receivers on the same machine, which a panel only does when `webhooks.allow_networks` says so. The panel listens on `--addr` (127.0.0.1:7070 by default), and the edge on `--edge-http` and `--edge-https` (127.0.0.1:7080 and 127.0.0.1:7443) once a module adds a route. The simulated agent and the edge also answer on their Unix sockets when the path is short enough for one.
 
 To run several instances side by side, as separate checkouts do, give each its own addresses and data directory. Port 0 lets the edge pick free ports, which it logs when it starts:
 
@@ -32,14 +32,28 @@ Other commands that help during development:
 | `racksail install --answers FILE --dry-run` | Shows the steps a convert-mode answers file would take on this server; `--sim` carries them out on a simulated server. Install and restore modes erase disks, so they only run from the installer image |
 | `racksail agent --sim` | Runs a standalone agent against a simulated server, without root. It listens in a directory of your own under `$XDG_RUNTIME_DIR` or the temporary directory, and `--socket` picks another path |
 
-## What isn't kept yet
+## What the panel keeps
 
-Everything the panel holds lives in memory for now, in `racksail panel` as much as in `racksail dev`, and the panel logs a warning about it when it starts:
+The panel keeps its state in one SQLite database (decision T3), `state.db` in the state directory (`config.Paths.Database`). `store.OpenDB` opens it in WAL mode with a single writing connection, whose transactions start `IMMEDIATE` so they never fail halfway for want of the lock, and a pool of read-only connections, which never wait for the writer. The driver, `modernc.org/sqlite`, is pure Go, so the binary still builds without CGO.
 
-- Resources and their history live in `store.Memory`. The production store is SQLite (decision T3) behind the same `store.Store` interface.
-- Secrets live in `secrets.Memory`, encrypted with a key made at every start. On a server the key will be sealed with systemd-creds (decision T12) and kept.
-- Change sets live in the change pipeline's engine, within its `Retention`: dry runs for an hour, at most 200, and finished change sets for seven days, at most 1000. `Get` and `Undo` only reach those, and none survive a restart.
-- Jobs and their logs live in `jobs.Memory`, within its `Retention`: finished jobs for seven days, at most 2000.
+Each part that keeps state brings its own tables as embedded migrations named `NNNN_description.sql`. `DB.Migrate` applies them in order, each once and in a transaction of its own, and records them per owner in `schema_migrations`:
+
+| Owner | What | Kept |
+|---|---|---|
+| `core` | Resources and their index entries (`store.NewSQLite`), and every version of their specs | Until the resource is purged; its spec versions stay for undo |
+| `core.events` | The timeline and the audit log (`events.NewSQL`) | `retention.events`, 90 days, and `retention.audit`, 400 days |
+| `core.jobs` | Jobs, their logs and the idempotency keys of retries (`jobs.NewSQL`) | `retention.jobs`, 30 days once finished; keys for a day |
+| `core.changesets` | Change sets, previews and idempotency keys (`changeset.NewSQLStorage`) | `retention.change_sets`, 30 days once finished; previews for an hour |
+| `core.webhooks` | Webhook deliveries and their attempts (`webhook.NewSQL`) | `retention.deliveries`, 30 days |
+| `<module id>` | A module's own tables, from `MigrationProvider` | As the module decides |
+
+Each also caps how many it keeps. A migration that has run must never change: `Migrate` refuses to go on when one did, and when the database has migrations the binary doesn't know, as after going back to an older release. Add a new migration instead, as `0002_record_history_scope.sql` added owners to the history. When existing rows need values only Go can work out, the part fills them in when it opens, as `store.NewSQLite` does for the sort keys `0003_index_sort_keys.sql` added. Every durable implementation has an in-memory twin (`store.NewMemory`, `events.NewMemory`, `jobs.NewMemory`, `changeset.NewMemoryStorage`, `webhook.NewMemory`) that passes the same tests, for tests and tools.
+
+Writes of different parts can commit together. `DB.Atomic` runs a function in one transaction, and every write made with the context it passes, through `DB.Write` and `DB.Exec`, joins that transaction as a savepoint, so a write that fails is undone on its own and its caller decides whether to go on. Work that others must only see once it is committed waits for the commit with `DB.AfterCommit`: the store tells watchers about writes that way, and the job queue starts jobs queued in a transaction once it commits. The change pipeline applies a change set this way. The transaction holds the only writing connection, so everything inside it must write with its context, and nothing inside it may publish events.
+
+Two things still live in memory, and `panel` and `dev` log a warning about the first when they start:
+
+- Secrets live in `secrets.Memory`, encrypted with a key made at every start, so the values behind secret references are gone after a restart. On a server the key will be sealed with systemd-creds (decision T12) and kept.
 - Module states live in the module manager.
 
 Code written against the interfaces won't change when these are kept on disk, so don't add another way to keep something in the meantime.
@@ -52,30 +66,35 @@ Code written against the interfaces won't change when these are kept on disk, so
 - **Manage a server:** commands that call a panel's API. They're built from `clientCommands` in `client.go`, a list of builder functions that get the shared flags (`--server`, `--ca-file`, `--output`). Commands that change something are wrapped in `mutating(cmd)`, which also gives them `--dry-run`. `status` is the only client command so far; the commands generated from the OpenAPI document are to append their builders to the list from `init` functions, wrapping every operation that isn't a GET in `mutating`.
 - **Tools:** `openapi`, `version` and `theme`.
 
-`core.go` wires the panel: the store, the event bus, the job queue, the secrets store, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on, notifies `core.boot` and starts the periodic resync (`reconcile.Runner.Resync`). Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on. Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process), in how they listen, and in who may connect: the panel only accepts requests from `panel.allow_from` in `racksail.toml` when it is set.
+`core.go` wires the panel. It opens the panel database and brings every part's tables up to date, modules' included, then builds the store, the timeline and audit log, the job queue, the change set storage, the secrets store, the webhook dispatcher, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on and notifies `core.boot`. Then it starts the job queue, which picks up the jobs a previous run left behind, the reconcile queue (`reconcile.Runner.Run`), webhook deliveries and the timeline's pruning, and publishes `core.panel.started`. Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on, and a `database` check.
+
+Stopping goes the other way round (`core.stop`): the HTTP server's `Shutdown` first calls `api.Server.Close`, registered with `RegisterOnShutdown`, which ends live streams and waits for actions, so clients that stay connected don't hold it up. Then the background work stops and is waited for, the job queue with it (`jobs.Manager.Stop`, which leaves the jobs it stops for the next start), the modules stop, and only then does the database close. The health report has `jobs`, `reconcile` and `webhooks` checks for that background work, and `core.metrics` gives `GET /api/v1/metrics` its numbers.
+
+Both `panel` and `dev` build the same core; they differ in the agent client (the agent's Unix socket, or a simulated machine in the same process), in how they listen, and in who may connect. The panel only accepts requests from `panel.allow_from` in `racksail.toml` when it is set. `dev` signs every request in as the developer and logs that it does. `panel` passes no authenticator yet, so the API refuses every operation that needs a signed-in user with `api.no_sign_in` rather than serving it to anyone.
 
 On a server, `internal/installer` renders the units: the agent and the panel as services, and the edge as `racksail-edge.service` behind `racksail-edge.socket`. systemd creates the edge's admin socket, `/run/racksail/edge.sock`, for the `racksail` group, so the panel can reach it without the edge belonging to that group (which would let it reach the agent's socket too), and starts the edge the first time the panel sends it routes. `racksail edge` takes the socket systemd passes in, and creates one for its own user when started by hand.
 
-The binary refuses to start if any registry recorded a problem while packages initialized (`checkRegistries`): an error code defined twice, a malformed agent operation, a duplicate job type, a bad manifest. The same check runs in the tests, so these mistakes never reach a release.
+The binary refuses to start if any registry recorded a problem while packages initialized (`checkRegistries`): an error code defined twice, a malformed agent operation, a kind with problems, an event or job type registered twice, a bad manifest. The same check runs in the tests, so these mistakes never reach a release.
 
 ## Packages
 
 | Package | What it holds |
 |---|---|
-| `internal/store` | Resources, kinds, TypeIDs, the `Store` interface, its in-memory implementation and the `Overlay` the pipeline plans against |
-| `internal/changeset` | The change pipeline: requests, diffs, plans, previews, apply jobs, undo, retention and secret values |
-| `internal/reconcile` | The reconciler interface, the typed adapter, the runner with its health checks, and the periodic resync |
+| `internal/store` | Resources, kinds, TypeIDs, the `Store` interface with its SQLite and in-memory implementations, the panel database and its migrations, and the `Overlay` the pipeline plans against |
+| `internal/changeset` | The change pipeline: requests, diffs, plans, previews, apply jobs, undo, retention, secret values and where change sets are kept |
+| `internal/reconcile` | The reconciler interface, the typed adapter, the runner with its health checks, and the reconcile queue: retries, concurrency limits, drift and the periodic resync |
 | `internal/agent` | The typed operation allowlist, the agent's HTTP server and the clients that call it |
 | `internal/system` | Adapter interfaces for everything the agent touches, and the pure renderers for unit files and apt sources |
 | `internal/system/linux` | The real adapters, for Debian 13 |
 | `internal/system/sim` | A simulated Debian 13 server implementing every adapter in memory |
 | `internal/modules` | Manifests, the `Module` interface and its optional capabilities, the registry and the module manager |
-| `internal/api` | The HTTP API: middleware, health and version, module operations, read authorization, the change parameters, the OpenAPI export |
+| `internal/api` | The HTTP API: middleware (request IDs, access logs, rate limits), health, version and metrics, the operations generated for every kind, change sets, jobs, the timeline, the audit log, live streams, the operations catalog, module operations, read authorization, the change parameters, the OpenAPI export |
 | `internal/api/httpapi` | Problem details, error mapping and schema naming shared by the panel API, the agent protocol and the add-on protocol |
 | `internal/hooks` | Hook points, registrations, providers and extensions, the hook runner, the add-on manifest and protocol, and the rule spec |
 | `internal/auth` | Actors, grants, roles and the central authorizer |
-| `internal/events` | The event bus, the timeline and the audit log |
-| `internal/jobs` | The job queue with progress, logs, cancel and retry |
+| `internal/events` | The event bus, the timeline and the audit log, with followers for live streams, and the catalog of event types |
+| `internal/events/webhook` | Outgoing webhooks: the `core.webhook` kind, signing, the delivery queue with its retries, and the delivery log |
+| `internal/jobs` | The job queue with progress, logs, cancel, retry and history |
 | `internal/i18n` | Error codes and their English messages |
 | `internal/edge` | The routing table and the server that answers from it |
 | `internal/config` | `racksail.toml` |
@@ -129,7 +148,7 @@ var Zone = store.Define[ZoneSpec, ZoneStatus](store.KindInfo{
 - `WithDefaults` and `WithValidator` add typed defaulting and validation. Validation errors use `i18n.Invalid` with field errors, so the UI can highlight fields.
 - `Zone.Decode`, `Zone.Encode`, `Zone.Get` and `Zone.List` convert between the untyped `store.Resource` that generic code passes around and the typed `store.Object[ZoneSpec, ZoneStatus]`. `Zone.Get` reports a resource of another kind as not found.
 
-The store keeps a revision per resource for optimistic concurrency (status writes don't change it), bumps the generation whenever the desired state changes, soft-deletes resources until their reconciler has removed what they created, and keeps every spec version for history and undo.
+The store keeps a revision per resource for optimistic concurrency (status writes don't change it), bumps the generation whenever the desired state changes, soft-deletes resources until their reconciler has removed what they created, and keeps every spec version for history and undo, with the resource's kind and owner. Lists sort by an indexed field through sort keys kept next to its values, which order numbers by their value, before text, and booleans last; a resource with several values sorts by its lowest, and filters still compare the values as written. A purged resource's ID never goes to a new resource, which would inherit its history and the secrets its change sets stored: `Create` refuses it with `store.id_used`, unless the transaction's `WriteMeta.UndoOf` is the change set whose delete it brings back, as the same kind with the same owner (`store.CheckReuse`).
 
 ## The change pipeline
 
@@ -166,14 +185,21 @@ cs, err := svc.Pipeline.Submit(ctx, changeset.Request{
 })
 ```
 
-For each change in turn, `Engine.Submit` fills in the kind's defaults, asks the authorizer, takes the change's secret values, runs the kind's validation and the validate hooks, then asks the resource's reconciler for a plan and runs its steps in the agent's check mode, so the preview lists the exact downloads, packages, files and ports. Reconcilers plan against the overlay too, so the site's reconciler can read the database it uses before either exists. Modify hooks then run once per plan point, with the indexes of the changes the point is about. They may rewrite the specs of those changes and add changes and effects, and nothing else: no hook can turn an update into a delete, move a change to another resource or scope, or drop one. What they add is labelled with its source, and two of them changing the same field is reported as a conflict. Every change a hook rewrote or added is authorized for the actor, validated and run past the validate hooks again, and added changes, which can only be creates, updates and deletes, are planned too, so the preview shows what they do to the machine. Added changes don't go through modify hooks themselves.
+For each change in turn, `Engine.Submit` fills in the kind's defaults, asks the authorizer, takes the change's secret values, runs the kind's validation and the validate hooks, then asks the resource's reconciler for a plan and runs its steps in the agent's check mode, so the preview lists the exact downloads, packages, files and ports. A change the authorizer refuses on a resource the actor may not even read answers `core.not_found`, as reading it would. Reconcilers plan against the overlay too, so the site's reconciler can read the database it uses before either exists. Modify hooks then run once per plan point, with the indexes of the changes the point is about. They may rewrite the specs of those changes and add changes and effects, and nothing else: no hook can turn an update into a delete, move a change to another resource or scope, or drop one. What they add is labelled with its source, and two of them changing the same field is reported as a conflict. Every change a hook rewrote or added is authorized for the actor, validated and run past the validate hooks again, and added changes, which can only be creates, updates and deletes, are planned too, so the preview shows what they do to the machine. Added changes don't go through modify hooks themselves.
 
-A change set with a destructive effect gets `Snapshot`, and its preview lists the snapshots applying it takes. A dry run then makes the store writes in a transaction it throws away, so the preview also reports a name that's already taken, and returns the change set. Otherwise the pipeline first takes read-only Btrfs snapshots of the subvolumes that hold what the change set removes (`agent.SnapshotPaths`; data that isn't on Btrfs goes without, and if taking them fails nothing changes), then writes every change in one store transaction, and a `changeset.apply` job runs the plans with live progress and verifies the result: the runner runs each plan's health checks, and the job runs an action's `Checks` after its steps. A check that doesn't pass fails the change set, which can then be undone. Events and audit records follow, including for denied attempts. When a request has several changes, field errors say which change they belong to: `changes[1].spec.domains`.
+A change set with a destructive effect gets `Snapshot`, and its preview lists the snapshots applying it takes. A dry run then makes the store writes in a transaction it throws away, so the preview also reports a name that's already taken, and returns the change set. Otherwise the pipeline first takes read-only Btrfs snapshots of the subvolumes that hold what the change set removes (`agent.SnapshotPaths`; data that isn't on Btrfs goes without, and if taking them fails nothing changes). Then, in one transaction of the panel database (`Options.DB` with `DB.Atomic`), it writes every change, keeps the change set, queues its `changeset.apply` job, settles the idempotency key, marks the change set an undo undoes and records each change in the audit log, so a crash leaves all of it or none. `NewEngine` takes the database from a `store.SQLite` whose database the change set storage shares; with parts kept in memory each write commits on its own. Once the writes start they finish, even if the client goes away. The job starts once the transaction commits, runs the plans with live progress and verifies the result: the runner runs each plan's health checks, and the job runs an action's `Checks` after its steps. A check that doesn't pass fails the change set, which can then be undone. Events follow. When a request has several changes, field errors say which change they belong to: `changes[1].spec.domains`.
+
+The audit log has every change as `success`. Attempts that don't go through are there too: `denied` when the authorizer refuses a change or a validate hook stops it, previews included, and `failed` when a change that was allowed couldn't be made, because its settings aren't valid, a modify hook that blocks failed, or writing it failed. Failed previews are left out, since they change nothing.
 
 The snapshots are recorded in `ChangeSet.Snapshots` and deleted when the change set is no longer kept. Undo puts back specs; bringing back data from a snapshot is a restore, which starts from that list.
 
+The apply job marks each change `started` before it runs and `done` once it's in place (`ResourceChange.State`), and records how the change set ended with a context that outlives the job's, so a canceled job or one out of time still ends its change set as failed. Handlers learn why their context ended from `jobs.Stopped`. When the panel stops under the job, the job returns without recording anything; the next start reports it as interrupted, and the job type's `Ended` marks the change set failed, as it does for a job canceled before it started. The job type doesn't set `Resume`, because an action's steps may not be safe to run twice. A retry of the job (`jobs.Queue.Retry`, asked first through the type's `Retryable`) claims the change set only when it failed, carries on from the first change that isn't done, and refuses with `changeset.action_not_repeated` when that change is an action that may already have done what it does once (steps of its own, or `ActionApplier` work in the panel), since a retry doesn't go through authorization and validate hooks again. A change set that was undone or applied is never claimed again (`changeset.not_retryable`).
+
 - `Undo(ctx, changeset.UndoRequest{Actor, ChangeSet, DryRun, IdempotencyKey})` turns the recorded previous specs, labels and placement into a new request (creates become deletes, deletes become creates with the same ID) and sends it through the same stages, so an undo is authorized, validated, hooked and previewed like any change. Applied and failed change sets can be undone; an action that changed no settings can't.
+- `Apply(ctx, changeset.ApplyRequest{Actor, ChangeSet, IdempotencyKey})` applies a preview as it was shown: the request it came from is planned again for the actor, and applied only if the plan is still the one the preview showed; otherwise the answer is `changeset.preview_stale`, naming a fresh preview. The preview becomes the applied change set, keeping its ID. Previews don't keep secret values, so one that carried them has to be sent again (`changeset.preview_has_secrets`). Applies of one preview are taken one at a time: another that arrives meanwhile gets `changeset.applying`, and one after it `changeset.not_preview`.
+- An undo marks its original as undone in the transaction of its own writes, and only an applied or failed change set becomes undone, so nothing is undone twice.
 - A retry with the same `IdempotencyKey` by the same actor returns the first change set for 24 hours, as long as it's kept. A second request with the key while the first is still running gets `changeset.duplicate_request`.
+- `List` returns the kept change sets newest first, filtered by state, resource or actor, or the previews that can still be applied. `ListQuery.Visible` narrows it to what someone may see, in the query, so pages stay full.
 - `Change.Server` places a new resource on a cluster server. Updates keep the placement, and undoing a delete puts the resource back where it was.
 
 ## Secrets
@@ -220,7 +246,7 @@ func (zoneReconciler) Apply(ctx context.Context, z *store.Object[ZoneSpec, ZoneS
 }
 ```
 
-The module returns `reconcile.Typed(Zone, zoneReconciler{})` from `Reconcilers()`. Plans must be idempotent: every operation reports `Changed: false` when its effect is already in place, so running a plan twice changes nothing. The panel relies on that: its resync reconciles every resource every 15 minutes (`reconcile.ResyncInterval`), which puts back what drifted on the machine and carries out changes whose apply job never ran, and the runner reconciles one resource at a time, so the resync and an apply job never work on the same resource at once. When a resource is deleted, the plan removes what earlier plans created; the runner purges the resource once that has worked. Reconcilers of kinds with actions also implement `reconcile.ActionPlanner`.
+The module returns `reconcile.Typed(Zone, zoneReconciler{})` from `Reconcilers()`. Plans must be idempotent: every operation reports `Changed: false` when its effect is already in place, so running a plan twice changes nothing. The panel relies on that: `reconcile.Runner.Run` reconciles every resource when the panel starts, unfinished ones first, and again every 15 minutes (`reconcile.ResyncInterval`), which puts back what drifted on the machine and carries out changes whose apply job never ran. When the plan of a resource that was ready still changed something, the machine had drifted: the `Drifted` condition says what was put back and `<kind>.drifted` is published. `Runner.ReportDrift` takes a report of drift noticed outside the resync: it marks the resource and publishes `<kind>.drifted` at once, and the queue puts it back as soon as there is room. `Runner.Enqueue` asks for a reconcile when something a resource depends on changed. A reconcile whose context ends part way, as when its job is canceled, still records that in the status, with the reason `Stopped`, so the resource never looks busy with work that stopped. When a reconcile the queue started fails, `<kind>.failed` is published for the first failure in a row, and it's retried after five seconds, then twice as long each time up to ten minutes, eight times at most; after that the resource waits for its next change or the resync. A reconcile a change set's job ran isn't retried by the queue, failed or canceled: the change set reports it, and the resource waits the same way. At most eight reconciles run at once, and two of each kind unless its reconciler implements `reconcile.Limiter`. The runner reconciles one resource at a time, so the queue and an apply job never work on the same resource at once; a reconcile waiting for another of the same resource stops waiting when its context ends, as when its job is canceled. When a resource is deleted, the plan removes what earlier plans created; the runner purges the resource once that has worked. Reconcilers of kinds with actions also implement `reconcile.ActionPlanner`.
 
 A plan's `Checks` verify the result once its steps have run:
 
@@ -236,6 +262,42 @@ Checks are `http` (a status below 400, or `Expect`), `tcp`, `tls` (a certificate
 `req.Read` reads other resources: the store, or during a preview the change set's planned state. `req.Facts` describes the machine the resource is placed on, and `req.Secrets` resolves secret references.
 
 `internal/reconcile/reconcile_test.go` is a complete small example, run against the simulated machine, and `internal/changeset/changeset_test.go` shows kinds with secrets and change sets with several changes.
+
+## Events, jobs and webhooks
+
+The change pipeline and the reconcilers publish the events every kind has: `<kind>.created`, `.updated`, `.deleted`, `.failed`, `.drifted` and one per action, plus the core's own (`core.changeset.applied`, `core.hook.disabled` and so on). A module publishes anything else through `svc.Events`, after declaring the type with `EventProvider`, so webhooks, automations and `GET /api/v1/events/types` know it:
+
+```go
+err := svc.Events.Publish(ctx, events.Event{
+	Type: "backups.run.finished", Severity: events.SeverityInfo,
+	Subject: policy.ID, Kind: "backups.policy", Scope: policy.Scope, Actor: actor,
+	Message: "The nightly backup finished.",
+	Data:    data,
+})
+```
+
+Publishing stores the event in the timeline, which gives it a sequence number; subscribers, live streams and the webhook dispatcher follow the timeline by that number, so a slow one catches up instead of missing events, and a stream a client reconnects to resumes from `Last-Event-ID`. What someone did, and every attempt that was refused, goes to `svc.Audit.Record` with the actor; the pipeline records every change itself, `api.Authorize` and `api.AuthorizeRead` record the requests they refuse, and records made during an API request carry its ID.
+
+Work that takes a while runs as a job. Register its type from `init` and queue it with arguments; the queue keeps it in the database, runs four at a time, retries it as its type says, and streams its progress and log to whoever follows it:
+
+```go
+jobs.RegisterType(jobs.Type{
+	Name: "dns.check", Timeout: 10 * time.Minute, Retries: 2,
+	Run: func(ctx context.Context, job *jobs.Job, args json.RawMessage, r jobs.Reporter) (any, error) {
+		r.Progress(1, 3, "Asking the parent zone")
+		r.Log(slog.LevelInfo, "delegation looks right", "servers", 2)
+		return result, nil
+	},
+})
+
+job, err := svc.Jobs.Enqueue(ctx, "dns.check", input, jobs.Options{Title: "Check example.com", Actor: actor, Scope: scope})
+```
+
+A job that was running when the panel stopped is marked failed with `jobs.interrupted` when it starts again, unless its type sets `Resume`, which runs it again from the start; only set that for work that is safe to repeat. A handler whose context ends asks `jobs.Stopped` why: `core.canceled`, `core.timeout`, or `jobs.interrupted` when the panel is stopping, when it should return without recording anything of its own. A type's `Ended` hears how every job of the type ended, once, also one that never ran, before `Wait` returns the job, and `Retryable` can refuse a retry. Jobs that need the panel's services, such as the change pipeline's `changeset.apply`, are registered on the queue with `Handle` instead. `Manager.Stop` stops the queue and waits for the jobs running here, and `Stats` and `Check` are the queue's metrics and health check.
+
+A job moves from one state to the next only if it is still in the state it was read in, so a cancel that races the dispatcher either keeps the job from starting or asks it to stop, never both. A job is retried once, by hand or on its own: `Retry` refuses another with `jobs.already_retried`, naming the retry, unless the request repeats the first one's idempotency key (`RetryOptions`), which answers with the same job for a day. `Watch` hands a job's updates to a buffer; a watcher that falls behind gets one update with `Missed` set in place of what didn't fit, and reads the lines it missed back with `LogsAfter`, which always has them, since each line is stored before it is sent.
+
+Webhooks are resources of the core kind `core.webhook`. The dispatcher in `internal/events/webhook` follows the timeline, turns each event into a delivery for every webhook that wants it, signs it the way Standard Webhooks does, and retries failures on `webhook.Schedule`, recording every attempt. An attempt is recorded even when its context ends during it, so no delivery stays pending with nothing to send it again, and deliveries of a webhook that was turned off are given up rather than sent. Deliveries only connect to public addresses, checked once the receiver's name is resolved, plus the networks `webhooks.allow_networks` in `racksail.toml` lists (`Options.AllowNetworks`); the webhook's reconciler refuses a URL written with an address that isn't allowed, so the preview says so. `webhook.Verify` checks a signature the way receivers do, for tests and add-ons.
 
 ## Agent operations
 
@@ -308,7 +370,7 @@ func init() {
 | `APIProvider` | `RegisterAPI(api huma.API, svc *Services)` | Operations beyond the generic kind operations, under `/api/v1/<id>/` |
 | `HookProvider` | `Hooks(svc *Services) []hooks.Registration` | Hooks: validate, modify and observe hooks, patches to other services' configuration, and providers of capabilities |
 | `EventProvider` | `Events() []events.Type` | Event types beyond the generated kind events |
-| `MigrationProvider` | `Migrations() fs.FS` | Database migrations |
+| `MigrationProvider` | `Migrations() fs.FS` | Tables of its own in the panel database, migrated under the module's id when the panel starts |
 | `RecipeProvider` | `Recipes() fs.FS` | Recipes the module ships |
 | `BackupProvider` | `Backups() []Backup` | What data belongs to each kind and how to quiesce it |
 | `HealthProvider` | `HealthChecks() []HealthCheck` | Health checks for what the module runs, in the panel's health report while the module is on |
@@ -443,13 +505,33 @@ Extend hooks are how add-ons add to the panel declaratively. The add-on runtime 
 
 `internal/api` builds the API on Huma with the standard library's router. Errors become RFC 9457 problem details with the error's code and parameters, whatever produced them: `httpapi.NewError` replaces Huma's error constructor, and errors without a code become `core.internal`, logged and never shown. Paths under `/api` that no operation matches answer `404` with `core.not_found`, or `405` with `core.method_not_allowed` and an `Allow` header when the path has operations for other methods.
 
-Every request is authenticated, but credentials that aren't valid, such as an expired session cookie, only matter to protected operations, which answer with the authenticator's error. Everything else, the UI and its sign-in screen included, treats the request as anonymous. When `panel.allow_from` is set, requests from other addresses are refused with `api.address_not_allowed` before anything else happens.
+Every request is authenticated, but credentials that aren't valid, such as an expired session cookie, only matter to protected operations, which answer with the authenticator's error. Everything else, the UI and its sign-in screen included, treats the request as anonymous. Without an authenticator (`api.Options.Auth`), protected operations answer `api.no_sign_in`, unless `Options.Dev` signs every request in as the developer. When `panel.allow_from` is set, requests from other addresses are refused with `api.address_not_allowed` before anything else happens.
 
-The API server doesn't generate operations for kinds yet. The generic list, get, create, update, delete and action operations, under `/api/v1/<module>/<plural>` as [conventions.md](conventions.md) describes, are meant to be built once for every kind from the kind registry, with the helpers below, so modules don't write them by hand. `APIProvider` is for operations beyond them.
+`Server.Handler` also gives every request an ID (the caller's `X-Request-Id` when it's sensible, otherwise a new `req_` TypeID), which it sends back, logs with the method, path, status, duration, actor and address, and passes on through the context to audit records (`events.WithRequestID`). Requests under `/api` are rate-limited with a token bucket per actor, or per address without credentials (per /64 for IPv6), from `api.rate_limit` and `api.anonymous_rate_limit` in `racksail.toml`. A bucket holds a quarter of a minute's requests and ten more, and answers describe it: `RateLimit-Limit` is what it holds, `RateLimit-Remaining` what is left, and `RateLimit-Reset` the seconds until it is full. A caller over the limit gets `core.rate_limited` with `Retry-After`. The health check is never limited. `GET /api/v1/metrics` reports the API's own counts and what `Options.Metrics` adds, in the Prometheus text format, to callers with `core.metrics.read`.
+
+### Generated operations
+
+Every registered kind gets its operations without code of its own, under `/api/v1/<module>/<plural>` (`api.KindPath`): list, get, create, update, delete and history, and `POST .../{id}/actions/<action>` for each action. Their IDs are `listDnsZones`, `getDnsZone`, `createDnsZone`, `getDnsZoneHistory`, `checkDnsZone` and so on; their schemas are the kind's spec and status types, and `DnsZone`, `DnsZoneList`, `DnsZoneCreateRequest` and `DnsZoneUpdateRequest` built around them; and their summaries and descriptions come from `KindInfo`, which is why those are written for people. Lists take the owner, labels, phase, search text, sort, field selection and every index of the kind as parameters, and pages with cursors. Changes go through the change pipeline. An action that isn't `Long` answers when it's done, with its output in the change set, or with `202` after 30 seconds while its job carries on. `GET /api/v1/kinds/{name}` describes a kind with standalone JSON Schemas of its spec, status and action inputs and outputs, for forms. `APIProvider` is for operations beyond the generated ones; kinds' operations are registered after modules' own, so a schema a kind builds never takes a name a Go type needs.
+
+The core's own operations sit next to them:
+
+| Path | What |
+|---|---|
+| `/changesets` | List change sets and previews, get one, submit several changes as one, apply a preview by ID, undo |
+| `/jobs` | List jobs, get one, read and follow its log, cancel and retry |
+| `/events`, `/events/stream`, `/events/types` | The timeline, live, and the catalog of event types |
+| `/audit`, `/audit/export` | The audit log, and its export as CSV or JSON lines |
+| `/resources/{id}`, `/resources/stream` | Any resource by its ID, and live notices of changes to resources |
+| `/core/webhooks/{id}/deliveries` | A webhook's delivery log |
+| `/kinds`, `/operations` | The kinds and the operations catalog |
+
+Live streams are Server-Sent Events with IDs a client sends back as `Last-Event-ID` to resume, and a comment every 20 seconds to keep proxies from closing them. `Server.Close` ends them all, and so does the client going away; a stream never writes after its handler has returned. Every one of these operations authorizes what it returns, as below. Lists of jobs and change sets ask their storage for what the actor may see (`jobs.Filter.Visible`, `changeset.ListQuery.Visible`) and check each item again, reading on until a page is full. Anyone signed in may read and act on the jobs and change sets they started, so the catalog lists no permission for those operations; `core.job.read`, `core.job.cancel`, `core.job.retry` and `core.changeset.read` reach other people's.
+
+Every operation records what it does for the operations catalog with `api.Describe`: the kind and operation, the permission it needs, the risk, and whether it takes `dryRun`, runs as a job, destroys data, can be undone or streams. `GET /api/v1/operations` and the `x-racksail-` extensions in the OpenAPI document come from it, and the CLI and the assistant's tools are built from those, so call `Describe` on every operation a module adds; without it, a GET counts as a read and anything else as medium risk.
 
 ### Access
 
-`api.Protected` as an operation's security requirement only establishes who is calling: without a signed-in actor, the request is refused with 401. What the caller may do is decided by the central authorizer, `svc.Authorizer`, every time. Changes are authorized change by change in the pipeline, but reads never go through it, so every handler that returns data authorizes it first:
+`api.Protected` as an operation's security requirement only establishes who is calling: without a signed-in actor, the request is refused with 401. What the caller may do is decided by the central authorizer, `svc.Authorizer`, every time. Changes are authorized change by change in the pipeline, but reads never go through it, so every handler that returns data authorizes it first. `api.Authorize` and `api.AuthorizeRead` are for an operation's own decision, and record each refusal in the audit log; `api.Readable` filters what a list or stream shows and records nothing, and so does asking `svc.Authorizer` directly:
 
 ```go
 type delegationInput struct {
@@ -457,7 +539,7 @@ type delegationInput struct {
 }
 
 func (m *Module) RegisterAPI(a huma.API, svc *modules.Services) {
-	huma.Register(a, huma.Operation{
+	op := huma.Operation{
 		OperationID: "checkDnsDelegation",
 		Method:      http.MethodGet,
 		Path:        api.Prefix + "/dns/zones/{id}/delegation",
@@ -465,7 +547,9 @@ func (m *Module) RegisterAPI(a huma.API, svc *modules.Services) {
 		Description: "Asks the parent zone which name servers it delegates to, and compares them with this server's.",
 		Tags:        []string{"DNS"},
 		Security:    api.Protected,
-	}, func(ctx context.Context, in *delegationInput) (*delegationOutput, error) {
+	}
+	api.Describe(&op, api.Info{Kind: "dns.zone", Operation: "delegation", Permission: "dns.zone.read", Risk: store.RiskRead})
+	huma.Register(a, op, func(ctx context.Context, in *delegationInput) (*delegationOutput, error) {
 		zone, err := Zone.Get(ctx, svc.Store, in.ID)
 		if err != nil {
 			return nil, err
@@ -487,7 +571,7 @@ page, err := api.List(ctx, svc.Authorizer, svc.Store, store.Query{
 })
 ```
 
-When a grant covers the whole scope listed (or every scope, when `Scope` is nil), the store's page is used as it is. Otherwise the list falls back to the resources the actor holds grants on single resources for (`auth.ObjectAuthorizer`), so a collaborator granted one zone sees that zone; the query names those resources, so pages stay full. With neither, the list answers `core.forbidden`. Each resource on the page is authorized again before it's returned. Anything else an operation does is checked the same way, with the permission it needs.
+When a grant covers the whole scope listed (or every scope, when `Scope` is nil), the store's page is used as it is. A list of every scope by an actor whose grants cover only some, such as an account's owner, lists the scopes those grants cover, a reseller's customers' accounts included when the authorizer can list them (`auth.ScopeAuthorizer`, which `RoleAuthorizer` implements with an `Ownership` that is also an `auth.AccountLister`). The timeline and the audit log reach the same scopes. Otherwise the list falls back to the resources the actor holds grants on single resources for (`auth.ObjectAuthorizer`), so a collaborator granted one zone sees that zone. The query names those scopes or resources, so pages stay full. With none of these, the list answers `core.forbidden`. Each resource on the page is authorized again before it's returned. Anything else an operation does is checked the same way, with the permission it needs.
 
 ### Changes
 
@@ -506,7 +590,7 @@ type importInput struct {
 }
 
 // In RegisterAPI:
-huma.Register(a, huma.Operation{
+op := huma.Operation{
 	OperationID: "importDnsZone",
 	Method:      http.MethodPost,
 	Path:        api.Prefix + "/dns/zones/import",
@@ -514,7 +598,12 @@ huma.Register(a, huma.Operation{
 	Description: "Creates a zone and its records from a zone file, as one change you can preview and undo.",
 	Tags:        []string{"DNS"},
 	Security:    api.Protected,
-}, func(ctx context.Context, in *importInput) (*api.ChangeSetOutput, error) {
+}
+api.Describe(&op, api.Info{
+	Kind: "dns.zone", Operation: "import", Permission: "dns.zone.create", Risk: store.RiskLow,
+	DryRun: true, Reversible: true,
+})
+huma.Register(a, op, func(ctx context.Context, in *importInput) (*api.ChangeSetOutput, error) {
 	changes, err := zoneFileChanges(store.AccountScope(in.Body.Account), in.Body.Name, in.Body.File)
 	if err != nil {
 		return nil, ErrBadZoneFile.New("reason", err.Error())

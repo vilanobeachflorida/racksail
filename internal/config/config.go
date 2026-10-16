@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -20,12 +22,106 @@ import (
 
 // Config is the contents of racksail.toml.
 type Config struct {
-	Panel   Panel   `toml:"panel"`
-	Agent   Agent   `toml:"agent"`
-	Edge    Edge    `toml:"edge"`
-	Paths   Paths   `toml:"paths"`
-	Updates Updates `toml:"updates"`
-	Log     Log     `toml:"log"`
+	Panel     Panel     `toml:"panel"`
+	API       API       `toml:"api"`
+	Agent     Agent     `toml:"agent"`
+	Edge      Edge      `toml:"edge"`
+	Paths     Paths     `toml:"paths"`
+	Retention Retention `toml:"retention"`
+	Webhooks  Webhooks  `toml:"webhooks"`
+	Updates   Updates   `toml:"updates"`
+	Log       Log       `toml:"log"`
+}
+
+// Webhooks configures outgoing webhooks.
+type Webhooks struct {
+	// AllowNetworks are networks webhooks may send events to besides public
+	// addresses, such as "10.0.0.0/8" for a receiver on the private network
+	// or "127.0.0.1" for one on the server itself. Loopback, private and
+	// link-local addresses are refused unless listed, so a webhook can't be
+	// used to reach the server's own services or the network behind it.
+	AllowNetworks []string `toml:"allow_networks"`
+}
+
+// AllowedNetworks returns allow_networks as networks; an address on its own
+// is a network of one.
+func (w Webhooks) AllowedNetworks() ([]netip.Prefix, error) {
+	return networks("webhooks.allow_networks", w.AllowNetworks)
+}
+
+// API configures the panel API.
+type API struct {
+	// RateLimit is how many requests a minute each signed-in user and each
+	// API token may make. Zero turns the limit off.
+	RateLimit int `toml:"rate_limit"`
+	// AnonymousRateLimit is how many requests a minute each address may
+	// make without signing in. Zero turns the limit off.
+	AnonymousRateLimit int `toml:"anonymous_rate_limit"`
+}
+
+// Retention says how long the panel keeps its records.
+type Retention struct {
+	// Events is how long the event timeline goes back.
+	Events Duration `toml:"events"`
+	// Audit is how long audit records are kept.
+	Audit Duration `toml:"audit"`
+	// Jobs is how long finished jobs and their logs are kept.
+	Jobs Duration `toml:"jobs"`
+	// ChangeSets is how long applied change sets are kept, and so how far
+	// back changes can be undone.
+	ChangeSets Duration `toml:"change_sets"`
+	// Deliveries is how long webhook deliveries are kept.
+	Deliveries Duration `toml:"deliveries"`
+}
+
+// Duration is a length of time written like "90d", "12h" or "1h30m": a
+// number and a unit, d for days, h, m and s, as often as needed.
+type Duration time.Duration
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (d *Duration) UnmarshalText(text []byte) error {
+	v, err := ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
+// String writes the duration in whole days when it is a number of days.
+func (d Duration) String() string {
+	v := time.Duration(d)
+	if v > 0 && v%(24*time.Hour) == 0 {
+		return strconv.FormatInt(int64(v/(24*time.Hour)), 10) + "d"
+	}
+	return v.String()
+}
+
+// ParseDuration reads a duration such as "90d" or "1d12h".
+func ParseDuration(s string) (time.Duration, error) {
+	var days time.Duration
+	rest := s
+	if i := strings.IndexByte(s, 'd'); i >= 0 {
+		n, err := strconv.ParseInt(s[:i], 10, 64)
+		if err != nil || n < 0 || n > 36500 {
+			return 0, fmt.Errorf("%q isn't a duration such as 90d, 12h or 30m", s)
+		}
+		days, rest = time.Duration(n)*24*time.Hour, s[i+1:]
+	}
+	if rest == "" {
+		if days == 0 && s == "" {
+			return 0, fmt.Errorf("%q isn't a duration such as 90d, 12h or 30m", s)
+		}
+		return days, nil
+	}
+	v, err := time.ParseDuration(rest)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%q isn't a duration such as 90d, 12h or 30m", s)
+	}
+	return days + v, nil
 }
 
 // Panel configures the panel role.
@@ -75,8 +171,13 @@ type Paths struct {
 // AllowedNetworks returns allow_from as networks; an address on its own is a
 // network of one. IPv4 addresses written as IPv6 ones count as IPv4.
 func (p Panel) AllowedNetworks() ([]netip.Prefix, error) {
+	return networks("panel.allow_from", p.AllowFrom)
+}
+
+// networks reads a list of addresses and networks.
+func networks(setting string, list []string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
-	for _, n := range p.AllowFrom {
+	for _, n := range list {
 		if prefix, err := netip.ParsePrefix(n); err == nil {
 			if addr := prefix.Addr(); addr.Is4In6() && prefix.Bits() >= 96 {
 				prefix = netip.PrefixFrom(addr.Unmap(), prefix.Bits()-96)
@@ -86,7 +187,7 @@ func (p Panel) AllowedNetworks() ([]netip.Prefix, error) {
 		}
 		addr, err := netip.ParseAddr(n)
 		if err != nil || addr.Zone() != "" {
-			return nil, fmt.Errorf("panel.allow_from: %q isn't an address or network", n)
+			return nil, fmt.Errorf("%s: %q isn't an address or network", setting, n)
 		}
 		addr = addr.Unmap()
 		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
@@ -113,8 +214,13 @@ type Log struct {
 
 // Default returns the configuration of a server with an empty file.
 func Default() Config {
+	day := Duration(24 * time.Hour)
 	return Config{
 		Panel: Panel{Listen: "[::]:8443"},
+		API:   API{RateLimit: 600, AnonymousRateLimit: 120},
+		Retention: Retention{
+			Events: 90 * day, Audit: 400 * day, Jobs: 30 * day, ChangeSets: 30 * day, Deliveries: 30 * day,
+		},
 		Agent: Agent{Socket: system.AgentSocket},
 		Edge:  Edge{HTTP: "[::]:80", HTTPS: "[::]:443", Socket: system.EdgeSocket},
 		Paths: Paths{
@@ -164,6 +270,8 @@ func Dev(dataDir string, addrs DevAddresses) (Config, error) {
 	}
 	c.Updates = Updates{Channel: "nightly"}
 	c.Log = Log{Level: "debug", Format: "text"}
+	// A developer's webhook receivers usually run on the same machine.
+	c.Webhooks = Webhooks{AllowNetworks: []string{"127.0.0.0/8", "::1"}}
 	return c, c.Validate()
 }
 
@@ -214,6 +322,9 @@ func (c Config) Validate() error {
 	if _, err := c.Panel.AllowedNetworks(); err != nil {
 		errs = append(errs, err)
 	}
+	if _, err := c.Webhooks.AllowedNetworks(); err != nil {
+		errs = append(errs, err)
+	}
 	if (c.Panel.TLSCert == "") != (c.Panel.TLSKey == "") {
 		errs = append(errs, errors.New("panel.tls_cert and panel.tls_key go together"))
 	}
@@ -235,6 +346,24 @@ func (c Config) Validate() error {
 	}
 	if !slices.Contains([]string{"text", "json"}, c.Log.Format) {
 		errs = append(errs, fmt.Errorf("log.format: %q must be text or json", c.Log.Format))
+	}
+	if c.API.RateLimit < 0 || c.API.AnonymousRateLimit < 0 {
+		errs = append(errs, errors.New("api.rate_limit and api.anonymous_rate_limit can't be negative; 0 turns a limit off"))
+	}
+	for _, r := range []struct {
+		name string
+		v    Duration
+		min  time.Duration
+	}{
+		{"retention.events", c.Retention.Events, 24 * time.Hour},
+		{"retention.audit", c.Retention.Audit, 30 * 24 * time.Hour},
+		{"retention.jobs", c.Retention.Jobs, time.Hour},
+		{"retention.change_sets", c.Retention.ChangeSets, time.Hour},
+		{"retention.deliveries", c.Retention.Deliveries, time.Hour},
+	} {
+		if time.Duration(r.v) < r.min {
+			errs = append(errs, fmt.Errorf("%s: keep at least %s", r.name, Duration(r.min)))
+		}
 	}
 	return errors.Join(errs...)
 }
