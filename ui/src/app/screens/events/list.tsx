@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { History } from "lucide-react";
 import { useId, useMemo } from "react";
 import { useIntl } from "react-intl";
-import { severityIcons } from "@/app/activity";
+import { severityIcons, severityLine } from "@/app/activity";
 import { Button } from "@/design/components/ui/button";
 import { Skeleton } from "@/design/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/design/components/ui/states";
@@ -129,12 +129,7 @@ export function EventItem({ event }: { event: TimelineEvent }) {
     <li className="flex gap-3 py-2">
       <Icon className={cn("mt-0.5 size-4 shrink-0", tone)} aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-sm">
-          <span className="sr-only">
-            {intl.formatMessage(m.severity, { severity: event.severity })}{" "}
-          </span>
-          {eventText(intl, event)}
-        </p>
+        <p className="text-sm">{severityLine(intl, event.severity, eventText(intl, event))}</p>
         <p className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs">
           <time dateTime={event.time} title={f.dateTime(date)}>
             {f.time(date)}

@@ -804,24 +804,28 @@ function Points() {
 }
 
 /** Says why safe mode is on, in the words of what turned it on. */
-function SafeModeSourceLine({ source }: { source: SafeModeSource }) {
+export function SafeModeSourceLine({ source }: { source: SafeModeSource }) {
   const intl = useIntl();
   return (
     <li>
-      {source.kind === "boot"
-        ? intl.formatMessage(m.safeModeBoot)
-        : intl.formatMessage(m.safeModeSource, {
-            kind: source.kind,
-            reason: source.reason || intl.formatMessage(m.safeModeNoReason),
-          })}
-      {source.since ? (
-        <span className="text-muted-foreground">
-          {" "}
-          {intl.formatMessage(m.safeModeSince, {
-            when: intl.formatDate(source.since, { dateStyle: "medium", timeStyle: "short" }),
-          })}
-        </span>
-      ) : null}
+      {intl.formatMessage(m.safeModeSourceLine, {
+        source:
+          source.kind === "boot"
+            ? intl.formatMessage(m.safeModeBoot)
+            : intl.formatMessage(m.safeModeSource, {
+                kind: source.kind,
+                reason: source.reason || intl.formatMessage(m.safeModeNoReason),
+              }),
+        hasSince: source.since ? "yes" : "no",
+        when: source.since
+          ? intl.formatDate(source.since, { dateStyle: "medium", timeStyle: "short" })
+          : "",
+        since: (chunks) => (
+          <span key="since" className="text-muted-foreground">
+            {chunks}
+          </span>
+        ),
+      })}
     </li>
   );
 }
