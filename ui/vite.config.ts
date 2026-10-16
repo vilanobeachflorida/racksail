@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import { bundleBudget } from "./scripts/bundle-budget.mjs";
 
 // The address of `racksail dev`, which serves the API the dev server proxies to.
@@ -52,6 +53,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
+    // Other checkouts and worktrees can sit inside the repository in hidden
+    // directories; their tests aren't this one's.
+    exclude: [...configDefaults.exclude, "**/.*/**"],
     css: false,
     restoreMocks: true,
   },

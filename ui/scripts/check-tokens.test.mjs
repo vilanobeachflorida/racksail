@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -71,9 +72,9 @@ describe("findHardCodedColors", () => {
 });
 
 describe("filesToCheck", () => {
-  it("skips hidden directories, generated files and tests", () => {
+  it("checks the files git tracks, leaving out hidden directories, generated files and tests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tokens-"));
-    for (const sub of [".hidden", "design", "lib/api", "app"]) {
+    for (const sub of [".hidden", "design", "lib/api", "app/.wip"]) {
       mkdirSync(join(dir, sub), { recursive: true });
     }
     for (const file of [
@@ -84,9 +85,19 @@ describe("filesToCheck", () => {
       "app/shell.tsx",
       "app/shell.test.tsx",
       "app/logo.png",
+      "app/.wip/b.tsx",
+      "app/gone.tsx",
     ]) {
       writeFileSync(join(dir, file), "");
     }
+    execFileSync("git", ["init", "--quiet"], { cwd: dir });
+    execFileSync("git", ["add", "--", "."], { cwd: dir });
+    // Deleted but still tracked until committed, and not tracked at all,
+    // as another checkout inside the directory would be.
+    rmSync(join(dir, "app/gone.tsx"));
+    writeFileSync(join(dir, "app/untracked.tsx"), "");
+    mkdirSync(join(dir, "other-checkout/src"), { recursive: true });
+    writeFileSync(join(dir, "other-checkout/src/x.tsx"), "");
     expect(filesToCheck(dir).map((f) => f.slice(dir.length + 1))).toEqual([
       "app/shell.tsx",
       "design/globals.css",

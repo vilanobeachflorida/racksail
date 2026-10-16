@@ -26,13 +26,17 @@ if (!existsSync(vite)) {
 }
 
 rmSync(out, { recursive: true, force: true });
-// The UI's files that git tracks or would, never its packages or output.
-const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "."], {
+// The UI's files that git tracks, never its packages or output, so add a
+// new file before building with it. Other checkouts and worktrees can sit
+// inside the repository, untracked and in hidden directories, so neither
+// counts; a file deleted but not yet committed doesn't either.
+const files = execFileSync("git", ["ls-files", "--cached", "-z", "--", "."], {
   cwd: ui,
   encoding: "utf8",
 })
   .split("\0")
-  .filter((file) => file && existsSync(path.join(ui, file)));
+  .filter((file) => file && !file.split("/").some((part) => part.startsWith(".")))
+  .filter((file) => existsSync(path.join(ui, file)));
 for (const file of files) {
   mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
   cpSync(path.join(ui, file), path.join(copy, file));
