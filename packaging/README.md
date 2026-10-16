@@ -21,7 +21,12 @@ Racksail runs as three services in `racksail.slice`: `racksail-agent.service`, `
 - The panel runs as `racksail` with the full sandbox: a read-only system, no capabilities, its state in `/var/lib/racksail`, and the key its secrets are encrypted with imported from the systemd credential `racksail-secrets-key`.
 - The agent runs as root, since it is what changes the machine, with its own state in `/var/lib/racksail-agent`. It is of type `notify`, so the panel starts once the agent answers.
 - The edge runs as `racksail-edge` with `CAP_NET_BIND_SERVICE` only, for ports 80 and 443, and keeps its certificates in `/var/lib/racksail-edge`.
-- The platform slice outweighs the accounts slice for CPU and I/O, so the panel and the edge stay responsive when a site is busy.
+- `racksail-accounts.slice` sits inside `racksail.slice`, next to the three services, and each service outweighs all the accounts together for CPU and I/O, so the agent, the panel and the edge stay responsive when a site is busy. `racksail.slice` itself keeps systemd's default weight, so the platform and the accounts together share the machine evenly with the system's own services.
+
+| Unit | `CPUWeight` | `IOWeight` |
+|---|---|---|
+| `racksail-agent.service`, `racksail-panel.service`, `racksail-edge.service` | 500 | 500 |
+| `racksail-accounts.slice` | 100 | 100 |
 
 ## Install script
 
