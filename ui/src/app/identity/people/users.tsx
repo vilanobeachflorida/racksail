@@ -43,6 +43,7 @@ import {
   type UserView,
   userView,
 } from "../api";
+import { useAskedToAdd } from "../asked";
 import {
   CopyField,
   ListSkeleton,
@@ -385,6 +386,7 @@ function UsersList() {
   const names = useAccountNames();
   const users = useQuery({ queryKey: ["users"], queryFn: () => listAllUsers(api) });
   const [adding, setAdding] = useState(false);
+  useAskedToAdd(() => setAdding(can("core.user.create")));
   const [draft, setDraft] = useState<Draft | null>(null);
   const [created, setCreated] = useState<{ id: string; user: string; link: IssuedLink } | null>(
     null,

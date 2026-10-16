@@ -6,7 +6,6 @@ import { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import type { PanelSession } from "@/lib/api/session";
 import { fakeApi, json, renderApp, renderWithProviders } from "@/test/render";
-import TokensPage from "./account/tokens";
 import { auditExportURL } from "./api";
 import { ImpersonationBanner } from "./banner";
 import { page } from "./page";
@@ -302,6 +301,8 @@ describe("API tokens", () => {
     let made: unknown;
     const tokens: unknown[] = [];
     const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
       "GET /api/v1/me/tokens": () => json({ tokens }),
       "GET /api/v1/core/accounts": () => json({ items: [], next: "" }),
       "POST /api/v1/me/tokens": async (r) => {
@@ -320,7 +321,7 @@ describe("API tokens", () => {
         return json({ ...token, token: "rsk_abcdsecret" }, 201);
       },
     });
-    renderWithProviders(<TokensPage />, { api });
+    renderApp(api, "/settings/tokens");
     expect(await screen.findByText("No API tokens yet")).toBeInTheDocument();
     await userEvent.click(
       screen.getAllByRole("button", { name: "Make a token" })[0] as HTMLElement,
@@ -367,7 +368,120 @@ describe("viewing the panel as someone", () => {
     );
     const banner = screen.getByRole("region", { name: "Viewing the panel as someone else" });
     expect(banner).toHaveTextContent("Ada, you're viewing the panel as Bea");
-    await userEvent.click(within(banner).getByRole("button", { name: "Stop viewing as Bea" }));
+    // The button takes the banner's protected colors, not the theme's.
+    const stop = within(banner).getByRole("button", { name: "Stop viewing as Bea" });
+    expect(stop.className).toMatch(/\bbg-critical-warning-foreground\b/);
+    expect(stop.className).toMatch(/\btext-critical-warning\b/);
+    expect(stop.className).not.toMatch(
+      /\b(bg-card|border-input|hover:bg-accent|hover:text-accent-foreground)\b/,
+    );
+    await userEvent.click(stop);
+    await waitFor(() => expect(load).toHaveBeenCalledWith("/"));
+    expect(stopped).toBe(true);
+  });
+});
+
+describe("the command bar", () => {
+  const signedIn = (session: PanelSession, routes: Parameters<typeof fakeApi>[0] = {}) =>
+    fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(session),
+      "GET /api/v1/core/users": () => json({ items: [], next: "" }),
+      "GET /api/v1/core/accounts": () => json({ items: [], next: "" }),
+      "GET /api/v1/me/tokens": () => json({ tokens: [] }),
+      ...routes,
+    });
+
+  it("reaches people and access and the person's own screens", async () => {
+    const user = userEvent.setup();
+    renderApp(signedIn(ada));
+    await screen.findByRole("navigation", { name: "Main" });
+    await user.keyboard("{Control>}k{/Control}");
+    const bar = await screen.findByRole("dialog", { name: "Command bar" });
+    const input = within(bar).getByRole("combobox");
+    for (const [typed, names] of [
+      ["user", ["Users", "Add a user"]],
+      ["audit", ["Audit log"]],
+      ["token", ["API tokens", "Make an API token"]],
+      ["secur", ["Security"]],
+      ["sign", ["Sign-in settings", "Sign out"]],
+      ["role", ["Roles and permissions"]],
+      ["account", ["Accounts", "Open an account"]],
+      ["ssh", ["SSH keys", "Add an SSH key"]],
+      ["session", ["Where you're signed in"]],
+    ] as const) {
+      await user.clear(input);
+      await user.type(input, typed);
+      for (const name of names) {
+        expect(within(bar).getByRole("option", { name })).toBeInTheDocument();
+      }
+    }
+    // Adding a user opens the users screen with its form.
+    await user.clear(input);
+    await user.type(input, "add a user");
+    await user.click(within(bar).getByRole("option", { name: "Add a user" }));
+    expect(await screen.findByRole("dialog", { name: "Add a user" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add a user" })).not.toBeInTheDocument(),
+    );
+    // And making a token opens the tokens screen with its form.
+    await user.keyboard("{Control>}k{/Control}");
+    const again = await screen.findByRole("dialog", { name: "Command bar" });
+    await user.type(within(again).getByRole("combobox"), "make an api token");
+    await user.click(within(again).getByRole("option", { name: "Make an API token" }));
+    expect(await screen.findByRole("dialog", { name: "Make an API token" })).toBeInTheDocument();
+  });
+
+  it("leaves out what the person may not do", async () => {
+    const user = userEvent.setup();
+    renderApp(signedIn({ ...ada, permissions: ["web.*"] }));
+    await screen.findByRole("navigation", { name: "Main" });
+    await user.keyboard("{Control>}k{/Control}");
+    const bar = await screen.findByRole("dialog", { name: "Command bar" });
+    await user.type(within(bar).getByRole("combobox"), "user");
+    expect(within(bar).queryByRole("option", { name: "Users" })).not.toBeInTheDocument();
+    expect(within(bar).queryByRole("option", { name: "Add a user" })).not.toBeInTheDocument();
+    await user.clear(within(bar).getByRole("combobox"));
+    await user.type(within(bar).getByRole("combobox"), "profile");
+    expect(within(bar).getByRole("option", { name: "Profile" })).toBeInTheDocument();
+  });
+
+  it("stops viewing the panel as someone, and offers nothing of theirs to change", async () => {
+    const load = vi.spyOn(page, "load").mockImplementation(() => {});
+    let stopped = false;
+    const user = userEvent.setup();
+    renderApp(
+      signedIn(
+        {
+          ...ada,
+          user: { id: "user_2", name: "Bea", home: { level: "account", id: "acct_1" } },
+          impersonation: {
+            by: "user_1",
+            name: "Ada",
+            startedAt: "2026-10-15T10:00:00Z",
+            endsAt: "2026-10-15T11:00:00Z",
+          },
+        },
+        {
+          "DELETE /api/v1/session/impersonation": () => {
+            stopped = true;
+            return new Response(null, { status: 204 });
+          },
+        },
+      ),
+    );
+    await screen.findByRole("navigation", { name: "Main" });
+    await user.keyboard("{Control>}k{/Control}");
+    const bar = await screen.findByRole("dialog", { name: "Command bar" });
+    const input = within(bar).getByRole("combobox");
+    await user.type(input, "token");
+    expect(
+      within(bar).queryByRole("option", { name: "Make an API token" }),
+    ).not.toBeInTheDocument();
+    await user.clear(input);
+    await user.type(input, "stop viewing");
+    await user.click(within(bar).getByRole("option", { name: "Stop viewing as Bea" }));
     await waitFor(() => expect(load).toHaveBeenCalledWith("/"));
     expect(stopped).toBe(true);
   });

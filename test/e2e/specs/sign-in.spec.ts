@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import AxeBuilder from "@axe-core/playwright";
 import { type CDPSession, expect, type Page, test } from "@playwright/test";
 
 // These run against a panel that signs people in the way a server does:
@@ -206,6 +207,65 @@ test("adds a passkey, which signs in on its own", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  const session = await (await page.request.get("/api/v1/session")).json();
+  expect(session.user.username).toBe(admin.username);
+});
+
+test("views the panel as an account's owner, under a banner every mode shows clearly", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await signInWithPassword(page);
+  await page.getByLabel("Code", { exact: true }).fill(await freshCode(page));
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+
+  // An account with an owner to view the panel as. The owner is a new
+  // user, so the admin confirms it's them first.
+  expect((await page.request.post("/api/v1/session/step-up", { data: { password: admin.password } })).status()).toBe(200);
+  const opened = await page.request.post("/api/v1/core/accounts/open", {
+    data: { slug: "acme", name: "Acme", owner: { username: "owen", name: "Owen" } },
+  });
+  expect(opened.status()).toBe(202);
+  const owner: string = (await opened.json()).owner.id;
+
+  await page.goto(`/users/${owner}`);
+  await page.getByRole("button", { name: "View as them" }).click();
+  await page
+    .getByRole("alertdialog", { name: "View the panel as owen?" })
+    .getByRole("button", { name: "View as them" })
+    .click();
+  const banner = page.getByRole("region", { name: "Viewing the panel as someone else" });
+  await expect(banner).toBeVisible();
+  const stop = banner.getByRole("button", { name: "Stop viewing as Owen" });
+  await stop.focus();
+  // The banner takes the protected colors, the same whatever theme the
+  // person chose, in light and dark and with high contrast: the warning
+  // color, and its text color for the button. Less motion has the colors
+  // change at once, rather than fade from the mode before.
+  for (const [colorScheme, contrast, warning, warningText] of [
+    ["light", "no-preference", "rgb(138, 90, 0)", "rgb(255, 255, 255)"],
+    ["dark", "no-preference", "rgb(227, 163, 58)", "rgb(0, 20, 47)"],
+    ["light", "more", "rgb(122, 79, 0)", "rgb(255, 255, 255)"],
+    ["dark", "more", "rgb(255, 201, 77)", "rgb(0, 0, 0)"],
+  ] as const) {
+    await page.emulateMedia({ colorScheme, contrast, reducedMotion: "reduce" });
+    await expect(banner).toHaveCSS("background-color", warning);
+    await expect(stop).toHaveCSS("background-color", warningText);
+    await expect(stop).toHaveCSS("color", warning);
+    const results = await new AxeBuilder({ page })
+      .include("section[aria-label='Viewing the panel as someone else']")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.map(
+        (v) => `${v.id}: ${v.nodes.map((n) => `${n.target.join(" ")} (${n.any[0]?.message ?? ""})`).join(", ")}`,
+      ),
+      `the banner in ${colorScheme} mode, contrast ${contrast}`,
+    ).toEqual([]);
+  }
+  await stop.click();
+  await expect(banner).toBeHidden();
   const session = await (await page.request.get("/api/v1/session")).json();
   expect(session.user.username).toBe(admin.username);
 });

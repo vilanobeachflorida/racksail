@@ -32,6 +32,7 @@ import {
   type OpenedAccount,
   openAccount,
 } from "../api";
+import { useAskedToAdd } from "../asked";
 import { ListSkeleton, PageHeader, TimeText } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
@@ -358,6 +359,7 @@ function Accounts() {
   const can = usePermission();
   const accounts = useQuery({ queryKey: ["accounts", "all"], queryFn: () => listAllAccounts(api) });
   const [opening, setOpening] = useState(false);
+  useAskedToAdd(() => setOpening(can("core.account.create")));
   const [opened, setOpened] = useState<OpenedAccount | null>(null);
   const columns: Column<Account>[] = [
     {

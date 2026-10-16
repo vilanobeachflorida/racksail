@@ -35,6 +35,7 @@ import {
   type TokenInput,
   type TokenView,
 } from "../api";
+import { useAskedToAdd } from "../asked";
 import {
   CopyField,
   Item,
@@ -320,6 +321,7 @@ function Tokens() {
   const client = useQueryClient();
   const tokens = useQuery({ queryKey: ["me", "tokens"], queryFn: () => listMyTokens(api) });
   const [creating, setCreating] = useState(false);
+  useAskedToAdd(() => setCreating(true));
   const [created, setCreated] = useState<CreatedToken | null>(null);
   const reload = () => client.invalidateQueries({ queryKey: ["me", "tokens"] });
   const revoke = async (tok: TokenView) => {

@@ -19,6 +19,7 @@ import { EmptyState, ErrorState } from "@/design/components/ui/states";
 import { toast } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
 import { addMySSHKey, listMySSHKeys, removeMySSHKey, type SSHKey } from "../api";
+import { useAskedToAdd } from "../asked";
 import { Item, ItemList, ListSkeleton, PageHeader } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
@@ -137,6 +138,7 @@ function Keys() {
   const client = useQueryClient();
   const keys = useQuery({ queryKey: ["me", "ssh-keys"], queryFn: () => listMySSHKeys(api) });
   const [adding, setAdding] = useState(false);
+  useAskedToAdd(() => setAdding(true));
   const reload = () => client.invalidateQueries({ queryKey: ["me", "ssh-keys"] });
   const { guard } = useStepUp();
   const remove = async (k: SSHKey) => {

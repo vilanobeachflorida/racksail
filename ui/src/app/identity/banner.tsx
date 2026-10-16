@@ -54,7 +54,16 @@ export function ImpersonationBanner() {
           time: intl.formatTime(new Date(viewing.endsAt), { timeStyle: "short" }),
         })}
       </p>
-      <Button size="sm" variant="outline" onClick={() => void stop()} busy={busy}>
+      {/* The banner's two protected colors the other way round, which no
+          theme changes and which always contrast with each other, its focus
+          ring included. */}
+      <Button
+        size="sm"
+        variant="outline"
+        className="border-critical-warning-foreground bg-critical-warning-foreground text-critical-warning [--rs-focus:var(--rs-critical-warning-text)] hover:bg-critical-warning-foreground/90 hover:text-critical-warning"
+        onClick={() => void stop()}
+        busy={busy}
+      >
         {intl.formatMessage(messages.impersonationStop, { user })}
       </Button>
     </section>

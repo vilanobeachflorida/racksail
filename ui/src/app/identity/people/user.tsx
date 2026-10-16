@@ -372,8 +372,10 @@ function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; 
       ) : null}
       {canReset ? (
         <Section
-          title={intl.formatMessage(t.sessionsTitle)}
-          description={intl.formatMessage(t.userSessionsDescription)}
+          title={intl.formatMessage(self ? t.sessionsTitle : t.userSessionsTitle)}
+          description={intl.formatMessage(
+            self ? t.userSessionsYoursDescription : t.userSessionsDescription,
+          )}
         >
           {sessions.isPending ? <ListSkeleton rows={2} /> : null}
           {sessions.data?.length === 0 ? (
@@ -387,7 +389,9 @@ function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; 
       {canReset ? (
         <Section
           title={intl.formatMessage(t.tokensTitle)}
-          description={intl.formatMessage(t.userTokensDescription)}
+          description={intl.formatMessage(
+            self ? t.userTokensYoursDescription : t.userTokensDescription,
+          )}
         >
           {tokens.isPending ? <ListSkeleton rows={2} /> : null}
           {tokens.data?.length === 0 ? (
@@ -409,7 +413,7 @@ function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; 
       ) : null}
       <Section
         title={intl.formatMessage(t.sshKeysTitle)}
-        description={intl.formatMessage(t.userKeysDescription)}
+        description={intl.formatMessage(self ? t.userKeysYoursDescription : t.userKeysDescription)}
       >
         {keys.isPending ? <ListSkeleton rows={2} /> : null}
         {keys.isError ? (

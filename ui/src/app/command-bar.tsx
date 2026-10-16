@@ -26,15 +26,17 @@ import {
 } from "@/design/components/ui/command";
 import { DialogOverlay } from "@/design/components/ui/dialog";
 import { useTheme } from "@/design/theme/provider";
+import { IdentityCommands } from "./identity/commands";
 import { messages } from "./messages";
 import { moduleCommands, navEntries, useActiveModules, usePermission } from "./modules";
 import { useShell } from "./shell-state";
 import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
 
 /**
- * The command bar (⌘K): go anywhere, run any action modules offer, change
- * the appearance, and, with the assistant on, ask a question or run one of
- * its / commands from the same input.
+ * The command bar (⌘K): go anywhere, run any action modules offer, reach
+ * people and access and your own account, change the appearance, and, with
+ * the assistant on, ask a question or run one of its / commands from the
+ * same input.
  */
 export default function CommandBar() {
   const intl = useIntl();
@@ -148,6 +150,7 @@ export default function CommandBar() {
                       </CommandItem>
                     ))}
                   </CommandGroup>
+                  <IdentityCommands close={close} />
                   {moduleCommands(modules, allowed).length > 0 ? (
                     <CommandGroup heading={intl.formatMessage(messages.commandActions)}>
                       {moduleCommands(modules, allowed).map((c) => (
