@@ -10,10 +10,12 @@ import {
   changeSet,
   databaseKind,
   hiddenKind,
+  ruleKind,
   siteKind,
   webhook,
   webhookKind,
 } from "@/test/resources";
+import type { Resource } from "./kinds";
 
 const second = webhook({
   id: "whk_01jq0000000000000000000002",
@@ -947,5 +949,99 @@ describe("the home screen's quick actions", () => {
     const card = await screen.findByRole("region", { name: "Quick actions" });
     expect(await within(card).findByRole("button", { name: "New account" })).toBeVisible();
     expect(within(card).queryByRole("button", { name: "New webhook" })).not.toBeInTheDocument();
+  });
+});
+
+describe("kinds add-ons add", () => {
+  const rule = {
+    id: "grule_01jq0000000000000000000001",
+    kind: "guard.rule",
+    scope: { level: "server" },
+    generation: 1,
+    revision: 4,
+    createdAt: "2026-10-15T10:00:00Z",
+    updatedAt: "2026-10-15T10:00:00Z",
+    labels: {},
+    spec: { pattern: "wp-admin" },
+    status: { phase: "ready", watching: "wp-admin", observedGeneration: 1 },
+  } as unknown as Resource;
+  const rules = ruleKind.path;
+
+  /** A panel with an add-on's kind, which no operation of the API names. */
+  function withRules(routes: Record<string, Route> = {}) {
+    return panel({
+      "GET /api/v1/kinds": () => json({ kinds: [webhookKind, ruleKind] }),
+      "GET /api/v1/kinds/guard.rule": () => json(ruleKind),
+      [`GET ${rules}`]: () => json({ items: [rule] }),
+      [`GET ${rules}/${rule.id}`]: () => json(rule),
+      [`GET ${rules}/${rule.id}/history`]: () => json({ versions: [] }),
+      ...routes,
+    });
+  }
+
+  it("are offered to those their own permissions allow", async () => {
+    const user = userEvent.setup();
+    const { router } = render("/", withRules().api, (p) => p !== "core.webhook.create");
+    const card = await screen.findByRole("region", { name: "Quick actions" });
+    expect(within(card).queryByRole("button", { name: "New webhook" })).not.toBeInTheDocument();
+    await user.click(await within(card).findByRole("button", { name: "New guard rule" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/guard/rules/new"));
+  });
+
+  it("are left out for those their permissions don't allow", async () => {
+    render("/", withRules().api, (p) => p !== "guard.rule.create");
+    const card = await screen.findByRole("region", { name: "Quick actions" });
+    expect(await within(card).findByRole("button", { name: "New webhook" })).toBeVisible();
+    expect(within(card).queryByRole("button", { name: "New guard rule" })).not.toBeInTheDocument();
+  });
+
+  it("list their resources from the path the kind's description gives", async () => {
+    const { api, sent } = withRules();
+    render("/guard/rules", api);
+    expect(await screen.findByRole("heading", { level: 1, name: "Rules" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Rules" });
+    expect(await within(table).findByRole("link", { name: rule.id })).toHaveAttribute(
+      "href",
+      `/guard/rules/${rule.id}`,
+    );
+    expect(sent.some((s) => s.method === "GET" && s.path === rules)).toBe(true);
+    expect(await axeViolations(document.body)).toEqual([]);
+  });
+
+  it("show a resource's settings and the status its add-on reported", async () => {
+    const { api, sent } = withRules();
+    render(`/guard/rules/${rule.id}`, api);
+    expect(await screen.findByRole("heading", { level: 1, name: rule.id })).toBeInTheDocument();
+    expect((await screen.findAllByText("wp-admin")).length).toBeGreaterThan(0);
+    expect(sent.some((s) => s.method === "GET" && s.path === `${rules}/${rule.id}`)).toBe(true);
+  });
+
+  it("create a resource through its preview at that path", async () => {
+    const user = userEvent.setup();
+    const created = changeSet({
+      id: "chg_rule",
+      title: "Create guard rule",
+      changes: [
+        {
+          op: "create",
+          kind: "guard.rule",
+          id: rule.id,
+          scope: { level: "server" },
+          source: { type: "request" },
+          after: { pattern: "xmlrpc" },
+        },
+      ] as never,
+    });
+    const { api, sent } = withRules({ [`POST ${rules}`]: () => json(created) });
+    render("/guard/rules/new", api);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "New guard rule" }),
+    ).toBeInTheDocument();
+    await user.type(await screen.findByRole("textbox", { name: /Pattern/ }), "xmlrpc");
+    await user.click(screen.getByRole("button", { name: "Review the change" }));
+    expect(await screen.findByRole("dialog", { name: "Create the guard rule" })).toBeVisible();
+    const preview = sent.find((s) => s.method === "POST" && s.path === rules);
+    expect(preview?.search).toBe("?dryRun=true");
+    expect(preview?.body).toMatchObject({ spec: { pattern: "xmlrpc" } });
   });
 });
