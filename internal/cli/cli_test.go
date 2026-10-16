@@ -446,6 +446,10 @@ func TestEveryPage(t *testing.T) {
 	if !strings.Contains(out, "job_1") || strings.Contains(out, "job_2") || !strings.Contains(out, "--cursor c2") {
 		t.Errorf("first page = %s", out)
 	}
+	// An export is one download, not pages.
+	if _, err := run(t, "", "audit", "export", "--server", p.URL, "--all"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("an export took --all: %v", err)
+	}
 }
 
 // Tables put the most telling columns first; YAML and JSON keep the

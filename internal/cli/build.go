@@ -230,7 +230,7 @@ func (b *builder) command(op *Operation, name string) *cobra.Command {
 		}
 	}
 	cmd.Example = oc.example()
-	if op.Param("query", "cursor") != nil {
+	if paged(oc.doc, op) {
 		cmd.Flags().BoolVar(&oc.in.all, "all", false, "read every page, not just the first")
 	}
 	if op.Long || op.DryRun || isJobOperation(op) {
@@ -238,6 +238,14 @@ func (b *builder) command(op *Operation, name string) *cobra.Command {
 	}
 	oc.flags.register(cmd)
 	return cmd
+}
+
+// paged recognises lists that come a page at a time: they take a cursor
+// and answer with JSON that says where the next page starts.
+func paged(doc *Document, op *Operation) bool {
+	s, media := op.Success()
+	answer := doc.Resolve(s)
+	return op.Param("query", "cursor") != nil && media == "application/json" && answer != nil && answer.Properties["next"] != nil
 }
 
 // isJobOperation recognises operations that answer with a job to follow.
