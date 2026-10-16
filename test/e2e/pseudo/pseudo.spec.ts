@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { screens } from "../screens";
 
 // Every screen of a panel built with the pseudo-locales in pseudo.mjs, shown
 // in each of them on a desktop and on a phone. In en-XA every word that
@@ -7,17 +8,6 @@ import { expect, type Page, test } from "@playwright/test";
 // third longer than in English, and must neither push the page sideways nor
 // get cut off. In ar-XB the panel lays itself out right to left, and every
 // part of the page must sit where it sits left to right, mirrored.
-
-/** The screens to check: home, the ones the navigation offers, and a missing page. */
-async function screens(page: Page): Promise<string[]> {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
-  const linked = await page
-    .getByRole("navigation")
-    .locator("a[href^='/']")
-    .evaluateAll((links) => links.map((a) => new URL((a as HTMLAnchorElement).href).pathname));
-  return [...new Set(["/", ...linked, "/no-such-page"])];
-}
 
 /** Records every string and number the API sends, which the panel shows as it is. */
 function recordData(page: Page): Set<string> {

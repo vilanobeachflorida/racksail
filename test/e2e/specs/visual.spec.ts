@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { screens } from "../screens";
 
 // Every screen, on a desktop and on a phone, against screenshots CI took
 // before: a change that moves, restyles or breaks what people see shows up
@@ -22,16 +23,6 @@ async function steady(page: Page): Promise<void> {
       json: { ...version, commit: "0".repeat(40), commitTime: "2026-01-15T00:00:00Z", goVersion: "go1.27.0", os: "linux", arch: "amd64" },
     });
   });
-}
-
-async function screens(page: Page): Promise<string[]> {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
-  const linked = await page
-    .getByRole("navigation")
-    .locator("a[href^='/']")
-    .evaluateAll((links) => links.map((a) => new URL((a as HTMLAnchorElement).href).pathname));
-  return [...new Set(["/", ...linked, "/no-such-page"])];
 }
 
 /** A screenshot's name: home for /, the path's words otherwise. */

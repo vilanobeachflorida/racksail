@@ -1,8 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { screens } from "../screens";
 
-// Every screen meets WCAG 2.2 AA (docs/architecture/conventions.md). axe
-// checks what a machine can; keyboard flows have their own tests.
+// Every screen meets WCAG 2.2 AA (docs/architecture/conventions.md): the
+// first screen, each one the navigation reaches and the page for addresses
+// that don't exist, on a desktop and on a phone. axe checks what a machine
+// can; keyboard flows have their own tests.
 const wcag22aa = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 // violations lists what axe finds on the page, one line per rule with the
@@ -14,16 +17,15 @@ async function violations(page: Page): Promise<string[]> {
   );
 }
 
-test.describe("accessibility", () => {
-  test("the first screen meets WCAG 2.2 AA", async ({ page }) => {
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
-    expect(await violations(page)).toEqual([]);
-  });
-
-  test("the page for addresses that don't exist meets WCAG 2.2 AA", async ({ page }) => {
-    await page.goto("/no-such-page");
-    await page.waitForLoadState("networkidle");
-    expect(await violations(page)).toEqual([]);
-  });
+test("every screen meets WCAG 2.2 AA", async ({ page }) => {
+  const all = await screens(page);
+  // Each screen loads and is analyzed in turn.
+  test.setTimeout(30_000 + all.length * 10_000);
+  for (const screen of all) {
+    await test.step(screen, async () => {
+      await page.goto(screen);
+      await page.waitForLoadState("networkidle");
+      expect.soft(await violations(page), `${screen} doesn't meet WCAG 2.2 AA`).toEqual([]);
+    });
+  }
 });
