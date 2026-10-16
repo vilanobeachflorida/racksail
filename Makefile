@@ -65,7 +65,7 @@ help:
 	@echo "make docs        build the documentation site"
 	@echo "make clean       remove build output"
 	@echo ""
-	@echo "make release     build everything a release publishes into $(DIST)/; needs VERSION"
+	@echo "make release     build everything a release publishes into $(DIST)/, the official add-ons included; needs VERSION"
 	@echo "make deb         build the Debian packages into $(DIST)/"
 	@echo "make iso         build the installer ISO in a Debian container; ISO_ARCH, ISO_VARIANT"
 	@echo "make e2e         install the ISO on a QEMU machine and run the end-to-end suites; ISO, E2E_FLAGS"
@@ -253,6 +253,10 @@ release:
 	rm -rf $(DIST)
 	$(MAKE) cross VERSION=$(VERSION) CHANNEL=$(RELEASE_CHANNEL)
 	$(MAKE) deb sbom VERSION=$(VERSION) CHANNEL=$(RELEASE_CHANNEL)
+	@# The official add-ons' archives go out with the release, checksummed and
+	@# signed with the rest, which is where the catalog's recipes pin them.
+	$(MAKE) addons
+	mv $(DIST)/addons/*.tar.gz $(DIST)/ && rm -r $(DIST)/addons
 	cp $(BIN)/racksail-linux-amd64 $(BIN)/racksail-linux-arm64 packaging/install.sh $(DIST)/
 	cp build/deb/third-party-licenses.txt $(DIST)/
 	$(GO) run ./packaging/release checksums -dir $(DIST)
@@ -428,7 +432,7 @@ addons:
 			(cd addons && GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags "-s -w -X main.version=$$version" \
 				-o ../build/addons/$$id-$$arch/addon ./$$id) || exit 1; \
 			(cd addons && $(GO) run ./internal/pack -program ../build/addons/$$id-$$arch/addon \
-				-out ../$(DIST)/addons/$$id-$$version-linux-$$arch.tar.gz) >> $(DIST)/addons/SHA256SUMS || exit 1; \
+				-out $(abspath $(DIST))/addons/$$id-$$version-linux-$$arch.tar.gz) >> $(DIST)/addons/SHA256SUMS || exit 1; \
 		done; \
 	done
 	@sed 's|  .*/|  |' $(DIST)/addons/SHA256SUMS > $(DIST)/addons/SHA256SUMS.tmp && mv $(DIST)/addons/SHA256SUMS.tmp $(DIST)/addons/SHA256SUMS

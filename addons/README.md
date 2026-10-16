@@ -27,7 +27,7 @@ make addons-check     # vet and staticcheck for darwin and Linux, and the tests
 make addons           # dist/addons/<id>-<version>-linux-<arch>.tar.gz and SHA256SUMS
 ```
 
-`make check` runs `make addons-check`. The tests run each add-on against a directory or provider of the tests' own, from `ldap-sign-in/ldap/ldaptest` and `oidc-sign-in/oidc/oidctest`, so they need no network. An archive holds the add-on's program alone, called `addon`, and the same source and Go version always give the same archive. Its version is the one in the add-on's `addon.yaml` in the catalog; change both together.
+`make check` runs `make addons-check`. The tests run each add-on against a directory or provider of the tests' own, from `ldap-sign-in/ldap/ldaptest` and `oidc-sign-in/oidc/oidctest`, so they need no network. An archive holds the add-on's program alone, called `addon`, and the same source and Go version always give the same archive. Its version is the one in the add-on's `addon.yaml` in the catalog; change both together. `make release` builds the archives too and publishes them with Racksail's release, where the catalog's recipes pin them.
 
 Run an add-on by hand on a socket of your choosing, and call it as the panel does:
 
