@@ -33,8 +33,8 @@ type IssuedLink struct {
 	// this path.
 	Path      string    `json:"path" doc:"Where the link goes on the panel"`
 	URL       string    `json:"url,omitempty" doc:"The whole link, when the panel knows its own name"`
-	Purpose   string    `json:"purpose" enum:"activate,reset"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Purpose   string    `json:"purpose" enum:"activate,reset" doc:"What the link is for: activating a new user, or getting back in"`
+	ExpiresAt time.Time `json:"expiresAt" doc:"When it stops working"`
 }
 
 // issueLink makes a sign-in link for u, replacing any earlier one.
@@ -86,10 +86,10 @@ func (s *Service) IssueLink(ctx context.Context, actor *auth.Actor, id store.ID)
 // LinkInfo is what a sign-in link's page shows before the person chooses a
 // password.
 type LinkInfo struct {
-	Username  string    `json:"username"`
-	Name      string    `json:"name,omitempty"`
-	Purpose   string    `json:"purpose" enum:"activate,reset"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Username  string    `json:"username" doc:"The username of the link's user"`
+	Name      string    `json:"name,omitempty" doc:"Their name"`
+	Purpose   string    `json:"purpose" enum:"activate,reset" doc:"What the link is for: activating a new user, or getting back in"`
+	ExpiresAt time.Time `json:"expiresAt" doc:"When it stops working"`
 }
 
 func (s *Service) invite(ctx context.Context, code string) (*Invite, *User, error) {
@@ -310,9 +310,9 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 type SetupInput struct {
 	Code     string `json:"code" maxLength:"64" doc:"The setup code from the panel's log or the server's console"`
 	Username string `json:"username" minLength:"2" maxLength:"64" doc:"The admin's username"`
-	Name     string `json:"name,omitempty" maxLength:"128"`
-	Email    string `json:"email,omitempty" maxLength:"254"`
-	Password string `json:"password" maxLength:"1024" format:"password"`
+	Name     string `json:"name,omitempty" maxLength:"128" doc:"The admin's name, as the panel shows it"`
+	Email    string `json:"email,omitempty" maxLength:"254" doc:"Where the admin gets notifications"`
+	Password string `json:"password" maxLength:"1024" format:"password" doc:"The admin's password: at least 10 characters, not one that's easy to guess"`
 }
 
 // Setup creates the first admin with the one-time setup code and signs

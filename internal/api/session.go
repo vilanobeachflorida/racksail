@@ -29,49 +29,49 @@ func (ModuleState) Schema(r huma.Registry) *huma.Schema {
 // Preferences are a person's display preferences, kept with their user.
 type Preferences struct {
 	Mode     string `json:"mode,omitempty" enum:"system,light,dark" doc:"Light, dark or the system's"`
-	Contrast string `json:"contrast,omitempty" enum:"system,standard,high"`
-	Density  string `json:"density,omitempty" enum:"theme,comfortable,compact"`
-	TextSize string `json:"textSize,omitempty" enum:"default,small,large,larger,largest"`
-	Motion   string `json:"motion,omitempty" enum:"system,reduce,full"`
+	Contrast string `json:"contrast,omitempty" enum:"system,standard,high" doc:"Standard or high contrast, or the system's"`
+	Density  string `json:"density,omitempty" enum:"theme,comfortable,compact" doc:"Comfortable or compact, or the theme's"`
+	TextSize string `json:"textSize,omitempty" enum:"default,small,large,larger,largest" doc:"How large text is"`
+	Motion   string `json:"motion,omitempty" enum:"system,reduce,full" doc:"Whether animations play, or the system's choice"`
 }
 
 // SessionUser is who is signed in.
 type SessionUser struct {
-	ID       store.ID    `json:"id"`
+	ID       store.ID    `json:"id" doc:"The user's ID"`
 	Name     string      `json:"name" doc:"The person's name, or their username"`
-	Username string      `json:"username,omitempty"`
-	Email    string      `json:"email,omitempty"`
+	Username string      `json:"username,omitempty" doc:"What they sign in with"`
+	Email    string      `json:"email,omitempty" doc:"Where they get notifications"`
 	Home     store.Scope `json:"home" doc:"Where the person belongs"`
 }
 
 // SessionAccount is an account the person's grants name.
 type SessionAccount struct {
-	ID   store.ID `json:"id"`
-	Name string   `json:"name"`
-	Slug string   `json:"slug"`
+	ID   store.ID `json:"id" doc:"The account's ID"`
+	Name string   `json:"name" doc:"What it is called"`
+	Slug string   `json:"slug" doc:"Its short name, which is also its Linux user"`
 }
 
 // SessionToken is the API token a request came with.
 type SessionToken struct {
-	ID   store.ID `json:"id"`
-	Name string   `json:"name"`
+	ID   store.ID `json:"id" doc:"The token's ID"`
+	Name string   `json:"name" doc:"What the token is for"`
 }
 
 // Session is what the panel tells the web UI, and the racksail command,
 // about whoever is signed in: who they are, what they may do, which modules
 // are on, and what they must do first.
 type Session struct {
-	User SessionUser `json:"user"`
+	User SessionUser `json:"user" doc:"Who is signed in"`
 	// Permissions are the person's permission patterns, as their roles
 	// grant them, such as * or *.read.
 	Permissions []string `json:"permissions" doc:"What the person may do somewhere, as permission names and patterns; the panel checks each request against where it applies"`
 	// Modules says each module's state; modules left out are off.
-	Modules     map[string]ModuleState `json:"modules"`
-	Preferences *Preferences           `json:"preferences,omitempty"`
+	Modules     map[string]ModuleState `json:"modules" doc:"Each module's state; modules left out are off"`
+	Preferences *Preferences           `json:"preferences,omitempty" doc:"The person's display preferences, when they kept any"`
 	// Token is the API token the request came with, when it did.
-	Token *SessionToken `json:"token,omitempty"`
+	Token *SessionToken `json:"token,omitempty" doc:"The API token the request came with, when it did"`
 	// Impersonation says who is viewing the panel as the person.
-	Impersonation *identity.Impersonation `json:"impersonation,omitempty"`
+	Impersonation *identity.Impersonation `json:"impersonation,omitempty" doc:"Who is viewing the panel as the person, when someone is"`
 	// Pending is what the person must do before anything else.
 	Pending        string     `json:"pending,omitempty" enum:"two-factor,password" doc:"What the person must do before anything else: set up a second step, or choose a new password"`
 	SteppedUpUntil *time.Time `json:"steppedUpUntil,omitempty" doc:"Until when sensitive actions go ahead without confirming it's them again"`
@@ -79,7 +79,7 @@ type Session struct {
 	ExpiresAt      *time.Time `json:"expiresAt,omitempty" doc:"When the session ends at the latest"`
 	// Accounts are the accounts the person's grants name, for switching
 	// between them.
-	Accounts []SessionAccount `json:"accounts"`
+	Accounts []SessionAccount `json:"accounts" doc:"The accounts the person's grants name, for switching between them"`
 	// Dev says the panel is racksail dev, which signs everyone in.
 	Dev bool `json:"dev,omitempty" doc:"Whether this is racksail dev, which signs everyone in as its developer"`
 }

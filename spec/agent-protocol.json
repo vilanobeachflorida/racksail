@@ -1027,6 +1027,7 @@
             "type": "string"
           },
           "destructive": {
+            "description": "Whether it removes data",
             "type": "boolean"
           },
           "detail": {
@@ -1364,6 +1365,7 @@
           },
           "params": {
             "additionalProperties": {},
+            "description": "The values the code's message is filled in with",
             "type": "object"
           },
           "value": {

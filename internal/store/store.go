@@ -114,12 +114,12 @@ type Version struct {
 	Kind   string            `json:"-"`
 	Scope  Scope             `json:"scope,omitzero" doc:"Who the resource belonged to"`
 	Spec   json.RawMessage   `json:"spec" doc:"The desired state as it was; secret fields hold references, never values"`
-	Labels map[string]string `json:"labels,omitempty"`
+	Labels map[string]string `json:"labels,omitempty" doc:"The labels it had"`
 	// Server is the cluster server the resource was placed on.
 	Server    ID        `json:"server,omitempty" doc:"The cluster server the resource was placed on; empty for the panel's own server"`
 	ChangeSet ID        `json:"changeSet,omitempty" doc:"The change set that wrote this version"`
 	Actor     string    `json:"actor,omitempty" doc:"Who made the change, and what acted for them"`
-	Time      time.Time `json:"time"`
+	Time      time.Time `json:"time" doc:"When the version was written"`
 	Deleted   bool      `json:"deleted,omitempty" doc:"Set on the version recorded when the resource was deleted"`
 }
 

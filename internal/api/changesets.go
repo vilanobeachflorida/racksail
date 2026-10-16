@@ -128,7 +128,7 @@ type listChangeSetsInput struct {
 
 type changeSetList struct {
 	Body struct {
-		ChangeSets []*changeset.ChangeSet `json:"changeSets"`
+		ChangeSets []*changeset.ChangeSet `json:"changeSets" doc:"The change sets on this page, newest first"`
 		Next       string                 `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }

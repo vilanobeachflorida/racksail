@@ -33,7 +33,7 @@ func secretRef(user store.ID, name string) secrets.Ref { return secrets.NewRef(u
 // Me is the signed-in person's own view of their user.
 type Me struct {
 	UserView
-	Security Security `json:"security"`
+	Security Security `json:"security" doc:"How the person signs in"`
 }
 
 // Security is how someone signs in.
@@ -419,7 +419,7 @@ func (s *Service) NewRecoveryCodes(ctx context.Context, actor *auth.Actor) ([]st
 // StepUpInput confirms it's the person, for sensitive actions: their
 // password, a code from their authenticator app, or a passkey.
 type StepUpInput struct {
-	Password   string          `json:"password,omitempty" maxLength:"1024"`
+	Password   string          `json:"password,omitempty" maxLength:"1024" doc:"The person's password"`
 	Code       string          `json:"code,omitempty" maxLength:"64" doc:"A code from the authenticator app"`
 	Ceremony   string          `json:"ceremony,omitempty" doc:"The ceremony the passkey request started"`
 	Credential json.RawMessage `json:"credential,omitempty" doc:"The passkey's answer, as PublicKeyCredential.toJSON() gives it"`

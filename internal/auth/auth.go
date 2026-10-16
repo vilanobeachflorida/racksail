@@ -112,22 +112,22 @@ const (
 // Actor is who is acting, and for whom. Audit records keep both, so an
 // assistant action shows the person it acted for.
 type Actor struct {
-	Type ActorType `json:"type"`
+	Type ActorType `json:"type" doc:"What acted: a person, an API token, an automation, an add-on, the assistant or Racksail itself"`
 	// ID is the user, token, automation or add-on; empty for the system.
-	ID   store.ID `json:"id,omitempty"`
-	Name string   `json:"name"`
+	ID   store.ID `json:"id,omitempty" doc:"The user, token, automation or add-on; empty for Racksail itself"`
+	Name string   `json:"name" doc:"Its name: a username, a token's or an add-on's name"`
 	// User is the person responsible when something acts for them, such as
 	// the owner of a token or the user talking to the assistant.
-	User   store.ID `json:"user,omitempty"`
-	Source Source   `json:"source"`
+	User   store.ID `json:"user,omitempty" doc:"The person responsible, when something acted for them"`
+	Source Source   `json:"source" doc:"The surface it came through: the panel's pages, the racksail command, the API and so on"`
 	// Impersonator is set while an admin or reseller views as a customer.
-	Impersonator store.ID `json:"impersonator,omitempty"`
+	Impersonator store.ID `json:"impersonator,omitempty" doc:"Who was viewing the panel as the person"`
 	// UserName and ImpersonatorName are the names of User and Impersonator,
 	// so the records of what the actor does say who without looking them
 	// up, as they were called then.
-	UserName         string `json:"userName,omitempty"`
-	ImpersonatorName string `json:"impersonatorName,omitempty"`
-	IP               string `json:"ip,omitempty"`
+	UserName         string `json:"userName,omitempty" doc:"The username of the person responsible, as it was then"`
+	ImpersonatorName string `json:"impersonatorName,omitempty" doc:"The username of whoever was viewing the panel as them, as it was then"`
+	IP               string `json:"ip,omitempty" doc:"The address it came from"`
 	// Grants are what the actor may do. They are never serialized.
 	Grants []Grant `json:"-"`
 	// SessionID identifies the session for revocation; never serialized.

@@ -223,13 +223,13 @@ func (s *Service) followOffers(ctx context.Context, last string) string {
 
 // SignInOption is an outside provider the sign-in screen offers.
 type SignInOption struct {
-	ID store.ID `json:"id"`
+	ID store.ID `json:"id" doc:"The sign-in provider's ID"`
 	// Title is what the button says.
-	Title string `json:"title"`
+	Title string `json:"title" doc:"What the sign-in screen's button says"`
 	// Method is password for providers that check a username and password
 	// typed on the panel's own screen, and redirect for those whose own page
 	// people sign in on.
-	Method auth.ProviderMethod `json:"method" enum:"password,redirect"`
+	Method auth.ProviderMethod `json:"method" enum:"password,redirect" doc:"How the provider signs people in: with a password typed on the panel's own screen, or on its own page"`
 }
 
 // providers lists the connected providers of a capability that are on.
@@ -708,10 +708,10 @@ func (s *Service) BeginLinkMine(ctx context.Context, actor *auth.Actor, id store
 
 // LinkView is an outside identity linked to the actor's user.
 type LinkView struct {
-	Provider store.ID  `json:"provider"`
-	Title    string    `json:"title"`
-	Username string    `json:"username,omitempty"`
-	LinkedAt time.Time `json:"linkedAt"`
+	Provider store.ID  `json:"provider" doc:"The sign-in provider the identity is at"`
+	Title    string    `json:"title" doc:"What the provider is called"`
+	Username string    `json:"username,omitempty" doc:"The person's username at the provider"`
+	LinkedAt time.Time `json:"linkedAt" doc:"When it was linked"`
 }
 
 // MyLinks lists the outside identities the actor signs in with.
@@ -760,8 +760,8 @@ func (s *Service) UnlinkMine(ctx context.Context, actor *auth.Actor, provider st
 
 // MFAOption is a second step from an add-on that people can turn on.
 type MFAOption struct {
-	ID      store.ID `json:"id"`
-	Title   string   `json:"title"`
+	ID      store.ID `json:"id" doc:"The sign-in provider that adds the second step"`
+	Title   string   `json:"title" doc:"What the second step is called"`
 	Enabled bool     `json:"enabled" doc:"Whether the person asking has it on"`
 }
 

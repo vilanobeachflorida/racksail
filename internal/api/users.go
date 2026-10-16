@@ -45,14 +45,14 @@ type userTokenPath struct {
 
 // MatrixEntry is one permission and how far each role reaches with it.
 type MatrixEntry struct {
-	Permission  auth.Permission           `json:"permission"`
-	Description string                    `json:"description"`
+	Permission  auth.Permission           `json:"permission" doc:"The permission"`
+	Description string                    `json:"description" doc:"What it lets someone do"`
 	Roles       map[auth.Role]auth.Access `json:"roles" doc:"For each role: everywhere, scope (where the grant applies), named (only when a grant names it) or none"`
 }
 
 type rolesOutput struct {
 	Body struct {
-		Roles  []auth.RoleInfo `json:"roles"`
+		Roles  []auth.RoleInfo `json:"roles" doc:"Every role, from the most to the least powerful"`
 		Matrix []MatrixEntry   `json:"matrix" doc:"Every permission, and how far each role reaches with it"`
 		// Self are what everyone may do to their own user.
 		Self []auth.Permission `json:"self" doc:"What everyone may do to their own user, whatever their roles"`
@@ -87,10 +87,10 @@ type openAccountInput struct {
 type OpenedAccount struct {
 	// ChangeSet adds the account and its owner together, so both are
 	// there or neither is.
-	ChangeSet *changeset.ChangeSet `json:"changeSet"`
-	Owner     *identity.UserView   `json:"owner,omitempty"`
+	ChangeSet *changeset.ChangeSet `json:"changeSet" doc:"The change set that adds the account and its owner together"`
+	Owner     *identity.UserView   `json:"owner,omitempty" doc:"The user who owns the account"`
 	// Link is the owner's sign-in link, shown once.
-	Link *identity.IssuedLink `json:"link,omitempty"`
+	Link *identity.IssuedLink `json:"link,omitempty" doc:"The owner's sign-in link to choose their password, shown once"`
 }
 
 type openAccountOutput struct {

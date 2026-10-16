@@ -70,7 +70,7 @@ type listJobsInput struct {
 
 type jobList struct {
 	Body struct {
-		Jobs []*jobs.Job `json:"jobs"`
+		Jobs []*jobs.Job `json:"jobs" doc:"The jobs on this page, newest first"`
 		Next string      `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }
@@ -103,7 +103,7 @@ type jobLogsInput struct {
 
 type jobLogsOutput struct {
 	Body struct {
-		Lines []jobs.LogLine `json:"lines"`
+		Lines []jobs.LogLine `json:"lines" doc:"The lines of the log, oldest first"`
 	}
 }
 

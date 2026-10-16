@@ -55,13 +55,13 @@ type idPath struct {
 
 type passkeysOutput struct {
 	Body struct {
-		Passkeys []identity.PasskeyView `json:"passkeys"`
+		Passkeys []identity.PasskeyView `json:"passkeys" doc:"Your passkeys"`
 	}
 }
 
 type passkeyRegisterInput struct {
 	Body struct {
-		Ceremony   string          `json:"ceremony"`
+		Ceremony   string          `json:"ceremony" doc:"The ceremony the step's first half answered with"`
 		Name       string          `json:"name,omitempty" maxLength:"64" doc:"What to call the passkey, such as the device it's on"`
 		Credential json.RawMessage `json:"credential" doc:"The new passkey, as PublicKeyCredential.toJSON() gives it"`
 	}
@@ -74,13 +74,13 @@ type passkeyOutput struct {
 type renameInput struct {
 	ID   store.ID `path:"id"`
 	Body struct {
-		Name string `json:"name" minLength:"1" maxLength:"64"`
+		Name string `json:"name" minLength:"1" maxLength:"64" doc:"The passkey's new name"`
 	}
 }
 
 type sessionsOutput struct {
 	Body struct {
-		Sessions []identity.SessionView `json:"sessions"`
+		Sessions []identity.SessionView `json:"sessions" doc:"The sessions, the one asking marked"`
 	}
 }
 
@@ -96,13 +96,13 @@ type devicesInput struct {
 
 type devicesOutput struct {
 	Body struct {
-		Devices []identity.DeviceView `json:"devices"`
+		Devices []identity.DeviceView `json:"devices" doc:"The trusted browsers"`
 	}
 }
 
 type tokensOutput struct {
 	Body struct {
-		Tokens []identity.TokenView `json:"tokens"`
+		Tokens []identity.TokenView `json:"tokens" doc:"The API tokens, without their secrets"`
 	}
 }
 
@@ -117,7 +117,7 @@ type createdTokenOutput struct {
 
 type sshKeysOutput struct {
 	Body struct {
-		Keys []auth.SSHKey `json:"keys"`
+		Keys []auth.SSHKey `json:"keys" doc:"The SSH public keys"`
 	}
 }
 
@@ -153,7 +153,7 @@ type linkStartOutput struct {
 
 type linksOutput struct {
 	Body struct {
-		Links []identity.LinkView `json:"links"`
+		Links []identity.LinkView `json:"links" doc:"The outside identities linked to your user"`
 	}
 }
 
@@ -163,14 +163,14 @@ type linkProviderPath struct {
 
 type mfaOptionsOutput struct {
 	Body struct {
-		Methods []identity.MFAOption `json:"methods"`
+		Methods []identity.MFAOption `json:"methods" doc:"The second steps add-ons provide"`
 	}
 }
 
 type mfaFinishInput struct {
 	ID   store.ID `path:"id"`
 	Body struct {
-		Ceremony string `json:"ceremony"`
+		Ceremony string `json:"ceremony" doc:"The ceremony the step's first half answered with"`
 		Response string `json:"response,omitempty" maxLength:"256" doc:"What the method asked the person for; empty for methods without input"`
 	}
 }
@@ -178,8 +178,8 @@ type mfaFinishInput struct {
 // AlertChannelTypeView is a kind of channel security alerts can go to, with
 // the schema of its settings.
 type AlertChannelTypeView struct {
-	ID       string          `json:"id"`
-	Title    string          `json:"title"`
+	ID       string          `json:"id" doc:"The channel type, or provider:<name> for one an add-on provides"`
+	Title    string          `json:"title" doc:"What the channel type is called"`
 	Secrets  []string        `json:"secrets,omitempty" doc:"The settings that hold secrets, which are kept encrypted with the rest and never shown again"`
 	Settings json.RawMessage `json:"settings,omitempty" doc:"The JSON Schema of the channel's settings"`
 }
