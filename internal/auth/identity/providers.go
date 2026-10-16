@@ -442,7 +442,7 @@ func (s *Service) link(ctx context.Context, actor *auth.Actor, u *User, p *store
 }
 
 func (s *Service) userByEmail(ctx context.Context, email string) (*User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = NormalizeEmail(email)
 	var found []*store.Object[UserSpec, UserStatus]
 	err := s.eachUser(ctx, store.Query{Index: map[string]string{"email": email}}, func(u *store.Object[UserSpec, UserStatus]) error {
 		found = append(found, u)

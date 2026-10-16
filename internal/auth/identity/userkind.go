@@ -139,6 +139,12 @@ var (
 // NormalizeUsername is how usernames are compared: trimmed and lowercase.
 func NormalizeUsername(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
 
+// NormalizeEmail is how email addresses are compared: trimmed and
+// lowercase, as the users' email index keeps them and outside sign-in looks
+// them up. Unicode's case folding counts more addresses as one, such as
+// those with a long s, which the index tells apart.
+func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
+
 func defaultUser(ctx context.Context, obj *store.Object[UserSpec, UserStatus]) error {
 	normalize(&obj.Spec)
 	return nil
@@ -296,7 +302,7 @@ func ownSignIn(actor *auth.Actor, id store.ID, old, next UserSpec) error {
 	if actor.Person() != id || (actor.Type == auth.ActorUser && actor.Impersonator == "") {
 		return nil
 	}
-	if old.Username == next.Username && strings.EqualFold(old.Email, next.Email) && slices.Equal(old.AllowFrom, next.AllowFrom) &&
+	if old.Username == next.Username && NormalizeEmail(old.Email) == NormalizeEmail(next.Email) && slices.Equal(old.AllowFrom, next.AllowFrom) &&
 		sameKeys(old.SSHKeys, next.SSHKeys) {
 		return nil
 	}
@@ -308,13 +314,14 @@ func ownSignIn(actor *auth.Actor, id store.ID, old, next UserSpec) error {
 
 // SignInMatchChanged reports whether a change of a user's settings changes
 // what outside sign-in matches people to them by: their username or their
-// email address, case aside. The first time someone signs in through a
-// provider that matches by one of them, it decides which user they become,
-// so such a change could become a way in that outlasts whoever makes it,
-// and people in the panel confirm it's them first.
+// email address, compared as the matching compares them. The first time
+// someone signs in through a provider that matches by one of them, it
+// decides which user they become, so such a change could become a way in
+// that outlasts whoever makes it, and people in the panel confirm it's them
+// first.
 func SignInMatchChanged(before, after UserSpec) bool {
 	return NormalizeUsername(before.Username) != NormalizeUsername(after.Username) ||
-		!strings.EqualFold(strings.TrimSpace(before.Email), strings.TrimSpace(after.Email))
+		NormalizeEmail(before.Email) != NormalizeEmail(after.Email)
 }
 
 // ApplyProfile returns a user's settings with the update_profile action's

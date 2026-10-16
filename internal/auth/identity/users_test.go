@@ -437,8 +437,17 @@ func TestOwnSignInTakesThePanel(t *testing.T) {
 	if _, err := h.update(viewing, owen.ID, func(s *UserSpec) { s.AllowFrom = []string{"203.0.113.0/24"} }); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("someone viewing as the user changing where they sign in from = %v", err)
 	}
-	// What doesn't sign anyone in goes through.
-	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Name = "Owen Owner" }); err != nil {
+	// Nor an address that only Unicode's case folding would count as the
+	// one he has, which outside sign-in tells apart.
+	if _, err := h.update(root(), owen.ID, func(s *UserSpec) { s.Email = "owen@shop.example" }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Email = "owen@\u017fhop.example" }); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token giving its user an address with a long s = %v", err)
+	}
+	// What doesn't sign anyone in goes through, his address in capitals
+	// included.
+	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Name, s.Email = "Owen Owner", "Owen@Shop.example" }); err != nil {
 		t.Errorf("a token renaming its user = %v", err)
 	}
 	// Others with the permission add keys, and the user hears about it.
@@ -481,6 +490,43 @@ func TestSignInMatch(t *testing.T) {
 	}
 	if _, err := ApplyProfile(ada, json.RawMessage(`{"email":"not an address"}`)); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("a bad address = %v", err)
+	}
+}
+
+// A change counts as giving a user another address exactly when it changes
+// whom the address finds: addresses are compared as the users' email index
+// keeps them and outside sign-in looks them up, which tells apart letters
+// that Unicode's case folding counts as one.
+func TestSignInMatchFollowsTheIndex(t *testing.T) {
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	sam := h.user("sam", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	for _, tc := range []struct{ has, next string }{
+		{"sam@example.com", "sam@example.com"},
+		{"sam@example.com", " SAM@Example.COM "},
+		{"sam@example.com", "\u017fam@example.com"},
+		{"\u00b5@example.com", "\u03bc@example.com"},
+		{"\u03c3@example.com", "\u03c2@example.com"},
+		{"\u03c3@example.com", "\u03a3@example.com"},
+		{"sam@example.com", "sam@example.org"},
+	} {
+		if _, err := h.update(root(), sam.ID, func(s *UserSpec) { s.Email = tc.has }); err != nil {
+			t.Fatal(err)
+		}
+		u, err := h.svc.userByEmail(h.ctx, tc.next)
+		finds := err == nil && u.ID == sam.ID
+		if err != nil && !store.ErrNotFound.Is(err) {
+			t.Fatal(err)
+		}
+		obj, err := UserKind.Get(h.ctx, h.resources, sam.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, after := obj.Spec, obj.Spec
+		after.Email = tc.next
+		if changed := SignInMatchChanged(before, after); changed == finds {
+			t.Errorf("%q after %q: changed = %t, but it finds sam = %t", tc.next, tc.has, changed, finds)
+		}
 	}
 }
 
