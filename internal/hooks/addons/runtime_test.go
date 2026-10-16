@@ -94,8 +94,11 @@ type fakeAddon struct {
 	stray       bool
 	failDeletes bool
 	// adds are changes its modify hook's answers add, as JSON objects, so
-	// they say exactly what an add-on's process could.
-	adds []map[string]any
+	// they say exactly what an add-on's process could; rewrite, when set,
+	// is what its modify hook does to the specs of the changes it's sent,
+	// in place of putting sites behind the CDN.
+	adds    []map[string]any
+	rewrite func(spec map[string]any)
 }
 
 // kindCall is one plan or apply the fake add-on was asked for.
@@ -128,7 +131,7 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 		}
 		f.mu.Lock()
 		f.calls = append(f.calls, call)
-		notes, adds := f.notes, slices.Clone(f.adds)
+		notes, adds, rewrite := f.notes, slices.Clone(f.adds), f.rewrite
 		f.mu.Unlock()
 		var reply hooks.HookReply
 		switch call.Kind {
@@ -145,9 +148,14 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 			for _, i := range call.Changes {
 				var spec map[string]any
 				json.Unmarshal(cs.Changes[i].After, &spec)
-				spec["cdn"] = "on"
-				if notes {
-					spec["notes"] = "the add-on was here"
+				switch {
+				case rewrite != nil:
+					rewrite(spec)
+				default:
+					spec["cdn"] = "on"
+					if notes {
+						spec["notes"] = "the add-on was here"
+					}
 				}
 				cs.Changes[i].After, _ = json.Marshal(spec)
 			}
@@ -1111,11 +1119,133 @@ func TestModifyHooksApproveNothingOnlyAdminsMay(t *testing.T) {
 	e.fake.mu.Unlock()
 	acct := e.newAccount(t)
 	_, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, Spec: spec(t, siteSpec{Domains: []string{"shop.example"}})})
-	if !errors.Is(err, hooks.ErrDenied) || !errors.Is(err, ErrAdminApproval) || !strings.Contains(i18n.From(err).Message, "secrets.read") {
+	if !errors.Is(err, hooks.ErrDenied) || !errors.Is(err, ErrHookApproval) || !strings.Contains(i18n.From(err).Message, "secrets.read") ||
+		!strings.Contains(i18n.From(err).Message, "Site guard 0.3.0 tried") {
 		t.Errorf("a modify hook approving secrets.read: %v", err)
 	}
 	if got, _ := Addon.Get(ctx, e.store, plain.ID); got.Spec.Approved.Secrets {
 		t.Error("the other add-on may read secrets now")
+	}
+}
+
+// approverManifest is an add-on allowed to change what other add-ons were
+// approved for, whose modify hook joins every change of an add-on.
+const approverManifest = `
+format: 1
+id: approver
+name: Approver
+version: 0.1.0
+license: Apache-2.0
+source: https://example.com/approver
+author: Example
+description: Approves what add-ons ask for.
+apiVersions: [v1]
+hooks:
+  - {point: core.addon.update.plan, kind: modify}
+permissions:
+  hooks: [modify]
+  read: [{kind: core.addon}]
+  write: [{kind: core.addon, fields: [approved, enabled]}]
+`
+
+// A modify hook that rewrites the very change a server admin asked for
+// approves nothing only an admin may in it, and gives an add-on that holds
+// such a permission no new program, whatever the add-on may write; what the
+// admin asked for stays theirs.
+func TestModifyHooksApproveNothingInTheChangesTheyRewrite(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	// The site guard is the admin's own, from no catalog that would pin its
+	// program.
+	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, withKinds(t, guardManifest))})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing the site guard: %v %+v", err, cs)
+	}
+	guardID := cs.Changes[0].ID
+	approver := withKinds(t, approverManifest)
+	approver.ID = "approver"
+	cs, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, approver)})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing the approver: %v %+v", err, cs)
+	}
+	fake := &fakeAddon{}
+	fake.serve(t, filepath.Join(e.dir, "approver.sock"))
+	if err := e.runner.Reconcile(ctx, cs.Changes[0].ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, ok := e.runtime.Running("approver"); !ok {
+		t.Fatal("the approver isn't running")
+	}
+	rewrite := func(fn func(spec map[string]any)) {
+		fake.mu.Lock()
+		fake.rewrite = fn
+		fake.mu.Unlock()
+	}
+	turnOff := func() (*changeset.ChangeSet, error) {
+		t.Helper()
+		obj, err := Addon.Get(ctx, e.store, guardID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		off := obj.Spec
+		off.Enabled = false
+		return e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: guardID, Revision: obj.Revision, Spec: spec(t, off)})
+	}
+
+	// The admin turns the site guard off, and the approver's answer gives
+	// it secrets.read and core.override.
+	rewrite(func(spec map[string]any) {
+		approved, _ := spec["approved"].(map[string]any)
+		approved["secrets"], approved["override"] = true, true
+	})
+	if _, err := turnOff(); !errors.Is(err, hooks.ErrDenied) || !errors.Is(err, ErrHookApproval) || !strings.Contains(i18n.From(err).Message, "Approver 0.1.0") {
+		t.Errorf("a modify hook approving what only admins may in the admin's change: %v", err)
+	}
+	if got, _ := Addon.Get(ctx, e.store, guardID); got.Spec.Approved.Secrets || got.Spec.Approved.Override || !got.Spec.Enabled {
+		t.Errorf("the site guard after the approver's answer = %+v", got.Spec)
+	}
+
+	// Someone who isn't an admin asking for it in a change the approver
+	// rewrites is refused as they would be anyway, for what they asked.
+	obj, _ := Addon.Get(ctx, e.store, guardID)
+	trusted := obj.Spec
+	trusted.Approved.Secrets = true
+	rewrite(func(spec map[string]any) { spec["enabled"] = false })
+	collaborator := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "collaborator", Source: auth.SourceAPI, Grants: []auth.Grant{{
+		Role: auth.RoleCollaborator, Scope: store.ServerScope(), Permissions: []auth.Permission{"core.addon.read", "core.addon.update"},
+	}}}
+	if _, err := e.submit(collaborator, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: guardID, Revision: obj.Revision, Spec: spec(t, trusted)}); !errors.Is(err, ErrAdminApproval) {
+		t.Errorf("a collaborator approving secrets.read in a change a hook rewrote: %v", err)
+	}
+
+	// An admin approves secrets.read for the site guard themselves, and the
+	// approver turns it off in the same change: the approval is the admin's.
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: guardID, Revision: obj.Revision, Spec: spec(t, trusted)}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("an admin's approval in a change a hook rewrote: %v %+v", err, cs)
+	}
+	if got, _ := Addon.Get(ctx, e.store, guardID); !got.Spec.Approved.Secrets || got.Spec.Enabled {
+		t.Errorf("the site guard after the admin's approval = %+v", got.Spec)
+	}
+
+	// Now that it holds secrets.read, nothing but an admin gives it another
+	// program, not even in a change of the admin's.
+	rewrite(func(spec map[string]any) {})
+	manifest := strings.Replace(approverManifest, "fields: [approved, enabled]", "fields: [approved, enabled, package]", 1)
+	wider := withKinds(t, manifest)
+	wider.ID = "approver"
+	obj, _ = Addon.Get(ctx, e.store, cs.Changes[0].ID)
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: obj.ID, Revision: obj.Revision, Spec: spec(t, wider)}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("letting the approver change programs: %v %+v", err, cs)
+	}
+	rewrite(func(spec map[string]any) {
+		pkg, _ := spec["package"].(map[string]any)
+		pkg["sha256"] = strings.Repeat("ef", 32)
+	})
+	if _, err := turnOff(); !errors.Is(err, ErrHookApproval) || !strings.Contains(i18n.From(err).Message, "secrets.read") {
+		t.Errorf("a modify hook swapping the program of an add-on that reads secrets: %v", err)
+	}
+	if got, _ := Addon.Get(ctx, e.store, guardID); got.Spec.Package.SHA256 == strings.Repeat("ef", 32) {
+		t.Error("the site guard runs the approver's program now")
 	}
 }
 

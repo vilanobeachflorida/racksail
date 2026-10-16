@@ -111,6 +111,9 @@ var (
 	// ErrAdminApproval refuses approving what only a server admin may
 	// approve to someone who isn't one.
 	ErrAdminApproval = i18n.Define("addons.admin_approval", http.StatusForbidden, "Only a server admin can approve {permission} for {addon}.")
+	// ErrHookApproval refuses what a hook contributed to a change that
+	// would approve what only a server admin may, which no hook is.
+	ErrHookApproval = i18n.Define("addons.hook_approval", http.StatusForbidden, "{source} tried to approve {permission} for {addon}, which only a server admin can do.")
 	// ErrNotInCatalog refuses an add-on that isn't what the catalog it
 	// names offers.
 	ErrNotInCatalog = i18n.Define("addons.not_in_catalog", http.StatusForbidden, "{addon} isn't what the {catalog} catalog offers: {reason}.")

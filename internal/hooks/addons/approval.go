@@ -88,10 +88,12 @@ func specs(ch *changeset.ResourceChange) (after, before AddonSpec, ok bool) {
 
 // checkApproval refuses a change that gives a server's add-on, or a new
 // program of one, a permission only a server admin may approve, unless a
-// server admin makes it. Giving up such a permission, or changing what
-// doesn't widen it, such as turning the add-on off, needs no admin. A
-// change an add-on's modify hook added is the add-on's, not that of the
-// person whose change it joined, and no add-on is a server admin.
+// server admin asked for it. Giving up such a permission, or changing what
+// doesn't widen it, such as turning the add-on off, needs no admin. What
+// modify hooks contribute is theirs, not the person's whose change they
+// joined, and no hook is a server admin: a change a hook added approves
+// nothing only an admin may, and of a change a hook rewrote, the person
+// approves only what they asked for, for the program they asked for.
 func (r *Runtime) checkApproval(ctx context.Context, c *hooks.Context) error {
 	ch := c.Change
 	if ch == nil || (ch.Op != changeset.OpCreate && ch.Op != changeset.OpUpdate) {
@@ -103,20 +105,71 @@ func (r *Runtime) checkApproval(ctx context.Context, c *hooks.Context) error {
 		return nil
 	}
 	need := adminOnly(after.Approved)
-	approver := c.Actor
-	if ch.Source.Type == hooks.OwnerAddon {
-		approver = nil
-	}
-	if len(need) == 0 || serverAdmin(approver) {
+	if len(need) == 0 {
 		return nil
 	}
-	had := adminOnly(before.Approved)
-	for _, p := range need {
-		if ch.Op == changeset.OpCreate || !slices.Contains(had, p) || !sameProgram(before, after) {
-			return ErrAdminApproval.New("permission", p, "addon", addonName(after))
+	asked, approver := after, c.Actor
+	switch {
+	case ch.Source != changeset.RequestSource:
+		approver = nil
+	case c.Requested != nil:
+		asked = AddonSpec{}
+		if json.Unmarshal(c.Requested.After, &asked) != nil {
+			approver = nil
 		}
 	}
+	admin := serverAdmin(approver)
+	approved, had := adminOnly(asked.Approved), adminOnly(before.Approved)
+	for _, p := range need {
+		// The person asked for it as it is now, for this program.
+		theirs := ch.Source == changeset.RequestSource && slices.Contains(approved, p) && sameProgram(asked, after)
+		if admin && theirs {
+			continue
+		}
+		if ch.Op == changeset.OpUpdate && slices.Contains(had, p) && sameProgram(before, after) {
+			continue
+		}
+		if by := r.contributors(c); by != "" && !theirs {
+			return ErrHookApproval.New("source", by, "permission", p, "addon", addonName(after))
+		}
+		return ErrAdminApproval.New("permission", p, "addon", addonName(after))
+	}
 	return nil
+}
+
+// contributors names the hooks that added the change a validate hook
+// decides on, or rewrote it, as the preview labels them: an add-on by its
+// name and version.
+func (r *Runtime) contributors(c *hooks.Context) string {
+	var sources []changeset.Source
+	if c.Change.Source != changeset.RequestSource {
+		sources = append(sources, c.Change.Source)
+	} else if c.Requested != nil && c.ChangeSet != nil {
+		at := -1
+		for i := range c.ChangeSet.Changes {
+			if &c.ChangeSet.Changes[i] == c.Change {
+				at = i
+			}
+		}
+		for _, con := range c.ChangeSet.Contributions {
+			if slices.Contains(con.Changes, at) && !slices.Contains(sources, con.Source) {
+				sources = append(sources, con.Source)
+			}
+		}
+	}
+	names := make([]string, 0, len(sources))
+	for _, s := range sources {
+		name := s.Type + ":" + s.Name
+		if s.Type == hooks.OwnerAddon {
+			if _, man, _, _, ok := r.Running(s.Name); ok {
+				name = man.Name + " " + man.Version
+			}
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // checkCatalog refuses an add-on that names a catalog, as every account's

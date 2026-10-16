@@ -279,32 +279,39 @@ func (g Grants) FilterChangeSet(cs *changeset.ChangeSet) *changeset.ChangeSet {
 		g.keepOwn(c)
 	}
 	for i := range c.Changes {
-		ch := &c.Changes[i]
-		fields, ok := g.CanRead(ch.Kind)
-		switch {
-		case !g.InScope(ch.Scope):
-			*ch = changeset.ResourceChange{Op: ch.Op, Source: ch.Source}
-		case !ok:
-			redact(ch)
-		default:
-			ch.Before, ch.After = project(ch.Before, fields), project(ch.After, fields)
-			ch.Input, ch.Output = nil, nil
-			if fields != nil {
-				var kept []changeset.FieldDiff
-				for _, d := range ch.Diff {
-					if pathAllowed(d.Path, fields) {
-						kept = append(kept, d)
-					}
-				}
-				ch.Diff = kept
-			}
-			if !g.CanReadLabels(ch.Kind) {
-				ch.Labels, ch.LabelsBefore = nil, nil
-			}
-			ch.Steps, ch.Checks = nil, nil
-		}
+		g.filterChange(&c.Changes[i])
 	}
 	return c
+}
+
+// filterChange leaves one change what the add-on may see of it: of a kind
+// it may read, the fields it may read and the labels when it may see them;
+// of any other kind, only what happens to which resource; and outside an
+// account add-on's account, nothing but what the change does.
+func (g Grants) filterChange(ch *changeset.ResourceChange) {
+	fields, ok := g.CanRead(ch.Kind)
+	switch {
+	case !g.InScope(ch.Scope):
+		*ch = changeset.ResourceChange{Op: ch.Op, Source: ch.Source}
+	case !ok:
+		redact(ch)
+	default:
+		ch.Before, ch.After = project(ch.Before, fields), project(ch.After, fields)
+		ch.Input, ch.Output = nil, nil
+		if fields != nil {
+			var kept []changeset.FieldDiff
+			for _, d := range ch.Diff {
+				if pathAllowed(d.Path, fields) {
+					kept = append(kept, d)
+				}
+			}
+			ch.Diff = kept
+		}
+		if !g.CanReadLabels(ch.Kind) {
+			ch.Labels, ch.LabelsBefore = nil, nil
+		}
+		ch.Steps, ch.Checks = nil, nil
+	}
 }
 
 // keepOwn leaves a change set that reaches beyond an account add-on's
@@ -506,8 +513,11 @@ func relabels(c changeset.ResourceChange) bool {
 // all of it. A scope that covers the whole kind allows anything. A scope
 // with limits allows creating and changing its fields, and deleting,
 // running actions and changing labels only as far as it names them, since
-// a delete, an action or new labels carry no change of a field to check.
-func (g Grants) CheckWrite(name string, c changeset.ResourceChange) error {
+// a delete, an action or new labels carry no change of a field to check. A
+// new resource may have more than those fields where the kind fills them
+// in by itself: what counts is what differs from the kind's defaults for
+// the fields the add-on may set.
+func (g Grants) CheckWrite(ctx context.Context, name string, c changeset.ResourceChange) error {
 	a := g.Writes(c.Kind)
 	if !a.Granted || !g.InScope(c.Scope) {
 		return ErrFieldDenied.New("addon", name, "field", "anything", "kind", c.Kind)
@@ -533,12 +543,37 @@ func (g Grants) CheckWrite(name string, c changeset.ResourceChange) error {
 		return ErrLabelsDenied.New("addon", name, "kind", c.Kind)
 	}
 	fields := a.fields()
-	for _, d := range c.Diff {
+	diffs := c.Diff
+	if c.Op == changeset.OpCreate {
+		var err error
+		if diffs, err = g.beyondDefaults(ctx, c, fields); err != nil {
+			return ErrFieldDenied.New("addon", name, "field", "its settings", "kind", c.Kind)
+		}
+	}
+	for _, d := range diffs {
 		if !pathAllowed(d.Path, fields) {
 			return ErrFieldDenied.New("addon", name, "field", d.Path, "kind", c.Kind)
 		}
 	}
 	return nil
+}
+
+// beyondDefaults returns how a new resource's spec differs from what its
+// kind fills in for the fields given alone: the fields whoever creates it
+// chose themselves, apart from those.
+func (g Grants) beyondDefaults(ctx context.Context, c changeset.ResourceChange, fields []string) ([]changeset.FieldDiff, error) {
+	k, ok := g.kind(c.Kind)
+	if !ok {
+		return c.Diff, nil
+	}
+	base := &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope, Server: c.Server}, Spec: project(c.After, fields)}
+	if len(base.Spec) == 0 {
+		base.Spec = json.RawMessage("{}")
+	}
+	if err := k.Default(ctx, base); err != nil {
+		return nil, err
+	}
+	return changeset.Diff(base.Spec, c.After)
 }
 
 // CheckAdded returns why an add-on, called name in the error, may not make

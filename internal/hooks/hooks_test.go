@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -316,6 +317,74 @@ func TestModifyHooksCantChangeWhatIsAuthorized(t *testing.T) {
 		}
 		if got, err := st.Get(ctx, site.ID); err != nil || got.Deleted() || !strings.Contains(string(got.Spec), "b.test") {
 			t.Errorf("the site was updated, not deleted: %+v, %v", got, err)
+		}
+	}
+}
+
+// Validate hooks decide again on a change a modify hook rewrote, and are
+// told what was asked for then, so what the hook contributed can't pass for
+// the actor's.
+func TestValidateHooksSeeWhatWasAsked(t *testing.T) {
+	ctx := context.Background()
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(siteKind); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewMemory(kinds)
+	acct := store.NewID("acct")
+	site := &store.Resource{Meta: store.Meta{Kind: "web.site", Scope: store.AccountScope(acct)}, Spec: json.RawMessage(`{"domains":["a.test"]}`)}
+	if err := st.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, site) }); err != nil {
+		t.Fatal(err)
+	}
+	r := newRegistry()
+	if err := r.Register(Registration{Point: "web.site.update.plan", Kind: Modify, Owner: "addon:rewriter",
+		OnModify: func(ctx context.Context, c *Context) error {
+			c.ChangeSet.Changes[0].After = json.RawMessage(`{"domains":["a.test","rewritten.test"]}`)
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	type seen struct{ change, asked string }
+	var calls []seen
+	if err := r.Register(Registration{Point: "web.site.update.validate", Kind: Validate, Owner: "module:watcher",
+		OnValidate: func(ctx context.Context, c *Context) error {
+			s := seen{change: string(c.Change.After)}
+			if c.Requested != nil {
+				s.asked = string(c.Requested.After)
+			}
+			calls = append(calls, s)
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := changeset.NewEngine(changeset.Options{Store: st, Kinds: kinds, Jobs: jobs.NewMemory(ctx, jobs.MemoryOptions{}), Hooks: &Runner{Registry: r}, Authorizer: auth.NewRoleAuthorizer(nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	asked := `{"domains":["a.test","b.test"]}`
+	if _, err := engine.Submit(ctx, changeset.Request{Actor: admin, DryRun: true, Changes: []changeset.Change{{
+		Op: changeset.OpUpdate, Kind: "web.site", ID: site.ID, Spec: json.RawMessage(asked),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []seen{{change: asked}, {change: `{"domains":["a.test","rewritten.test"]}`, asked: asked}}
+	if len(calls) != len(want) {
+		t.Fatalf("the validate hook decided %d times: %+v", len(calls), calls)
+	}
+	for i, w := range want {
+		var got, exp any
+		json.Unmarshal([]byte(calls[i].change), &got)
+		json.Unmarshal([]byte(w.change), &exp)
+		if fmt.Sprint(got) != fmt.Sprint(exp) || (calls[i].asked == "") != (w.asked == "") {
+			t.Errorf("decision %d saw %+v, want %+v", i, calls[i], w)
+		}
+		if w.asked != "" {
+			json.Unmarshal([]byte(calls[i].asked), &got)
+			json.Unmarshal([]byte(w.asked), &exp)
+			if fmt.Sprint(got) != fmt.Sprint(exp) {
+				t.Errorf("decision %d was told %s was asked for, want %s", i, calls[i].asked, w.asked)
+			}
 		}
 	}
 }

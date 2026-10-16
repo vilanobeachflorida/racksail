@@ -182,6 +182,10 @@ type Context struct {
 	ChangeSet *changeset.ChangeSet
 	// Change is the change a validate hook decides on, in ChangeSet.
 	Change *changeset.ResourceChange
+	// Requested is Change as it was asked for, when validate hooks decide
+	// on it again after a modify hook rewrote its spec: what Change says
+	// then is partly the hooks', not the actor's. It is nil otherwise.
+	Requested *changeset.ResourceChange
 	// Changes are the indexes in ChangeSet.Changes of the changes a modify
 	// or observe hook's point is about. Other changes of the same change set
 	// can be read but belong to other points.
@@ -779,6 +783,7 @@ func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.Chang
 			at = i
 		}
 	}
+	asked, rewritten := changeset.Requested(ctx)
 	return r.validate(ctx, Point(point), func() *Context {
 		c := &Context{Point: Point(point), ChangeSet: cs.Clone(), Actor: cs.Actor.Clone()}
 		switch {
@@ -787,6 +792,10 @@ func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.Chang
 		case change != nil:
 			copied := change.Clone()
 			c.Change = &copied
+		}
+		if rewritten && c.Change != nil && asked.ID == c.Change.ID && asked.Kind == c.Change.Kind {
+			copied := asked.Clone()
+			c.Requested = &copied
 		}
 		return c
 	})

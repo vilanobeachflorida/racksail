@@ -172,6 +172,8 @@ func onlyCDN(spec, was json.RawMessage) bool {
 func FuzzFilterBody(f *testing.F) {
 	f.Add([]byte(`{"items":[{"id":"site_1","kind":"web.site","scope":{"level":"account","id":"acct_01j9x3k4m5n6p7q8r9s0t1v2w3"},"spec":{"domains":["a.example"],"notes":"private"}}]}`))
 	f.Add([]byte(`[{"kind":"core.addon","spec":{"id":"x"}},1,"a",null]`))
+	f.Add([]byte(`{"items":[{"id":"site_1","kind":"web.site","labels":{"team":"red"},"status":{"phase":"ready","message":"private"}},{"id":"zone_1","kind":"dns.zone","status":{"serial":7}}]}`))
+	f.Add([]byte(`{"last":{"op":"update","kind":"web.site","id":"site_1","source":{"type":"request"},"before":{"notes":"private"},"labels":{"team":"red"},"diff":[{"path":"notes"}]}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		out := filterBody(data, fuzzGrants, "web.site")
 		if json.Valid(data) && (out == nil || !json.Valid(out)) {
@@ -187,8 +189,12 @@ func FuzzFilterBody(f *testing.F) {
 }
 
 // unreadable finds what fuzzGrants don't let the add-on see in a filtered
-// answer: of a resource with a spec, fields beyond domains and cdn, a
-// status beyond its phase, or labels.
+// answer. Of a resource, an object with a spec or one that names its kind
+// and its ID, as one cut down to some fields does: fields beyond domains
+// and cdn, a status beyond its phase, or labels, and of a resource of
+// another kind, any of them. Of a change, one that also says its operation
+// and source: settings beyond those fields, of another kind any, and its
+// labels, input, output, steps and checks.
 func unreadable(v any) string {
 	switch x := v.(type) {
 	case []any:
@@ -198,18 +204,66 @@ func unreadable(v any) string {
 			}
 		}
 	case map[string]any:
-		if spec, ok := x["spec"]; ok {
-			if kind, named := x["kind"].(string); named && kind != "web.site" {
-				return "the spec of a " + kind
+		kind, named := x["kind"].(string)
+		_, hasSpec := x["spec"]
+		_, hasID := x["id"].(string)
+		_, hasOp := x["op"].(string)
+		_, hasSource := x["source"]
+		if !named {
+			kind = "web.site"
+		}
+		switch {
+		case named && hasID && hasOp && hasSource && !hasSpec:
+			for _, key := range []string{"labels", "labelsBefore", "input", "output", "steps", "checks"} {
+				if _, ok := x[key]; ok {
+					return "the " + key + " of a change"
+				}
 			}
-			if m, ok := spec.(map[string]any); ok {
+			for _, key := range []string{"before", "after"} {
+				doc, present := x[key]
+				if !present || doc == nil {
+					continue
+				}
+				m, ok := doc.(map[string]any)
+				if kind != "web.site" || !ok {
+					return "the settings of a change to a " + kind
+				}
 				for k := range m {
 					if k != "domains" && k != "cdn" {
-						return "the spec's " + k
+						return "the settings' " + k + " in a change"
 					}
 				}
-			} else if spec != nil {
-				return "a spec that isn't an object"
+			}
+			if diff, ok := x["diff"].([]any); ok {
+				for _, d := range diff {
+					entry, _ := d.(map[string]any)
+					path, _ := entry["path"].(string)
+					if kind != "web.site" || !pathAllowed(path, []string{"domains", "cdn"}) {
+						return "the change of " + path
+					}
+				}
+			} else if _, ok := x["diff"]; ok {
+				return "a diff that isn't a list"
+			}
+			return ""
+		case hasSpec || (named && hasID):
+			if kind != "web.site" {
+				for _, key := range []string{"spec", "status", "labels"} {
+					if _, ok := x[key]; ok {
+						return "the " + key + " of a " + kind
+					}
+				}
+			}
+			if spec, ok := x["spec"]; ok {
+				if m, ok := spec.(map[string]any); ok {
+					for k := range m {
+						if k != "domains" && k != "cdn" {
+							return "the spec's " + k
+						}
+					}
+				} else if spec != nil {
+					return "a spec that isn't an object"
+				}
 			}
 			if st, ok := x["status"].(map[string]any); ok {
 				for k := range st {

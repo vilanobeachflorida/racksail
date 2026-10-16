@@ -97,6 +97,59 @@ func TestLimitedWriteScopes(t *testing.T) {
 	}
 }
 
+type pageSpec struct {
+	Title string `json:"title"`
+	Theme string `json:"theme,omitempty"`
+}
+
+// pageKind fills in a page's theme when it has none.
+var pageKind = store.Define[pageSpec, store.Status](store.KindInfo{
+	Name: "web.page", Prefix: "page", Scope: store.ScopeAccount, Title: "Page", Plural: "pages", Description: "A page.",
+}).WithDefaults(func(ctx context.Context, obj *store.Object[pageSpec, store.Status]) error {
+	if obj.Spec.Theme == "" {
+		obj.Spec.Theme = "plain"
+	}
+	return nil
+})
+
+// An add-on allowed some fields of a kind creates resources with those
+// fields, and the kind fills in the rest as it would for anyone; it only
+// chooses them itself where its permissions say.
+func TestLimitedWriteScopesCreateWithTheKindsDefaults(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	if err := e.kinds.Register(pageKind); err != nil {
+		t.Fatal(err)
+	}
+	e.registry.DeclareKind(pageKind)
+	manifest := strings.Replace(guardManifest, "write: [{kind: web.site, fields: [cdn]}]", "write: [{kind: web.site, fields: [cdn]}, {kind: web.page, fields: [title]}]", 1)
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, withKinds(t, manifest))}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing: %v %+v", err, cs)
+	}
+	resource, man, grants, _, ok := e.runtime.Running("site-guard")
+	if !ok {
+		t.Fatal("site-guard isn't running")
+	}
+	actor := grants.Actor(resource, man.ID)
+	acct := e.newAccount(t)
+	create := func(s string) (*changeset.ChangeSet, error) {
+		return e.submit(actor, changeset.Change{Op: changeset.OpCreate, Kind: "web.page", Scope: acct, Spec: json.RawMessage(s)})
+	}
+	cs, err := create(`{"title":"Home"}`)
+	if err != nil {
+		t.Fatalf("a page with the field it may set: %v", err)
+	}
+	if page, err := pageKind.Get(ctx, e.store, cs.Changes[0].ID); err != nil || page.Spec.Theme != "plain" || page.Spec.Title != "Home" {
+		t.Errorf("the page = %+v, %v", page, err)
+	}
+	if _, err := create(`{"title":"About","theme":"plain"}`); err != nil {
+		t.Errorf("a page with what its kind fills in anyway: %v", err)
+	}
+	if _, err := create(`{"title":"Prices","theme":"dark"}`); !ErrFieldDenied.Is(err) || !strings.Contains(i18n.From(err).Message, "theme") {
+		t.Errorf("a page with a theme of its own: %v", err)
+	}
+}
+
 func TestWriteScopeChecks(t *testing.T) {
 	acct := store.AccountScope(store.NewID("acct"))
 	site := store.NewID("site")
@@ -124,7 +177,7 @@ func TestWriteScopeChecks(t *testing.T) {
 		{"another action", actionOnly, changeset.ResourceChange{Op: changeset.OpAction, Action: "deploy", Kind: "web.site", ID: site, Scope: acct}, ErrActionDenied.Code},
 		{"any field with only an action", actionOnly, changeset.ResourceChange{Op: changeset.OpUpdate, Kind: "web.site", ID: site, Scope: acct, Diff: []changeset.FieldDiff{{Path: "cdn"}}}, ErrFieldDenied.Code},
 	} {
-		err := tc.grants.CheckWrite("Site guard", tc.change)
+		err := tc.grants.CheckWrite(context.Background(), "Site guard", tc.change)
 		if got := i18n.CodeOf(err); got != tc.code {
 			t.Errorf("%s: %v, want %q", tc.name, err, tc.code)
 		}
@@ -333,9 +386,23 @@ func TestLimitedReadScopes(t *testing.T) {
 			`{"id":"` + string(zone) + `","kind":"dns.zone","labels":{"team":"red"},"spec":{"name":"a.example"},"status":{"phase":"ready","serial":7}}]}`,
 		"/api/v1/web/sites/" + string(site) + "/history": `{"versions":[{"generation":1,"spec":{"domains":["a.example"],"notes":"private"},"labels":{"team":"red"}}]}`,
 		"/api/v1/search": `{"results":[{"id":"` + string(site) + `","kind":"web.site","title":"private","phase":"ready"}]}`,
+		// Answers cut down to some fields have no spec.
+		"/api/v1/web/sites?fields=status": `{"items":[` +
+			`{"id":"` + string(site) + `","kind":"web.site","status":{"phase":"ready","message":"Serving a.example from /srv/private"}},` +
+			`{"id":"` + string(zone) + `","kind":"dns.zone","labels":{"team":"red"},"status":{"phase":"ready","serial":7}}]}`,
+		"/api/v1/resources/" + string(site) + "?fields=status,spec.domains": `{"id":"` + string(site) + `","kind":"web.site","spec":{"domains":["a.example"]},` +
+			`"status":{"phase":"ready","message":"Serving a.example from /srv/private"}}`,
+		"/api/v1/web/sites/" + string(site) + "?fields=status.phase": `{"id":"` + string(site) + `","kind":"web.site","status":{"phase":"ready"}}`,
+		// A change outside a change set, such as an answer could carry.
+		"/api/v1/web/sites/" + string(site): `{"id":"` + string(site) + `","kind":"web.site","spec":{"domains":["a.example"]},"last":{"op":"update","kind":"web.site","id":"` + string(site) +
+			`","scope":{"level":"server"},"source":{"type":"request"},"before":{"notes":"private"},"after":{"notes":"private","domains":["a.example"]},"labels":{"team":"red"},"diff":[{"path":"notes","op":"add","after":"private"}]}}`,
 	}
 	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if answer, ok := answers[r.URL.RequestURI()]; ok {
+			w.Write([]byte(answer))
+			return
+		}
 		w.Write([]byte(answers[r.URL.Path]))
 	})
 	g := &Gateway{Runtime: e.runtime, API: api, Store: e.store}
@@ -371,6 +438,33 @@ func TestLimitedReadScopes(t *testing.T) {
 	}
 	if rec := get("/api/v1/web/sites?domain=a.example&sort=domain"); rec.status != http.StatusOK {
 		t.Errorf("filtering by a field it may read = %d %s", rec.status, rec.body.String())
+	}
+
+	// What answers cut down to some fields have, the same.
+	for _, path := range []string{"/api/v1/web/sites?fields=status", "/api/v1/resources/" + string(site) + "?fields=status,spec.domains", "/api/v1/web/sites/" + string(site) + "?fields=status.phase"} {
+		rec := get(path)
+		body := rec.body.String()
+		if rec.status != http.StatusOK || !strings.Contains(body, `"phase":"ready"`) {
+			t.Errorf("%s = %d %s", path, rec.status, body)
+		}
+		for _, leak := range []string{"private", "team", "serial"} {
+			if strings.Contains(body, leak) {
+				t.Errorf("%s shows %s: %s", path, leak, body)
+			}
+		}
+	}
+	if body := get("/api/v1/web/sites/" + string(site)).body.String(); strings.Contains(body, "private") || strings.Contains(body, "team") || !strings.Contains(body, `"op":"update"`) {
+		t.Errorf("a change in an answer keeps only what the add-on may read: %s", body)
+	}
+	// Asking for the rest is refused, so whether it's there says nothing.
+	for _, path := range []string{
+		"/api/v1/web/sites?fields=labels,status", "/api/v1/web/sites?fields=spec.notes", "/api/v1/web/sites?fields=status.message",
+		"/api/v1/web/sites/" + string(site) + "?fields=labels", "/api/v1/resources/" + string(site) + "?fields=spec.domains,spec.notes",
+		"/api/v1/resources/" + string(site) + "?fields=status.phase.x",
+	} {
+		if rec := get(path); rec.status != http.StatusForbidden || !strings.Contains(rec.body.String(), "addons.fields_denied") {
+			t.Errorf("%s = %d %s", path, rec.status, rec.body.String())
+		}
 	}
 }
 

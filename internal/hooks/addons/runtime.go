@@ -908,7 +908,13 @@ func (r *Runtime) Hooks() []hooks.Registration {
 			if !ok {
 				return ErrUnknown.New("addon", c.Actor.Name)
 			}
-			return g.CheckWrite(man.Name, *c.Change)
+			// What the add-on asked for, apart from what modify hooks, such
+			// as rules filling in defaults, contributed to it.
+			asked := *c.Change
+			if c.Requested != nil {
+				asked = *c.Requested
+			}
+			return g.CheckWrite(ctx, man.Name, asked)
 		},
 	})
 }
