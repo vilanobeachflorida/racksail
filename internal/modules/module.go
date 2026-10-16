@@ -14,6 +14,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
@@ -42,7 +43,11 @@ type Services struct {
 	// backups.run.before, and its Registry lists providers and extensions.
 	Hooks      *hooks.Runner
 	Authorizer auth.Authorizer
-	Log        *slog.Logger
+	// Modules says which modules are on and turns them on and off.
+	Modules *Manager
+	// Rules runs the panel's CEL rules and tries rules out.
+	Rules *rules.Engine
+	Log   *slog.Logger
 }
 
 // KindProvider declares a module's kinds. Kind names must start with the
