@@ -398,9 +398,12 @@ func TestAppliedAndConfigPatches(t *testing.T) {
 	if len(seen) != 1 || seen[0] != 0 {
 		t.Errorf("observers learn which changes the point is about: %v", seen)
 	}
-	cfg, err := runner.PatchConfig(ctx, "caddy", "config", map[string]any{"listen": 443})
-	if err != nil || cfg["cdn"] != true || cfg["listen"] != 443 {
-		t.Errorf("patched config = %v, %v", cfg, err)
+	res, err := runner.PatchConfig(ctx, "caddy", "config", map[string]any{"listen": 443})
+	if err != nil || res.Config["cdn"] != true || res.Config["listen"] != 443 {
+		t.Errorf("patched config = %v, %v", res, err)
+	}
+	if len(res.Applied) != 1 || res.Applied[0].Owner != "addon:cdn" || res.Applied[0].Changed[0] != "cdn" {
+		t.Errorf("contributions = %+v", res.Applied)
 	}
 
 	// A hook that runs out of time leaves nothing behind, even though it
@@ -419,11 +422,14 @@ func TestAppliedAndConfigPatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := map[string]any{"routes": []any{"site"}}
-	cfg, err = (&Runner{Registry: slow}).PatchConfig(ctx, "caddy", "config", original)
+	res, err = (&Runner{Registry: slow}).PatchConfig(ctx, "caddy", "config", original)
 	close(release)
 	<-finished
-	if err != nil || cfg["late"] != nil || cfg["routes"].([]any)[0] != "site" || original["routes"].([]any)[0] != "site" {
-		t.Errorf("after a hook timed out = %v, %v (original %v)", cfg, err, original)
+	if err != nil || res.Config["late"] != nil || res.Config["routes"].([]any)[0] != "site" || original["routes"].([]any)[0] != "site" {
+		t.Errorf("after a hook timed out = %v, %v (original %v)", res, err, original)
+	}
+	if len(res.Refused) != 1 || res.Refused[0].Owner != "addon:slow" {
+		t.Errorf("refused = %+v", res.Refused)
 	}
 }
 
