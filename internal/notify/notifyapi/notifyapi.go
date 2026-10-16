@@ -214,6 +214,11 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
+		// A retry is answered before the preferences are read. The key is
+		// the person's: the actor the change is made as only adds a grant.
+		if earlier, err := api.Replayed(ctx, svc.Pipeline, in.ChangeParams); earlier != nil || err != nil {
+			return earlier, err
+		}
 		req, err := s.PreferencesRequest(ctx, person, in.Body)
 		if err != nil {
 			return nil, err

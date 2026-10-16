@@ -113,7 +113,7 @@ func (s *Server) replay(ctx context.Context, actor *auth.Actor, call changeset.C
 	if err != nil || cs == nil {
 		return nil, err
 	}
-	return &ChangeSetOutput{Status: http.StatusAccepted, Body: cs}, nil
+	return changeSetAnswer(cs), nil
 }
 
 // changeSet reads a change set the signed-in actor may see. Others are

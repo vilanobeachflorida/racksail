@@ -12,7 +12,6 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
-	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -775,15 +774,9 @@ func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
 
 // submitOwn sends a change of the person's own user through the change
 // pipeline. It names no revision, so the pipeline plans it again when
-// something else changed the user while it was planned.
+// something else changed the user while it was planned. A retry gets the
+// first change set before build reads the user, which no longer has the SSH
+// key the first request removed.
 func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func() (changeset.Request, error)) (*ChangeSetOutput, error) {
-	p := s.pipeline()
-	if p == nil {
-		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
-	}
-	req, err := build()
-	if err != nil {
-		return nil, err
-	}
-	return Submit(ctx, p, params, req)
+	return SubmitFunc(ctx, s.pipeline(), params, build)
 }
