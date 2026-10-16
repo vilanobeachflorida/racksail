@@ -340,7 +340,7 @@ func TestKindValidationAndHooks(t *testing.T) {
 		"long note":       {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x", "note": strings.Repeat("n", 41)}}, i18n.ErrInvalid.Code, "spec.note"},
 		"no scope":        {map[string]any{"spec": map[string]any{"domains": []string{"a.test"}, "content": "x"}}, i18n.ErrInvalid.Code, "body.scope"},
 		"no spec":         {map[string]any{"scope": scope}, i18n.ErrInvalid.Code, "body.spec"},
-		"unknown key":     {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x"}, "color": 1}, i18n.ErrBadRequest.Code, ""},
+		"unknown key":     {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x"}, "color": 1}, i18n.ErrInvalid.Code, "body.color"},
 		"hook denies":     {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"shop.invalid"}, "content": "x"}}, "hooks.denied", ""},
 	} {
 		resp := s.call("owner", "POST", sites+"?dryRun=true", tc.body, nil)
@@ -421,6 +421,88 @@ func TestValidationSaysWhatFieldsTake(t *testing.T) {
 		if p.Errors[0].Location != tc.location || p.Errors[0].Message != tc.message {
 			t.Errorf("%s: %+v", tc.name, p.Errors[0])
 		}
+	}
+}
+
+// The generated creates and updates read their bodies themselves, and say
+// what is wrong with one as the operations Huma reads bodies for do: a field
+// of the wrong type or one the body doesn't have is a field error in the
+// catalog's words, and a body cut short isn't JSON.
+func TestKindBodiesSayWhatFieldsTake(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	scope := `{"level": "account", "id": "` + string(s.account) + `"}`
+	spec := `{"domains": ["a.test"], "content": "x"}`
+	var cs changeset.ChangeSet
+	s.call("owner", "POST", "/api/v1/test/sites", map[string]any{"scope": json.RawMessage(scope), "spec": json.RawMessage(spec)}, &cs)
+	s.finish("owner", &cs)
+	site := "/api/v1/test/sites/" + string(cs.Changes[0].ID)
+	type problem struct {
+		Code   i18n.Code `json:"code"`
+		Detail string    `json:"detail"`
+		Errors []struct {
+			Location string    `json:"location"`
+			Code     i18n.Code `json:"code"`
+			Message  string    `json:"message"`
+		} `json:"errors"`
+	}
+	for _, tc := range []struct {
+		method, path, body string
+		status             int
+		code, field        i18n.Code
+		location, message  string
+	}{
+		{"POST", "/api/v1/test/sites", `{"scope": {"level": 3}, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.scope.level", "This value isn't valid: use text."},
+		{"POST", "/api/v1/test/sites", `{"id": 5, "scope": ` + scope + `, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.id", "This value isn't valid: use text."},
+		{"POST", "/api/v1/test/sites", `{"scope": ` + scope + `, "labels": {"team": 1}, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.labels.team", "This value isn't valid: use text."},
+		{"POST", "/api/v1/test/sites", `{"scope": ` + scope + `, "bogus": true, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrUnknownName.Code, "body.bogus", "There is no field called bogus."},
+		{"POST", "/api/v1/test/sites", `{"scope": {"level": "account", "idd": "x"}, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrUnknownName.Code, "body.scope.idd", "There is no field called idd."},
+		{"POST", "/api/v1/test/sites", `{"scope": ` + scope + `, "spec": {"domains": ["a.test"]`, http.StatusBadRequest, i18n.ErrBadRequest.Code, i18n.ErrBadValue.Code, "body", "This value isn't valid: the body isn't valid JSON."},
+		{"PUT", site, `{"spec": ` + spec + `, "revision": "1"}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.revision", "This value isn't valid: use a whole number."},
+		{"PUT", site, `{"spec": ` + spec + `, "labels": ["web"]}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.labels", "This value isn't valid: use an object with fields."},
+		{"PUT", site, `{"spec": ` + spec + `, "revison": 1}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrUnknownName.Code, "body.revison", "There is no field called revison."},
+		{"PUT", site, `{"spec": ` + spec, http.StatusBadRequest, i18n.ErrBadRequest.Code, i18n.ErrBadValue.Code, "body", "This value isn't valid: the body isn't valid JSON."},
+		{"POST", site + "/actions/deploy", `{"message": "x"`, http.StatusBadRequest, i18n.ErrBadRequest.Code, i18n.ErrBadValue.Code, "body", "This value isn't valid: the body isn't valid JSON."},
+	} {
+		for _, query := range []string{"?dryRun=true", ""} {
+			req, err := http.NewRequest(tc.method, s.http.URL+tc.path+query, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("X-Test-Actor", "owner")
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var p problem
+			json.NewDecoder(resp.Body).Decode(&p)
+			resp.Body.Close()
+			name := tc.method + " " + tc.body + query
+			if resp.StatusCode != tc.status || p.Code != tc.code || len(p.Errors) != 1 {
+				t.Errorf("%s = %d %+v", name, resp.StatusCode, p)
+				continue
+			}
+			if e := p.Errors[0]; e.Location != tc.location || e.Code != tc.field || e.Message != tc.message {
+				t.Errorf("%s: %+v", name, e)
+			}
+			if p.Code == i18n.ErrBadRequest.Code && p.Detail != "The request couldn't be read: the body isn't valid JSON." {
+				t.Errorf("%s: %s", name, p.Detail)
+			}
+		}
+	}
+	// What a typed operation answers for a body cut short is the same.
+	req, _ := http.NewRequest("POST", s.http.URL+"/api/v1/changesets?dryRun=true", strings.NewReader(`{"changes": [`))
+	req.Header.Set("X-Test-Actor", "owner")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p problem
+	json.NewDecoder(resp.Body).Decode(&p)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || p.Detail != "The request couldn't be read: the body isn't valid JSON." || len(p.Errors) != 1 || p.Errors[0].Location != "body" {
+		t.Errorf("a typed operation's body cut short = %d %+v", resp.StatusCode, p)
 	}
 }
 
