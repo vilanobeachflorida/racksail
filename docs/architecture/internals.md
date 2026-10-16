@@ -112,7 +112,7 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/events/webhook` | Outgoing webhooks: the `core.webhook` kind, signing, the delivery queue with its retries, and the delivery log |
 | `internal/inbox` | The attention inbox: its sources (failed jobs, resources that fail, alerts, updates, certificates, module suggestions), the service that keeps what the slower ones found, and dismissals |
 | `internal/jobs` | The job queue with progress, logs, cancel, retry and history |
-| `internal/i18n` | Error codes and their English messages |
+| `internal/i18n` | Error codes and their English messages, and catalogs of the server's own words, ICU messages whose dates, times and numbers each language writes its way (`FormatIn`, with CLDR's conventions for the languages it knows and ISO 8601 for the rest) |
 | `internal/edge` | The routing table and the embedded Caddy that serves it, certificates, the edge's admin API and the wake proxy |
 | `internal/config` | `racksail.toml` |
 | `internal/secrets` | Secret storage, encrypted at rest with a key sealed by systemd-creds |

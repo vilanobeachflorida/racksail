@@ -47,12 +47,18 @@ func (c *Catalog) Add(locale Locale, messages map[string]string) {
 
 // Message returns the message for key in locale with params filled in. It
 // falls back to the base language, then to English, then to the key itself.
+// Dates and numbers are written as the language of the words found does:
+// locale's way for its own words and its base language's, and English for
+// words nobody translated, so a sentence never mixes the two.
 func (c *Catalog) Message(locale Locale, key string, params map[string]any) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for _, l := range []Locale{locale, locale.Base(), English} {
 		if msg, ok := c.messages[l][key]; ok {
-			return Format(msg, params)
+			if l == English && locale.Base() != English {
+				return FormatIn(English, msg, params)
+			}
+			return FormatIn(locale, msg, params)
 		}
 	}
 	return key

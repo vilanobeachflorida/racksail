@@ -23,8 +23,8 @@ var german = map[string]string{
 	"notify.details.about":     "Betrifft: {subject}",
 	"notify.details.by":        "Von: {actor}",
 	"notify.details.event":     "Ereignis: {type}",
-	"notify.details.when":      "Wann: {time}",
-	"notify.digest.body":       "Diese kamen während der Ruhezeit an, ab {time}.",
+	"notify.details.when":      "Wann: {time, date, medium}, {time, time, long}",
+	"notify.digest.body":       "Diese kamen während der Ruhezeit an, ab {time, date, long}, {time, time, short} UTC.",
 	"notify.digest.title":      "{count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} aus der Ruhezeit",
 	"notify.footer":            "Sie erhalten dies wegen Ihrer Benachrichtigungseinstellungen in {brand}.",
 	"notify.link":              "{label}: {url}",
@@ -137,7 +137,7 @@ func TestMessagesInTheirLanguage(t *testing.T) {
 	s := &Service{opts: Options{Link: func(events.Event) string { return "https://panel.example.com/x" }}}
 	e := events.Event{Type: "backups.run.failed", Severity: events.SeverityError, Subject: "bpol_1", Message: "The backup failed.", Time: time.Date(2026, 3, 2, 3, 0, 0, 0, time.UTC), Actor: &auth.Actor{Name: "nightly"}}
 	msg := s.messageOf(e, "de")
-	for _, want := range []string{"Ereignis: backups.run.failed", "Wann: 2026-03-02 03:00:00 UTC", "Betrifft: bpol_1", "Von: nightly"} {
+	for _, want := range []string{"Ereignis: backups.run.failed", "Wann: 02.03.2026, 03:00:00 UTC", "Betrifft: bpol_1", "Von: nightly"} {
 		if !strings.Contains(msg.Body, want) {
 			t.Errorf("the body lacks %q: %s", want, msg.Body)
 		}
@@ -145,9 +145,18 @@ func TestMessagesInTheirLanguage(t *testing.T) {
 	if msg.Locale != "de" || msg.ActionLabel != "Im Panel öffnen" {
 		t.Errorf("message = %+v", msg)
 	}
-	group := []*Notification{{Message: &msg, Severity: events.SeverityError}, {Message: &msg, Severity: events.SeverityWarning}}
-	if d := s.summary(group, time.Now()); d.Title != "2 Benachrichtigungen aus der Ruhezeit" || d.Message.Locale != "de" || !strings.HasPrefix(d.Message.Body, "Diese kamen") {
+	group := []*Notification{{Message: &msg, Severity: events.SeverityError, CreatedAt: time.Date(2026, 3, 2, 22, 30, 0, 0, time.UTC)}, {Message: &msg, Severity: events.SeverityWarning}}
+	if d := s.summary(group, time.Now()); d.Title != "2 Benachrichtigungen aus der Ruhezeit" || d.Message.Locale != "de" || d.Message.Body != "Diese kamen während der Ruhezeit an, ab 2. März 2026, 22:30 UTC." {
 		t.Errorf("summary = %+v %+v", d, d.Message)
+	}
+	// In English, and in a language the panel has no conventions of, which
+	// writes dates as ISO 8601 does.
+	if msg := s.messageOf(e, ""); !strings.Contains(msg.Body, "When: Mar 2, 2026, 3:00:00 AM UTC") {
+		t.Errorf("the English body = %s", msg.Body)
+	}
+	Messages().Add("sv", map[string]string{"notify.details.when": "När: {time, date, medium} {time, time, short}"})
+	if msg := s.messageOf(e, "sv"); !strings.Contains(msg.Body, "När: 2026-03-02 03:00") {
+		t.Errorf("the Swedish body = %s", msg.Body)
 	}
 }
 

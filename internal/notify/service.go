@@ -323,7 +323,7 @@ func (s *Service) messageOf(e events.Event, locale string) Message {
 	var body strings.Builder
 	body.WriteString(e.Message)
 	body.WriteString("\n\n" + words(locale, "notify.details.event", map[string]any{"type": e.Type}))
-	body.WriteString("\n" + words(locale, "notify.details.when", map[string]any{"time": e.Time.UTC().Format("2006-01-02 15:04:05 UTC")}))
+	body.WriteString("\n" + words(locale, "notify.details.when", map[string]any{"time": e.Time.UTC()}))
 	if e.Subject != "" {
 		body.WriteString("\n" + words(locale, "notify.details.about", map[string]any{"subject": e.Subject}))
 	}
@@ -556,7 +556,7 @@ func (s *Service) summary(group []*Notification, now time.Time) *Notification {
 	}
 	d.Message = &Message{
 		ID: string(d.ID), Title: d.Title, Severity: sev, Locale: locale,
-		Body:   words(locale, "notify.digest.body", map[string]any{"time": first.CreatedAt.UTC().Format("2006-01-02 15:04 UTC")}),
+		Body:   words(locale, "notify.digest.body", map[string]any{"time": first.CreatedAt.UTC()}),
 		Digest: digest,
 	}
 	return d

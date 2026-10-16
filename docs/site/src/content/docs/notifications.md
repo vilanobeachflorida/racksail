@@ -30,7 +30,7 @@ Each channel chooses what it sends:
 - **At least**: only events at least this urgent, from info, notice and warning to error and critical.
 - **Owner**: only events about one reseller's or account's resources, for a channel that belongs to a customer.
 - **Quiet hours**, below.
-- **Language**: the language of the words the panel adds to its messages, such as how urgent one is, the lines saying what it's about and the link back to the panel, as `locale`, such as `de` or `pt-BR`. English unless set, and wherever a translation leaves something out.
+- **Language**: the language of the words the panel adds to its messages, such as how urgent one is, the lines saying when it happened and what it's about and the link back to the panel, as `locale`, such as `de` or `pt-BR`, with dates and numbers written as that language does. English unless set, and wherever a translation leaves something out.
 
 Tokens, passwords, signing secrets and webhook URLs are kept in the secret store, never in the channel's settings or the audit log. **Send a test** sends a test notification at once and says what the other side answered. Adding or changing a channel is a change you preview first.
 

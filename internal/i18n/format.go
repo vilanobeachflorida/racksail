@@ -6,13 +6,27 @@ import (
 	"strings"
 )
 
-// Format fills {name} placeholders in msg from params. Placeholders without a
+// Format fills {name} placeholders in msg from params, as FormatIn does
+// for English.
+func Format(msg string, params map[string]any) string {
+	return FormatIn(English, msg, params)
+}
+
+// FormatIn fills {name} placeholders in msg from params, writing dates,
+// times and numbers as the language of locale does. Placeholders without a
 // value are left as they are, so a missing parameter is visible rather than
 // silently dropped. Braces that don't enclose a simple name are copied
-// unchanged, except plurals in the form the UI's ICU catalogs use, such as
-// {count, plural, one {# day} other {# days}}, which pick the form English
-// takes for the count and put the count where # is.
-func Format(msg string, params map[string]any) string {
+// unchanged, except the arguments the UI's ICU catalogs use: plurals such
+// as {count, plural, one {# day} other {# days}}, which pick the form
+// English takes for the count and put the count where # is; dates and
+// times of a time.Time, as {when, date, medium} and {when, time, short},
+// in the styles full, long, medium and short; and numbers, as {size,
+// number}, {size, number, integer} and {share, number, percent}.
+func FormatIn(locale Locale, msg string, params map[string]any) string {
+	return formatIn(conventionsOf(locale), msg, params)
+}
+
+func formatIn(c *conventions, msg string, params map[string]any) string {
 	if !strings.Contains(msg, "{") {
 		return msg
 	}
@@ -32,7 +46,9 @@ func Format(msg string, params map[string]any) string {
 		inner := msg[i+1 : end]
 		if v, ok := params[inner]; ok && isName(inner) {
 			b.WriteString(fmt.Sprint(v))
-		} else if text, ok := plural(inner, params); ok {
+		} else if text, ok := plural(inner, params, c); ok {
+			b.WriteString(text)
+		} else if text, ok := typed(inner, params, c); ok {
 			b.WriteString(text)
 		} else {
 			b.WriteString(msg[i : end+1])
@@ -61,9 +77,9 @@ func closing(msg string, start int) int {
 
 // plural formats the inside of a plural placeholder, "count, plural, one
 // {...} other {...}", for the count params gives, choosing =N first, then
-// one for exactly 1 and other for everything else. ok is false when it
-// isn't a plural or the count is missing.
-func plural(inner string, params map[string]any) (string, bool) {
+// one for exactly 1 and other for everything else, and writing the count
+// as c says. ok is false when it isn't a plural or the count is missing.
+func plural(inner string, params map[string]any, c *conventions) (string, bool) {
 	name, rest, ok := strings.Cut(inner, ",")
 	name = strings.TrimSpace(name)
 	if !ok || !isName(name) {
@@ -103,7 +119,7 @@ func plural(inner string, params map[string]any) (string, bool) {
 			}
 		}
 	}
-	return Format(strings.ReplaceAll(text, "#", count), params), true
+	return formatIn(c, strings.ReplaceAll(text, "#", countText(v, c)), params), true
 }
 
 func isName(s string) bool {
