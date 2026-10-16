@@ -22,10 +22,10 @@ import (
 
 // Runner reconciles resources: it plans, applies through the agent, runs the
 // plan's health checks, writes status and purges deleted resources once their
-// system state is gone. It reconciles one resource at a time, so an apply job
-// and the queue never work on the same resource at once, and it keeps to
-// limits on how many resources, in all and of each kind, it works on at
-// once.
+// system state is gone. It runs one reconcile per resource at a time, so an
+// apply job and the queue never work on the same resource at once, while
+// different resources reconcile side by side, within limits on how many, in
+// all and of each kind, it works on at once.
 //
 // While Run is going, failed reconciles are retried with a growing wait,
 // resources reported as drifted are put back, and every resource is

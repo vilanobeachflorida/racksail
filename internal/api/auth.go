@@ -195,13 +195,13 @@ type redirectOutput struct {
 
 type providerCallbackInput struct {
 	ID    store.ID `path:"id" doc:"The sign-in provider's ID"`
-	State string   `cookie:"racksail_signin_state"`
+	State string   `cookie:"racksail_signin_state" doc:"The cookie starting the sign-in set, which the provider's answer must match"`
 	// Device comes only when the provider sent the browser back without
 	// leaving the panel's site; otherwise the start kept it.
-	Device string `cookie:"racksail_device"`
+	Device string `cookie:"racksail_device" doc:"A trusted browser's cookie"`
 	// Linking is the cookie a link from the security settings carries, so
 	// its errors go back there.
-	Linking bool `cookie:"racksail_linking"`
+	Linking bool `cookie:"racksail_linking" doc:"Set while linking an outside identity from the security settings, which the browser goes back to"`
 }
 
 // securityPage is where the browser goes back to after linking an outside

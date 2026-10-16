@@ -54,7 +54,7 @@ type profileList struct {
 }
 
 type applyProfileInput struct {
-	Profile modules.Profile `path:"profile" enum:"all-in-one,web-hosting,home-server,virtualization-host,mail-server,dns-server,minimal"`
+	Profile modules.Profile `path:"profile" enum:"all-in-one,web-hosting,home-server,virtualization-host,mail-server,dns-server,minimal" doc:"The profile, such as web-hosting"`
 	api.ChangeParams
 }
 
@@ -137,7 +137,8 @@ func register(a huma.API, svc *modules.Services) {
 
 	op = huma.Operation{
 		OperationID: "getModule", Method: http.MethodGet, Path: api.Prefix + "/modules/{id}", Tags: tags, Security: api.Protected,
-		Summary: "Describe a module",
+		Summary:     "Describe a module",
+		Description: "Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.",
 	}
 	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: "get", Permission: string(api.ReadPermission(modules.Kind.Name())), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *moduleInput) (*moduleOutput, error) {
@@ -188,6 +189,20 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
+		// A retry is answered before the modules' states are read: the
+		// first request turned them on, and there would be nothing left
+		// to turn on.
+		earlier, err := api.Replayed(ctx, svc.Pipeline, in.ChangeParams)
+		if err != nil {
+			return nil, err
+		}
+		if earlier != nil {
+			skipped, err := m.ProfileSkipped(ctx, in.Profile)
+			if err != nil {
+				return nil, err
+			}
+			return &applyProfileOutput{Status: earlier.Status, Body: ProfileChange{ChangeSet: earlier.Body, Skipped: skipped}}, nil
+		}
 		if err := may(ctx, svc, modules.ActionTurnOn); err != nil {
 			return nil, err
 		}
@@ -214,14 +229,12 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		if err := may(ctx, svc, modules.ActionTurnOn); err != nil {
-			return nil, err
-		}
-		req, err := m.TurnOnRequest(ctx, in.ID)
-		if err != nil {
-			return nil, err
-		}
-		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+		return api.SubmitFunc(ctx, svc.Pipeline, in.ChangeParams, func() (changeset.Request, error) {
+			if err := may(ctx, svc, modules.ActionTurnOn); err != nil {
+				return changeset.Request{}, err
+			}
+			return m.TurnOnRequest(ctx, in.ID)
+		})
 	})
 
 	op = huma.Operation{
@@ -236,14 +249,12 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		if err := may(ctx, svc, modules.ActionTurnOff); err != nil {
-			return nil, err
-		}
-		req, err := m.TurnOffRequest(in.ID)
-		if err != nil {
-			return nil, err
-		}
-		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+		return api.SubmitFunc(ctx, svc.Pipeline, in.ChangeParams, func() (changeset.Request, error) {
+			if err := may(ctx, svc, modules.ActionTurnOff); err != nil {
+				return changeset.Request{}, err
+			}
+			return m.TurnOffRequest(in.ID)
+		})
 	})
 
 	op = huma.Operation{
@@ -259,14 +270,12 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		if err := may(ctx, svc, modules.ActionRemove); err != nil {
-			return nil, err
-		}
-		req, err := m.RemoveRequest(ctx, in.ID, in.Body.Confirm, in.Body.KeepData)
-		if err != nil {
-			return nil, err
-		}
-		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+		return api.SubmitFunc(ctx, svc.Pipeline, in.ChangeParams, func() (changeset.Request, error) {
+			if err := may(ctx, svc, modules.ActionRemove); err != nil {
+				return changeset.Request{}, err
+			}
+			return m.RemoveRequest(ctx, in.ID, in.Body.Confirm, in.Body.KeepData)
+		})
 	})
 
 	op = huma.Operation{

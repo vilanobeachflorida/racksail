@@ -59,11 +59,7 @@ func (e *Engine) Test(ctx context.Context, actor *auth.Actor, req TestRequest) (
 	if err != nil {
 		var fe *fieldError
 		if errors.As(err, &fe) {
-			path := "body.rule"
-			if fe.path != "" {
-				path += "." + fe.path
-			}
-			return nil, i18n.Invalid(i18n.Field(path, i18n.ErrBadValue, "reason", fe.reason))
+			return nil, fe.invalid("body.rule")
 		}
 		return nil, err
 	}

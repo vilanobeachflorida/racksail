@@ -430,6 +430,10 @@ func (f pipelineFunc) List(ctx context.Context, q changeset.ListQuery) ([]*chang
 	return nil, "", nil
 }
 
+func (f pipelineFunc) Replay(ctx context.Context, actor *auth.Actor, call changeset.Call, key string) (*changeset.ChangeSet, error) {
+	return nil, nil
+}
+
 func TestChangeOperations(t *testing.T) {
 	var got changeset.Request
 	pipeline := pipelineFunc(func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {

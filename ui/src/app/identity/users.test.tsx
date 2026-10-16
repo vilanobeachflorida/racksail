@@ -7,8 +7,9 @@ import { fakeApi, json, renderApp } from "@/test/render";
 import { readLinkReturn } from "./account/security";
 import { type AuditRecord, type UserResource, userView } from "./api";
 import catalog from "./messages/en.json";
-import { who } from "./people/audit";
+import { repeats, who } from "./people/audit";
 import { resourceName } from "./preview";
+import { formatTime } from "./util";
 
 const shell = {
   "GET /api/v1/health": () => json({ status: "ok", checks: [] }),
@@ -331,6 +332,17 @@ describe("the audit log", () => {
     ).toBe("bea, in the panel, viewed by user_1");
   });
 
+  it("says how often a refusal repeated, and when it last did", () => {
+    const last = "2026-10-15T11:30:00Z";
+    expect(repeats(intl, { repeats: 312, lastTime: last } as AuditRecord)).toBe(
+      `312 more times, the last at ${formatTime(intl, last)}`,
+    );
+    expect(repeats(intl, { repeats: 1, lastTime: last } as AuditRecord)).toBe(
+      `Once more, the last at ${formatTime(intl, last)}`,
+    );
+    expect(repeats(intl, { repeats: 4 } as AuditRecord)).toBe("Happened 4 more times");
+  });
+
   it("lists the records in a table named after it", async () => {
     const api = fakeApi({
       ...shell,
@@ -355,5 +367,50 @@ describe("the audit log", () => {
     renderApp(api, "/audit");
     const table = await screen.findByRole("table", { name: "Audit log" });
     expect(within(table).getByText("Changed shop.example.com")).toBeInTheDocument();
+  });
+
+  it("shows on a refusal's record how often it repeated", async () => {
+    const refused: AuditRecord = {
+      id: "aud_1",
+      time: "2026-10-15T10:00:00Z",
+      actor: { type: "user", id: "user_2", name: "bea", source: "api" },
+      action: "core.user.read",
+      scope: { level: "server" },
+      outcome: "denied",
+      reason: "Bea may not read users.",
+      summary: "Read the users",
+      repeats: 312,
+      lastTime: "2026-10-15T10:59:00Z",
+    };
+    const done: AuditRecord = {
+      id: "aud_2",
+      time: "2026-10-15T09:00:00Z",
+      actor: { type: "user", id: "user_1", name: "ada", source: "ui" },
+      action: "core.user.create",
+      scope: { level: "server" },
+      outcome: "success",
+      summary: "Create the user bea",
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/users": () => json({ items: [adaResource], next: "" }),
+      "GET /api/v1/core/accounts": () => json({ items: [], next: "" }),
+      "GET /api/v1/audit": () => json({ records: [refused, done], next: "" }),
+    });
+    renderApp(api, "/audit");
+    const row = (await screen.findByRole("button", { name: "Read the users" })).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("Happened 312 more times")).toBeInTheDocument();
+    const other = screen.getByRole("button", { name: "Create the user bea" }).closest("tr");
+    expect(within(other as HTMLElement).queryByText(/more time/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Read the users" }));
+    const details = await screen.findByRole("dialog", { name: "Read the users" });
+    expect(within(details).getByText("Repeated")).toBeInTheDocument();
+    expect(
+      within(details).getByText(
+        `312 more times, the last at ${formatTime(intl, refused.lastTime)}`,
+      ),
+    ).toBeInTheDocument();
   });
 });

@@ -99,6 +99,23 @@ func (s *Server) changeSetVisibility(ctx context.Context) (*changeset.Visibility
 	return v, nil
 }
 
+// replay answers a retry of an undo or of applying a preview with the change
+// set the first request with the key produced, before anything is read for
+// it: by then the change set it was about may be gone, or the person may
+// have to confirm it's them again, and the retry still gets the first
+// answer. It returns nil when the key is new.
+func (s *Server) replay(ctx context.Context, actor *auth.Actor, call changeset.Call, key string) (*ChangeSetOutput, error) {
+	p := s.pipeline()
+	if p == nil {
+		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
+	}
+	cs, err := p.Replay(ctx, actor, call, key)
+	if err != nil || cs == nil {
+		return nil, err
+	}
+	return changeSetAnswer(cs), nil
+}
+
 // changeSet reads a change set the signed-in actor may see. Others are
 // reported as not found, and the refusal is recorded in the audit log.
 func (s *Server) changeSet(ctx context.Context, id store.ID) (*changeset.ChangeSet, error) {
@@ -151,6 +168,7 @@ type submitInput struct {
 
 type applyInput struct {
 	ID             store.ID `path:"id" doc:"The preview's ID"`
+	DryRun         bool     `query:"dryRun" doc:"Plan the preview again and answer with it, without applying it, when applying it would still do what it shows"`
 	IdempotencyKey string   `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string; a retry with the same key returns the first change set instead of applying it again"`
 }
 
@@ -234,34 +252,49 @@ func (s *Server) registerChangeSets() {
 		Summary: "Apply a preview",
 		Description: "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, " +
 			"nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. " +
-			"A preview is applied once: while it is being applied, applying it again answers changeset.applying.",
+			"A preview is applied once: while it is being applied, applying it again answers changeset.applying. " +
+			"With dryRun=true the preview is planned again and nothing is applied: the answer is the preview when applying it would still do what it shows.",
 		DefaultStatus: http.StatusAccepted,
-		Responses:     map[string]*huma.Response{"202": jsonResponse("The change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet"))},
+		Responses: map[string]*huma.Response{
+			"200": jsonResponse("The preview, which applying would still carry out as it shows, for a dry run", s.schemaOf(typeOfChangeSet, "ChangeSet")),
+			"202": jsonResponse("The change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet")),
+		},
 	}
 	s.withProblems(&op)
-	Describe(&op, Info{Operation: "apply", Risk: store.RiskHigh, Reversible: true})
+	Describe(&op, Info{Operation: "apply", Risk: store.RiskHigh, DryRun: true, Reversible: true})
 	huma.Register(s.api, op, func(ctx context.Context, in *applyInput) (*ChangeSetOutput, error) {
 		actor, err := Actor(ctx)
 		if err != nil {
 			return nil, err
 		}
+		if !in.DryRun {
+			if earlier, err := s.replay(ctx, actor, changeset.CallApply, in.IdempotencyKey); earlier != nil || err != nil {
+				return earlier, err
+			}
+		}
 		if _, err := s.changeSet(ctx, in.ID); err != nil {
 			return nil, err
 		}
 		// What applying it needs confirming is judged by the preview as it is
-		// planned again for the actor, which is what gets applied.
-		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, IdempotencyKey: in.IdempotencyKey, Confirm: s.confirmPlan(actor)})
+		// planned again for the actor, which is what gets applied; a dry run
+		// applies nothing, so it isn't asked about.
+		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, DryRun: in.DryRun, IdempotencyKey: in.IdempotencyKey, Confirm: s.confirmPlan(actor)})
 		if err != nil {
 			return nil, err
 		}
-		return &ChangeSetOutput{Status: http.StatusAccepted, Body: cs}, nil
+		status := http.StatusAccepted
+		if in.DryRun {
+			status = http.StatusOK
+		}
+		return &ChangeSetOutput{Status: status, Body: cs}, nil
 	})
 
 	op = huma.Operation{
 		OperationID: "undoChangeSet", Method: http.MethodPost, Path: Prefix + "/changesets/{id}/undo", Tags: tags, Security: Protected,
 		Summary: "Undo a change",
 		Description: "Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: " +
-			"creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.",
+			"creates become deletes and deletes bring the resource back. Settings changed after that change set are replaced too; changedSince lists the resources that changed since. " +
+			"With dryRun=true the answer is the preview.",
 		Responses: map[string]*huma.Response{
 			"200": jsonResponse("The undo's change set without applying it, for a dry run", s.schemaOf(typeOfChangeSet, "ChangeSet")),
 			"202": jsonResponse("The undo's change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet")),
@@ -273,6 +306,11 @@ func (s *Server) registerChangeSets() {
 		actor, err := Actor(ctx)
 		if err != nil {
 			return nil, err
+		}
+		if !in.DryRun {
+			if earlier, err := s.replay(ctx, actor, changeset.CallUndo, in.IdempotencyKey); earlier != nil || err != nil {
+				return earlier, err
+			}
 		}
 		if _, err := s.changeSet(ctx, in.ID); err != nil {
 			return nil, err

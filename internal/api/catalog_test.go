@@ -2,8 +2,11 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -13,11 +16,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -234,7 +240,23 @@ func TestOperationsCatalog(t *testing.T) {
 // Every operation checks permissions: signed in without any grant, nothing
 // that needs one succeeds, and without signing in nothing protected does.
 func TestEveryOperationIsAuthorized(t *testing.T) {
-	s := newStack(t, RateLimit{})
+	// A module's operations are enumerated with the core's.
+	report := store.NewID("rpt")
+	mods := modules.NewRegistry()
+	if err := mods.Add(newOpsModule(t, "ops", func(a huma.API, svc *modules.Services) {
+		op := huma.Operation{OperationID: "getOpsReport", Method: http.MethodGet, Path: Prefix + "/ops/report", Security: Protected,
+			Summary: "Get the report", Description: "Reports what the module saw, to who may read the audit log."}
+		Describe(&op, Info{Permission: string(PermAuditRead), Risk: store.RiskRead})
+		huma.Register(a, op, func(ctx context.Context, in *struct{}) (*struct{ Body map[string]int }, error) {
+			if err := Authorize(ctx, svc.Authorizer, PermAuditRead, auth.Target{Scope: store.ServerScope(), Object: report}); err != nil {
+				return nil, err
+			}
+			return &struct{ Body map[string]int }{Body: map[string]int{"seen": 1}}, nil
+		})
+	}), nil); err != nil {
+		t.Fatal(err)
+	}
+	s := newStackWith(t, RateLimit{}, mods)
 	// Operations that only describe the API, searches whose answers are
 	// filtered to what the caller may see, and the caller's own session and
 	// dismissals need nothing more than a sign-in.
@@ -252,8 +274,15 @@ func TestEveryOperationIsAuthorized(t *testing.T) {
 		}
 		return "tsite"
 	}
+	enumerated := false
 	for _, op := range s.server.Catalog() {
+		enumerated = enumerated || op.ID == "getOpsReport"
 		if op.Public {
+			// What answers without signing in is only what the matrix lists
+			// as public, with the reason.
+			if _, listed := PublicOperations[op.ID]; !listed {
+				t.Errorf("%s answers without signing in but isn't in PublicOperations", op.ID)
+			}
 			continue
 		}
 		path := strings.NewReplacer(
@@ -293,6 +322,96 @@ func TestEveryOperationIsAuthorized(t *testing.T) {
 			t.Errorf("%s succeeded without a grant: %d %s", op.ID, resp.StatusCode, bodyOf(resp))
 		}
 	}
+	if !enumerated {
+		t.Error("the module's operation wasn't enumerated")
+	}
+	if !s.refused("nobody", string(PermAuditRead), report) {
+		t.Error("the module's refusal isn't in the audit log")
+	}
+}
+
+// An operation a module adds without asking for a sign-in, or without a
+// permission, is caught by the permission matrix, which the whole binary's
+// tests hold every operation to.
+func TestModuleOperationsAreHeldToTheMatrix(t *testing.T) {
+	mods := modules.NewRegistry()
+	if err := mods.Add(newOpsModule(t, "loose", func(a huma.API, svc *modules.Services) {
+		for _, op := range []huma.Operation{
+			{OperationID: "getLooseStatus", Method: http.MethodGet, Path: Prefix + "/loose/status", Summary: "Get the status", Description: "Says how the module is."},
+			{OperationID: "getLooseSecrets", Method: http.MethodGet, Path: Prefix + "/loose/secrets", Security: Protected, Summary: "Get the secrets", Description: "Lists what the module keeps."},
+		} {
+			Describe(&op, Info{Risk: store.RiskRead})
+			huma.Register(a, op, func(ctx context.Context, in *struct{}) (*struct{}, error) { return nil, nil })
+		}
+	}), nil); err != nil {
+		t.Fatal(err)
+	}
+	kinds := store.NewKindRegistry()
+	server := New(Options{Modules: mods, Services: &modules.Services{Kinds: kinds}, Log: slog.New(slog.DiscardHandler)})
+	problems := strings.Join(CheckMatrix(server.Catalog(), kinds.All()), "\n")
+	for _, id := range []string{"getLooseStatus works without signing in", "getLooseSecrets needs no permission"} {
+		if !strings.Contains(problems, id) {
+			t.Errorf("the matrix doesn't report %q:\n%s", id, problems)
+		}
+	}
+}
+
+// opsModule is a module with operations of its own, as modules add them
+// through APIProvider.
+type opsModule struct {
+	modules.Base
+	register func(a huma.API, svc *modules.Services)
+}
+
+func (m *opsModule) RegisterAPI(a huma.API, svc *modules.Services) { m.register(a, svc) }
+
+func newOpsModule(t *testing.T, id string, register func(a huma.API, svc *modules.Services)) *opsModule {
+	t.Helper()
+	m := &opsModule{Base: modules.NewBase([]byte(`hardware: {arch: [amd64, arm64]}
+id: ` + id + `
+name: Operations
+description: A module with operations of its own, for the API's tests.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+profiles: [all-in-one]
+cost: {idleMemoryMB: 4, activeMemoryMB: 40, diskMB: 10}
+dependencies: {}
+upstream: []
+`)), register: register}
+	if err := m.ManifestErr(); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// A module's operation that has the ID a kind's generated operation needs
+// stops the server from being built, naming both, rather than leaving the
+// document with two operations of one ID.
+func TestKindOperationsKeepClearOfModulesOwn(t *testing.T) {
+	reg := modules.NewRegistry()
+	if err := reg.Add(newOpsModule(t, "clash", func(a huma.API, svc *modules.Services) {
+		op := huma.Operation{OperationID: "getTestSite", Method: http.MethodGet, Path: Prefix + "/clash/sites/{id}",
+			Summary: "Get a site", Description: "Gets a site the module keeps.", Security: Protected}
+		Describe(&op, Info{Risk: store.RiskRead})
+		huma.Register(a, op, func(ctx context.Context, in *struct {
+			ID string `path:"id"`
+		}) (*struct{}, error) {
+			return nil, nil
+		})
+	}), nil); err != nil {
+		t.Fatal(err)
+	}
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(siteKind); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if p := recover(); p == nil || !strings.Contains(fmt.Sprint(p), "getTestSite") || !strings.Contains(fmt.Sprint(p), "/clash/sites") {
+			t.Errorf("building the server = %v", p)
+		}
+	}()
+	New(Options{Modules: reg, Services: &modules.Services{Kinds: kinds}, Log: slog.New(slog.DiscardHandler)})
 }
 
 // Every operation that changes a kind has its hook points, so hooks can

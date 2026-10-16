@@ -207,11 +207,15 @@ type ChangeSet struct {
 	DryRun    bool             `json:"dryRun,omitempty" doc:"Whether it is a preview, which changes nothing until it is applied"`
 	State     State            `json:"state" enum:"planned,applying,applied,failed,undone" doc:"Where it is: planned, being applied, applied, failed or undone"`
 	// Job carries out the system changes once the change set is applied.
-	Job       store.ID   `json:"job,omitempty" doc:"The job that carries out its changes on the machine"`
-	UndoOf    store.ID   `json:"undoOf,omitempty" doc:"The change set it undoes, when it is an undo"`
-	Error     string     `json:"error,omitempty" doc:"Why applying it failed"`
-	CreatedAt time.Time  `json:"createdAt" doc:"When it was planned"`
-	AppliedAt *time.Time `json:"appliedAt,omitempty" doc:"When its changes were written"`
+	Job    store.ID `json:"job,omitempty" doc:"The job that carries out its changes on the machine"`
+	UndoOf store.ID `json:"undoOf,omitempty" doc:"The change set it undoes, when it is an undo"`
+	// ChangedSince lists, for an undo, the resources that changed after the
+	// change set it undoes. Undo puts back the settings from before that
+	// change set all the same, so it replaces those later changes too.
+	ChangedSince []store.ID `json:"changedSince,omitempty" doc:"For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too"`
+	Error        string     `json:"error,omitempty" doc:"Why applying it failed"`
+	CreatedAt    time.Time  `json:"createdAt" doc:"When it was planned"`
+	AppliedAt    *time.Time `json:"appliedAt,omitempty" doc:"When its changes were written"`
 }
 
 // Clone returns a copy of cs whose actor, lists, maps and documents can be
@@ -230,6 +234,7 @@ func (cs *ChangeSet) Clone() *ChangeSet {
 	}
 	c.Effects = slices.Clone(cs.Effects)
 	c.Snapshots = slices.Clone(cs.Snapshots)
+	c.ChangedSince = slices.Clone(cs.ChangedSince)
 	if cs.Contributions != nil {
 		c.Contributions = make([]Contribution, len(cs.Contributions))
 		for i, con := range cs.Contributions {
@@ -360,12 +365,26 @@ type UndoRequest struct {
 type ApplyRequest struct {
 	Actor *auth.Actor
 	// ChangeSet is the preview, a dry run.
-	ChangeSet      store.ID
+	ChangeSet store.ID
+	// DryRun plans the preview again without applying it: the answer is the
+	// preview when applying it would still do what it shows.
+	DryRun         bool
 	IdempotencyKey string
 	// Confirm is asked about the preview as planned again, as for any
 	// request.
 	Confirm Confirm
 }
+
+// Call names the pipeline calls an idempotency key belongs to: a key
+// answers retries of the call it came with, by the actor who sent it.
+type Call string
+
+// Calls that take idempotency keys.
+const (
+	CallSubmit Call = "submit"
+	CallUndo   Call = "undo"
+	CallApply  Call = "apply"
+)
 
 // Pipeline is how anything changes Racksail.
 type Pipeline interface {
@@ -387,6 +406,14 @@ type Pipeline interface {
 	// List returns kept change sets, newest first, and the cursor of the
 	// next page.
 	List(ctx context.Context, q ListQuery) ([]*ChangeSet, string, error)
+	// Replay returns the change set that an earlier call by the actor with
+	// the same idempotency key produced, as long as the key answers, or nil
+	// when there was none; it changes nothing. While the earlier request is
+	// still being processed it gives changeset.duplicate_request. Callers
+	// that read or check anything before they reach the pipeline ask it
+	// first, so a retry gets the first answer whatever became since of what
+	// the request was about.
+	Replay(ctx context.Context, actor *auth.Actor, call Call, key string) (*ChangeSet, error)
 }
 
 // Hooks runs hook points for the pipeline. The hooks package implements it.
@@ -397,7 +424,8 @@ type Hooks interface {
 	// in cs.Changes of the changes the point is about. Hooks may change the
 	// specs of those, add changes and add effects, and nothing else; each
 	// contribution is recorded and conflicts are reported in cs. The engine
-	// authorizes, validates and diffs whatever they changed or added again.
+	// authorizes, validates, diffs and plans whatever they changed or added
+	// again.
 	Modify(ctx context.Context, point string, cs *ChangeSet, changes []int) error
 	// Applied runs observe hooks after a change set has been applied, for
 	// the changes at the given indexes.

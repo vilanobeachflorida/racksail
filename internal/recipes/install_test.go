@@ -49,7 +49,7 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, cat); err != nil {
 		t.Fatal(err)
 	}
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := p.newAccount(t)
 	in := InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: acct, Inputs: map[string]any{"domain": "blog.example.com", "dbPassword": "correct horse"}}
 	req, err := p.recipes.InstallRequest(ctx, in)
 	if err != nil {
@@ -193,7 +193,7 @@ func TestUpstreamFilesAreCheckedFirst(t *testing.T) {
 	install := func() (*changeset.ChangeSet, changeset.Request) {
 		t.Helper()
 		req, err := p.recipes.InstallRequest(ctx, InstallInput{
-			Source: Source{Catalog: cat, Item: "wordpress"}, Scope: store.AccountScope(store.NewID("acct")),
+			Source: Source{Catalog: cat, Item: "wordpress"}, Scope: p.newAccount(t),
 			Inputs: map[string]any{"domain": "blog.example.com", "dbPassword": "correct horse"},
 		})
 		if err != nil {
@@ -203,7 +203,7 @@ func TestUpstreamFilesAreCheckedFirst(t *testing.T) {
 	}
 
 	// The preview says which files are checked.
-	req, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: store.AccountScope(store.NewID("acct")), Inputs: map[string]any{"domain": "a.example", "dbPassword": "pw"}})
+	req, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: p.newAccount(t), Inputs: map[string]any{"domain": "a.example", "dbPassword": "pw"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestInstallsEndWithTheirHealthChecks(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, cat); err != nil {
 		t.Fatal(err)
 	}
-	req, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: store.AccountScope(store.NewID("acct")), Inputs: map[string]any{"domain": "a.example", "dbPassword": "pw"}})
+	req, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: p.newAccount(t), Inputs: map[string]any{"domain": "a.example", "dbPassword": "pw"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestInstallRefusals(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, cat); err != nil {
 		t.Fatal(err)
 	}
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := p.newAccount(t)
 	inputs := map[string]any{"domain": "a.example", "dbPassword": "pw"}
 	if _, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "paid"}, Scope: acct, Inputs: inputs}); !errors.Is(err, ErrLicenseNotice) {
 		t.Errorf("proprietary software needs its license accepted: %v", err)

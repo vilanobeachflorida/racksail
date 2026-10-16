@@ -90,13 +90,17 @@ func (s *Server) streamResponse(messages map[string]any) *huma.Response {
 		for t.Kind() == reflect.Pointer {
 			t = t.Elem()
 		}
+		data := *s.schemaOf(t, name)
+		if data.Description == "" {
+			data.Description = "What the event says, as JSON"
+		}
 		variants = append(variants, &huma.Schema{
 			Title: "Event " + name,
 			Type:  huma.TypeObject,
 			Properties: map[string]*huma.Schema{
 				"event": {Type: huma.TypeString, Description: "The event's name", Extensions: map[string]any{"const": name}},
 				"id":    {Type: huma.TypeString, Description: "Send it back as Last-Event-ID to resume after this event"},
-				"data":  s.schemaOf(t, name),
+				"data":  &data,
 			},
 			Required: []string{"event", "data"},
 		})

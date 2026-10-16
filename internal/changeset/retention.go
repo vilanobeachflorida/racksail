@@ -11,7 +11,8 @@ import (
 
 // Retention bounds the change sets an Engine keeps. Get, Undo and Apply
 // reach only the ones kept here. The snapshots taken before a change set was
-// applied, and the secret versions only it used, are deleted with it.
+// applied, and the secret versions only it used, are deleted with it; Run
+// deletes the snapshots that outlived their change set, as across a stop.
 type Retention struct {
 	// Previews is how long dry runs stay available to be applied. The
 	// default is an hour.
@@ -46,27 +47,45 @@ func finished(s State) bool {
 	return s == StateApplied || s == StateFailed || s == StateUndone
 }
 
-func idempotencyKey(op string, actor *auth.Actor, key string) string {
+func idempotencyKey(call Call, actor *auth.Actor, key string) string {
 	if key == "" {
 		return ""
 	}
-	return op + "\x00" + actor.String() + "\x00" + key
+	return string(call) + "\x00" + actor.String() + "\x00" + key
 }
 
 // reserve claims an idempotency key. It returns the change set an earlier
-// request with the key produced, if there is one.
+// request with the key produced, if there is one. Every call that takes a
+// key reserves it before it reads or checks anything else, so a retry gets
+// the first answer even when what the first request was about is gone, as a
+// resource the first delete removed.
 func (e *Engine) reserve(ctx context.Context, key string) (*ChangeSet, error) {
 	if key == "" {
 		return nil, nil
 	}
 	earlier, busy, err := e.storage.ReserveKey(ctx, key, e.opts.Now())
+	return e.earlier(ctx, earlier, busy, err)
+}
+
+// Replay implements Pipeline.
+func (e *Engine) Replay(ctx context.Context, actor *auth.Actor, call Call, key string) (*ChangeSet, error) {
+	k := idempotencyKey(call, actor, key)
+	if k == "" {
+		return nil, nil
+	}
+	earlier, busy, err := e.storage.LookupKey(ctx, k, e.opts.Now())
+	return e.earlier(ctx, earlier, busy, err)
+}
+
+// earlier turns what the storage found for a key into the answer of a retry.
+func (e *Engine) earlier(ctx context.Context, id store.ID, busy bool, err error) (*ChangeSet, error) {
 	switch {
 	case err != nil:
 		return nil, err
 	case busy:
 		return nil, ErrDuplicateRequest.New()
-	case earlier != "":
-		return e.storage.Get(ctx, earlier)
+	case id != "":
+		return e.storage.Get(ctx, id)
 	}
 	return nil, nil
 }

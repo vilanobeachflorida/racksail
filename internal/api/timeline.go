@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -447,7 +448,7 @@ func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, mos
 	enc := json.NewEncoder(w)
 	if format != "json" {
 		cw = csv.NewWriter(w)
-		cw.Write([]string{"id", "time", "outcome", "action", "kind", "subject", "scope", "actor", "for", "via", "address", "change set", "request", "summary", "reason"})
+		cw.Write([]string{"id", "time", "outcome", "action", "kind", "subject", "scope", "actor", "for", "via", "address", "change set", "request", "summary", "reason", "repeats", "last time"})
 	}
 	written := 0
 	for {
@@ -461,9 +462,14 @@ func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, mos
 				if r.Actor.ID == "" {
 					who = string(r.Actor.Type) + ":" + r.Actor.Name
 				}
+				var last string
+				if r.LastTime != nil {
+					last = r.LastTime.Format(time.RFC3339Nano)
+				}
 				row := []string{
 					string(r.ID), r.Time.Format(time.RFC3339Nano), string(r.Outcome), r.Action, r.Kind, string(r.Subject), r.Scope.String(),
 					who, string(r.Actor.User), string(r.Actor.Source), r.Actor.IP, string(r.ChangeSet), r.RequestID, r.Summary, r.Reason,
+					strconv.Itoa(r.Repeats), last,
 				}
 				for i, cell := range row {
 					row[i] = spreadsheetSafe(cell)

@@ -69,7 +69,7 @@ func TestInstallationsAreWhatTheirSourceOffers(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, cat); err != nil {
 		t.Fatal(err)
 	}
-	mine, theirs := store.AccountScope(store.NewID("acct")), store.AccountScope(store.NewID("acct"))
+	mine, theirs := p.newAccount(t), p.newAccount(t)
 	req, err := p.recipes.InstallRequest(ctx, InstallInput{
 		Source: Source{Catalog: cat, Item: "wordpress"}, Scope: mine, Inputs: map[string]any{"domain": "blog.example.com", "dbPassword": "correct horse"},
 	})
@@ -205,7 +205,7 @@ func TestInstallationsAreWhatTheirSourceOffers(t *testing.T) {
 	if upgraded.State != changeset.StateApplied {
 		t.Fatalf("upgrade: %s %s", upgraded.State, upgraded.Error)
 	}
-	if err := p.write(t, InstallationKind, changeset.OpCreate, "", store.AccountScope(store.NewID("acct")), func() InstallationSpec {
+	if err := p.write(t, InstallationKind, changeset.OpCreate, "", p.newAccount(t), func() InstallationSpec {
 		s := inst.Spec
 		s.Resources = nil
 		return s
@@ -233,7 +233,7 @@ func TestInstallationsAreWhatTheirSourceOffers(t *testing.T) {
 func TestHealthChecksReadOnlyTheirOwnResources(t *testing.T) {
 	ctx := context.Background()
 	p := newPanel(t, nil)
-	theirs, mine := store.AccountScope(store.NewID("acct")), store.AccountScope(store.NewID("acct"))
+	theirs, mine := p.newAccount(t), p.newAccount(t)
 	site := store.NewID("site")
 	inst := store.NewID(InstallationKind.Info().Prefix)
 	spec, _ := json.Marshal(InstallationSpec{

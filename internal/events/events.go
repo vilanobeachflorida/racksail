@@ -207,6 +207,12 @@ type AuditRecord struct {
 	// RequestID is the API request the action came through, when it came
 	// through one, so the record can be matched with the access log.
 	RequestID string `json:"requestId,omitempty" doc:"The API request it came through, as the access log names it"`
+	// Repeats counts the refusals that were the same as this one, within
+	// the window of the actor's refusals it was recorded in; they add to
+	// this record rather than getting their own (see Denials). LastTime is
+	// when the last of them happened.
+	Repeats  int        `json:"repeats,omitempty" doc:"How many more times the same refusal happened within the hour, counted here instead of on records of their own; on a core.refusals record, how many more of the actor's refusals there were beyond the ones recorded one by one"`
+	LastTime *time.Time `json:"lastTime,omitempty" doc:"When the last of the repeats happened"`
 }
 
 // AuditLog stores audit records. Hooks can't turn it off.

@@ -149,6 +149,8 @@ export interface ChangeSet {
   state: ChangeSetState;
   job?: string;
   undoOf?: string;
+  /** For an undo, the resources that changed after the change set it undoes, which it replaces too. */
+  changedSince?: string[] | null;
   error?: string;
   createdAt: string;
   appliedAt?: string;

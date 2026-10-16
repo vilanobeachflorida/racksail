@@ -96,7 +96,7 @@ func TestCancelRacesStart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := q.Cancel(ctx, job.ID); err != nil {
+			if _, err := q.Cancel(ctx, job.ID); err != nil {
 				t.Fatal(err)
 			}
 			ids = append(ids, job.ID)
@@ -165,7 +165,7 @@ func TestStartAfterACancelStaysHidden(t *testing.T) {
 	}
 	p.job = job.ID
 	<-p.read
-	if err := q.Cancel(ctx, job.ID); err != nil {
+	if _, err := q.Cancel(ctx, job.ID); err != nil {
 		t.Fatal(err)
 	}
 	close(p.resume)
@@ -204,7 +204,7 @@ func TestWaitAfterCancelReturns(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := q.Cancel(ctx, job.ID); err != nil {
+			if _, err := q.Cancel(ctx, job.ID); err != nil {
 				t.Fatal(err)
 			}
 			if got := wait(t, q, job.ID); got.State != StateCanceled {
@@ -390,6 +390,16 @@ func TestRetriesAreTakenOnce(t *testing.T) {
 		q.Cancel(ctx, again.ID)
 		wait(t, q, again.ID)
 		keyed := RetryOptions{Actor: alice, IdempotencyKey: "retry-once"}
+		if earlier, err := q.Retried(ctx, alice, "retry-once"); err != nil || earlier != nil {
+			t.Errorf("a key nothing used yet = %+v, %v", earlier, err)
+		}
+		// A dry run checks the retry and queues nothing.
+		if checked, err := q.Retry(ctx, again.ID, RetryOptions{Actor: alice, IdempotencyKey: "retry-once", DryRun: true}); err != nil || checked.ID != again.ID {
+			t.Errorf("a dry run = %+v, %v", checked, err)
+		}
+		if list, _, _ := q.List(ctx, Filter{Type: "test.watched", State: StateQueued}); len(list) != 0 {
+			t.Errorf("a dry run queued %d jobs", len(list))
+		}
 		first, err := q.Retry(ctx, again.ID, keyed)
 		if err != nil {
 			t.Fatal(err)
@@ -397,9 +407,18 @@ func TestRetriesAreTakenOnce(t *testing.T) {
 		if repeat, err := q.Retry(ctx, again.ID, keyed); err != nil || repeat.ID != first.ID {
 			t.Errorf("a repeat with the key = %+v, %v", repeat, err)
 		}
+		if earlier, err := q.Retried(ctx, alice, "retry-once"); err != nil || earlier == nil || earlier.ID != first.ID {
+			t.Errorf("the job the key queued = %+v, %v", earlier, err)
+		}
+		if _, err := q.Retry(ctx, again.ID, RetryOptions{Actor: alice, DryRun: true}); !errors.Is(err, ErrAlreadyRetried) {
+			t.Errorf("a dry run of a second retry: %v", err)
+		}
 		bob := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI}
 		if _, err := q.Retry(ctx, again.ID, RetryOptions{Actor: bob, IdempotencyKey: "retry-once"}); !errors.Is(err, ErrAlreadyRetried) {
 			t.Errorf("someone else's request with the same key: %v", err)
+		}
+		if earlier, err := q.Retried(ctx, bob, "retry-once"); err != nil || earlier != nil {
+			t.Errorf("a key is its actor's alone: %+v, %v", earlier, err)
 		}
 		q.Cancel(ctx, first.ID)
 		wait(t, q, first.ID)

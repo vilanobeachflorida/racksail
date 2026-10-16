@@ -6,9 +6,11 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
@@ -99,9 +101,148 @@ func (e *Engine) takeSnapshots(ctx context.Context, cs *ChangeSet) error {
 	return nil
 }
 
+// SnapshotCollection is how often Run looks for snapshots no change set
+// keeps.
+const SnapshotCollection = 24 * time.Hour
+
+// Run deletes the pre-change snapshots no kept change set lists, when the
+// panel starts and then every interval, until ctx is done. A check that
+// fails, as while the agent doesn't answer, is tried again sooner.
+func (e *Engine) Run(ctx context.Context, interval time.Duration) {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		wait := interval
+		n, err := e.CollectSnapshots(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			e.opts.Log.Warn("looking for snapshots no change set keeps", "error", err)
+			wait = min(interval, 10*time.Minute)
+		case n > 0:
+			e.opts.Log.Info("deleted the snapshots no change set keeps", "count", n)
+		}
+		timer.Reset(wait)
+	}
+}
+
+// CollectSnapshots deletes the snapshots taken before change sets were
+// applied that no kept change set lists, and returns how many it found.
+// Change sets drop their snapshots when they are no longer kept, but some
+// outlive that: those of change sets dropped by a panel that stopped before
+// it deleted them, of a change whose writes failed or never committed, as
+// when the panel stopped in between, and of a preview whose apply stopped
+// that way, which stays a preview. Snapshots being taken for a change set
+// that isn't recorded yet are left alone, and so is every snapshot of a
+// label that isn't a change set's, such as those of updates.
+func (e *Engine) CollectSnapshots(ctx context.Context) (int, error) {
+	client := e.agent()
+	if client == nil {
+		return 0, nil
+	}
+	found, err := changeSnapshots(ctx, client)
+	if err != nil {
+		return 0, err
+	}
+	var orphans []agent.Snapshot
+	for id, snaps := range found {
+		if e.snapshotting(id) {
+			continue
+		}
+		cs, err := e.storage.Get(ctx, id)
+		switch {
+		case err == nil && !cs.DryRun:
+			// Only the snapshots the change set lists are its own.
+			for _, s := range snaps {
+				if !slices.ContainsFunc(cs.Snapshots, func(kept agent.Snapshot) bool { return kept.Path == s.Path }) {
+					orphans = append(orphans, s)
+				}
+			}
+		case err == nil, i18n.ErrNotFound.Is(err):
+			orphans = append(orphans, snaps...)
+		default:
+			return 0, err
+		}
+	}
+	e.dropSnapshots(ctx, orphans)
+	return len(orphans), nil
+}
+
+// changeSnapshots lists the snapshots SnapshotPaths took for change sets,
+// by the change set whose ID labels them, from every Btrfs filesystem.
+func changeSnapshots(ctx context.Context, client agent.Client) (map[store.ID][]agent.Snapshot, error) {
+	mounts, err := agent.ListMounts.Call(ctx, client, agent.Empty{}, agent.CallOptions{})
+	if err != nil {
+		return nil, err
+	}
+	out := map[store.ID][]agent.Snapshot{}
+	listed := map[string]bool{}
+	for _, m := range mounts.Mounts {
+		// Every mount of a filesystem lists all of its subvolumes.
+		if m.FSType != "btrfs" || listed[m.Source] {
+			continue
+		}
+		listed[m.Source] = true
+		list, err := agent.ListSubvolumes.Call(ctx, client, agent.MountPointInput{Mount: m.Target}, agent.CallOptions{})
+		if err != nil {
+			return nil, err
+		}
+		for _, sv := range list.Subvolumes {
+			if id, ok := snapshotChangeSet(sv.Path); ok {
+				out[id] = append(out[id], agent.Snapshot{Path: sv.Path})
+			}
+		}
+	}
+	return out, nil
+}
+
+// snapshotChangeSet returns the change set a snapshot was taken for: the
+// label of the directory it is in below .snapshots/racksail on its
+// filesystem, or below the system's snapshots, when the label is a change
+// set's ID.
+func snapshotChangeSet(p string) (store.ID, bool) {
+	dir := path.Dir(p)
+	root := path.Dir(dir)
+	if root != agent.SystemSnapshotDir && root != agent.SnapshotDir && !strings.HasSuffix(root, "/.snapshots/racksail") {
+		return "", false
+	}
+	id, err := store.ParseID(path.Base(dir))
+	if err != nil || id.Prefix() != store.PrefixChangeSet {
+		return "", false
+	}
+	return id, true
+}
+
+// holdSnapshots keeps the collection away from the snapshots of a change
+// set until its record is written, which release ends.
+func (e *Engine) holdSnapshots(id store.ID) (release func()) {
+	e.mu.Lock()
+	e.taking[id]++
+	e.mu.Unlock()
+	return func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.taking[id]--; e.taking[id] <= 0 {
+			delete(e.taking, id)
+		}
+	}
+}
+
+// snapshotting reports whether snapshots are being taken for a change set
+// that isn't recorded yet.
+func (e *Engine) snapshotting(id store.ID) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.taking[id] > 0
+}
+
 // dropSnapshots deletes snapshots and then the directories that held them,
 // once they're empty. Failures are logged; a snapshot left behind only
-// costs disk space.
+// costs disk space, and the collection tries it again.
 func (e *Engine) dropSnapshots(ctx context.Context, snaps []agent.Snapshot) {
 	client := e.agent()
 	if client == nil || len(snaps) == 0 {

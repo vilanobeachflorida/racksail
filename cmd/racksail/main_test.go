@@ -168,6 +168,21 @@ func TestSimulatedAgent(t *testing.T) {
 		t.Errorf("agent = %v", err)
 	}
 
+	// A real agent listens where the panel and the add-ons' sandboxes
+	// expect it, so --socket is only for a simulated one; the check comes
+	// before anything that needs root.
+	if _, err := run(t, "agent", "--socket", sock, "--config", filepath.Join(dir, "missing.toml")); err == nil || !strings.Contains(err.Error(), "--socket goes with --sim") {
+		t.Errorf("a real agent on another socket: %v", err)
+	}
+	// Nor can racksail.toml move the socket.
+	config := filepath.Join(dir, "racksail.toml")
+	if err := os.WriteFile(config, []byte("[agent]\nsocket = \""+sock+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "agent", "--sim", "--config", config); err == nil || !strings.Contains(err.Error(), "can't set agent.socket") {
+		t.Errorf("a socket in racksail.toml: %v", err)
+	}
+
 	t.Setenv("XDG_RUNTIME_DIR", dir)
 	path, err := simSocket()
 	if err != nil || path != filepath.Join(dir, "racksail", "agent.sock") {

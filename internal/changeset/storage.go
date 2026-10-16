@@ -43,6 +43,9 @@ type Storage interface {
 	// returns that change set's ID and claims nothing; busy reports that a
 	// request with the key is still being processed.
 	ReserveKey(ctx context.Context, key string, now time.Time) (earlier store.ID, busy bool, err error)
+	// LookupKey says what ReserveKey would find for the key, without
+	// claiming it.
+	LookupKey(ctx context.Context, key string, now time.Time) (earlier store.ID, busy bool, err error)
 	// SettleKey records the change set a request with the key produced, or
 	// releases the key when id is empty, so a retry runs again.
 	SettleKey(ctx context.Context, key string, id store.ID, now time.Time) error
@@ -298,18 +301,38 @@ func (m *MemoryStorage) Mentions(ctx context.Context, text string) (bool, error)
 func (m *MemoryStorage) ReserveKey(ctx context.Context, key string, now time.Time) (store.ID, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if ent, ok := m.keys[key]; ok && now.Sub(ent.time) <= IdempotencyWindow {
-		switch {
-		case ent.set == "" && now.Sub(ent.time) <= reservationTimeout:
-			return "", true, nil
-		case ent.set != "":
-			if _, kept := m.sets[ent.set]; kept {
-				return ent.set, false, nil
-			}
-		}
+	if earlier, busy := m.lookup(key, now); earlier != "" || busy {
+		return earlier, busy, nil
 	}
 	m.keys[key] = keyEntry{time: now}
 	return "", false, nil
+}
+
+// LookupKey implements Storage.
+func (m *MemoryStorage) LookupKey(ctx context.Context, key string, now time.Time) (store.ID, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	earlier, busy := m.lookup(key, now)
+	return earlier, busy, nil
+}
+
+// lookup returns the change set a request with the key produced, as long as
+// it is kept, or whether one is still being processed. The caller holds
+// m.mu.
+func (m *MemoryStorage) lookup(key string, now time.Time) (store.ID, bool) {
+	ent, ok := m.keys[key]
+	if !ok || now.Sub(ent.time) > IdempotencyWindow {
+		return "", false
+	}
+	switch {
+	case ent.set == "" && now.Sub(ent.time) <= reservationTimeout:
+		return "", true
+	case ent.set != "":
+		if _, kept := m.sets[ent.set]; kept {
+			return ent.set, false
+		}
+	}
+	return "", false
 }
 
 // SettleKey implements Storage.

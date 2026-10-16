@@ -12,7 +12,6 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
-	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -50,7 +49,7 @@ type recoveryCodesOutput struct {
 }
 
 type idPath struct {
-	ID store.ID `path:"id"`
+	ID store.ID `path:"id" doc:"The ID, as the list it comes from gives it"`
 }
 
 type passkeysOutput struct {
@@ -72,7 +71,7 @@ type passkeyOutput struct {
 }
 
 type renameInput struct {
-	ID   store.ID `path:"id"`
+	ID   store.ID `path:"id" doc:"The passkey's ID"`
 	Body struct {
 		Name string `json:"name" minLength:"1" maxLength:"64" doc:"The passkey's new name"`
 	}
@@ -91,7 +90,7 @@ type endedOutput struct {
 }
 
 type devicesInput struct {
-	Device string `cookie:"racksail_device"`
+	Device string `cookie:"racksail_device" doc:"A trusted browser's cookie, so the list says which browser is this one"`
 }
 
 type devicesOutput struct {
@@ -168,7 +167,7 @@ type mfaOptionsOutput struct {
 }
 
 type mfaFinishInput struct {
-	ID   store.ID `path:"id"`
+	ID   store.ID `path:"id" doc:"The second step's ID, as the list of them gives it"`
 	Body struct {
 		Ceremony string `json:"ceremony" doc:"The ceremony the step's first half answered with"`
 		Response string `json:"response,omitempty" maxLength:"256" doc:"What the method asked the person for; empty for methods without input"`
@@ -777,15 +776,9 @@ func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
 // submitOwn sends a change of the person's own user through the change
 // pipeline. It names no revision, so the pipeline plans it again when
 // something else changed the user while it was planned, and asks again
-// then whether it needs a confirmation, as a new email address does.
+// then whether it needs a confirmation, as a new email address does. A
+// retry gets the first change set before build reads the user, which no
+// longer has the SSH key the first request removed.
 func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func() (changeset.Request, error)) (*ChangeSetOutput, error) {
-	p := s.pipeline()
-	if p == nil {
-		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
-	}
-	req, err := build()
-	if err != nil {
-		return nil, err
-	}
-	return Submit(ctx, p, params, req)
+	return SubmitFunc(ctx, s.pipeline(), params, build)
 }

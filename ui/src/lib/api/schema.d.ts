@@ -435,7 +435,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch an item's icon */
+        /**
+         * Fetch an item's icon
+         * @description Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.
+         */
         get: operations["getCatalogItemIcon"];
         put?: never;
         post?: never;
@@ -500,7 +503,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a preview
-         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.
+         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying. With dryRun=true the preview is planned again and nothing is applied: the answer is the preview when applying it would still do what it shows.
          */
         post: operations["applyChangeSet"];
         delete?: never;
@@ -520,7 +523,7 @@ export interface paths {
         put?: never;
         /**
          * Undo a change
-         * @description Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.
+         * @description Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. Settings changed after that change set are replaced too; changedSince lists the resources that changed since. With dryRun=true the answer is the preview.
          */
         post: operations["undoChangeSet"];
         delete?: never;
@@ -2660,7 +2663,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a job
-         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
+         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished, or asking a job to stop again, changes nothing and isn't recorded in the audit log, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. With dryRun=true it only checks that you may cancel the job and answers with the job as it is. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
          */
         post: operations["cancelJob"];
         delete?: never;
@@ -2700,7 +2703,7 @@ export interface paths {
         put?: never;
         /**
          * Retry a job
-         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
+         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job, even once the job it retried is no longer kept. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. With dryRun=true it checks that the job can be retried and answers 200 with it, queuing nothing. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
          */
         post: operations["retryJob"];
         delete?: never;
@@ -3396,7 +3399,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Describe a module */
+        /**
+         * Describe a module
+         * @description Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.
+         */
         get: operations["getModule"];
         put?: never;
         post?: never;
@@ -3597,7 +3603,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Show a notification and its message */
+        /**
+         * Show a notification and its message
+         * @description Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.
+         */
         get: operations["getNotification"];
         put?: never;
         post?: never;
@@ -3714,7 +3723,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Say whether safe mode is on */
+        /**
+         * Say whether safe mode is on
+         * @description Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.
+         */
         get: operations["getSafeMode"];
         put?: never;
         /**
@@ -3916,6 +3928,7 @@ export interface components {
             /** @description What the owner signs in with */
             username: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         AccountSpec: {
             /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
             limits?: components["schemas"]["AccountLimits"];
@@ -4008,6 +4021,7 @@ export interface components {
             /** @description The username of the person responsible, as it was then */
             userName?: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         AddonSpec: {
             /** @description The permissions the person installing the add-on approved */
             approved: components["schemas"]["Permissions"];
@@ -4120,12 +4134,22 @@ export interface components {
             /** @description The kind of the resource acted on */
             kind?: string;
             /**
+             * Format: date-time
+             * @description When the last of the repeats happened
+             */
+            lastTime?: string;
+            /**
              * @description How it went: it was done, it was refused, or it was allowed but failed
              * @enum {string}
              */
             outcome: "success" | "denied" | "failed";
             /** @description Why it was refused or failed */
             reason?: string;
+            /**
+             * Format: int64
+             * @description How many more times the same refusal happened within the hour, counted here instead of on records of their own; on a core.refusals record, how many more of the actor's refusals there were beyond the ones recorded one by one
+             */
+            repeats?: number;
             /** @description The API request it came through, as the access log names it */
             requestId?: string;
             /** @description Who the resource belongs to, which decides who may see the record */
@@ -4201,6 +4225,7 @@ export interface components {
             /** @description Every operation, sorted by path and method */
             operations: components["schemas"]["Operation"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         CatalogSpec: {
             /** @description Stops offering the catalog's items without forgetting it */
             disabled?: boolean;
@@ -4310,6 +4335,8 @@ export interface components {
              * @description When its changes were written
              */
             appliedAt?: string;
+            /** @description For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too */
+            changedSince?: string[] | null;
             /** @description Its changes, in the order they are planned and applied */
             changes: components["schemas"]["ResourceChange"][] | null;
             /** @description Fields two contributors change; a change set with any can't be applied */
@@ -4358,6 +4385,7 @@ export interface components {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         ChannelSpec: {
             /** @description Stops sending until the channel is enabled again */
             disabled?: boolean;
@@ -6842,6 +6870,7 @@ export interface components {
             /** @description Whether every health check passed */
             healthy: boolean;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         InstallationSpec: {
             /** @description The ID of the catalog that offered the recipe */
             catalog?: string;
@@ -7437,6 +7466,7 @@ export interface components {
             /** @description Every module the panel has, with its state */
             modules: components["schemas"]["ModuleInfo"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         ModuleSpec: {
             /** @description Whether the module is on */
             enabled: boolean;
@@ -7870,6 +7900,7 @@ export interface components {
             /** @description The hook points, with the hooks attached to each */
             points: components["schemas"]["PointInfo"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         PolicySpec: {
             /** @description For default rules: the fields filled in, each from a CEL expression */
             defaults?: components["schemas"]["FieldDefault"][] | null;
@@ -7950,6 +7981,7 @@ export interface components {
             /** @description The time zone times show in, such as Europe/Lisbon or UTC; left out, the browser's */
             timeZone?: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         PreferencesSpec: {
             /** @description Send notifications to my email address */
             email: boolean;
@@ -8070,6 +8102,7 @@ export interface components {
              */
             total: number;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         ProviderSpec: {
             /**
              * @description What it does: signs people in (identity), or adds a second sign-in step (mfa)
@@ -8153,6 +8186,7 @@ export interface components {
             /** @description The delivery to send again */
             delivery: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         RelaySpec: {
             /**
              * @description The address email comes from
@@ -8658,6 +8692,7 @@ export interface components {
             /** @description The sessions, the one asking marked */
             sessions: components["schemas"]["SessionView"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         SettingsSpec: {
             /** @description Install new releases on the channel by themselves, during the window */
             automatic?: boolean;
@@ -8782,6 +8817,7 @@ export interface components {
             /** @description Whether the panel still waits for its first admin */
             setupRequired: boolean;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         SignInPolicySpec: {
             /** @description Addresses and networks people may sign in and use API tokens from; empty allows anywhere. The server itself is always allowed */
             allowFrom?: string[] | null;
@@ -9311,6 +9347,7 @@ export interface components {
             /** @description The public key as an authorized_keys line, without options */
             publicKey: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         UserSpec: {
             /** @description Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does */
             allowFrom?: string[] | null;
@@ -9473,6 +9510,7 @@ export interface components {
              */
             time: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         WebhookSpec: {
             /** @description What the webhook is for */
             description?: string;
@@ -9865,8 +9903,11 @@ export interface operations {
                 id: string;
             };
             cookie?: {
+                /** @description The cookie starting the sign-in set, which the provider's answer must match */
                 racksail_signin_state?: string;
+                /** @description A trusted browser's cookie */
                 racksail_device?: string;
+                /** @description Set while linking an outside identity from the security settings, which the browser goes back to */
                 racksail_linking?: boolean;
             };
         };
@@ -10510,7 +10551,10 @@ export interface operations {
     };
     applyChangeSet: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Plan the preview again and answer with it, without applying it, when applying it would still do what it shows */
+                dryRun?: boolean;
+            };
             header?: {
                 /** @description Any unique string; a retry with the same key returns the first change set instead of applying it again */
                 "Idempotency-Key"?: string;
@@ -10523,6 +10567,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The preview, which applying would still carry out as it shows, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
             /** @description The change set, applied to the settings; its job carries out the rest */
             202: {
                 headers: {
@@ -16746,6 +16799,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["Event"];
                         /**
                          * @description The event's name
@@ -16966,6 +17020,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["InboxChange"];
                         /**
                          * @description The event's name
@@ -17142,7 +17197,10 @@ export interface operations {
     };
     cancelJob: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Check that you may cancel the job, and answer with it as it is, without canceling it */
+                dryRun?: boolean;
+            };
             header?: {
                 /** @description Any unique string. Canceling a job again changes nothing, so a repeat is safe with or without it */
                 "Idempotency-Key"?: string;
@@ -17214,7 +17272,10 @@ export interface operations {
     };
     retryJob: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Check that the job can be retried, and answer with it, without queuing anything */
+                dryRun?: boolean;
+            };
             header?: {
                 /** @description Any unique string; a repeat of the request with the same key, within a day, answers with the job the first one queued instead of refusing */
                 "Idempotency-Key"?: string;
@@ -17227,6 +17288,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The job a retry would run again, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
             /** @description The new job */
             202: {
                 headers: {
@@ -17269,6 +17339,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": ({
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["Job"];
                         /**
                          * @description The event's name
@@ -17278,6 +17349,7 @@ export interface operations {
                         /** @description Send it back as Last-Event-ID to resume after this event */
                         id?: string;
                     } | {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["LogLine"];
                         /**
                          * @description The event's name
@@ -17522,6 +17594,7 @@ export interface operations {
             header?: never;
             path?: never;
             cookie?: {
+                /** @description A trusted browser's cookie, so the list says which browser is this one */
                 racksail_device?: string;
             };
         };
@@ -17579,6 +17652,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -17765,6 +17839,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -17796,6 +17871,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -17825,6 +17901,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The second step's ID, as the list of them gives it */
                 id: string;
             };
             cookie?: never;
@@ -17949,6 +18026,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -17978,6 +18056,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The passkey's ID */
                 id: string;
             };
             cookie?: never;
@@ -18131,6 +18210,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -18328,6 +18408,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -18539,6 +18620,7 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
+                /** @description The profile, such as web-hosting */
                 profile: "all-in-one" | "web-hosting" | "home-server" | "virtualization-host" | "mail-server" | "dns-server" | "minimal";
             };
             cookie?: never;
@@ -19028,6 +19110,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": ({
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["Notice"];
                         /**
                          * @description The event's name
@@ -19037,6 +19120,7 @@ export interface operations {
                         /** @description Send it back as Last-Event-ID to resume after this event */
                         id?: string;
                     } | {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["ResyncNotice"];
                         /**
                          * @description The event's name

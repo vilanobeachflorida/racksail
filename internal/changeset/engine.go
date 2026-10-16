@@ -84,6 +84,10 @@ type Engine struct {
 	// claims are the change sets an undo or the apply of a preview is
 	// working on, which no other may start on and retention keeps.
 	claims map[store.ID]bool
+	// taking counts, by change set, the applies that are taking snapshots
+	// for it or haven't recorded it yet, whose snapshots the collection
+	// leaves alone.
+	taking map[store.ID]int
 }
 
 var _ Pipeline = (*Engine)(nil)
@@ -116,7 +120,7 @@ func NewEngine(opts Options) (*Engine, error) {
 			}
 		}
 	}
-	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), claims: map[store.ID]bool{}}
+	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), claims: map[store.ID]bool{}, taking: map[store.ID]int{}}
 	if err := opts.Jobs.Handle(jobs.Type{Name: ApplyJob, Run: e.runApply, Ended: e.applyEnded, Retryable: e.retryable}); err != nil {
 		return nil, err
 	}
@@ -136,7 +140,7 @@ const replans = 3
 func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 	var key string
 	if !req.DryRun {
-		key = idempotencyKey("submit", req.Actor, req.IdempotencyKey)
+		key = idempotencyKey(CallSubmit, req.Actor, req.IdempotencyKey)
 		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
 			return earlier, err
 		}
@@ -179,6 +183,20 @@ type draft struct {
 	// recorded says the audit log already has why the request didn't go
 	// through.
 	recorded bool
+	// planned is what was planned for each requested change, in order, so
+	// a change whose spec a modify hook rewrote can be planned again.
+	planned []plannedChange
+}
+
+// plannedChange is what planning one requested change found: the state it
+// leaves its resource in, and the effects of the action's own plan, of the
+// resource's reconcile and of the action's steps, which the change set lists
+// in that order.
+type plannedChange struct {
+	state *store.Resource
+	// rec is the kind's reconciler, nil for kinds without one.
+	rec                   reconcile.Reconciler
+	action, plan, actions []system.Effect
 }
 
 func (p *draft) reader(base secrets.Store) secrets.Reader {
@@ -389,6 +407,11 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 			return err
 		}
 	}
+	if ch.Op == OpCreate {
+		if err := e.checkOwner(ctx, p.view, next); err != nil {
+			return err
+		}
+	}
 
 	change := ResourceChange{
 		Op: ch.Op, Action: ch.Action, Kind: info.Name, ID: next.ID, Scope: next.Scope, Server: next.Server,
@@ -405,8 +428,11 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 			change.Revision = old.Revision
 		}
 	}
-	var effects []system.Effect
+	var pc plannedChange
 	rec, hasReconciler := e.reconciler(info.Name)
+	if hasReconciler {
+		pc.rec = rec
+	}
 	if planner, ok := rec.(reconcile.ActionPlanner); ok && hasReconciler && ch.Op == OpAction {
 		actionPlan, err := planner.PlanAction(ctx, reconcile.ActionRequest{Request: e.request(ctx, p, old), Action: ch.Action, Input: ch.Input})
 		if err != nil {
@@ -421,7 +447,7 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		}
 		change.Steps = actionPlan.Plan.Steps
 		change.Checks = actionPlan.Plan.Checks
-		effects = append(effects, actionPlan.Plan.Effects...)
+		pc.action = slices.Clone(actionPlan.Plan.Effects)
 	}
 	if ch.Op != OpDelete {
 		diff, err := Diff(change.Before, change.After)
@@ -439,19 +465,42 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		}
 	}
 	p.view.Put(next)
-	if hasReconciler && (ch.Op != OpAction || !bytes.Equal(change.Before, change.After)) {
-		plan, err := rec.Plan(ctx, e.request(ctx, p, next))
-		if err != nil {
+	if reconciles(pc.rec, change) {
+		if pc.plan, err = e.planEffects(ctx, p, p.view, pc.rec, next); err != nil {
 			return err
 		}
-		effects = append(effects, plan.Effects...)
-		effects = append(effects, e.stepEffects(ctx, plan.Steps, next.ID)...)
 	}
-	effects = append(effects, e.stepEffects(ctx, change.Steps, next.ID)...)
-	cs.Effects = append(cs.Effects, effects...)
+	pc.actions = e.stepEffects(ctx, change.Steps, next.ID)
+	pc.state = next.Clone()
+	p.planned = append(p.planned, pc)
+	cs.Effects = append(cs.Effects, pc.effects()...)
 	cs.Risk = store.MaxRisk(cs.Risk, risk)
 	p.titles = append(p.titles, title)
 	return nil
+}
+
+// effects lists what a planned change does to the machine, in the order the
+// change set lists it.
+func (pc plannedChange) effects() []system.Effect {
+	return slices.Concat(pc.action, pc.plan, pc.actions)
+}
+
+// reconciles reports whether applying a change reconciles its resource: every
+// change of a kind with a reconciler, but an action that keeps the settings,
+// whose own plan says what it does.
+func reconciles(rec reconcile.Reconciler, c ResourceChange) bool {
+	return rec != nil && (c.Op != OpAction || !bytes.Equal(c.Before, c.After))
+}
+
+// planEffects asks a resource's reconciler what bringing the machine in line
+// with r does, with the steps' effects as the agent's check mode finds them.
+// view is the state the change set leaves when r is planned.
+func (e *Engine) planEffects(ctx context.Context, p *draft, view store.Reader, rec reconcile.Reconciler, r *store.Resource) ([]system.Effect, error) {
+	plan, err := rec.Plan(ctx, reconcile.Request{Resource: r, Read: view, Facts: e.facts(ctx, r.Server), Secrets: p.reader(e.opts.Secrets)})
+	if err != nil {
+		return nil, err
+	}
+	return append(slices.Clone(plan.Effects), e.stepEffects(ctx, plan.Steps, r.ID)...), nil
 }
 
 // planContext is the context a change is validated in. A kind's
@@ -506,6 +555,38 @@ func (e *Engine) checkReuse(ctx context.Context, p *draft, r *store.Resource) er
 		return store.ErrExists.New("what", string(r.ID))
 	}
 	return store.CheckReuse(history, r, p.undoOf)
+}
+
+// checkOwner makes sure the account or reseller a new resource belongs to
+// exists: stored and not being removed, or created by an earlier change of
+// the change set. Otherwise the resource would sit outside every account,
+// seen only by the server's admins and left out of the account's archive,
+// and an account made later with that ID would inherit it. Owners belong to
+// themselves, so a new account names itself. A server's resources have no
+// owner to check. While no kind keeps the owners of a level, as resellers
+// until the module that keeps them is built in, nothing can belong there,
+// and the refusal says so rather than that one owner is missing.
+func (e *Engine) checkOwner(ctx context.Context, view store.Reader, r *store.Resource) error {
+	level := r.Scope.Level
+	if level != store.ScopeAccount && level != store.ScopeReseller {
+		return nil
+	}
+	owners, known := e.opts.Kinds.OwnerKind(level)
+	if !known {
+		return i18n.Invalid(i18n.Field("scope.level", i18n.ErrBadValue, "reason", "this panel keeps no "+string(level)+"s for it to belong to"))
+	}
+	if r.Kind == owners.Info().Name && r.Scope.ID == r.ID {
+		return nil
+	}
+	owner, err := view.Get(ctx, r.Scope.ID)
+	switch {
+	case err != nil && !store.ErrNotFound.Is(err):
+		return err
+	case err == nil && owner.Kind == owners.Info().Name && !owner.Deleted():
+		return nil
+	}
+	what := strings.ToUpper(string(level[:1])) + string(level[1:]) + " " + string(r.Scope.ID)
+	return i18n.Invalid(i18n.Field("scope.id", i18n.ErrNotFound, "what", what))
 }
 
 // validate runs a kind's validation and checks its secret fields.
@@ -694,6 +775,7 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 	cleanup := context.WithoutCancel(ctx)
 	// Snapshots come first, so nothing changes when they can't be taken.
 	if cs.Snapshot {
+		defer e.holdSnapshots(cs.ID)()
 		if err := e.takeSnapshots(ctx, cs); err != nil {
 			return false, err
 		}
@@ -1101,11 +1183,11 @@ func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Repor
 	rec, hasReconciler := e.reconciler(c.Kind)
 	switch {
 	case hasReconciler:
-		if err := runner.Reconcile(ctx, c.ID, progress); err != nil {
+		if err := runner.Reconcile(ctx, c.ID, progress); err != nil && !e.purgedAlready(ctx, c) {
 			return nil, err
 		}
 	case c.Op == OpDelete:
-		if err := e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) }); err != nil {
+		if err := e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) }); err != nil && !e.purgedAlready(ctx, c) {
 			return nil, err
 		}
 	default:
@@ -1140,6 +1222,18 @@ func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Repor
 		}
 	}
 	return output, nil
+}
+
+// purgedAlready reports whether a delete is done although carrying it out
+// failed: its resource is gone from the store, which only happens once what
+// it set up is removed, as when the resync got to the resource before this
+// job did and purged it.
+func (e *Engine) purgedAlready(ctx context.Context, c ResourceChange) bool {
+	if c.Op != OpDelete {
+		return false
+	}
+	_, err := e.opts.Store.Get(context.WithoutCancel(ctx), c.ID)
+	return store.ErrNotFound.Is(err)
 }
 
 // markStored records that a resource of a kind without a reconciler is in
@@ -1273,34 +1367,43 @@ func changePermission(c ResourceChange) auth.Permission {
 	return auth.KindPermission(c.Kind, op)
 }
 
-// Undo implements Pipeline.
+// Undo implements Pipeline. The idempotency key is reserved before anything
+// is read, so a retry gets the first undo although the change set it undid
+// is undone by then.
 func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) {
-	orig, err := e.Get(ctx, req.ChangeSet)
-	if err != nil {
-		return nil, err
-	}
-	if orig.DryRun || (orig.State != StateApplied && orig.State != StateFailed) {
-		return nil, ErrNotApplied.New()
-	}
 	var key string
 	if !req.DryRun {
-		key = idempotencyKey("undo", req.Actor, req.IdempotencyKey)
+		key = idempotencyKey(CallUndo, req.Actor, req.IdempotencyKey)
 		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
 			return earlier, err
 		}
+	}
+	refuse := func(err error) (*ChangeSet, error) {
+		e.settle(ctx, key, "")
+		return nil, err
+	}
+	undoable := func(cs *ChangeSet) bool {
+		return !cs.DryRun && (cs.State == StateApplied || cs.State == StateFailed)
+	}
+	orig, err := e.Get(ctx, req.ChangeSet)
+	if err != nil {
+		return refuse(err)
+	}
+	if !undoable(orig) {
+		return refuse(ErrNotApplied.New())
+	}
+	if !req.DryRun {
 		if !e.claimSet(orig.ID) {
-			e.settle(ctx, key, "")
-			return nil, ErrUndoing.New("title", orig.Title)
+			return refuse(ErrUndoing.New("title", orig.Title))
 		}
 		defer e.release(orig.ID)
 		// Another undo may have finished between reading the change set and
 		// claiming it.
-		if orig, err = e.Get(ctx, req.ChangeSet); err != nil || (orig.State != StateApplied && orig.State != StateFailed) {
-			e.settle(ctx, key, "")
-			if err == nil {
-				err = ErrNotApplied.New()
-			}
-			return nil, err
+		if orig, err = e.Get(ctx, req.ChangeSet); err != nil {
+			return refuse(err)
+		}
+		if !undoable(orig) {
+			return refuse(ErrNotApplied.New())
 		}
 	}
 	changes, err := e.undoChanges(ctx, orig)
@@ -1308,15 +1411,14 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		err = ErrNothingToUndo.New("title", orig.Title)
 	}
 	if err != nil {
-		e.settle(ctx, key, "")
-		return nil, err
+		return refuse(err)
 	}
 	request := Request{Actor: req.Actor, Title: "Undo: " + orig.Title, Changes: changes, DryRun: req.DryRun, Confirm: req.Confirm}
 	p, err := e.plan(ctx, request, "", orig.ID)
 	if err != nil {
-		e.settle(ctx, key, "")
-		return nil, err
+		return refuse(err)
 	}
+	p.cs.ChangedSince = changedSince(orig, p.cs)
 	return e.finish(ctx, p, request, key, false)
 }
 
@@ -1427,39 +1529,74 @@ func (e *Engine) undoChanges(ctx context.Context, orig *ChangeSet) ([]Change, er
 	return out, nil
 }
 
+// changedSince lists the resources an undo puts back or deletes whose
+// settings or labels aren't the ones the change set it undoes left them
+// with: the undo replaces what changed since too, which its preview says.
+func changedSince(orig, undo *ChangeSet) []store.ID {
+	left := map[store.ID]ResourceChange{}
+	for _, c := range orig.Changes {
+		left[c.ID] = c
+	}
+	var out []store.ID
+	for _, c := range undo.Changes {
+		was, ok := left[c.ID]
+		if !ok || c.Source != RequestSource || slices.Contains(out, c.ID) {
+			continue
+		}
+		labels := c.LabelsBefore
+		switch c.Op {
+		case OpUpdate:
+		case OpDelete:
+			labels = c.Labels
+		default:
+			continue
+		}
+		if !sameJSON(was.After, c.Before) || !maps.Equal(was.Labels, labels) {
+			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
 // Apply implements Pipeline. Applies of one preview are taken one at a
 // time, so two requests that arrive together, as from a double click, apply
 // it once; the other is told it is already being applied, or that it is no
-// longer a preview.
+// longer a preview. A dry run plans the preview again and returns it when
+// applying it would still do what it shows, changing nothing.
 func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error) {
-	preview, err := e.Get(ctx, req.ChangeSet)
-	if err != nil {
-		return nil, err
-	}
 	// A retry with the key answers with what the first request applied,
 	// although the preview has become that change set.
-	key := idempotencyKey("apply", req.Actor, req.IdempotencyKey)
-	if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
-		return earlier, err
+	var key string
+	if !req.DryRun {
+		key = idempotencyKey(CallApply, req.Actor, req.IdempotencyKey)
+		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
+			return earlier, err
+		}
 	}
 	refuse := func(err error) (*ChangeSet, error) {
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	if !preview.DryRun {
-		return refuse(ErrNotPreview.New("title", preview.Title))
-	}
-	if !e.claimSet(preview.ID) {
-		return refuse(ErrApplying.New("title", preview.Title))
-	}
-	defer e.release(preview.ID)
-	// Another apply may have finished between reading the preview and
-	// claiming it.
-	if preview, err = e.Get(ctx, req.ChangeSet); err != nil {
+	preview, err := e.Get(ctx, req.ChangeSet)
+	if err != nil {
 		return refuse(err)
 	}
 	if !preview.DryRun {
 		return refuse(ErrNotPreview.New("title", preview.Title))
+	}
+	if !req.DryRun {
+		if !e.claimSet(preview.ID) {
+			return refuse(ErrApplying.New("title", preview.Title))
+		}
+		defer e.release(preview.ID)
+		// Another apply may have finished between reading the preview and
+		// claiming it.
+		if preview, err = e.Get(ctx, req.ChangeSet); err != nil {
+			return refuse(err)
+		}
+		if !preview.DryRun {
+			return refuse(ErrNotPreview.New("title", preview.Title))
+		}
 	}
 	stored, err := e.storage.Request(ctx, preview.ID)
 	if err != nil {
@@ -1468,26 +1605,31 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 	if stored.HadSecrets {
 		return refuse(ErrPreviewHasSecrets.New("title", preview.Title))
 	}
+	var orig *ChangeSet
 	if preview.UndoOf != "" {
-		orig, err := e.Get(ctx, preview.UndoOf)
-		if err != nil {
-			return refuse(err)
-		}
-		if !e.claimSet(orig.ID) {
-			return refuse(ErrUndoing.New("title", orig.Title))
-		}
-		defer e.release(orig.ID)
 		if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
 			return refuse(err)
+		}
+		if !req.DryRun {
+			if !e.claimSet(orig.ID) {
+				return refuse(ErrUndoing.New("title", orig.Title))
+			}
+			defer e.release(orig.ID)
+			if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
+				return refuse(err)
+			}
 		}
 		if orig.State != StateApplied && orig.State != StateFailed {
 			return refuse(ErrNotApplied.New())
 		}
 	}
-	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes, Confirm: req.Confirm}
+	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes, DryRun: req.DryRun, Confirm: req.Confirm}
 	p, err := e.plan(ctx, request, preview.ID, preview.UndoOf)
 	if err != nil {
 		return refuse(err)
+	}
+	if orig != nil {
+		p.cs.ChangedSince = changedSince(orig, p.cs)
 	}
 	if !samePlan(preview, p.cs) {
 		e.settle(ctx, key, "")
@@ -1502,6 +1644,14 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 			return nil, err
 		}
 		return nil, ErrPreviewStale.New("title", preview.Title, "preview", string(fresh.ID))
+	}
+	if req.DryRun {
+		// The writes are made and thrown away, so the answer also says what
+		// applying would run into since, such as a name taken meanwhile.
+		if err := e.checkWrites(ctx, p.cs); err != nil {
+			return nil, err
+		}
+		return preview, nil
 	}
 	return e.finish(ctx, p, request, key, false)
 }

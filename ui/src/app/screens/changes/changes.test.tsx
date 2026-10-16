@@ -145,6 +145,41 @@ describe("the changes screens", () => {
     );
   });
 
+  it("show an undo that replaces later changes before doing it", async () => {
+    const user = userEvent.setup();
+    // The same undo as the one applied at once, but the webhook changed
+    // after the change set, so undoing puts back what it had before that
+    // and replaces the later change too.
+    const undo = changeSet({
+      id: "chg_undo_later",
+      title: "Undo: Update webhook",
+      undoOf: "chg_applied",
+      changedSince: [webhook().id],
+    });
+    const { api, sent } = panel({
+      "POST /api/v1/changesets/chg_applied/undo": () => json(undo),
+      "POST /api/v1/changesets/chg_undo_later/apply": () =>
+        json({ ...undo, state: "applied", dryRun: false }),
+      "GET /api/v1/changesets/chg_undo_later": () =>
+        json({ ...undo, state: "applied", dryRun: false }),
+    });
+    renderShell({ modules: [], messages: shellMessages, path: "/changes", api });
+    const table = await screen.findByRole("table", { name: "Changes" });
+    const row = (await within(table).findByRole("link", { name: "Update webhook" })).closest(
+      '[role="row"]',
+    );
+    await user.click(within(row as HTMLElement).getByRole("button", { name: "Undo" }));
+    const dialog = await screen.findByRole("dialog", { name: "Undo this change?" });
+    expect(sent.find((s) => s.path === "/api/v1/changesets/chg_applied/undo")?.search).toBe(
+      "?dryRun=true",
+    );
+    expect(sent.some((s) => s.path.endsWith("/apply"))).toBe(false);
+    await user.click(await within(dialog).findByRole("button", { name: "Apply" }));
+    await waitFor(() =>
+      expect(sent.some((s) => s.path === "/api/v1/changesets/chg_undo_later/apply")).toBe(true),
+    );
+  });
+
   it("list the previews that weren't applied when asked", async () => {
     const user = userEvent.setup();
     const { api, sent } = panel();

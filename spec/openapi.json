@@ -74,6 +74,7 @@
       },
       "AccountSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "limits": {
             "$ref": "#/components/schemas/AccountLimits",
@@ -280,6 +281,7 @@
       },
       "AddonSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "approved": {
             "$ref": "#/components/schemas/Permissions",
@@ -536,6 +538,11 @@
             "description": "The kind of the resource acted on",
             "type": "string"
           },
+          "lastTime": {
+            "description": "When the last of the repeats happened",
+            "format": "date-time",
+            "type": "string"
+          },
           "outcome": {
             "description": "How it went: it was done, it was refused, or it was allowed but failed",
             "enum": [
@@ -548,6 +555,11 @@
           "reason": {
             "description": "Why it was refused or failed",
             "type": "string"
+          },
+          "repeats": {
+            "description": "How many more times the same refusal happened within the hour, counted here instead of on records of their own; on a core.refusals record, how many more of the actor's refusals there were beyond the ones recorded one by one",
+            "format": "int64",
+            "type": "integer"
           },
           "requestId": {
             "description": "The API request it came through, as the access log names it",
@@ -740,6 +752,7 @@
       },
       "CatalogSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "disabled": {
             "description": "Stops offering the catalog's items without forgetting it",
@@ -961,6 +974,16 @@
             "format": "date-time",
             "type": "string"
           },
+          "changedSince": {
+            "description": "For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "changes": {
             "description": "Its changes, in the order they are planned and applied",
             "items": {
@@ -1108,6 +1131,7 @@
       },
       "ChannelSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "disabled": {
             "description": "Stops sending until the channel is enabled again",
@@ -6283,6 +6307,7 @@
       },
       "InstallationSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "catalog": {
             "description": "The ID of the catalog that offered the recipe",
@@ -7818,6 +7843,7 @@
       },
       "ModuleSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "enabled": {
             "description": "Whether the module is on",
@@ -8873,6 +8899,7 @@
       },
       "PolicySpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "defaults": {
             "description": "For default rules: the fields filled in, each from a CEL expression",
@@ -9049,6 +9076,7 @@
       },
       "PreferencesSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "email": {
             "description": "Send notifications to my email address",
@@ -9342,6 +9370,7 @@
       },
       "ProviderSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "capability": {
             "description": "What it does: signs people in (identity), or adds a second sign-in step (mfa)",
@@ -9546,6 +9575,7 @@
       },
       "RelaySpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "from": {
             "description": "The address email comes from",
@@ -10764,6 +10794,7 @@
       },
       "SettingsSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "automatic": {
             "description": "Install new releases on the channel by themselves, during the window",
@@ -11068,6 +11099,7 @@
       },
       "SignInPolicySpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "allowFrom": {
             "description": "Addresses and networks people may sign in and use API tokens from; empty allows anywhere. The server itself is always allowed",
@@ -12350,6 +12382,7 @@
       },
       "UserSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "allowFrom": {
             "description": "Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does",
@@ -12691,6 +12724,7 @@
       },
       "WebhookSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "description": {
             "description": "What the webhook is for",
@@ -13521,23 +13555,29 @@
             }
           },
           {
+            "description": "The cookie starting the sign-in set, which the provider's answer must match",
             "in": "cookie",
             "name": "racksail_signin_state",
             "schema": {
+              "description": "The cookie starting the sign-in set, which the provider's answer must match",
               "type": "string"
             }
           },
           {
+            "description": "A trusted browser's cookie",
             "in": "cookie",
             "name": "racksail_device",
             "schema": {
+              "description": "A trusted browser's cookie",
               "type": "string"
             }
           },
           {
+            "description": "Set while linking an outside identity from the security settings, which the browser goes back to",
             "in": "cookie",
             "name": "racksail_linking",
             "schema": {
+              "description": "Set while linking an outside identity from the security settings, which the browser goes back to",
               "type": "boolean"
             }
           }
@@ -14370,6 +14410,7 @@
     },
     "/api/v1/catalog/items/{catalog}/{item}/icon": {
       "get": {
+        "description": "Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.",
         "operationId": "getCatalogItemIcon",
         "parameters": [
           {
@@ -14700,7 +14741,7 @@
     },
     "/api/v1/changesets/{id}/apply": {
       "post": {
-        "description": "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.",
+        "description": "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying. With dryRun=true the preview is planned again and nothing is applied: the answer is the preview when applying it would still do what it shows.",
         "operationId": "applyChangeSet",
         "parameters": [
           {
@@ -14711,6 +14752,16 @@
             "schema": {
               "description": "The preview's ID",
               "type": "string"
+            }
+          },
+          {
+            "description": "Plan the preview again and answer with it, without applying it, when applying it would still do what it shows",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the preview again and answer with it, without applying it, when applying it would still do what it shows",
+              "type": "boolean"
             }
           },
           {
@@ -14725,6 +14776,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The preview, which applying would still carry out as it shows, for a dry run"
+          },
           "202": {
             "content": {
               "application/json": {
@@ -14758,6 +14819,7 @@
         "tags": [
           "Changes"
         ],
+        "x-racksail-dry-run": true,
         "x-racksail-operation": "apply",
         "x-racksail-reversible": true,
         "x-racksail-risk": "high"
@@ -14765,7 +14827,7 @@
     },
     "/api/v1/changesets/{id}/undo": {
       "post": {
-        "description": "Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.",
+        "description": "Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. Settings changed after that change set are replaced too; changedSince lists the resources that changed since. With dryRun=true the answer is the preview.",
         "operationId": "undoChangeSet",
         "parameters": [
           {
@@ -26955,7 +27017,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/Event"
+                            "$ref": "#/components/schemas/Event",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "event",
@@ -27295,7 +27358,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/InboxChange"
+                            "$ref": "#/components/schemas/InboxChange",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "changed",
@@ -27670,7 +27734,7 @@
     },
     "/api/v1/jobs/{id}/cancel": {
       "post": {
-        "description": "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
+        "description": "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished, or asking a job to stop again, changes nothing and isn't recorded in the audit log, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. With dryRun=true it only checks that you may cancel the job and answers with the job as it is. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
         "operationId": "cancelJob",
         "parameters": [
           {
@@ -27681,6 +27745,16 @@
             "schema": {
               "description": "The job's ID, which starts with job_",
               "type": "string"
+            }
+          },
+          {
+            "description": "Check that you may cancel the job, and answer with it as it is, without canceling it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Check that you may cancel the job, and answer with it as it is, without canceling it",
+              "type": "boolean"
             }
           },
           {
@@ -27812,7 +27886,7 @@
     },
     "/api/v1/jobs/{id}/retry": {
       "post": {
-        "description": "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
+        "description": "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job, even once the job it retried is no longer kept. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. With dryRun=true it checks that the job can be retried and answers 200 with it, queuing nothing. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
         "operationId": "retryJob",
         "parameters": [
           {
@@ -27823,6 +27897,16 @@
             "schema": {
               "description": "The job's ID, which starts with job_",
               "type": "string"
+            }
+          },
+          {
+            "description": "Check that the job can be retried, and answer with it, without queuing anything",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Check that the job can be retried, and answer with it, without queuing anything",
+              "type": "boolean"
             }
           },
           {
@@ -27837,6 +27921,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "The job a retry would run again, for a dry run"
+          },
           "202": {
             "content": {
               "application/json": {
@@ -27910,7 +28004,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/Job"
+                            "$ref": "#/components/schemas/Job",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "job",
@@ -27932,7 +28027,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/LogLine"
+                            "$ref": "#/components/schemas/LogLine",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "log",
@@ -28355,9 +28451,11 @@
         "operationId": "listMyDevices",
         "parameters": [
           {
+            "description": "A trusted browser's cookie, so the list says which browser is this one",
             "in": "cookie",
             "name": "racksail_device",
             "schema": {
+              "description": "A trusted browser's cookie, so the list says which browser is this one",
               "type": "string"
             }
           }
@@ -28405,10 +28503,12 @@
         "operationId": "forgetMyDevice",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -28706,10 +28806,12 @@
         "operationId": "disableMfa",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -28750,10 +28852,12 @@
         "operationId": "beginMfa",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -28803,10 +28907,12 @@
         "operationId": "finishMfa",
         "parameters": [
           {
+            "description": "The second step's ID, as the list of them gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The second step's ID, as the list of them gives it",
               "type": "string"
             }
           }
@@ -28992,10 +29098,12 @@
         "operationId": "removePasskey",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -29036,10 +29144,12 @@
         "operationId": "renamePasskey",
         "parameters": [
           {
+            "description": "The passkey's ID",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The passkey's ID",
               "type": "string"
             }
           }
@@ -29269,10 +29379,12 @@
         "operationId": "endMySession",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -29599,10 +29711,12 @@
         "operationId": "revokeMyToken",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -29901,10 +30015,12 @@
         "operationId": "applyProfile",
         "parameters": [
           {
+            "description": "The profile, such as web-hosting",
             "in": "path",
             "name": "profile",
             "required": true,
             "schema": {
+              "description": "The profile, such as web-hosting",
               "enum": [
                 "all-in-one",
                 "web-hosting",
@@ -29982,6 +30098,7 @@
     },
     "/api/v1/modules/{id}": {
       "get": {
+        "description": "Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.",
         "operationId": "getModule",
         "parameters": [
           {
@@ -30695,6 +30812,7 @@
     },
     "/api/v1/notifications/{id}": {
       "get": {
+        "description": "Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.",
         "operationId": "getNotification",
         "parameters": [
           {
@@ -30846,7 +30964,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/Notice"
+                            "$ref": "#/components/schemas/Notice",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "notice",
@@ -30868,7 +30987,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/ResyncNotice"
+                            "$ref": "#/components/schemas/ResyncNotice",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "resync",
@@ -31121,6 +31241,7 @@
         "x-racksail-risk": "high"
       },
       "get": {
+        "description": "Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.",
         "operationId": "getSafeMode",
         "responses": {
           "200": {

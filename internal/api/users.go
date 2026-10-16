@@ -281,6 +281,15 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 	if p == nil {
 		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 	}
+	// A retry gets the first change set before anything is checked or made
+	// for it, and its owner a new sign-in link: the first link was in an
+	// answer that may never have arrived.
+	if earlier, err := Replayed(ctx, p, in.ChangeParams); earlier != nil || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return s.openedAccount(ctx, actor, earlier, ownerOf(earlier.Body))
+	}
 	scope := store.ServerScope()
 	if in.Body.Reseller != "" {
 		scope = store.ResellerScope(in.Body.Reseller)
@@ -317,8 +326,17 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 	if err != nil {
 		return nil, err
 	}
+	if in.DryRun {
+		ownerID = ""
+	}
+	return s.openedAccount(ctx, actor, res, ownerID)
+}
+
+// openedAccount answers the opening of an account with its change set and,
+// when it added an owner, the owner with a sign-in link.
+func (s *Server) openedAccount(ctx context.Context, actor *auth.Actor, res *ChangeSetOutput, ownerID store.ID) (*openAccountOutput, error) {
 	out := &openAccountOutput{Status: res.Status, Body: OpenedAccount{ChangeSet: res.Body}}
-	if in.DryRun || ownerID == "" {
+	if ownerID == "" {
 		return out, nil
 	}
 	ids, err := s.requireIdentity()
@@ -335,4 +353,15 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 	}
 	out.Body.Owner, out.Body.Link = &view, &link
 	return out, nil
+}
+
+// ownerOf is the user the opening of an account added as its owner, or ""
+// when it added none.
+func ownerOf(cs *changeset.ChangeSet) store.ID {
+	for _, c := range cs.Changes {
+		if c.Op == changeset.OpCreate && c.Kind == identity.KindUser {
+			return c.ID
+		}
+	}
+	return ""
 }

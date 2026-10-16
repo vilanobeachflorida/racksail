@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -96,8 +97,23 @@ func TestKindOperations(t *testing.T) {
 		t.Errorf("without signing in = %d", resp.StatusCode)
 	}
 
-	// An update with the revision that was read.
+	// An update with the revision that was read, previewed first.
 	update := map[string]any{"spec": map[string]any{"domains": []string{"example.com", "www.example.com"}, "content": "v2"}, "revision": site.Revision}
+	var updatePreview changeset.ChangeSet
+	resp = s.call("owner", "PUT", sites+"/"+string(id)+"?dryRun=true", update, &updatePreview)
+	if resp.StatusCode != http.StatusOK || !updatePreview.DryRun || updatePreview.Job != "" || updatePreview.Changes[0].Op != changeset.OpUpdate || len(updatePreview.Changes[0].Diff) == 0 {
+		t.Fatalf("update preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var rewrites bool
+	for _, eff := range updatePreview.Effects {
+		rewrites = rewrites || (eff.Type == system.EffectFile && eff.Target == sitePath(id))
+	}
+	if !rewrites {
+		t.Errorf("the update's preview lists the page it writes again: %+v", updatePreview.Effects)
+	}
+	if s.file(sitePath(id)) != "v1" {
+		t.Error("previewing an update changes nothing")
+	}
 	resp = s.call("owner", "PUT", sites+"/"+string(id), update, &cs)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("update = %d %s", resp.StatusCode, bodyOf(resp))
@@ -112,6 +128,21 @@ func TestKindOperations(t *testing.T) {
 	var history historyBody
 	if s.call("owner", "GET", sites+"/"+string(id)+"/history", nil, &history); len(history.Versions) != 2 || history.Versions[1].ChangeSet != updated.ID || !strings.Contains(history.Versions[0].Actor, "user:") {
 		t.Errorf("history = %+v", history)
+	}
+
+	// An action previewed: its own steps are in the preview, and nothing
+	// runs.
+	var deployPreview changeset.ChangeSet
+	resp = s.call("owner", "POST", sites+"/"+string(id)+"/actions/deploy?dryRun=true", map[string]string{"message": "release 2"}, &deployPreview)
+	if resp.StatusCode != http.StatusOK || !deployPreview.DryRun || deployPreview.Job != "" || deployPreview.Changes[0].Action != "deploy" || len(deployPreview.Changes[0].Steps) != 1 {
+		t.Fatalf("deploy preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var marker bool
+	for _, eff := range deployPreview.Effects {
+		marker = marker || eff.Target == sitePath(id)+".release"
+	}
+	if !marker || s.file(sitePath(id)+".release") != "" {
+		t.Errorf("the preview lists the release marker and writes nothing: %+v", deployPreview.Effects)
 	}
 
 	// A short action is waited for; the answer is the finished change set.
@@ -214,6 +245,87 @@ func TestKindOperations(t *testing.T) {
 	}
 }
 
+// A request repeated with its Idempotency-Key, as after an answer that got
+// lost, gets the first answer, even when the first request did away with
+// what it was about: the deleted site is purged, the undone change set
+// undone.
+func TestRetriesWithTheSameKey(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	sites := "/api/v1/test/sites/"
+	id := s.createSite("owner", "retried.test")
+	key := func(k string) []string { return []string{"Idempotency-Key", k} }
+
+	var updated changeset.ChangeSet
+	update := map[string]any{"spec": map[string]any{"domains": []string{"retried.test"}, "content": "v2"}}
+	if resp := s.call("owner", "PUT", sites+string(id), update, &updated, key("put-1")...); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("update = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &updated)
+	var pinged changeset.ChangeSet
+	if resp := s.call("owner", "POST", sites+string(id)+"/actions/ping", nil, &pinged, key("ping-1")...); resp.StatusCode != http.StatusOK {
+		t.Fatalf("ping = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+
+	// Undo the update, twice with one key.
+	var undo, undoAgain changeset.ChangeSet
+	undoPath := "/api/v1/changesets/" + string(updated.ID) + "/undo"
+	if resp := s.call("owner", "POST", undoPath, nil, &undo, key("undo-1")...); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("undo = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &undo)
+	if resp := s.call("owner", "POST", undoPath, nil, &undoAgain, key("undo-1")...); resp.StatusCode != http.StatusAccepted || undoAgain.ID != undo.ID {
+		t.Errorf("the undo again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", undoPath, nil, nil); s.problem(resp) != changeset.ErrNotApplied.Code {
+		t.Errorf("another undo without the key = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("stranger", "POST", undoPath, nil, nil, key("undo-1")...); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("someone else's key is their own: %d %s", resp.StatusCode, bodyOf(resp))
+	}
+
+	// Delete the site; once it is purged, the same requests still get their
+	// first answers.
+	var deleted, deletedAgain changeset.ChangeSet
+	if resp := s.call("owner", "DELETE", sites+string(id), nil, &deleted, key("del-1")...); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("delete = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &deleted)
+	if _, err := s.store.Get(context.Background(), id); !store.ErrNotFound.Is(err) {
+		t.Fatalf("the site should be purged: %v", err)
+	}
+	if resp := s.call("owner", "DELETE", sites+string(id), nil, &deletedAgain, key("del-1")...); resp.StatusCode != http.StatusAccepted || deletedAgain.ID != deleted.ID {
+		t.Errorf("deleting again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var updatedAgain, pingedAgain changeset.ChangeSet
+	if resp := s.call("owner", "PUT", sites+string(id), update, &updatedAgain, key("put-1")...); resp.StatusCode != http.StatusAccepted || updatedAgain.ID != updated.ID {
+		t.Errorf("updating again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", sites+string(id)+"/actions/ping", nil, &pingedAgain, key("ping-1")...); resp.StatusCode != http.StatusOK || pingedAgain.ID != pinged.ID {
+		t.Errorf("pinging again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	// Without the key, the site is gone.
+	if resp := s.call("owner", "DELETE", sites+string(id), nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("deleting it without the key = %d", resp.StatusCode)
+	}
+
+	// Applying a preview, twice with one key.
+	var preview, applied, appliedAgain changeset.ChangeSet
+	create := map[string]any{"scope": map[string]any{"level": "account", "id": s.account}, "spec": map[string]any{"domains": []string{"preview.test"}, "content": "x"}}
+	s.call("owner", "POST", "/api/v1/test/sites?dryRun=true", create, &preview)
+	applyPath := "/api/v1/changesets/" + string(preview.ID) + "/apply"
+	var checked changeset.ChangeSet
+	if resp := s.call("owner", "POST", applyPath+"?dryRun=true", nil, &checked); resp.StatusCode != http.StatusOK || checked.ID != preview.ID || !checked.DryRun {
+		t.Errorf("checking the preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", applyPath, nil, &applied, key("apply-1")...); resp.StatusCode != http.StatusAccepted || applied.DryRun {
+		t.Fatalf("apply = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &applied)
+	if resp := s.call("owner", "POST", applyPath, nil, &appliedAgain, key("apply-1")...); resp.StatusCode != http.StatusAccepted || appliedAgain.ID != applied.ID {
+		t.Errorf("applying again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
 func TestKindValidationAndHooks(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	sites := "/api/v1/test/sites"
@@ -228,7 +340,7 @@ func TestKindValidationAndHooks(t *testing.T) {
 		"long note":       {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x", "note": strings.Repeat("n", 41)}}, i18n.ErrInvalid.Code, "spec.note"},
 		"no scope":        {map[string]any{"spec": map[string]any{"domains": []string{"a.test"}, "content": "x"}}, i18n.ErrInvalid.Code, "body.scope"},
 		"no spec":         {map[string]any{"scope": scope}, i18n.ErrInvalid.Code, "body.spec"},
-		"unknown key":     {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x"}, "color": 1}, i18n.ErrBadRequest.Code, ""},
+		"unknown key":     {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x"}, "color": 1}, i18n.ErrInvalid.Code, "body.color"},
 		"hook denies":     {map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"shop.invalid"}, "content": "x"}}, "hooks.denied", ""},
 	} {
 		resp := s.call("owner", "POST", sites+"?dryRun=true", tc.body, nil)
@@ -254,6 +366,159 @@ func TestKindValidationAndHooks(t *testing.T) {
 	}
 	if resp := s.call("nobody", "POST", sites+"?dryRun=true", map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"n.test"}, "content": "x"}}, nil); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("without a grant = %d", resp.StatusCode)
+	}
+	// Even an admin can't make a site of an account that doesn't exist.
+	nowhere := map[string]any{"level": "account", "id": store.NewID("acct")}
+	for _, query := range []string{"?dryRun=true", ""} {
+		resp := s.call("admin", "POST", sites+query, map[string]any{"scope": nowhere, "spec": map[string]any{"domains": []string{"nowhere.test"}, "content": "x"}}, nil)
+		var p struct {
+			Code   i18n.Code `json:"code"`
+			Errors []struct {
+				Location string    `json:"location"`
+				Code     i18n.Code `json:"code"`
+			} `json:"errors"`
+		}
+		json.Unmarshal([]byte(bodyOf(resp)), &p)
+		if resp.StatusCode != http.StatusUnprocessableEntity || p.Code != i18n.ErrInvalid.Code || len(p.Errors) != 1 ||
+			p.Errors[0].Location != "scope.id" || p.Errors[0].Code != i18n.ErrNotFound.Code {
+			t.Errorf("a site of an account that doesn't exist%s = %d %s", query, resp.StatusCode, bodyOf(resp))
+		}
+	}
+	// No kind of this panel keeps resellers, so nothing can belong to one,
+	// and the refusal says that rather than that one reseller is missing.
+	user := map[string]any{"scope": map[string]any{"level": "reseller", "id": s.reseller}, "spec": map[string]any{"username": "rhea"}}
+	resp := s.call("admin", "POST", "/api/v1/core/users?dryRun=true", user, nil)
+	var p struct {
+		Code   i18n.Code `json:"code"`
+		Errors []struct {
+			Location string `json:"location"`
+			Message  string `json:"message"`
+		} `json:"errors"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	if resp.StatusCode != http.StatusUnprocessableEntity || len(p.Errors) != 1 || p.Errors[0].Location != "scope.level" ||
+		p.Errors[0].Message != "This value isn't valid: this panel keeps no resellers for it to belong to." {
+		t.Errorf("a user of a reseller on a panel without resellers = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// What the schema validator finds, in a request's parameters or a kind's
+// spec, comes back in the catalog's words, never the validator's.
+func TestValidationSaysWhatFieldsTake(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	type problem struct {
+		Code   i18n.Code `json:"code"`
+		Errors []struct {
+			Location string    `json:"location"`
+			Code     i18n.Code `json:"code"`
+			Message  string    `json:"message"`
+		} `json:"errors"`
+	}
+	for _, tc := range []struct {
+		name, method, path string
+		body               any
+		location, message  string
+	}{
+		{"a value of a list", "GET", "/api/v1/audit/export?format=jsonl", nil, "query.format", "This value isn't valid: use csv or json."},
+		{"a number out of range", "GET", "/api/v1/jobs?limit=5000", nil, "query.limit", "This value isn't valid: use 1000 or less."},
+		{"a URL without its scheme", "POST", "/api/v1/core/webhooks?dryRun=true",
+			map[string]any{"spec": map[string]any{"url": "hooks.example.com", "events": []string{"*"}}}, "spec.url",
+			"This value isn't valid: use a full URL with its scheme, such as https://example.com/."},
+		{"a field no site has", "POST", "/api/v1/test/sites?dryRun=true",
+			map[string]any{"scope": map[string]any{"level": "account", "id": s.account}, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x", "colour": "red"}},
+			"spec.colour", "There is no field called colour."},
+	} {
+		var p problem
+		resp := s.call("admin", tc.method, tc.path, tc.body, &p)
+		if resp.StatusCode != http.StatusUnprocessableEntity || p.Code != i18n.ErrInvalid.Code || len(p.Errors) != 1 {
+			t.Errorf("%s = %d %s", tc.name, resp.StatusCode, bodyOf(resp))
+			continue
+		}
+		if p.Errors[0].Location != tc.location || p.Errors[0].Message != tc.message {
+			t.Errorf("%s: %+v", tc.name, p.Errors[0])
+		}
+	}
+}
+
+// The generated creates and updates read their bodies themselves, and say
+// what is wrong with one as the operations Huma reads bodies for do: a field
+// of the wrong type or one the body doesn't have is a field error in the
+// catalog's words, and a body cut short isn't JSON.
+func TestKindBodiesSayWhatFieldsTake(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	scope := `{"level": "account", "id": "` + string(s.account) + `"}`
+	spec := `{"domains": ["a.test"], "content": "x"}`
+	var cs changeset.ChangeSet
+	s.call("owner", "POST", "/api/v1/test/sites", map[string]any{"scope": json.RawMessage(scope), "spec": json.RawMessage(spec)}, &cs)
+	s.finish("owner", &cs)
+	site := "/api/v1/test/sites/" + string(cs.Changes[0].ID)
+	type problem struct {
+		Code   i18n.Code `json:"code"`
+		Detail string    `json:"detail"`
+		Errors []struct {
+			Location string    `json:"location"`
+			Code     i18n.Code `json:"code"`
+			Message  string    `json:"message"`
+		} `json:"errors"`
+	}
+	for _, tc := range []struct {
+		method, path, body string
+		status             int
+		code, field        i18n.Code
+		location, message  string
+	}{
+		{"POST", "/api/v1/test/sites", `{"scope": {"level": 3}, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.scope.level", "This value isn't valid: use text."},
+		{"POST", "/api/v1/test/sites", `{"id": 5, "scope": ` + scope + `, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.id", "This value isn't valid: use text."},
+		{"POST", "/api/v1/test/sites", `{"scope": ` + scope + `, "labels": {"team": 1}, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.labels.team", "This value isn't valid: use text."},
+		{"POST", "/api/v1/test/sites", `{"scope": ` + scope + `, "bogus": true, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrUnknownName.Code, "body.bogus", "There is no field called bogus."},
+		{"POST", "/api/v1/test/sites", `{"scope": {"level": "account", "idd": "x"}, "spec": ` + spec + `}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrUnknownName.Code, "body.scope.idd", "There is no field called idd."},
+		{"POST", "/api/v1/test/sites", `{"scope": ` + scope + `, "spec": {"domains": ["a.test"]`, http.StatusBadRequest, i18n.ErrBadRequest.Code, i18n.ErrBadValue.Code, "body", "This value isn't valid: the body isn't valid JSON."},
+		{"PUT", site, `{"spec": ` + spec + `, "revision": "1"}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.revision", "This value isn't valid: use a whole number."},
+		{"PUT", site, `{"spec": ` + spec + `, "labels": ["web"]}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrBadValue.Code, "body.labels", "This value isn't valid: use an object with fields."},
+		{"PUT", site, `{"spec": ` + spec + `, "revison": 1}`, http.StatusUnprocessableEntity, i18n.ErrInvalid.Code, i18n.ErrUnknownName.Code, "body.revison", "There is no field called revison."},
+		{"PUT", site, `{"spec": ` + spec, http.StatusBadRequest, i18n.ErrBadRequest.Code, i18n.ErrBadValue.Code, "body", "This value isn't valid: the body isn't valid JSON."},
+		{"POST", site + "/actions/deploy", `{"message": "x"`, http.StatusBadRequest, i18n.ErrBadRequest.Code, i18n.ErrBadValue.Code, "body", "This value isn't valid: the body isn't valid JSON."},
+	} {
+		for _, query := range []string{"?dryRun=true", ""} {
+			req, err := http.NewRequest(tc.method, s.http.URL+tc.path+query, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("X-Test-Actor", "owner")
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var p problem
+			json.NewDecoder(resp.Body).Decode(&p)
+			resp.Body.Close()
+			name := tc.method + " " + tc.body + query
+			if resp.StatusCode != tc.status || p.Code != tc.code || len(p.Errors) != 1 {
+				t.Errorf("%s = %d %+v", name, resp.StatusCode, p)
+				continue
+			}
+			if e := p.Errors[0]; e.Location != tc.location || e.Code != tc.field || e.Message != tc.message {
+				t.Errorf("%s: %+v", name, e)
+			}
+			if p.Code == i18n.ErrBadRequest.Code && p.Detail != "The request couldn't be read: the body isn't valid JSON." {
+				t.Errorf("%s: %s", name, p.Detail)
+			}
+		}
+	}
+	// What a typed operation answers for a body cut short is the same.
+	req, _ := http.NewRequest("POST", s.http.URL+"/api/v1/changesets?dryRun=true", strings.NewReader(`{"changes": [`))
+	req.Header.Set("X-Test-Actor", "owner")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p problem
+	json.NewDecoder(resp.Body).Decode(&p)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || p.Detail != "The request couldn't be read: the body isn't valid JSON." || len(p.Errors) != 1 || p.Errors[0].Location != "body" {
+		t.Errorf("a typed operation's body cut short = %d %+v", resp.StatusCode, p)
 	}
 }
 
@@ -413,8 +678,18 @@ func TestSubmittingAndApplyingChangeSets(t *testing.T) {
 	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/retry", nil, nil); s.problem(resp) != jobs.ErrNotRetryable.Code {
 		t.Errorf("retrying a job that succeeded = %d %s", resp.StatusCode, bodyOf(resp))
 	}
+	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/retry?dryRun=true", nil, nil); s.problem(resp) != jobs.ErrNotRetryable.Code {
+		t.Errorf("checking a retry of a job that succeeded = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/cancel?dryRun=true", nil, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("checking a cancel = %d %s", resp.StatusCode, bodyOf(resp))
+	}
 	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/cancel", nil, nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("canceling a finished job = %d", resp.StatusCode)
+	}
+	// Nothing was canceled, so the audit log says nothing was.
+	if records, _, _ := s.log.QueryAudit(context.Background(), events.Query{Actor: s.actors["owner"].ID, Types: []string{"core.job.cancel"}}); len(records) != 0 {
+		t.Errorf("canceling a finished job is recorded: %+v", records)
 	}
 	if resp := s.call("stranger", "GET", "/api/v1/jobs/"+string(job.ID), nil, nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("another's job = %d", resp.StatusCode)

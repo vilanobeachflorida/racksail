@@ -572,8 +572,17 @@ func TestOpeningAnAccountWithAnOwnerNeedsStepUp(t *testing.T) {
 	}
 	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
 	opened = OpenedAccount{}
-	if resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &opened); resp.StatusCode != http.StatusAccepted || opened.Link == nil {
-		t.Errorf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	b.header.Set("Idempotency-Key", "open-acme")
+	if resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &opened); resp.StatusCode != http.StatusAccepted || opened.Link == nil || opened.Owner == nil {
+		t.Fatalf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	// A retry with the key gets the same account and owner, with a link of
+	// its own: the first was in an answer that may never have arrived.
+	var again OpenedAccount
+	resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &again)
+	if resp.StatusCode != http.StatusAccepted || again.ChangeSet == nil || again.ChangeSet.ID != opened.ChangeSet.ID ||
+		again.Owner == nil || again.Owner.ID != opened.Owner.ID || again.Link == nil {
+		t.Errorf("opening it again with the same key = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
 
@@ -936,14 +945,26 @@ func TestOwnChangesOverTheAPI(t *testing.T) {
 	if len(keys.Keys) != len(testKeys) {
 		t.Fatalf("keys = %+v", keys.Keys)
 	}
-	resp = b.do("DELETE", "/api/v1/me/ssh-keys/"+string(keys.Keys[0].ID), nil, nil)
-	if resp.StatusCode != http.StatusAccepted || changeSetOf(t, resp).Changes[0].Action != "remove_ssh_key" {
+	removal := "/api/v1/me/ssh-keys/" + string(keys.Keys[0].ID)
+	b.header.Set("Idempotency-Key", "remove-key-1")
+	resp = b.do("DELETE", removal, nil, nil)
+	removed := changeSetOf(t, resp)
+	if resp.StatusCode != http.StatusAccepted || removed.Changes[0].Action != "remove_ssh_key" {
 		t.Fatalf("removing a key = %d %s", resp.StatusCode, bodyOf(resp))
 	}
-	s.finish("admin", changeSetOf(t, resp))
+	s.finish("admin", removed)
 	b.do("GET", "/api/v1/me/ssh-keys", nil, &keys)
 	if len(keys.Keys) != len(testKeys)-1 {
 		t.Errorf("after removing one = %+v", keys.Keys)
+	}
+	// A retry with the key gets the first change set, though the key it
+	// removed is gone by then.
+	if resp = b.do("DELETE", removal, nil, nil); resp.StatusCode != http.StatusAccepted || changeSetOf(t, resp).ID != removed.ID {
+		t.Errorf("removing the key again with the same Idempotency-Key = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b.header.Del("Idempotency-Key")
+	if resp = b.do("DELETE", removal, nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("removing the key again = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
 
@@ -1210,8 +1231,10 @@ func TestOpeningAnAccountIsOneChange(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	admin.do("GET", "/api/v1/core/accounts", nil, &accounts)
-	if len(accounts.Items) != 0 {
-		t.Errorf("the account was opened without its owner: %+v", accounts.Items)
+	for _, a := range accounts.Items {
+		if spec, _ := a["spec"].(map[string]any); spec["slug"] == "acme" {
+			t.Errorf("the account was opened without its owner: %+v", a)
+		}
 	}
 	var opened OpenedAccount
 	if resp := admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened); resp.StatusCode != http.StatusAccepted {

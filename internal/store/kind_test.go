@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -207,6 +208,92 @@ func TestRegistry(t *testing.T) {
 	}
 	if n := len(reg.All()); n != 1 {
 		t.Errorf("All() has %d kinds", n)
+	}
+}
+
+// Accounts' resources belong to core.account resources, and resellers' to
+// those of core.reseller or of the module kind named reseller, as the
+// screens choose owners; a module's account-owned kind called account owns
+// nothing.
+func TestOwnerKinds(t *testing.T) {
+	kind := func(name, prefix string, scope ScopeLevel) Kind {
+		return Define[testSiteSpec, Status](KindInfo{Name: name, Prefix: prefix, Scope: scope, Title: "Thing", Plural: prefix + "s", Description: "A thing."})
+	}
+	reg := NewKindRegistry()
+	for _, k := range []Kind{kind("mail.account", "macct", ScopeAccount), kind("hosting.reseller", "rsl", ScopeReseller)} {
+		if err := reg.Register(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if k, ok := reg.OwnerKind(ScopeAccount); ok {
+		t.Errorf("an account's own kind owns accounts' resources: %s", k.Info().Name)
+	}
+	if k, ok := reg.OwnerKind(ScopeReseller); !ok || k.Info().Name != "hosting.reseller" {
+		t.Errorf("resellers' owner = %v, %v", k, ok)
+	}
+	for _, k := range []Kind{kind("core.account", "acct", ScopeAccount), kind("core.reseller", "crsl", ScopeReseller)} {
+		if err := reg.Register(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for level, want := range map[ScopeLevel]string{ScopeAccount: "core.account", ScopeReseller: "core.reseller"} {
+		if k, ok := reg.OwnerKind(level); !ok || k.Info().Name != want {
+			t.Errorf("%s's owner = %v, %v", level, k, ok)
+		}
+	}
+	if _, ok := reg.OwnerKind(ScopeServer); ok {
+		t.Error("the server has no owner kind")
+	}
+}
+
+// The API serves every kind's operations at a path and under IDs of its own,
+// so the registry refuses a kind that would share them with another, rather
+// than the API's router stopping the binary at startup.
+func TestKindsKeepTheirPathsAndOperations(t *testing.T) {
+	kind := func(name, prefix, plural string, actions ...Action) Kind {
+		return Define[testSiteSpec, Status](KindInfo{Name: name, Prefix: prefix, Scope: ScopeServer, Title: "Thing", Plural: plural, Description: "A thing.", Actions: actions})
+	}
+	site := kind("test.site", "tsite", "sites", Action{Name: "deploy", Summary: "Deploy it.", Risk: RiskLow})
+	if got := site.Info().OperationIDs(); !slices.Equal(got, []string{"listTestSites", "getTestSite", "createTestSite", "updateTestSite", "deleteTestSite", "getTestSiteHistory", "deployTestSite"}) {
+		t.Errorf("operation IDs = %v", got)
+	}
+	if site.Info().Path() != "test/sites" || kind("mail.mailbox_alias", "malias", "mailbox-aliases").Info().TypeName() != "MailMailboxAlias" {
+		t.Errorf("names = %s, %s", site.Info().Path(), kind("mail.mailbox_alias", "malias", "mailbox-aliases").Info().TypeName())
+	}
+	page := kind("test.page", "tpage", "pages", Action{Name: "get_full", Summary: "Get all of it.", Risk: RiskLow})
+	for _, tc := range []struct {
+		name          string
+		first, second Kind
+	}{
+		// Both would be served at /api/v1/test/sites.
+		{"the same plural", site, kind("test.place", "tplace", "sites")},
+		// getTestSiteHistory is test.site's history.
+		{"a get that is another kind's history", site, kind("test.site_history", "thist", "site-histories")},
+		// getFullTestPage is test.page's get_full action.
+		{"a get that is another kind's action", page, kind("full.test_page", "fpage", "test-pages")},
+	} {
+		reg := NewKindRegistry()
+		if err := reg.Register(tc.first); err != nil {
+			t.Fatal(err)
+		}
+		if err := reg.Register(tc.second); err == nil {
+			t.Errorf("%s: %s was registered beside %s", tc.name, tc.second.Info().Name, tc.first.Info().Name)
+		}
+		if _, ok := reg.Get(tc.second.Info().Name); ok {
+			t.Errorf("%s: %s is in the registry", tc.name, tc.second.Info().Name)
+		}
+	}
+	// A kind that was refused leaves nothing behind, so another can take
+	// what it would have had.
+	reg := NewKindRegistry()
+	if err := reg.Register(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(kind("test.place", "tplace", "sites")); err == nil {
+		t.Fatal("the same plural")
+	}
+	if err := reg.Register(kind("test.place", "tplace", "places")); err != nil {
+		t.Errorf("after a refusal: %v", err)
 	}
 }
 

@@ -47,6 +47,9 @@ type storage interface {
 	// appendEvent stores an event and sets its Seq.
 	appendEvent(ctx context.Context, e *Event) error
 	appendAudit(ctx context.Context, r *AuditRecord) error
+	// repeatAudit counts n more repeats of a kept record, the last of them
+	// at last, and reports whether the record was there.
+	repeatAudit(ctx context.Context, id store.ID, n int, last time.Time) (bool, error)
 	queryEvents(ctx context.Context, q Query) ([]Event, string, error)
 	queryAudit(ctx context.Context, q Query) ([]AuditRecord, string, error)
 	// eventsAfter returns up to limit events stored after seq, oldest first.
@@ -63,6 +66,7 @@ type storage interface {
 type Log struct {
 	storage   storage
 	retention Retention
+	denials   *denials
 	now       func() time.Time
 	log       *slog.Logger
 
@@ -73,8 +77,11 @@ type Log struct {
 // Options configure a Log.
 type Options struct {
 	Retention Retention
-	Log       *slog.Logger
-	Now       func() time.Time
+	// Denials bounds the records of refusals one actor adds to the audit
+	// log.
+	Denials Denials
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 func newLog(s storage, opts Options) *Log {
@@ -84,7 +91,10 @@ func newLog(s storage, opts Options) *Log {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	return &Log{storage: s, retention: opts.Retention.withDefaults(), now: opts.Now, log: opts.Log, subs: map[*Subscription]bool{}}
+	return &Log{
+		storage: s, retention: opts.Retention.withDefaults(), now: opts.Now, log: opts.Log, subs: map[*Subscription]bool{},
+		denials: newDenials(opts.Denials),
+	}
 }
 
 // NewMemory returns a log kept in memory that holds at most retain events
@@ -179,7 +189,9 @@ func RequestID(ctx context.Context) string {
 }
 
 // Record implements AuditLog. A record without a request ID gets the one
-// ctx carries.
+// ctx carries. A refusal that repeats one recorded within the window of
+// Options.Denials only counts on that record, and so do an actor's
+// refusals beyond the cap, together, so no caller floods the log.
 func (l *Log) Record(ctx context.Context, r AuditRecord) error {
 	if r.ID == "" {
 		r.ID = store.NewID(AuditPrefix)
@@ -194,7 +206,13 @@ func (l *Log) Record(ctx context.Context, r AuditRecord) error {
 	if r.Scope.Level == "" {
 		r.Scope = store.ServerScope()
 	}
-	if err := l.storage.appendAudit(context.WithoutCancel(ctx), &r); err != nil {
+	var err error
+	if r.Outcome == OutcomeDenied {
+		err = l.recordDenial(context.WithoutCancel(ctx), &r)
+	} else {
+		err = l.storage.appendAudit(context.WithoutCancel(ctx), &r)
+	}
+	if err != nil {
 		return fmt.Errorf("events: recording %s: %w", r.Action, err)
 	}
 	return nil
@@ -237,9 +255,12 @@ func (l *Log) LastSeq(ctx context.Context) (int64, error) {
 	return l.storage.lastSeq(ctx)
 }
 
-// Prune drops what has outlived the retention.
+// Prune drops what has outlived the retention, and forgets the windows of
+// refusals that have ended.
 func (l *Log) Prune(ctx context.Context) error {
-	return l.storage.prune(ctx, l.retention, l.now())
+	now := l.now()
+	l.denials.forget(now)
+	return l.storage.prune(ctx, l.retention, now)
 }
 
 // Run prunes the timeline and the audit log every interval until ctx is
@@ -301,6 +322,23 @@ func (m *memoryStorage) appendAudit(ctx context.Context, r *AuditRecord) error {
 		m.audit = slices.Clone(m.audit[len(m.audit)-m.max:])
 	}
 	return nil
+}
+
+func (m *memoryStorage) repeatAudit(ctx context.Context, id store.ID, n int, last time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := len(m.audit) - 1; i >= 0; i-- {
+		if r := &m.audit[i].record; r.ID == id {
+			r.Repeats += n
+			// Records handed out share LastTime, so it is replaced, never
+			// changed.
+			if t := last.UTC(); r.LastTime == nil || t.After(*r.LastTime) {
+				r.LastTime = &t
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *memoryStorage) queryEvents(ctx context.Context, q Query) ([]Event, string, error) {

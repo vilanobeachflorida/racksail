@@ -143,7 +143,8 @@ func register(a huma.API, svc *modules.Services) {
 
 	op = huma.Operation{
 		OperationID: "getNotification", Method: http.MethodGet, Path: api.Prefix + "/notifications/{id}", Tags: tags, Security: api.Protected,
-		Summary: "Show a notification and its message",
+		Summary:     "Show a notification and its message",
+		Description: "Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.",
 	}
 	api.Describe(&op, api.Info{Permission: string(PermChannelRead), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *deliveryInput) (*deliveryOutput, error) {
@@ -212,6 +213,11 @@ func register(a huma.API, svc *modules.Services) {
 		actor, err := api.Actor(ctx)
 		if err != nil {
 			return nil, err
+		}
+		// A retry is answered before the preferences are read. The key is
+		// the person's: the actor the change is made as only adds a grant.
+		if earlier, err := api.Replayed(ctx, svc.Pipeline, in.ChangeParams); earlier != nil || err != nil {
+			return earlier, err
 		}
 		req, err := s.PreferencesRequest(ctx, person, in.Body)
 		if err != nil {

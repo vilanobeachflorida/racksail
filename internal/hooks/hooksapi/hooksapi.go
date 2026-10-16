@@ -236,7 +236,8 @@ func register(a huma.API, svc *modules.Services) {
 	}
 	op = huma.Operation{
 		OperationID: "getSafeMode", Method: http.MethodGet, Path: api.Prefix + "/safe-mode", Tags: tags, Security: api.Protected,
-		Summary: "Say whether safe mode is on",
+		Summary:     "Say whether safe mode is on",
+		Description: "Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.",
 	}
 	api.Describe(&op, api.Info{Permission: string(PermSafeModeRead), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *struct{}) (*safeModeOutput, error) {

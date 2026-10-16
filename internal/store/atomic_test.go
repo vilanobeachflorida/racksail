@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // atomicWorld is a store and a table of another part of the panel, both in
@@ -190,6 +191,105 @@ func TestAtomicUndoesAFailedWriteAlone(t *testing.T) {
 	}
 	if w.sites(t) != 1 {
 		t.Errorf("sites = %d", w.sites(t))
+	}
+}
+
+// recovered runs fn and returns what it panicked with.
+func recovered(fn func()) (p any) {
+	defer func() { p = recover() }()
+	fn()
+	return nil
+}
+
+// A function that panics in the middle of a write, recovered further up as
+// the API and the job queue recover theirs, leaves nothing written and the
+// writing connection free: the next write goes ahead at once.
+func TestPanicsLeaveTheWriterFree(t *testing.T) {
+	w := newAtomicWorld(t)
+	quick := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 2*time.Second)
+	}
+	ctx := context.Background()
+
+	if p := recovered(func() {
+		w.db.Write(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO notes (text) VALUES ('half')`); err != nil {
+				t.Error(err)
+			}
+			panic("write")
+		})
+	}); p != "write" {
+		t.Fatalf("the panic went on up as %v", p)
+	}
+	next, cancel := quick()
+	defer cancel()
+	if err := w.note(next, "after a write"); err != nil {
+		t.Fatalf("the next write after a panicking write: %v", err)
+	}
+
+	ran := false
+	if p := recovered(func() {
+		w.db.Atomic(ctx, func(ctx context.Context) error {
+			if err := w.createSite(ctx, "panic.test"); err != nil {
+				t.Error(err)
+			}
+			w.db.AfterCommit(ctx, func() { ran = true })
+			panic("atomic")
+		})
+	}); p != "atomic" {
+		t.Fatalf("the panic went on up as %v", p)
+	}
+	next, cancel = quick()
+	defer cancel()
+	if err := w.createSite(next, "panic.test"); err != nil {
+		t.Fatalf("the next write after a panicking transaction: %v", err)
+	}
+	if ran {
+		t.Error("what waited for a commit that never came ran")
+	}
+
+	// A write that panics inside a transaction is undone on its own when
+	// the function recovers it and goes on.
+	err := w.db.Atomic(ctx, func(ctx context.Context) error {
+		if err := w.note(ctx, "kept"); err != nil {
+			return err
+		}
+		recovered(func() {
+			w.db.Write(ctx, func(tx *sql.Tx) error {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO notes (text) VALUES ('undone')`); err != nil {
+					t.Error(err)
+				}
+				panic("savepoint")
+			})
+		})
+		return w.note(ctx, "also kept")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	if err := w.db.Reader().QueryRow(`SELECT group_concat(text, ',') FROM notes`).Scan(&text); err != nil || text != "after a write,kept,also kept" {
+		t.Errorf("notes = %q, %v", text, err)
+	}
+
+	// The stores' own writes are the same, in memory too.
+	for name, s := range map[string]Store{"sqlite": w.store, "memory": NewMemory(w.store.kinds)} {
+		r, _ := w.kind.Encode(w.kind.New(AccountScope(NewID("acct")), testSiteSpec{Domains: []string{name + ".test"}}))
+		if p := recovered(func() {
+			s.Write(ctx, WriteMeta{}, func(tx Tx) error {
+				if err := tx.Create(ctx, r.Clone()); err != nil {
+					t.Error(err)
+				}
+				panic(name)
+			})
+		}); p != name {
+			t.Fatalf("%s: the panic went on up as %v", name, p)
+		}
+		next, cancel := quick()
+		if err := s.Write(next, WriteMeta{}, func(tx Tx) error { return tx.Create(next, r.Clone()) }); err != nil {
+			t.Errorf("%s: the next write after a panic: %v", name, err)
+		}
+		cancel()
 	}
 }
 

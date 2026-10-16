@@ -87,6 +87,16 @@
             "format": "date-time",
             "type": "string"
           },
+          "changedSince": {
+            "description": "For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "changes": {
             "description": "Its changes, in the order they are planned and applied",
             "items": {

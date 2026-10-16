@@ -70,6 +70,63 @@ channel = "beta"
 	}
 }
 
+// Where Racksail keeps its files is fixed on a server: the agent's allowed
+// roots, the installer and the systemd units would never follow a path the
+// file moved, so the file can't move any.
+func TestPathsAreFixed(t *testing.T) {
+	for _, key := range []string{"config", "generated", "state", "accounts", "runtimes", "modules", "run", "data_disks"} {
+		_, err := Parse([]byte("[paths]\n" + key + " = \"/srv/elsewhere\"\n"))
+		if err == nil || !strings.Contains(err.Error(), "paths."+key) || !strings.Contains(err.Error(), "can't set") {
+			t.Errorf("paths.%s: %v", key, err)
+		}
+	}
+	if _, err := Parse([]byte("[paths]\n")); err == nil {
+		t.Error("an empty [paths] table is refused too")
+	}
+	// Both kinds of problems are named at once.
+	_, err := Parse([]byte("[paths]\nstate = \"/srv/state\"\n[panel]\nlistne = \":8443\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "paths.state") || !strings.Contains(err.Error(), "panel.listne") {
+		t.Errorf("a moved path and an unknown setting: %v", err)
+	}
+	c, err := Parse([]byte("[log]\nlevel = \"warn\"\n"))
+	if err != nil || c.Paths != Default().Paths || c.Paths.State != "/var/lib/racksail" {
+		t.Errorf("a file without paths keeps the standard ones: %+v, %v", c.Paths, err)
+	}
+	dev, err := Dev(t.TempDir(), DevAddresses{})
+	if err != nil || dev.Paths.State == Default().Paths.State {
+		t.Errorf("racksail dev keeps its files in its data directory: %+v, %v", dev.Paths, err)
+	}
+}
+
+// The agent and the edge listen in /run/racksail on a server: their units
+// and the add-ons' sandboxes only know those sockets, and the edge takes
+// the one systemd passes it, so a socket the file moved would cut the panel
+// off from the edge and leave the agent's socket where add-ons reach it.
+func TestSocketsAreFixed(t *testing.T) {
+	for _, tc := range []struct{ setting, file string }{
+		{"agent.socket", "[agent]\nsocket = \"/srv/agent.sock\"\n"},
+		{"edge.socket", "[edge]\nsocket = \"/srv/edge.sock\"\nhttp = \"[::]:8080\"\n"},
+	} {
+		_, err := Parse([]byte(tc.file))
+		if err == nil || !strings.Contains(err.Error(), tc.setting) || !strings.Contains(err.Error(), "can't set") || strings.Contains(err.Error(), "unknown") {
+			t.Errorf("%s: %v", tc.setting, err)
+		}
+	}
+	_, err := Parse([]byte("[agent]\nsocket = \"/srv/agent.sock\"\n[edge]\nsocket = \"/srv/edge.sock\"\n[paths]\nstate = \"/srv/state\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "agent.socket, edge.socket") || !strings.Contains(err.Error(), "paths.state") {
+		t.Errorf("both sockets and a path are named: %v", err)
+	}
+	c, err := Parse([]byte("[agent]\n[edge]\nhttp = \"[::]:8080\"\n"))
+	if err != nil || c.Agent.Socket != "/run/racksail/agent.sock" || c.Edge.Socket != "/run/racksail/edge.sock" || c.Edge.HTTP != "[::]:8080" {
+		t.Errorf("the edge's addresses are still settings, and the sockets stay where they are: %+v %+v, %v", c.Agent, c.Edge, err)
+	}
+	dir := t.TempDir()
+	dev, err := Dev(dir, DevAddresses{})
+	if err != nil || !strings.HasPrefix(dev.Agent.Socket, dir) || !strings.HasPrefix(dev.Edge.Socket, dir) {
+		t.Errorf("racksail dev keeps its sockets in its data directory: %+v %+v, %v", dev.Agent, dev.Edge, err)
+	}
+}
+
 func TestAPIAndRetention(t *testing.T) {
 	c := Default()
 	if c.API.RateLimit != 600 || c.API.AnonymousRateLimit != 120 || time.Duration(c.Retention.Audit) != 400*24*time.Hour {

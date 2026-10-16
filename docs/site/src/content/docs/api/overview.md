@@ -125,7 +125,7 @@ If the job fails, or you cancel it with `POST /api/v1/jobs/{id}/cancel`, the cha
 }
 ```
 
-`POST /api/v1/changesets/{id}/undo` undoes a change set: it puts back the settings it replaced, through a new change set you can preview first like any other. `GET /api/v1/changesets` lists past changes, and `GET /api/v1/dns/zones/{id}/history` every version of one resource's settings.
+`POST /api/v1/changesets/{id}/undo` undoes a change set: it puts back the settings it replaced, through a new change set you can preview first like any other. It replaces settings changed after that change set too, and the undo's `changedSince` lists the resources that changed since. `GET /api/v1/changesets` lists past changes, and `GET /api/v1/dns/zones/{id}/history` every version of one resource's settings.
 
 ### Idempotency keys
 

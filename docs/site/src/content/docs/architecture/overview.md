@@ -46,7 +46,7 @@ The agent's operations work through system adapters: interfaces for users, files
 
 | Path | Holds |
 |---|---|
-| `/etc/racksail/racksail.toml` | The small hand-edited settings file: listen addresses, paths, the update channel |
+| `/etc/racksail/racksail.toml` | The small hand-edited settings file: listen addresses, who may reach the panel, the update channel |
 | `/etc/racksail/generated/` | Generated configuration, never edited by hand |
 | `/var/lib/racksail/` | The panel's state database, keys and caches |
 | `/srv/racksail/accounts/<account>/` | Each account's data |

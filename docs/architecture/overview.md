@@ -111,7 +111,7 @@ Modules are compiled into the binary and are dormant until turned on. Each decla
 
 - Btrfs subvolumes on the system disk: `@` (root), `@log` (`/var/log`), `@state` (`/var/lib/racksail`), `@srv` (`/srv/racksail`), `@db` (database files, copy-on-write off) and `@snapshots`.
 - Paths:
-  - `/etc/racksail/racksail.toml`: the small hand-edited settings file (listen addresses, data paths, update channel)
+  - `/etc/racksail/racksail.toml`: the small hand-edited settings file (listen addresses, who may reach the panel, update channel); the paths here are fixed
   - `/etc/racksail/generated/`: generated configuration, never edited by hand
   - `/var/lib/racksail/state.db`: panel state (SQLite in WAL mode), keys and caches
   - `/srv/racksail/accounts/<account>/`: account data (sites, app data, backups staging)

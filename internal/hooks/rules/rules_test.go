@@ -40,6 +40,10 @@ var accountKind = store.Define[accountSpec, store.Status](store.KindInfo{
 	Name: "hosting.account", Prefix: "acct", Scope: store.ScopeServer, Title: "Account", Plural: "accounts", Description: "An account.",
 })
 
+var resellerKind = store.Define[accountSpec, store.Status](store.KindInfo{
+	Name: "hosting.reseller", Prefix: "rsl", Scope: store.ScopeServer, Title: "Reseller", Plural: "resellers", Description: "A reseller.",
+})
+
 type planSpec struct {
 	MaxWorkers int `json:"maxWorkers"`
 }
@@ -68,7 +72,7 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	ctx := context.Background()
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{siteKind, accountKind, planKind, Policy, ResellerPolicy, AccountPolicy} {
+	for _, k := range []store.Kind{siteKind, accountKind, resellerKind, planKind, Policy, ResellerPolicy, AccountPolicy} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -118,6 +122,20 @@ func (e *env) submit(t *testing.T, actor *auth.Actor, changes ...changeset.Chang
 	return e.engine.Get(ctx, cs.ID)
 }
 
+// owner puts an account or a reseller straight in the store, for what the
+// tests make to belong to: resources only belong to owners that exist.
+func (e *env) owner(t *testing.T, kind *store.KindOf[accountSpec, store.Status]) store.ID {
+	t.Helper()
+	id := store.NewID(kind.Info().Prefix)
+	ctx := context.Background()
+	if err := e.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: kind.Name(), Scope: store.ServerScope()}, Spec: json.RawMessage(`{"name":"test"}`)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func (e *env) rule(t *testing.T, kind string, scope store.Scope, spec hooks.PolicySpec) store.ID {
 	t.Helper()
 	raw, _ := json.Marshal(spec)
@@ -159,10 +177,55 @@ func TestRulesAreCheckedWhenSaved(t *testing.T) {
 	}
 }
 
+// What a rule's JSON Schema finds wrong comes back on the field it is about,
+// in the catalog's words, whether the rule is saved or tried out.
+func TestRuleSchemaFindingsAreWorded(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	for _, tc := range []struct {
+		spec          hooks.PolicySpec
+		path, message string
+	}{
+		{hooks.PolicySpec{Name: "Quiet", Type: hooks.PolicyValidate, Expression: "true"}, "message", "This field is required."},
+		{hooks.PolicySpec{Name: "Empty", Type: hooks.PolicyDefault}, "defaults", "This field is required."},
+		{hooks.PolicySpec{Name: strings.Repeat("n", 81), Type: hooks.PolicyValidate, Expression: "true", Message: "no"}, "name", "Use at most 80 characters."},
+		{hooks.PolicySpec{Name: "Kinds", Type: hooks.PolicyValidate, Kinds: []string{"Web.Site"}, Expression: "true", Message: "no"}, "kinds[0]",
+			"This value isn't valid: it isn't in the form this field takes."},
+		{hooks.PolicySpec{Name: "Path", Type: hooks.PolicyDefault, Defaults: []hooks.FieldDefault{{Field: "a..b", Expression: "1"}}}, "defaults[0].field",
+			"This value isn't valid: it isn't in the form this field takes."},
+	} {
+		raw, _ := json.Marshal(tc.spec)
+		_, err := e.engine.Submit(ctx, changeset.Request{Actor: e.admin, DryRun: true, Changes: []changeset.Change{
+			{Op: changeset.OpCreate, Kind: "core.policy", Scope: store.ServerScope(), Spec: raw},
+		}})
+		saved := i18n.From(err)
+		_, err = e.rules.Test(ctx, e.admin, TestRequest{Rule: tc.spec, Owner: store.ServerScope(), Operation: "create", Kind: "web.site", Scope: store.ServerScope()})
+		tried := i18n.From(err)
+		for prefix, got := range map[string]*i18n.Error{"spec.": saved, "body.rule.": tried} {
+			if got == nil || got.Code != i18n.ErrInvalid.Code || len(got.Fields) != 1 || got.Fields[0].Path != prefix+tc.path || got.Fields[0].Message != tc.message {
+				t.Errorf("%s at %s%s: %+v", tc.spec.Name, prefix, tc.path, got)
+			}
+		}
+	}
+}
+
+// A stored rule its schema refuses, as one a later version's schema no
+// longer takes, can't be attached, and says why in the same words.
+func TestRuleSchemaFindingsOfStoredRules(t *testing.T) {
+	_, err := compileRule(hooks.PolicySpec{Name: "Quiet", Type: hooks.PolicyValidate, Expression: "true", Kinds: []string{"Web.Site"}}, DefaultCostLimit)
+	if err == nil {
+		t.Fatal("the rule compiles")
+	}
+	want := "The rule can't be used: kinds[0]: it isn't in the form this field takes; message: this field is required."
+	if got := ErrBadRule.Wrap(err, "reason", err.Error()).Message; got != want {
+		t.Errorf("problem = %q, want %q", got, want)
+	}
+}
+
 func TestValidateRules(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := store.AccountScope(e.owner(t, accountKind))
 	id := e.rule(t, "core.policy", store.ServerScope(), hooks.PolicySpec{
 		Name: "No .invalid domains", Type: hooks.PolicyValidate, Enabled: true, Kinds: []string{"web.site"},
 		Expression: `resource.kind == "web.site" && resource.spec.domains.exists(d, d.endsWith(".invalid"))`,
@@ -196,7 +259,7 @@ func TestValidateRules(t *testing.T) {
 
 func TestRulesSeeTheRequestAndTheOldResource(t *testing.T) {
 	e := newEnv(t)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := store.AccountScope(e.owner(t, accountKind))
 	e.rule(t, "core.policy", store.ServerScope(), hooks.PolicySpec{
 		Name: "Domains only grow", Type: hooks.PolicyValidate, Enabled: true, Kinds: []string{"web.site"}, Operations: []string{"update"},
 		Expression: `request.operation == "update" && size(resource.spec.domains) < size(oldResource.spec.domains) && request.actor.type == "user"`,
@@ -256,8 +319,8 @@ func TestDefaultRules(t *testing.T) {
 
 func TestScopes(t *testing.T) {
 	e := newEnv(t)
-	reseller := store.NewID("rsl")
-	mine, theirs, other := store.NewID("acct"), store.NewID("acct"), store.NewID("acct")
+	reseller := e.owner(t, resellerKind)
+	mine, theirs, other := e.owner(t, accountKind), e.owner(t, accountKind), e.owner(t, accountKind)
 	e.owners[mine] = reseller
 	e.owners[theirs] = reseller
 	deny := func(name string) hooks.PolicySpec {
@@ -293,7 +356,7 @@ func TestCostLimit(t *testing.T) {
 	}
 	// The evaluation stops at the limit and counts as a failure of the
 	// rule's hook, which lets the change through.
-	if _, err := e.submit(t, e.admin, site(store.AccountScope(store.NewID("acct")), siteSpec{Domains: domains})); err != nil {
+	if _, err := e.submit(t, e.admin, site(store.AccountScope(e.owner(t, accountKind)), siteSpec{Domains: domains})); err != nil {
 		t.Fatalf("a rule over its cost limit fails open: %v", err)
 	}
 	res, err := e.rules.Test(context.Background(), e.admin, TestRequest{

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -51,12 +50,10 @@ func generateSchema(t reflect.Type, hint string) (s *huma.Schema, err error) {
 	return schemas.reg.Schema(t, true, hint), nil
 }
 
-var requiredProperty = regexp.MustCompile(`^expected required property (\S+) to be present$`)
-
 // validateDocument checks a JSON document against a schema. Problems come
-// back as field errors whose paths start with prefix, such as
-// spec.domains[0]; a missing required property is reported on the property
-// itself, so forms can highlight it.
+// back as field errors of the catalog (i18n.SchemaField) whose paths start
+// with prefix, such as spec.domains[0]; a missing required property is
+// reported on the property itself, so forms can highlight it.
 func validateDocument(s *huma.Schema, doc json.RawMessage, prefix string) []i18n.FieldError {
 	if s == nil {
 		return nil
@@ -74,27 +71,13 @@ func validateDocument(s *huma.Schema, doc json.RawMessage, prefix string) []i18n
 	schemas.RUnlock()
 	var out []i18n.FieldError
 	for _, e := range res.Errors {
-		var detail *huma.ErrorDetail
 		if d, ok := e.(*huma.ErrorDetail); ok {
-			detail = d
-		} else {
-			out = append(out, i18n.Field(prefix, i18n.ErrBadValue, "reason", e.Error()))
+			out = append(out, i18n.SchemaField(d.Location, d.Message))
 			continue
 		}
-		if m := requiredProperty.FindStringSubmatch(detail.Message); m != nil {
-			out = append(out, i18n.Field(joinPath(detail.Location, m[1]), i18n.ErrRequired))
-			continue
-		}
-		out = append(out, i18n.Field(detail.Location, i18n.ErrBadValue, "reason", detail.Message))
+		out = append(out, i18n.SchemaField(prefix, e.Error()))
 	}
 	return out
-}
-
-func joinPath(base, field string) string {
-	if base == "" {
-		return field
-	}
-	return base + "." + field
 }
 
 // ValidateActionInput checks an action's input against the JSON Schema of
@@ -124,7 +107,7 @@ func ValidateActionInput(a Action, input json.RawMessage) error {
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return i18n.Invalid(i18n.Field("input", i18n.ErrBadValue, "reason", err.Error()))
+		return i18n.Invalid(i18n.Field("input", i18n.ErrBadValue, "reason", "it doesn't have the fields the action takes"))
 	}
 	validator, ok := v.(interface{ Validate() error })
 	if !ok {
