@@ -86,6 +86,9 @@ export function TimeSeries({
   const width = useWidth(container);
   const tokensKey = useOptionalTheme()?.tokensKey;
   const [hover, setHover] = useState<Hover | null>(null);
+  // Where uPlot last drew the time axis. New data moves it after React has
+  // rendered, so the event flags, which are placed by it, render again.
+  const [axis, setAxis] = useState("");
   const formatValue = format ?? ((v: number) => f.compact(v));
   const formatRef = useRef(formatValue);
   useLayoutEffect(() => {
@@ -166,6 +169,8 @@ export function TimeSeries({
               ctx.stroke();
             });
             ctx.restore();
+            const { min, max } = u.scales.x ?? {};
+            setAxis(`${min}:${max}:${u.bbox.left}:${u.bbox.width}`);
           },
         ],
         setCursor: [
@@ -185,6 +190,20 @@ export function TimeSeries({
   const plot = useUPlot(container, options, data);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tokensKey changes when the colors read here do
   const colors = useMemo(() => readChartColors(container.current ?? undefined), [tokensKey, plot]);
+  // Where each event's flag goes over the chart, or null when it's off it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: axis changes when the plot's scale or size does
+  const flags = useMemo(
+    () =>
+      eventTimes.map((time) => {
+        if (!plot) {
+          return null;
+        }
+        const start = plot.over.offsetLeft;
+        const x = plot.valToPos(time, "x") + start;
+        return Number.isNaN(x) || x < start || x > start + plot.over.clientWidth + 1 ? null : x;
+      }),
+    [plot, eventTimes, axis],
+  );
 
   const hoverTime = hover ? times[hover.index] : undefined;
   return (
@@ -218,13 +237,8 @@ export function TimeSeries({
       <div className="relative">
         <div ref={container} aria-hidden="true" style={{ height }} />
         {events.map((e, i) => {
-          const x = plot ? plot.valToPos(eventTimes[i] ?? 0, "x") + plot.over.offsetLeft : null;
-          if (
-            x === null ||
-            Number.isNaN(x) ||
-            (plot &&
-              (x < plot.over.offsetLeft || x > plot.over.offsetLeft + plot.over.clientWidth + 1))
-          ) {
+          const x = flags[i];
+          if (x === null || x === undefined) {
             return null;
           }
           return (
