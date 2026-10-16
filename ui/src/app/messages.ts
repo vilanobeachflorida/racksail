@@ -473,6 +473,16 @@ export const messages = {
   updatesDebianNext: m("app.updates.debianNext"),
   updatesDebianUpgrade: m("app.updates.debianUpgrade"),
   updatesReboot: m("app.updates.reboot"),
+  updatesRebootAt: m("app.updates.rebootAt"),
+  updatesPackages: m("app.updates.packages"),
+  updatesPackagesSecurity: m("app.updates.packagesSecurity"),
+  updatesPackagesScheduled: m("app.updates.packagesScheduled"),
+  updatesPackagesReboot: m("app.updates.packagesReboot"),
+  updatesPackagesRebootTime: m("app.updates.packagesRebootTime"),
+  updatesPackagesHelp: m("app.updates.packagesHelp"),
+  updatesPackagesLast: m("app.updates.packagesLast"),
+  updatesPackagesFailed: m("app.updates.packagesFailed"),
+  updatesPackagesUpgrade: m("app.updates.packagesUpgrade"),
 
   settingsServer: m("app.settings.server"),
 };

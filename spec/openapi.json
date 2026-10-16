@@ -2847,7 +2847,7 @@
       },
       "CoreUpdateSettings": {
         "additionalProperties": false,
-        "description": "Update settings: How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
+        "description": "Update settings: How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
         "properties": {
           "createdAt": {
             "format": "date-time",
@@ -5514,6 +5514,21 @@
             "description": "The Debian release an upgrade would move to",
             "type": "string"
           },
+          "rebootAt": {
+            "description": "When the server reboots by itself to finish an update",
+            "format": "date-time",
+            "type": "string"
+          },
+          "rebootReasons": {
+            "description": "Why the server needs a reboot",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "rebootRequired": {
             "type": "boolean"
           },
@@ -5670,6 +5685,69 @@
           "sha256",
           "size",
           "format"
+        ],
+        "type": "object"
+      },
+      "PackageUpdates": {
+        "additionalProperties": false,
+        "properties": {
+          "reboot": {
+            "description": "Reboot by itself when an update needs it, such as a new kernel",
+            "type": "boolean"
+          },
+          "rebootTime": {
+            "description": "When the server may reboot, as HH:MM in UTC; 04:00 when empty",
+            "examples": [
+              "04:00"
+            ],
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "scheduled": {
+            "description": "Install every other update once a day during the window, after snapshots of the system",
+            "type": "boolean"
+          },
+          "security": {
+            "description": "Install Debian's security updates by themselves, as they come out",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "security"
+        ],
+        "type": "object"
+      },
+      "PackagesStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "When it ran",
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed",
+            "type": "string"
+          },
+          "snapshots": {
+            "description": "The snapshots taken first",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "upgraded": {
+            "description": "How many packages it upgraded",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "upgraded"
         ],
         "type": "object"
       },
@@ -6694,6 +6772,10 @@
               "null"
             ]
           },
+          "packages": {
+            "$ref": "#/components/schemas/PackageUpdates",
+            "description": "How Debian's packages and those of vendors' repositories are kept up to date; Debian's security updates only when empty"
+          },
           "window": {
             "$ref": "#/components/schemas/Window",
             "description": "When automatic updates may be installed; any time when empty"
@@ -6748,6 +6830,10 @@
           },
           "os": {
             "$ref": "#/components/schemas/OSStatus"
+          },
+          "packages": {
+            "$ref": "#/components/schemas/PackagesStatus",
+            "description": "The last upgrade of the server's packages"
           },
           "phase": {
             "enum": [
@@ -15519,7 +15605,7 @@
     },
     "/api/v1/core/update-settings": {
       "get": {
-        "description": "How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Lists the update settings you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "description": "How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Lists the update settings you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
         "operationId": "listCoreUpdateSettings",
         "parameters": [
           {
@@ -15653,7 +15739,7 @@
         "x-racksail-risk": "read"
       },
       "post": {
-        "description": "How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "description": "How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
         "operationId": "createCoreUpdateSettings",
         "parameters": [
           {
@@ -15829,7 +15915,7 @@
         "x-racksail-risk": "medium"
       },
       "get": {
-        "description": "Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
+        "description": "Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
         "operationId": "getCoreUpdateSettings",
         "parameters": [
           {
@@ -16355,6 +16441,93 @@
         },
         "x-racksail-permission": "core.update_settings.upgrade_os",
         "x-racksail-risk": "critical"
+      }
+    },
+    "/api/v1/core/update-settings/{id}/actions/upgrade_packages": {
+      "post": {
+        "description": "Refreshes the package lists, snapshots the system and installs every update that isn't held, Debian's and those of vendors' repositories alike. Scheduled updates do the same once a day in the window. When an update needs a reboot and the settings allow one, it is scheduled for the reboot time. It runs as a job: the answer is 202 with the change set, whose job reports progress.",
+        "operationId": "upgradePackagesCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install every available update of the server's packages",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-long": true,
+        "x-racksail-operation": "upgrade_packages",
+        "x-racksail-output": {
+          "$ref": "#/components/schemas/PackagesStatus"
+        },
+        "x-racksail-permission": "core.update_settings.upgrade_packages",
+        "x-racksail-risk": "medium"
       }
     },
     "/api/v1/core/update-settings/{id}/history": {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shellMessages } from "@/lib/i18n";
@@ -469,6 +469,93 @@ describe("the updates page", () => {
     await user.click(screen.getByRole("button", { name: "Preview installing it" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(calls).toEqual(['install ?dryRun=true {"version":"1.3.0"}']);
+  });
+
+  it("says how Debian's packages are kept up to date and saves the settings", async () => {
+    const user = userEvent.setup();
+    let saved: Record<string, unknown> | undefined;
+    const calls: string[] = [];
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/core/update-settings": () =>
+        json({
+          items: [
+            {
+              id: "upd_1",
+              kind: "core.update_settings",
+              revision: 2,
+              generation: 1,
+              scope: { level: "server" },
+              createdAt: "2026-10-15T12:00:00Z",
+              updatedAt: "2026-10-15T12:00:00Z",
+              spec: { channel: "stable", packages: { security: true } },
+              status: {
+                running: "1.2.0",
+                os: {
+                  codename: "trixie",
+                  version: "13",
+                  rebootRequired: true,
+                  rebootReasons: ["kernel 6.12.48+deb13-amd64 is installed"],
+                  rebootAt: "2026-10-16T04:00:00Z",
+                },
+                packages: { at: "2026-10-15T03:10:00Z", upgraded: 3 },
+              },
+            },
+          ],
+        }),
+      "PUT /api/v1/core/update-settings/upd_1": async (request) => {
+        saved = (await request.json()) as Record<string, unknown>;
+        return json(preview("Change the update settings"));
+      },
+      "POST /api/v1/core/update-settings/upd_1/actions/upgrade_packages": (request) => {
+        calls.push(`upgrade_packages ${new URL(request.url).search}`);
+        return json(preview("Upgrade the server's packages"));
+      },
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/updates" });
+    const debian = await screen.findByRole("region", { name: "Debian" });
+    expect(
+      within(debian).getByText("The server needs a reboot to finish an upgrade."),
+    ).toBeInTheDocument();
+    expect(within(debian).getByText("kernel 6.12.48+deb13-amd64 is installed")).toBeInTheDocument();
+    expect(within(debian).getByText(/The server reboots by itself/)).toBeInTheDocument();
+    expect(
+      within(debian).getByText(/The last upgrade of the packages, .*, installed 3 updates\./),
+    ).toBeInTheDocument();
+    await user.click(
+      within(debian).getByRole("button", { name: "Preview upgrading the packages" }),
+    );
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(calls).toEqual(["upgrade_packages ?dryRun=true"]);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    const security = screen.getByRole("switch", {
+      name: "Install Debian's security updates as they come out",
+    });
+    expect(security).toBeChecked();
+    // The window shows once updates install on a schedule.
+    expect(screen.queryByLabelText("From")).toBeNull();
+    await user.click(
+      screen.getByRole("switch", {
+        name: "Install every other update once a day, after snapshots of the system",
+      }),
+    );
+    expect(screen.getByLabelText("From")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("switch", { name: "Reboot by itself when an update needs it" }),
+    );
+    // Time fields take a whole value at once, as a browser's picker gives it.
+    fireEvent.change(screen.getByLabelText("Reboot at (UTC)"), { target: { value: "02:30" } });
+    await user.click(screen.getByRole("button", { name: "Preview the change" }));
+    await waitFor(() => expect(saved).toBeDefined());
+    const spec = (saved as { spec: Record<string, unknown> }).spec;
+    expect(spec.packages).toEqual({
+      security: true,
+      scheduled: true,
+      reboot: true,
+      rebootTime: "02:30",
+    });
   });
 });
 

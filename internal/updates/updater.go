@@ -69,6 +69,25 @@ type Updater struct {
 	opts Options
 	// mu keeps one update or upgrade going at a time.
 	mu sync.Mutex
+	// installed is when a release was last handed to the agent. Racksail
+	// restarts onto it moments later, which would cut short an upgrade of
+	// packages the agent runs.
+	installed time.Time
+	// queued is when Run last asked for a scheduled upgrade of the
+	// packages, which may still be waiting for its turn.
+	queued time.Time
+}
+
+// restartGrace is how long after installing a release nothing else starts.
+const restartGrace = 2 * time.Minute
+
+// busy refuses work while Racksail restarts onto a new release. The
+// caller holds mu.
+func (u *Updater) busy() error {
+	if !u.installed.IsZero() && u.opts.Now().Sub(u.installed) < restartGrace {
+		return ErrRestarting.New()
+	}
+	return nil
 }
 
 // NewUpdater builds an updater.
@@ -126,7 +145,7 @@ func (u *Updater) Boot(ctx context.Context) error {
 	if u.opts.Submit == nil {
 		return errors.New("updates: there is nothing to submit the settings through")
 	}
-	spec, err := json.Marshal(SettingsSpec{Channel: u.opts.Channel})
+	spec, err := json.Marshal(SettingsSpec{Channel: u.opts.Channel, Packages: &PackageUpdates{Security: true, RebootTime: defaultRebootTime}})
 	if err != nil {
 		return err
 	}
@@ -280,6 +299,9 @@ type UpdateHookData struct {
 func (u *Updater) Install(ctx context.Context, want string) (UpdateOutput, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if err := u.busy(); err != nil {
+		return UpdateOutput{}, err
+	}
 	s, err := u.Settings(ctx)
 	if err != nil || s == nil {
 		return UpdateOutput{}, fmt.Errorf("updates: reading the settings: %w", err)
@@ -315,6 +337,7 @@ func (u *Updater) Install(ctx context.Context, want string) (UpdateOutput, error
 	if err != nil {
 		return UpdateOutput{}, ErrUpdateFailed.Wrap(err, "reason", i18n.From(err).Message)
 	}
+	u.installed = u.opts.Now()
 	u.setStatus(ctx, func(st *SettingsStatus) { st.Last = res.State })
 	return UpdateOutput{From: u.opts.Build.Version, To: a.Version, RestartsAt: u.opts.Now().Add(3 * time.Second).UTC()}, nil
 }
@@ -414,28 +437,33 @@ func (u *Updater) announce(ctx context.Context, st *UpdateState, t events.Type, 
 	}
 }
 
-// Run finishes an update the panel restarted onto, then checks for
-// releases every day and, when the settings say so, installs them in the
+// Run finishes an update the panel restarted onto, then every hour notes
+// whether the server needs a reboot, checks for releases once a day and,
+// when the settings say so, installs them and upgrades the packages in the
 // window, until ctx ends.
 func (u *Updater) Run(ctx context.Context) {
 	if err := u.Confirm(ctx); err != nil && ctx.Err() == nil {
 		u.opts.Logger.Warn("finishing the last update", "error", err)
 	}
-	if u.dev() {
-		return
-	}
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	var lastCheck time.Time
 	for {
-		now := u.opts.Now()
-		if now.Sub(lastCheck) >= u.opts.CheckEvery {
-			lastCheck = now
-			if _, err := u.Check(ctx); err != nil && ctx.Err() == nil {
-				u.opts.Logger.Warn("checking for updates", "error", err)
-			}
+		if err := u.RefreshOS(ctx); err != nil && ctx.Err() == nil {
+			u.opts.Logger.Warn("reading the server's release and reboot state", "error", err)
 		}
-		u.automatic(ctx)
+		// A development build has no releases to look for, but its
+		// server's packages are kept up to date all the same.
+		if now := u.opts.Now(); !u.dev() {
+			if now.Sub(lastCheck) >= u.opts.CheckEvery {
+				lastCheck = now
+				if _, err := u.Check(ctx); err != nil && ctx.Err() == nil {
+					u.opts.Logger.Warn("checking for updates", "error", err)
+				}
+			}
+			u.automatic(ctx)
+		}
+		u.scheduled(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -474,8 +502,16 @@ type settingsReconciler struct {
 	u *Updater
 }
 
+// Plan configures unattended-upgrades as the settings say; the rest of the
+// settings are read when releases are looked for and installed.
 func (r settingsReconciler) Plan(ctx context.Context, obj *store.Object[SettingsSpec, SettingsStatus], req reconcile.Request) (reconcile.Plan, error) {
-	return reconcile.Plan{}, nil
+	p := obj.Spec.packages()
+	if obj.Deleted() {
+		// Without settings the server keeps getting Debian's security
+		// updates, as it does when they are left empty.
+		p = SettingsSpec{}.packages()
+	}
+	return reconcile.Plan{Steps: []agent.Step{agent.ConfigureUpdates.Step(unattended(p))}}, nil
 }
 
 func (r settingsReconciler) Apply(ctx context.Context, obj *store.Object[SettingsSpec, SettingsStatus], plan reconcile.Plan, ex reconcile.Executor) (SettingsStatus, error) {
@@ -488,6 +524,9 @@ func (r settingsReconciler) Apply(ctx context.Context, obj *store.Object[Setting
 		}
 	}
 	err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, r.u.opts.Now())
+	if os, oerr := r.u.osStatus(ctx); oerr == nil {
+		st.OS = os
+	}
 	return st, err
 }
 
@@ -529,6 +568,8 @@ func (r settingsReconciler) PlanAction(ctx context.Context, req reconcile.Action
 		return reconcile.ActionPlan{Plan: reconcile.Plan{Effects: effects}}, nil
 	case "rollback":
 		return reconcile.ActionPlan{Plan: reconcile.Plan{Effects: rollbackEffects("")}}, nil
+	case "upgrade_packages":
+		return reconcile.ActionPlan{Plan: reconcile.Plan{Effects: planPackages(r.u.opts.Now())}}, nil
 	case "upgrade_os":
 		return r.u.planOSUpgrade(ctx, req)
 	}
@@ -559,6 +600,8 @@ func (r settingsReconciler) ApplyAction(ctx context.Context, req reconcile.Actio
 			reason = "rolled back by an admin"
 		}
 		return nil, r.u.Rollback(ctx, reason)
+	case "upgrade_packages":
+		return r.u.UpgradePackages(ctx)
 	case "upgrade_os":
 		var in UpgradeOSInput
 		if err := json.Unmarshal(req.Input, &in); err != nil {

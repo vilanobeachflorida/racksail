@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -101,6 +102,9 @@ func (u *Updater) planOSUpgrade(ctx context.Context, req reconcile.ActionRequest
 func (u *Updater) UpgradeOS(ctx context.Context, settings store.ID, to string) (UpgradeOSOutput, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if err := u.busy(); err != nil {
+		return UpgradeOSOutput{}, err
+	}
 	facts, err := agent.GetFacts.Call(ctx, u.opts.Agent, agent.Empty{}, agent.CallOptions{})
 	if err != nil {
 		return UpgradeOSOutput{}, err
@@ -175,17 +179,32 @@ func (u *Updater) publish(ctx context.Context, subject store.ID, t events.Type, 
 	})
 }
 
-// RefreshOS records the server's Debian release and whether it needs a
-// reboot.
-func (u *Updater) RefreshOS(ctx context.Context) error {
+// osStatus asks the agent for the server's Debian release, whether it
+// needs a reboot and when one is scheduled.
+func (u *Updater) osStatus(ctx context.Context) (*OSStatus, error) {
 	facts, err := agent.GetFacts.Call(ctx, u.opts.Agent, agent.Empty{}, agent.CallOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	os := &OSStatus{Codename: facts.OS.VersionCodename, Version: facts.OS.VersionID}
 	os.Next, _ = NextDebian(os.Codename)
 	if reboot, err := agent.RebootStatus.Call(ctx, u.opts.Agent, agent.Empty{}, agent.CallOptions{}); err == nil {
-		os.RebootRequired = reboot.Required
+		os.RebootRequired, os.RebootReasons, os.RebootAt = reboot.Required, reboot.Reasons, reboot.Scheduled
+	}
+	return os, nil
+}
+
+// RefreshOS records the server's Debian release, whether it needs a
+// reboot and when one is scheduled.
+func (u *Updater) RefreshOS(ctx context.Context) error {
+	os, err := u.osStatus(ctx)
+	if err != nil {
+		return err
+	}
+	// The status is only written when something changed, since this runs
+	// every hour.
+	if s, err := u.Settings(ctx); err != nil || s == nil || reflect.DeepEqual(s.Status.OS, os) {
+		return err
 	}
 	return u.setStatus(ctx, func(st *SettingsStatus) { st.OS = os })
 }

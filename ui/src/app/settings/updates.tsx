@@ -33,6 +33,11 @@ import { ChangeDialog, useChangeFlow } from "./change-flow";
 
 type Settings = Schemas["CoreUpdateSettings"];
 type Spec = Schemas["SettingsSpec"];
+type PackageUpdates = Schemas["PackageUpdates"];
+
+// Settings without package updates take Debian's security updates, as the
+// server does.
+const defaultPackages: PackageUpdates = { security: true };
 
 function Releases({ settings }: { settings: Settings }) {
   const intl = useIntl();
@@ -178,6 +183,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
     );
   };
   const window = spec.window;
+  const packages = spec.packages ?? defaultPackages;
+  const setPackages = (next: Partial<PackageUpdates>) =>
+    setSpec({ ...spec, packages: { ...packages, ...next } });
   return (
     <Card aria-labelledby={`${id}-title`}>
       <CardHeader>
@@ -214,7 +222,56 @@ function SettingsForm({ settings }: { settings: Settings }) {
             />
             <Label htmlFor={`${id}-auto`}>{intl.formatMessage(m.updatesAutomatic)}</Label>
           </div>
-          {spec.automatic ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="mb-1 font-medium text-sm">
+              {intl.formatMessage(m.updatesPackages)}
+            </legend>
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${id}-security`}
+                checked={packages.security}
+                onCheckedChange={(v) => setPackages({ security: v })}
+              />
+              <Label htmlFor={`${id}-security`}>
+                {intl.formatMessage(m.updatesPackagesSecurity)}
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${id}-scheduled`}
+                checked={packages.scheduled ?? false}
+                onCheckedChange={(v) => setPackages({ scheduled: v })}
+              />
+              <Label htmlFor={`${id}-scheduled`}>
+                {intl.formatMessage(m.updatesPackagesScheduled)}
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${id}-reboot`}
+                checked={packages.reboot ?? false}
+                onCheckedChange={(v) => setPackages({ reboot: v })}
+              />
+              <Label htmlFor={`${id}-reboot`}>{intl.formatMessage(m.updatesPackagesReboot)}</Label>
+            </div>
+            {packages.reboot ? (
+              <div className="flex max-w-48 flex-col gap-1.5">
+                <Label htmlFor={`${id}-reboot-time`}>
+                  {intl.formatMessage(m.updatesPackagesRebootTime)}
+                </Label>
+                <Input
+                  id={`${id}-reboot-time`}
+                  type="time"
+                  value={packages.rebootTime ?? "04:00"}
+                  onChange={(e) => setPackages({ rebootTime: e.target.value || undefined })}
+                />
+              </div>
+            ) : null}
+            <p className="text-muted-foreground text-xs">
+              {intl.formatMessage(m.updatesPackagesHelp)}
+            </p>
+          </fieldset>
+          {spec.automatic || packages.scheduled ? (
             <fieldset className="grid gap-3 md:grid-cols-3">
               <legend className="mb-1 text-sm">{intl.formatMessage(m.updatesWindow)}</legend>
               <div className="flex flex-col gap-1.5">
@@ -300,20 +357,31 @@ function SettingsForm({ settings }: { settings: Settings }) {
 function Debian({ settings }: { settings: Settings }) {
   const intl = useIntl();
   const api = useApi();
+  const f = useFormat();
   const flow = useChangeFlow();
   const os = settings.status?.os;
   if (!os) {
     return null;
   }
+  const params = (dryRun: boolean) => ({
+    params: { path: { id: settings.id }, query: { dryRun } },
+  });
   const upgrade = () =>
     flow.preview((dryRun) =>
       unwrap(
         api.POST("/api/v1/core/update-settings/{id}/actions/upgrade_os", {
-          params: { path: { id: settings.id }, query: { dryRun } },
+          ...params(dryRun),
           body: { to: os.next ?? "" },
         }),
       ),
     );
+  const upgradePackages = () =>
+    flow.preview((dryRun) =>
+      unwrap(
+        api.POST("/api/v1/core/update-settings/{id}/actions/upgrade_packages", params(dryRun)),
+      ),
+    );
+  const last = settings.status?.packages;
   return (
     <Card aria-labelledby="updates-debian">
       <CardHeader>
@@ -327,7 +395,33 @@ function Debian({ settings }: { settings: Settings }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {os.rebootRequired ? (
-          <Alert tone="warning" title={intl.formatMessage(m.updatesReboot)} />
+          <Alert tone="warning" title={intl.formatMessage(m.updatesReboot)}>
+            {(os.rebootReasons ?? []).length > 0 ? (
+              <p>{intl.formatList(os.rebootReasons ?? [], { type: "conjunction" })}</p>
+            ) : null}
+            {os.rebootAt ? (
+              <p>
+                {intl.formatMessage(m.updatesRebootAt, { when: f.dateTime(new Date(os.rebootAt)) })}
+              </p>
+            ) : null}
+          </Alert>
+        ) : null}
+        {last?.error ? (
+          <Alert
+            tone="danger"
+            title={intl.formatMessage(m.updatesPackagesFailed, {
+              when: f.relative(new Date(last.at)),
+            })}
+          >
+            {last.error}
+          </Alert>
+        ) : last ? (
+          <p className="text-sm">
+            {intl.formatMessage(m.updatesPackagesLast, {
+              count: last.upgraded,
+              when: f.relative(new Date(last.at)),
+            })}
+          </p>
         ) : null}
         {os.next ? (
           <p className="text-sm">
@@ -335,13 +429,16 @@ function Debian({ settings }: { settings: Settings }) {
           </p>
         ) : null}
       </CardContent>
-      {os.next ? (
-        <CardFooter>
+      <CardFooter className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={flow.busy} onClick={upgradePackages}>
+          {intl.formatMessage(m.updatesPackagesUpgrade)}
+        </Button>
+        {os.next ? (
           <Button variant="outline" disabled={flow.busy} onClick={upgrade}>
             {intl.formatMessage(m.updatesDebianUpgrade, { codename: os.next })}
           </Button>
-        </CardFooter>
-      ) : null}
+        ) : null}
+      </CardFooter>
       <ChangeDialog flow={flow} />
     </Card>
   );

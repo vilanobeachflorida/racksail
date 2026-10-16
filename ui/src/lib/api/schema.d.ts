@@ -1226,13 +1226,13 @@ export interface paths {
         };
         /**
          * List update settings
-         * @description How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Lists the update settings you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         * @description How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Lists the update settings you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
          */
         get: operations["listCoreUpdateSettings"];
         put?: never;
         /**
          * Create a update settings
-         * @description How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         * @description How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreUpdateSettings"];
         delete?: never;
@@ -1250,7 +1250,7 @@ export interface paths {
         };
         /**
          * Get a update settings
-         * @description Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.
+         * @description Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.
          */
         get: operations["getCoreUpdateSettings"];
         /**
@@ -1343,6 +1343,26 @@ export interface paths {
          * @description Asks every module whether the upgrade can go ahead, snapshots the system, points apt at the next release and upgrades every package. Modules prepare first and check their services afterwards. The server needs a reboot to finish. It runs as a job: the answer is 202 with the change set, whose job reports progress.
          */
         post: operations["upgradeOsCoreUpdateSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}/actions/upgrade_packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install every available update of the server's packages
+         * @description Refreshes the package lists, snapshots the system and installs every update that isn't held, Debian's and those of vendors' repositories alike. Scheduled updates do the same once a day in the window. When an update needs a reboot and the settings allow one, it is scheduled for the reboot time. It runs as a job: the answer is 202 with the change set, whose job reports progress.
+         */
+        post: operations["upgradePackagesCoreUpdateSettings"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3348,7 +3368,7 @@ export interface components {
             };
             spec: components["schemas"]["RelaySpec"];
         };
-        /** @description Update settings: How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. */
+        /** @description Update settings: How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. */
         CoreUpdateSettings: {
             /** Format: date-time */
             createdAt: string;
@@ -4229,6 +4249,13 @@ export interface components {
             codename: string;
             /** @description The Debian release an upgrade would move to */
             next?: string;
+            /**
+             * Format: date-time
+             * @description When the server reboots by itself to finish an update
+             */
+            rebootAt?: string;
+            /** @description Why the server needs a reboot */
+            rebootReasons?: string[] | null;
             rebootRequired?: boolean;
             version: string;
         };
@@ -4292,6 +4319,35 @@ export interface components {
              * @description Where the archive is downloaded from
              */
             url: string;
+        };
+        PackageUpdates: {
+            /** @description Reboot by itself when an update needs it, such as a new kernel */
+            reboot?: boolean;
+            /**
+             * @description When the server may reboot, as HH:MM in UTC; 04:00 when empty
+             * @example 04:00
+             */
+            rebootTime?: string;
+            /** @description Install every other update once a day during the window, after snapshots of the system */
+            scheduled?: boolean;
+            /** @description Install Debian's security updates by themselves, as they come out */
+            security: boolean;
+        };
+        PackagesStatus: {
+            /**
+             * Format: date-time
+             * @description When it ran
+             */
+            at: string;
+            /** @description Why it failed */
+            error?: string;
+            /** @description The snapshots taken first */
+            snapshots?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many packages it upgraded
+             */
+            upgraded: number;
         };
         Permission: {
             description: string;
@@ -4661,6 +4717,8 @@ export interface components {
              *     ]
              */
             mirrors?: string[] | null;
+            /** @description How Debian's packages and those of vendors' repositories are kept up to date; Debian's security updates only when empty */
+            packages?: components["schemas"]["PackageUpdates"];
             /** @description When automatic updates may be installed; any time when empty */
             window?: components["schemas"]["Window"];
         };
@@ -4683,6 +4741,8 @@ export interface components {
              */
             observedGeneration?: number;
             os?: components["schemas"]["OSStatus"];
+            /** @description The last upgrade of the server's packages */
+            packages?: components["schemas"]["PackagesStatus"];
             /** @enum {string} */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             reported?: string;
@@ -9317,6 +9377,53 @@ export interface operations {
                 "application/json": components["schemas"]["UpgradeOSInput"];
             };
         };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    upgradePackagesCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description The change set without applying it, for a dry run */
             200: {
