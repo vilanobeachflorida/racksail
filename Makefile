@@ -80,6 +80,8 @@ help:
 	@echo "make fuzz-list   list the fuzz targets as dir:FuzzName, as CI's daily fuzzing runs them"
 	@echo "make gen-check   fail when the generated files differ from what make gen writes"
 	@echo "make sdk-check   test the add-on SDKs"
+	@echo "make addons-check  vet, staticcheck and test the official add-ons in addons/"
+	@echo "make addons      build the official add-ons' release archives into $(DIST)/addons/"
 
 $(UI_DEPS): ui/package.json ui/package-lock.json
 	cd ui && $(NPM) ci --no-audit --no-fund
@@ -358,6 +360,7 @@ licenses:
 vulncheck:
 	$(GO) run $(GOVULNCHECK) ./...
 	cd sdk/go && $(GO) run $(GOVULNCHECK) ./...
+	cd addons && $(GO) run $(GOVULNCHECK) ./...
 	$(GO) run $(OSV_SCANNER) scan source --config packaging/osv-scanner.toml $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
 
 # Every fuzz target in the code, as its package's directory and its name,
@@ -401,3 +404,32 @@ sdk-check: $(SDK_TS_DEPS)
 ci-lint:
 	$(GO) run $(ACTIONLINT)
 	shellcheck $$(git ls-files '*.sh' iso/auto/config 'iso/config/hooks/*' | grep -v '^\.')
+
+# The official add-ons in addons/, a Go module of their own: the LDAP and
+# OpenID Connect sign-ins. Each add-on's version is its catalog manifest's,
+# and its archive holds its program, called addon, as the panel unpacks it.
+ADDONS = $(shell git ls-files 'addons/*/main.go' | grep -v '^addons/internal/' | xargs -n 1 dirname | xargs -n 1 basename)
+
+.PHONY: addons addons-check
+
+check: addons-check
+
+addons-check:
+	cd addons && $(GO) vet ./... && GOOS=linux $(GO) vet ./...
+	cd addons && $(GO) run $(STATICCHECK) ./... && $(GO) run -exec 'env GOOS=linux' $(STATICCHECK) ./...
+	cd addons && $(GO) test ./...
+
+addons:
+	rm -rf $(DIST)/addons && mkdir -p $(DIST)/addons && : > $(DIST)/addons/SHA256SUMS
+	@for id in $(ADDONS); do \
+		version=$$(sed -n 's/^version: *//p' catalog/addons/$$id/addon.yaml); \
+		test -n "$$version" || { echo "catalog/addons/$$id/addon.yaml has no version"; exit 1; }; \
+		for p in $(PLATFORMS); do arch=$${p#*/}; \
+			(cd addons && GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags "-s -w -X main.version=$$version" \
+				-o ../build/addons/$$id-$$arch/addon ./$$id) || exit 1; \
+			(cd addons && $(GO) run ./internal/pack -program ../build/addons/$$id-$$arch/addon \
+				-out ../$(DIST)/addons/$$id-$$version-linux-$$arch.tar.gz) >> $(DIST)/addons/SHA256SUMS || exit 1; \
+		done; \
+	done
+	@sed 's|  .*/|  |' $(DIST)/addons/SHA256SUMS > $(DIST)/addons/SHA256SUMS.tmp && mv $(DIST)/addons/SHA256SUMS.tmp $(DIST)/addons/SHA256SUMS
+	@cat $(DIST)/addons/SHA256SUMS

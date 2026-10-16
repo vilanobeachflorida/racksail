@@ -1,0 +1,23 @@
+format: 1
+kind: addon
+id: oidc-sign-in
+name: OpenID Connect sign-in
+version: 1.0.0
+summary: Sign in with an OpenID Connect provider such as Keycloak, Authentik, Microsoft Entra ID, Google or Okta.
+description: >-
+  Adds an OpenID Connect provider as a way to sign in to the panel. People choose it on the sign-in
+  screen, sign in on the provider's own page and come back signed in. The add-on uses the authorization
+  code flow with PKCE, checks every ID token's signature with the provider's published keys, and only
+  passes on email addresses the provider has verified. Connect it in the panel's security settings,
+  under sign-in providers.
+license: AGPL-3.0-or-later
+licenseClass: open-source
+homepage: https://github.com/vilanobeachflorida/racksail/tree/main/addons/oidc-sign-in
+source: https://github.com/vilanobeachflorida/racksail/tree/main/addons/oidc-sign-in
+icon: icon.svg
+categories: [security, sign-in]
+maintainers: [{name: Racksail maintainers, github: vilanobeachflorida}]
+health:
+  - {type: unit, target: racksail-addon@oidc-sign-in.service}
+tests:
+  timeoutSeconds: 120

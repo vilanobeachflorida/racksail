@@ -1,0 +1,17 @@
+format: 1
+id: oidc-sign-in
+name: OpenID Connect sign-in
+version: 1.0.0
+license: AGPL-3.0-or-later
+source: https://github.com/vilanobeachflorida/racksail/tree/main/addons/oidc-sign-in
+author: Racksail maintainers
+description: >-
+  Signs people in on an OpenID Connect provider's own page, such as Keycloak, Authentik, Microsoft Entra ID,
+  Google or Okta, with the authorization code flow and PKCE.
+apiVersions: [v1]
+provides: [auth-provider]
+permissions:
+  # Which provider it connects to is the admin's choice when they connect
+  # it, so it may reach any address.
+  network: [0.0.0.0/0, "::/0"]
+  resources: {cpu: 10%, memoryMB: 64}

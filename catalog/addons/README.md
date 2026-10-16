@@ -16,3 +16,5 @@ addons/oidc-sign-in/
   addon.yaml
   icon.svg
 ```
+
+The LDAP and OpenID Connect sign-in add-ons are built from [addons/](../../addons/) in this repository, whose README says how they are built and tested.

@@ -1,0 +1,22 @@
+format: 1
+kind: addon
+id: ldap-sign-in
+name: LDAP sign-in
+version: 1.0.0
+summary: Sign in with the username and password people have in an LDAP directory or Active Directory.
+description: >-
+  Adds an LDAP directory as a way to sign in to the panel. People type the username and password they
+  have in the directory on the panel's own sign-in screen; the add-on finds them in the directory, as a
+  service account or by their DN, and binds as them over ldaps:// or StartTLS. Connect it in the panel's
+  security settings, under sign-in providers.
+license: AGPL-3.0-or-later
+licenseClass: open-source
+homepage: https://github.com/vilanobeachflorida/racksail/tree/main/addons/ldap-sign-in
+source: https://github.com/vilanobeachflorida/racksail/tree/main/addons/ldap-sign-in
+icon: icon.svg
+categories: [security, sign-in]
+maintainers: [{name: Racksail maintainers, github: vilanobeachflorida}]
+health:
+  - {type: unit, target: racksail-addon@ldap-sign-in.service}
+tests:
+  timeoutSeconds: 120
