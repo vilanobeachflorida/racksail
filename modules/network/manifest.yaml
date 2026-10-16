@@ -37,7 +37,7 @@ upstream:
       packages: [nftables]
     install: "The first time the firewall is applied, which happens as soon as the network module starts."
 capabilities:
-  provides: [network.addresses, network.firewall, network.routing]
+  provides: [network.addresses, network.bridges, network.firewall, network.routing]
 hooks:
   - point: system.nftables.ruleset
     description: Patches to the firewall ruleset before it is checked and applied.

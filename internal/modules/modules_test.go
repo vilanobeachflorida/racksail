@@ -120,6 +120,43 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
+// A module that needs a capability must be able to count on it: some
+// module provides it, and that module is on whenever the one needing it
+// is.
+func TestNeededCapabilities(t *testing.T) {
+	reg := NewRegistry()
+	for _, m := range []Module{
+		testModule{NewBase(manifestYAML("net", "required: true\ndependencies: {}\ncapabilities: {provides: [net.bridges]}\n"))},
+		testModule{NewBase(manifestYAML("store", "dependencies: {}\ncapabilities: {provides: [store.pools]}\n"))},
+		testModule{NewBase(manifestYAML("web", "dependencies: {}\ncapabilities: {provides: [web.sites, web.cache]}\n"))},
+		testModule{NewBase(manifestYAML("db", "dependencies: {}\ncapabilities: {provides: [db.sql, web.cache]}\n"))},
+		testModule{NewBase(manifestYAML("vm", "dependencies: {}\ncapabilities: {needs: [net.bridges]}\n"))},
+		testModule{NewBase(manifestYAML("share", "dependencies: {requires: [store]}\ncapabilities: {needs: [store.pools]}\n"))},
+		testModule{NewBase(manifestYAML("deep", "dependencies: {requires: [share]}\ncapabilities: {needs: [store.pools]}\n"))},
+		testModule{NewBase(manifestYAML("perf", "dependencies: {requiresAny: [web, db]}\ncapabilities: {needs: [web.cache]}\n"))},
+	} {
+		if err := reg.Add(m, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reg.Err(); err != nil {
+		t.Fatalf("capabilities of required, required and transitively required modules: %v", err)
+	}
+	reg.Add(testModule{NewBase(manifestYAML("lonely", "dependencies: {}\ncapabilities: {needs: [ghost.things]}\n"))}, nil)
+	reg.Add(testModule{NewBase(manifestYAML("app", "dependencies: {uses: [db]}\ncapabilities: {needs: [db.sql]}\n"))}, nil)
+	reg.Add(testModule{NewBase(manifestYAML("shop", "dependencies: {requiresAny: [web, db]}\ncapabilities: {needs: [web.sites]}\n"))}, nil)
+	err := reg.Err()
+	for _, want := range []string{
+		"lonely needs the capability ghost.things, which no module provides",
+		"app needs the capability db.sql, which only db provides, and app doesn't require it",
+		"shop needs the capability web.sites, which only web provides",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q isn't reported: %v", want, err)
+		}
+	}
+}
+
 func TestKindsBelongToTheirModule(t *testing.T) {
 	kinds := store.NewKindRegistry()
 	good := store.Define[siteSpec, store.Status](store.KindInfo{Name: "web.site", Prefix: "site", Scope: store.ScopeAccount, Title: "Site", Plural: "sites", Description: "A site."})

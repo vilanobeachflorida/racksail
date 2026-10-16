@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -93,8 +94,9 @@ func (r *Registry) IDs() []string {
 	return ids
 }
 
-// Err reports registration problems and dependencies on modules that don't
-// exist.
+// Err reports registration problems, dependencies on modules that don't
+// exist, and capabilities modules need that nothing they can count on
+// provides.
 func (r *Registry) Err() error {
 	r.mu.RLock()
 	errs := slices.Clone(r.errs)
@@ -107,9 +109,74 @@ func (r *Registry) Err() error {
 			}
 		}
 	}
+	errs = append(errs, capabilityProblems(mods)...)
 	r.mu.RUnlock()
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
 	return errors.Join(errs...)
+}
+
+// capabilityProblems checks that every capability a module needs is
+// provided by a module that is on whenever it is: a required module, one
+// it requires, directly or through the modules those require, or each of
+// the modules it requires one of. A capability only a module it merely uses
+// provides could be missing while it runs.
+func capabilityProblems(mods map[string]Module) []error {
+	providers := map[string][]string{}
+	for id, m := range mods {
+		for _, c := range m.Manifest().Capabilities.Provides {
+			providers[c] = append(providers[c], id)
+		}
+	}
+	var errs []error
+	for id, m := range mods {
+		man := m.Manifest()
+		for _, c := range man.Capabilities.Needs {
+			from := providers[c]
+			if len(from) == 0 {
+				errs = append(errs, fmt.Errorf("modules: %s needs the capability %s, which no module provides", id, c))
+				continue
+			}
+			sure := alwaysWith(mods, id)
+			if slices.ContainsFunc(from, func(p string) bool { return sure[p] }) {
+				continue
+			}
+			// Needing one of several modules counts when each of them
+			// brings the capability.
+			if anyOf := man.Dependencies.RequiresAny; len(anyOf) > 0 && !slices.ContainsFunc(anyOf, func(alt string) bool {
+				return !slices.ContainsFunc(from, func(p string) bool { return alwaysWith(mods, alt)[p] })
+			}) {
+				continue
+			}
+			sort.Strings(from)
+			errs = append(errs, fmt.Errorf("modules: %s needs the capability %s, which only %s provides, and %s doesn't require it",
+				id, c, strings.Join(from, " and "), id))
+		}
+	}
+	return errs
+}
+
+// alwaysWith returns the modules that are on whenever id is: itself, the
+// required modules and what it requires, through what those require.
+func alwaysWith(mods map[string]Module, id string) map[string]bool {
+	out := map[string]bool{}
+	var visit func(id string)
+	visit = func(id string) {
+		m, ok := mods[id]
+		if !ok || out[id] {
+			return
+		}
+		out[id] = true
+		for _, dep := range m.Manifest().Dependencies.Requires {
+			visit(dep)
+		}
+	}
+	visit(id)
+	for other, m := range mods {
+		if m.Manifest().Required {
+			visit(other)
+		}
+	}
+	return out
 }
 
 // Ownership returns what the module that keeps resellers says about which
