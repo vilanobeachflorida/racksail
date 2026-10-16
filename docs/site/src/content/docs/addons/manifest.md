@@ -101,16 +101,18 @@ Each capability's interface, the methods it has and what they take, belongs to t
 
 ## Kinds
 
-`kinds` declares kinds of resources the add-on adds, each with:
+`kinds` declares kinds of resources the add-on adds, which it plans and applies itself, as [Hooks](../hooks/#kinds-an-add-on-adds) explains. Adding kinds takes the `system` hook level. Each kind has:
 
 | Field | What it holds |
 |---|---|
-| `name` | `<group>.<name>` in lowercase, such as `guard.finding` |
+| `name` | `<group>.<name>` in lowercase, such as `guard.finding`. The add-on's kinds share one group, which no module or other add-on uses, and never `core` |
 | `prefix` | The prefix of its resources' IDs, lowercase letters, up to 16 |
 | `scope` | What its resources belong to: `server`, `reseller` or `account` |
-| `title`, `plural` | Its name for people, such as `Finding`, and the plural that names its API path, such as `findings` |
+| `title`, `plural` | Its name for people, such as `Finding`, and its plural, such as `findings`, which also names its screens in the panel, at `/guard/findings` |
 | `description` | What its resources are |
 | `schema` | The JSON Schema of their settings |
+| `status` | The JSON Schema of the status fields the add-on reports when it applies them |
+| `actions` | Actions beyond creating, changing and deleting, each with a `name`, a `summary`, a `risk` of `low`, `medium`, `high` or `critical`, and the JSON Schema of its `input` if it takes one |
 
 ## The checks
 
@@ -119,6 +121,9 @@ The panel refuses a manifest, with the reason, when:
 - it doesn't follow the schema, or has a field the schema doesn't know;
 - it doesn't speak the panel's hook API version;
 - a hook's kind isn't among the levels `permissions.hooks` asks for, or its deadline is longer than ten seconds;
+- a scope under `permissions.read` asks to delete resources or run actions, which takes `write`;
+- it adds kinds without the `system` level, kinds of more than one group or of `core`, two kinds with the same name, prefix or plural, a kind without a title or a description, or an action without a risk;
+- a tab or a column names no `kind`, or a column's `path` isn't one of its `GET` routes;
 - its `id` isn't the id the add-on is installed under.
 
 An add-on an account owner installs, a `core.account_addon`, also may not ask for `system` hooks or `override`, provide a capability, or attach to a point outside the change pipeline, such as `core.boot` or `auth.login.validate`; see [Permissions and sandboxing](../permissions/#add-ons-of-an-account).
