@@ -384,6 +384,22 @@ func TestKindValidationAndHooks(t *testing.T) {
 			t.Errorf("a site of an account that doesn't exist%s = %d %s", query, resp.StatusCode, bodyOf(resp))
 		}
 	}
+	// No kind of this panel keeps resellers, so nothing can belong to one,
+	// and the refusal says that rather than that one reseller is missing.
+	user := map[string]any{"scope": map[string]any{"level": "reseller", "id": s.reseller}, "spec": map[string]any{"username": "rhea"}}
+	resp := s.call("admin", "POST", "/api/v1/core/users?dryRun=true", user, nil)
+	var p struct {
+		Code   i18n.Code `json:"code"`
+		Errors []struct {
+			Location string `json:"location"`
+			Message  string `json:"message"`
+		} `json:"errors"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	if resp.StatusCode != http.StatusUnprocessableEntity || len(p.Errors) != 1 || p.Errors[0].Location != "scope.level" ||
+		p.Errors[0].Message != "This value isn't valid: this panel keeps no resellers for it to belong to." {
+		t.Errorf("a user of a reseller on a panel without resellers = %d %s", resp.StatusCode, bodyOf(resp))
+	}
 }
 
 // What the schema validator finds, in a request's parameters or a kind's

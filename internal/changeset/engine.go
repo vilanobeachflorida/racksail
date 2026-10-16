@@ -563,21 +563,26 @@ func (e *Engine) checkReuse(ctx context.Context, p *draft, r *store.Resource) er
 // seen only by the server's admins and left out of the account's archive,
 // and an account made later with that ID would inherit it. Owners belong to
 // themselves, so a new account names itself. A server's resources have no
-// owner to check.
+// owner to check. While no kind keeps the owners of a level, as resellers
+// until the module that keeps them is built in, nothing can belong there,
+// and the refusal says so rather than that one owner is missing.
 func (e *Engine) checkOwner(ctx context.Context, view store.Reader, r *store.Resource) error {
 	level := r.Scope.Level
 	if level != store.ScopeAccount && level != store.ScopeReseller {
 		return nil
 	}
 	owners, known := e.opts.Kinds.OwnerKind(level)
-	if known && r.Kind == owners.Info().Name && r.Scope.ID == r.ID {
+	if !known {
+		return i18n.Invalid(i18n.Field("scope.level", i18n.ErrBadValue, "reason", "this panel keeps no "+string(level)+"s for it to belong to"))
+	}
+	if r.Kind == owners.Info().Name && r.Scope.ID == r.ID {
 		return nil
 	}
 	owner, err := view.Get(ctx, r.Scope.ID)
 	switch {
 	case err != nil && !store.ErrNotFound.Is(err):
 		return err
-	case err == nil && known && owner.Kind == owners.Info().Name && !owner.Deleted():
+	case err == nil && owner.Kind == owners.Info().Name && !owner.Deleted():
 		return nil
 	}
 	what := strings.ToUpper(string(level[:1])) + string(level[1:]) + " " + string(r.Scope.ID)
