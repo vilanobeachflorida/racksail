@@ -786,6 +786,62 @@ describe("the updates page", () => {
   });
 });
 
+describe("the notifications page, live", () => {
+  it("follows the relay's status without losing what you're typing", async () => {
+    const user = userEvent.setup();
+    const { live, sources } = fakeLive();
+    let lastSent: string | undefined;
+    let reads = 0;
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/notifications/preferences": () => json({ email: false }),
+      "GET /api/v1/core/notification-channels": () => json({ items: [] }),
+      "GET /api/v1/core/mail-relays": () => {
+        reads++;
+        return json({
+          items: [
+            {
+              id: "smtp_1",
+              kind: "core.smtp_relay",
+              revision: 1,
+              generation: 1,
+              scope: { level: "server" },
+              createdAt: "2026-10-15T12:00:00Z",
+              updatedAt: "2026-10-15T12:00:00Z",
+              spec: { host: "smtp.example.com", from: "panel@example.com", security: "starttls" },
+              status: lastSent ? { lastSent } : {},
+            },
+          ],
+        });
+      },
+      "GET /api/v1/notifications": () => json({ notifications: [] }),
+    });
+    renderShell({
+      modules: [],
+      messages: shellMessages,
+      api,
+      path: "/settings/notifications",
+      live,
+    });
+    const host = await screen.findByRole("textbox", { name: "Server" });
+    await waitFor(() => expect(host).toHaveValue("smtp.example.com"));
+    await user.clear(host);
+    await user.type(host, "relay.example.net");
+    const stream = await waitFor(() => {
+      const found = sources.find((s) => s.url.includes("kind=core.smtp_relay"));
+      expect(found).toBeDefined();
+      return found;
+    });
+    // An email went out: the relay's status changed, its settings didn't.
+    const before = reads;
+    lastSent = "2026-10-16T08:00:00Z";
+    stream?.emit("notice", { op: "status", id: "smtp_1", kind: "core.smtp_relay", phase: "ready" });
+    expect(await screen.findByText(/The last email went out/)).toBeInTheDocument();
+    expect(reads).toBeGreaterThan(before);
+    expect(screen.getByRole("textbox", { name: "Server" })).toHaveValue("relay.example.net");
+  });
+});
+
 describe("the settings index", () => {
   it("links the server's settings", async () => {
     renderShell({ modules: [], messages: shellMessages, api: fakeApi(shell), path: "/settings" });

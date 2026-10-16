@@ -161,10 +161,14 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const id = useId();
   const [spec, setSpec] = useState<Spec>(settings.spec);
   const [mirrors, setMirrors] = useState((settings.spec.mirrors ?? []).join("\n"));
+  // The form follows the settings when they change, not every time their
+  // status does, as it does while a check or an update runs.
+  const saved = JSON.stringify(settings.spec);
   useEffect(() => {
-    setSpec(settings.spec);
-    setMirrors((settings.spec.mirrors ?? []).join("\n"));
-  }, [settings.spec]);
+    const next = JSON.parse(saved) as Spec;
+    setSpec(next);
+    setMirrors((next.mirrors ?? []).join("\n"));
+  }, [saved]);
   const save = (event: FormEvent) => {
     event.preventDefault();
     const body: Spec = {

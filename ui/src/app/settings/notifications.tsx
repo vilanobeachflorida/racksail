@@ -46,9 +46,14 @@ type Severity = "info" | "notice" | "warning" | "error" | "critical";
 const severities: Severity[] = ["info", "notice", "warning", "error", "critical"];
 type Preferences = Schemas["NotificationPreferences"];
 
-// Sending a notification records how it went in its channel's or the
-// relay's status, so their notices also say the log changed.
-const channelKinds = ["core.notification_channel", "core.smtp_relay"];
+// One stream tells the whole screen what changed. Sending a notification
+// records how it went in its channel's or the relay's status, so their
+// notices also say the log changed.
+const watchedKinds = [
+  "core.notification_channel",
+  "core.smtp_relay",
+  "core.notification_preferences",
+];
 type QuietHours = NonNullable<Preferences["quietHours"]>;
 
 function patterns(text: string): string[] {
@@ -174,7 +179,7 @@ function MyPreferences() {
   const [draft, setDraft] = useState<Preferences | null>(null);
   const [events, setEvents] = useState("");
   const [muted, setMuted] = useState("");
-  useResourceUpdates(["core.notification_preferences"], [["notifications", "preferences"]]);
+  useResourceUpdates(watchedKinds, [["notifications", "preferences"]]);
   useEffect(() => {
     if (prefs.data && draft === null) {
       const { updatedAt: _, ...current } = prefs.data;
@@ -396,7 +401,7 @@ function Channels() {
     queryFn: () => unwrap(api.GET("/api/v1/core/notification-channels")),
     retry: false,
   });
-  useResourceUpdates(channelKinds, [["notifications", "channels"]]);
+  useResourceUpdates(watchedKinds, [["notifications", "channels"]]);
   if (channels.isError && forbidden(channels.error)) {
     return null;
   }
@@ -503,6 +508,7 @@ function Channels() {
 function Relay() {
   const intl = useIntl();
   const api = useApi();
+  const f = useFormat();
   const flow = useChangeFlow();
   const id = useId();
   const relays = useQuery({
@@ -510,7 +516,7 @@ function Relay() {
     queryFn: () => unwrap(api.GET("/api/v1/core/mail-relays")),
     retry: false,
   });
-  useResourceUpdates(["core.smtp_relay"], [["notifications", "relay"]]);
+  useResourceUpdates(watchedKinds, [["notifications", "relay"]]);
   const current = relays.data?.items?.[0];
   const [spec, setSpec] = useState<Schemas["RelaySpec"]>({
     host: "",
@@ -519,11 +525,15 @@ function Relay() {
   });
   const [password, setPassword] = useState("");
   const [to, setTo] = useState("");
+  // The form follows the relay's settings when they change, not every
+  // time its status does, such as after each email sent.
+  const saved = JSON.stringify(current?.spec ?? null);
   useEffect(() => {
-    if (current) {
-      setSpec(current.spec);
+    const next = JSON.parse(saved) as Schemas["RelaySpec"] | null;
+    if (next) {
+      setSpec(next);
     }
-  }, [current]);
+  }, [saved]);
   if (relays.isError && forbidden(relays.error)) {
     return null;
   }
@@ -580,7 +590,18 @@ function Relay() {
         <CardTitle id={`${id}-title`}>{intl.formatMessage(m.notifyRelay)}</CardTitle>
         <CardDescription>{intl.formatMessage(m.notifyRelayHelp)}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-3">
+        {current?.status?.lastError ? (
+          <Alert tone="warning" title={intl.formatMessage(m.notifyRelayLastError)}>
+            {current.status.lastError}
+          </Alert>
+        ) : current?.status?.lastSent ? (
+          <p className="text-muted-foreground text-sm">
+            {intl.formatMessage(m.notifyRelayLastSent, {
+              when: f.relative(new Date(current.status.lastSent)),
+            })}
+          </p>
+        ) : null}
         <form className="grid gap-3 md:grid-cols-2" onSubmit={save}>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={`${id}-host`}>{intl.formatMessage(m.notifyRelayHost)}</Label>
@@ -696,7 +717,7 @@ function Log() {
     queryFn: () => unwrap(api.GET("/api/v1/notifications", { params: { query: { limit: 50 } } })),
     retry: false,
   });
-  useResourceUpdates(channelKinds, [["notifications", "log"]]);
+  useResourceUpdates(watchedKinds, [["notifications", "log"]]);
   const sent = log.data?.notifications ?? [];
   if (log.isError || sent.length === 0) {
     return null;

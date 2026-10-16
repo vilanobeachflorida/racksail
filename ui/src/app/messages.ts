@@ -446,6 +446,8 @@ export const messages = {
   notifyDelete: m("app.notifications.delete"),
   notifyRelay: m("app.notifications.relay"),
   notifyRelayHelp: m("app.notifications.relayHelp"),
+  notifyRelayLastSent: m("app.notifications.relayLastSent"),
+  notifyRelayLastError: m("app.notifications.relayLastError"),
   notifyRelayHost: m("app.notifications.relayHost"),
   notifyRelayPort: m("app.notifications.relayPort"),
   notifyRelaySecurity: m("app.notifications.relaySecurity"),

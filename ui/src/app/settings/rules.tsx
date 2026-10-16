@@ -73,7 +73,15 @@ interface Rule {
   spec: PolicySpec;
 }
 
-const policyKinds = ["core.policy", "core.reseller_policy", "core.account_policy"];
+// One stream tells the whole screen about rules and add-ons, whose hooks
+// come and go with them.
+const watchedKinds = [
+  "core.policy",
+  "core.reseller_policy",
+  "core.account_policy",
+  "core.addon",
+  "core.account_addon",
+];
 
 /** The rules an owner has; each owner's are a kind of their own. */
 async function listRules(api: ApiClient, owner: Owner): Promise<Rule[]> {
@@ -219,7 +227,7 @@ function RuleList({ owner }: { owner: Owner }) {
     queryFn: () => listRules(api, owner),
     enabled: ready,
   });
-  useResourceUpdates(policyKinds, [["rules"]]);
+  useResourceUpdates(watchedKinds, [["rules"]]);
   const toggle = (rule: Rule) =>
     flow.preview((dryRun) =>
       updateRule(api, owner, rule, { ...rule.spec, enabled: !rule.spec.enabled }, dryRun),
@@ -593,10 +601,7 @@ function Hooks() {
   });
   // Hooks come and go with add-ons, rules and the circuit breaker.
   useTimelineUpdates(["core.hook.disabled", "core.safe_mode.*"], [["hooks"], ["hook-points"]]);
-  useResourceUpdates(
-    ["core.addon", "core.account_addon", ...policyKinds],
-    [["hooks"], ["hook-points"]],
-  );
+  useResourceUpdates(watchedKinds, [["hooks"], ["hook-points"]]);
   // Without core.hook.read the server says no; the card is for those who may see it.
   if (hooks.isError) {
     return null;

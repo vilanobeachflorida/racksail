@@ -68,7 +68,8 @@ function SoftwareList({ id }: { id: string }) {
   const api = useApi();
   const f = useFormat();
   const software = useQuery({
-    queryKey: ["modules", id, "software"],
+    // Apart from ["modules"], which every change to a module reads again.
+    queryKey: ["module-software", id],
     queryFn: () => unwrap(api.GET("/api/v1/modules/{id}/software", { params: { path: { id } } })),
   });
   if (software.isPending) {

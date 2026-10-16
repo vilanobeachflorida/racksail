@@ -255,6 +255,8 @@
   "app.notifications.testFailed": "The test didn't go through: {reason}",
   "app.notifications.delete": "Delete",
   "app.notifications.relay": "Mail relay",
+  "app.notifications.relayLastSent": "The last email went out {when}.",
+  "app.notifications.relayLastError": "The last email couldn't be sent",
   "app.notifications.relayHelp": "The mail server email notifications go out through: your provider's submission server, or this server's own when the mail module is on.",
   "app.notifications.relayHost": "Server",
   "app.notifications.relayPort": "Port",
