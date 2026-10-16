@@ -121,16 +121,31 @@ func validatePolicy[T any](ctx context.Context, obj, old *store.Object[hooks.Pol
 	if _, err := compileRule(obj.Spec, DefaultCostLimit); err != nil {
 		var fe *fieldError
 		if errors.As(err, &fe) {
-			return i18n.Invalid(i18n.Field("spec."+fe.path, i18n.ErrBadValue, "reason", fe.reason))
+			return fe.invalid("spec")
 		}
 		return i18n.Invalid(i18n.Field("spec", i18n.ErrBadValue, "reason", err.Error()))
 	}
 	return nil
 }
 
-// fieldError locates what is wrong with a rule.
+// fieldError locates what is wrong with a rule. schema is what the rule's
+// JSON Schema found, when that was it.
 type fieldError struct {
 	path, reason string
+	schema       error
+}
+
+// invalid is the problem of a rule at prefix, such as spec: what its JSON
+// Schema found in the catalog's words, or the field that is wrong.
+func (e *fieldError) invalid(prefix string) error {
+	if e.schema != nil {
+		return i18n.Invalid(i18n.JSONSchemaFields(prefix, e.schema)...)
+	}
+	path := prefix
+	if e.path != "" {
+		path += "." + e.path
+	}
+	return i18n.Invalid(i18n.Field(path, i18n.ErrBadValue, "reason", e.reason))
 }
 
 func (e *fieldError) Error() string { return e.path + ": " + e.reason }
@@ -151,7 +166,7 @@ type compiledDefault struct {
 // compileRule checks a rule and compiles its expressions.
 func compileRule(spec hooks.PolicySpec, limit uint64) (*compiled, error) {
 	if err := spec.Validate(); err != nil {
-		return nil, &fieldError{path: "", reason: schemaReason(err)}
+		return nil, &fieldError{reason: schemaReason(err), schema: err}
 	}
 	e, err := celEnv()
 	if err != nil {

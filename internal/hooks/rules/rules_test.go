@@ -177,6 +177,38 @@ func TestRulesAreCheckedWhenSaved(t *testing.T) {
 	}
 }
 
+// What a rule's JSON Schema finds wrong comes back on the field it is about,
+// in the catalog's words, whether the rule is saved or tried out.
+func TestRuleSchemaFindingsAreWorded(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	for _, tc := range []struct {
+		spec          hooks.PolicySpec
+		path, message string
+	}{
+		{hooks.PolicySpec{Name: "Quiet", Type: hooks.PolicyValidate, Expression: "true"}, "message", "This field is required."},
+		{hooks.PolicySpec{Name: "Empty", Type: hooks.PolicyDefault}, "defaults", "This field is required."},
+		{hooks.PolicySpec{Name: strings.Repeat("n", 81), Type: hooks.PolicyValidate, Expression: "true", Message: "no"}, "name", "Use at most 80 characters."},
+		{hooks.PolicySpec{Name: "Kinds", Type: hooks.PolicyValidate, Kinds: []string{"Web.Site"}, Expression: "true", Message: "no"}, "kinds[0]",
+			"This value isn't valid: it isn't in the form this field takes."},
+		{hooks.PolicySpec{Name: "Path", Type: hooks.PolicyDefault, Defaults: []hooks.FieldDefault{{Field: "a..b", Expression: "1"}}}, "defaults[0].field",
+			"This value isn't valid: it isn't in the form this field takes."},
+	} {
+		raw, _ := json.Marshal(tc.spec)
+		_, err := e.engine.Submit(ctx, changeset.Request{Actor: e.admin, DryRun: true, Changes: []changeset.Change{
+			{Op: changeset.OpCreate, Kind: "core.policy", Scope: store.ServerScope(), Spec: raw},
+		}})
+		saved := i18n.From(err)
+		_, err = e.rules.Test(ctx, e.admin, TestRequest{Rule: tc.spec, Owner: store.ServerScope(), Operation: "create", Kind: "web.site", Scope: store.ServerScope()})
+		tried := i18n.From(err)
+		for prefix, got := range map[string]*i18n.Error{"spec.": saved, "body.rule.": tried} {
+			if got == nil || got.Code != i18n.ErrInvalid.Code || len(got.Fields) != 1 || got.Fields[0].Path != prefix+tc.path || got.Fields[0].Message != tc.message {
+				t.Errorf("%s at %s%s: %+v", tc.spec.Name, prefix, tc.path, got)
+			}
+		}
+	}
+}
+
 func TestValidateRules(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)

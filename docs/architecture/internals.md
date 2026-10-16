@@ -112,7 +112,7 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/events/webhook` | Outgoing webhooks: the `core.webhook` kind, signing, the delivery queue with its retries, and the delivery log |
 | `internal/inbox` | The attention inbox: its sources (failed jobs, resources that fail, alerts, updates, certificates, module suggestions), the service that keeps what the slower ones found, and dismissals |
 | `internal/jobs` | The job queue with progress, logs, cancel, retry and history |
-| `internal/i18n` | Error codes and their English messages, and the catalog's words for what the JSON Schema validator finds |
+| `internal/i18n` | Error codes and their English messages, and the catalog's words for what the JSON Schema validators find: the API's (`SchemaField`), and that of `spec/schemas`, which checks rules (`JSONSchemaFields`) |
 | `internal/edge` | The routing table and the embedded Caddy that serves it, certificates, the edge's admin API and the wake proxy |
 | `internal/config` | `racksail.toml`, which refuses settings nothing would honour: `[paths]`, since the agent's roots, the installer and the units only know the standard locations, and `agent.socket` and `edge.socket`, since the units and the add-ons' sandboxes only know the sockets in `/run/racksail` |
 | `internal/secrets` | Secret storage, encrypted at rest with a key sealed by systemd-creds |
