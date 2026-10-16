@@ -1,9 +1,4 @@
-import {
-  type QueryKey,
-  type UseQueryOptions,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { type QueryKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   type ReactNode,
@@ -13,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ApiError } from "./api/client";
 
 /** One server-sent event: its type, its data decoded from JSON, and its id. */
 export interface LiveEvent<T = unknown> {
@@ -257,7 +253,7 @@ export function useLiveEvents<T = unknown>(
   return status;
 }
 
-export interface LiveQueryOptions<TData, TEvent> {
+export interface LiveQueryOptions<TData, TEvent, TSelected = TData> {
   queryKey: QueryKey;
   queryFn: () => Promise<TData>;
   /** Where updates to the data stream from, and which event types carry them. */
@@ -268,23 +264,37 @@ export interface LiveQueryOptions<TData, TEvent> {
    */
   apply: (current: TData | undefined, event: LiveEvent<TEvent>) => TData | undefined;
   enabled?: boolean;
-  select?: UseQueryOptions<TData>["select"];
+  /**
+   * Picks what the component gets from the cached data, as in useQuery.
+   * Events still update the whole cached data.
+   */
+  select?: (data: TData) => TSelected;
 }
 
 /**
  * A query kept current by server-sent events instead of polling: the data
  * loads once, then each event updates the cache in place. When events may
- * have been missed, after a reconnect or a resync, it loads again.
+ * have been missed, after a reconnect or a resync, it loads again. A panel
+ * that answers the load with 404 doesn't have that data at all, so its
+ * stream isn't opened.
  */
-export function useLiveQuery<TData, TEvent = unknown>({
+export function useLiveQuery<TData, TEvent = unknown, TSelected = TData>({
   queryKey,
   queryFn,
   stream,
   apply,
   enabled = true,
-}: LiveQueryOptions<TData, TEvent>) {
+  select,
+}: LiveQueryOptions<TData, TEvent, TSelected>) {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey, queryFn, enabled, staleTime: Number.POSITIVE_INFINITY });
+  const query = useQuery<TData, Error, TSelected>({
+    queryKey,
+    queryFn,
+    enabled,
+    staleTime: Number.POSITIVE_INFINITY,
+    ...(select ? { select } : {}),
+  });
+  const missing = query.error instanceof ApiError && query.error.status === 404;
   const keyRef = useRef(queryKey);
   const applyRef = useRef(apply);
   useEffect(() => {
@@ -292,7 +302,7 @@ export function useLiveQuery<TData, TEvent = unknown>({
     applyRef.current = apply;
   });
   const status = useLiveEvents<TEvent>(
-    enabled && stream ? stream.url : null,
+    enabled && stream && !missing ? stream.url : null,
     stream?.types ?? [],
     (event) => {
       const current = queryClient.getQueryData<TData>(keyRef.current);

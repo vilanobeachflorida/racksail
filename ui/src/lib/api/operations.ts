@@ -2,6 +2,7 @@ import type { Client } from "openapi-fetch";
 import type { Job, JobList, JobState, LogLine } from "../changes";
 import type { Severity, TimelineEventList } from "../events";
 import { type ApiClient, type Problem, unwrap } from "./client";
+import type { paths } from "./schema";
 import type { PanelSession, SessionPreferences } from "./session";
 
 /*
@@ -10,8 +11,10 @@ import type { PanelSession, SessionPreferences } from "./session";
  * retryJob and listEvents) and the signed-in session. They're
  * declared here in the form openapi-typescript generates, and go through
  * the same client and error handling as generated ones. When the OpenAPI
- * document gains an operation, `make gen` types it in schema.d.ts and its
- * declaration here goes, with no change to the functions below.
+ * document gains an operation, `make gen` types it in schema.d.ts and the
+ * generated types take over at once: the functions below are checked
+ * against them, so any difference from what the UI expects is a type error
+ * here. Its declaration can then go.
  */
 
 type NoParameters = { query?: never; header?: never; path?: never; cookie?: never };
@@ -112,8 +115,11 @@ export interface PanelPaths {
   };
 }
 
+/** The generated paths, and the declared ones the OpenAPI document doesn't have yet. */
+type KnownPaths = paths & Omit<PanelPaths, keyof paths>;
+
 // The same client: the declared paths only change what TypeScript knows.
-const panel = (api: ApiClient) => api as unknown as Client<PanelPaths>;
+const panel = (api: ApiClient) => api as unknown as Client<KnownPaths>;
 
 /** Where the job list and each job's progress and log stream from. */
 export const streams = {

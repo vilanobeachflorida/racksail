@@ -104,11 +104,23 @@ export interface Estimate {
 
 export type ChangeSetState = "planned" | "applying" | "applied" | "failed" | "undone";
 
+/**
+ * Who did something. The panel names the kind of actor and where the
+ * request came from with open sets of words, so a newer panel can add one.
+ */
 export interface Actor {
-  type: "user" | "token" | "automation" | "addon" | "assistant" | "system";
+  /** user, token, automation, addon, assistant or system. */
+  type: string;
   id?: string;
   name: string;
-  source: "ui" | "cli" | "api" | "automation" | "addon" | "assistant" | "system";
+  /** ui, cli, api, automation, addon, assistant or system. */
+  source: string;
+  /** The person responsible when something acts for them, such as a token's owner. */
+  user?: string;
+  /** The admin or reseller viewing the panel as this customer, when one is. */
+  impersonator?: string;
+  /** The address the request came from. */
+  ip?: string;
 }
 
 export interface ChangeSet {

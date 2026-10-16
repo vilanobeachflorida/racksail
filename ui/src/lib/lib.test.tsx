@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { createIntl } from "react-intl";
 import { describe, expect, it } from "vitest";
 import { fakeLive, testQueryClient } from "@/test/render";
+import { ApiError } from "./api/client";
 import { appendLogLine, type LogLine } from "./changes";
 import { eventText, messageArguments, type TimelineEvent } from "./events";
 import { createFormatters, scaleBytes } from "./format";
@@ -201,6 +202,53 @@ describe("live data", () => {
         { id: "job_1", state: "succeeded" },
       ]),
     );
+  });
+
+  it("gives the component what select picks while events update the cached data", async () => {
+    const { Wrapper, sources, client } = wrapper();
+    const { result } = renderHook(
+      () =>
+        useLiveQuery<{ id: string; state: string }[], { id: string; state: string }, number>({
+          queryKey: ["jobs"],
+          queryFn: async () => [{ id: "job_1", state: "running" }],
+          stream: { url: "/api/v1/events/stream", types: ["job"] },
+          apply: (jobs, event) => upsertById(jobs, event.data),
+          select: (jobs) => jobs.filter((job) => job.state === "running").length,
+        }),
+      { wrapper: Wrapper },
+    );
+    await waitFor(() => expect(result.current.data).toBe(1));
+    act(() => sources[0]?.open());
+    act(() => sources[0]?.emit("job", { id: "job_2", state: "running" }));
+    await waitFor(() => expect(result.current.data).toBe(2));
+    expect(client.getQueryData(["jobs"])).toEqual([
+      { id: "job_2", state: "running" },
+      { id: "job_1", state: "running" },
+    ]);
+  });
+
+  it("doesn't stream data the panel doesn't have", async () => {
+    const { Wrapper, sources } = wrapper();
+    const { result } = renderHook(
+      () =>
+        useLiveQuery<string[], string>({
+          queryKey: ["missing"],
+          queryFn: async () => {
+            throw new ApiError(404, { type: "about:blank", code: "core.not_found", status: 404 });
+          },
+          stream: { url: "/api/v1/events/stream", types: ["event"] },
+          apply: (names, event) => [...(names ?? []), event.data],
+        }),
+      { wrapper: Wrapper },
+    );
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    // The stream opened alongside the load and closed once the panel said
+    // it has no such data; it isn't tried again.
+    expect(sources.every((source) => source.closed)).toBe(true);
+    const opened = sources.length;
+    act(() => sources[0]?.fail(true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sources).toHaveLength(opened);
   });
 
   it("shares one connection per stream and reconnects when the server refuses it", async () => {
