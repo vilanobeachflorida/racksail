@@ -10,7 +10,7 @@ export type ApiClient = Client<paths>;
  * the client talks to the page's own origin.
  */
 export function createApiClient(options: ClientOptions = {}): ApiClient {
-  return createClient<paths>({ baseUrl: window.location.origin, ...options });
+  return createClient<paths>({ ...options, baseUrl: options.baseUrl ?? window.location.origin });
 }
 
 /** An error answer from the API, with its RFC 9457 problem details. */

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
-	"github.com/vilanobeachflorida/racksail/internal/theme"
 	"github.com/vilanobeachflorida/racksail/internal/updates"
 )
 
@@ -82,50 +80,5 @@ func newVersionCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
-	return cmd
-}
-
-func newThemeCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "theme",
-		Short: "Check themes and render them as CSS",
-	}
-	load := func(args []string) (*theme.Theme, error) {
-		if len(args) == 0 {
-			t := theme.Default()
-			return &t, nil
-		}
-		data, err := os.ReadFile(args[0])
-		if err != nil {
-			return nil, err
-		}
-		return theme.Parse(data)
-	}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "validate FILE",
-		Short: "Check a theme against the schema and for WCAG AA contrast",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			t, err := load(args)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s is valid.\n", t.Name, t.Version)
-			return nil
-		},
-	})
-	cmd.AddCommand(&cobra.Command{
-		Use:   "css [FILE]",
-		Short: "Print a theme as CSS custom properties; the default theme without FILE",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			t, err := load(args)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprint(cmd.OutOrStdout(), t.CSS())
-			return err
-		},
-	})
 	return cmd
 }

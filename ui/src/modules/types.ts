@@ -75,6 +75,33 @@ export interface CommandAction {
   readonly run: (context: CommandContext) => void | Promise<void>;
 }
 
+/** What the assistant panel gets from the shell. */
+export interface AssistantPanelProps {
+  /** A question asked in the command bar, to answer first. */
+  readonly question?: string;
+  /** Changes whenever a new question is asked, even the same one again. */
+  readonly questionId?: number;
+  /** Closes the dock or the sheet the panel is in. */
+  readonly onClose: () => void;
+}
+
+/** A slash command the assistant offers in the command bar, such as /explain. */
+export interface SlashCommand {
+  /** The command without its slash: "explain". */
+  readonly name: string;
+  readonly description: MessageDescriptor;
+}
+
+/**
+ * What the assistant module adds to the shell: the panel in the assistant
+ * dock and its part of the command bar. The dock only exists while the
+ * module is on.
+ */
+export interface AssistantContribution {
+  readonly panel: LazyComponent<AssistantPanelProps>;
+  readonly slashCommands?: readonly SlashCommand[];
+}
+
 /**
  * Everything a module adds to the panel. The shell reads this from each
  * module's entry file, ui/src/modules/<id>/index.ts; screens, cards and
@@ -91,6 +118,8 @@ export interface ModuleUI {
   readonly homeCards?: readonly HomeCard[];
   readonly settings?: readonly SettingsPage[];
   readonly commands?: readonly CommandAction[];
+  /** Only the assistant module has this. */
+  readonly assistant?: AssistantContribution;
 }
 
 /** Declares a module's UI. It only exists for type checking. */

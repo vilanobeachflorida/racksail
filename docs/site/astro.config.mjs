@@ -142,6 +142,7 @@ const sidebar = [
       "brand/logo",
       "brand/colors",
       "brand/typography",
+      "brand/iconography",
       "brand/voice",
       "brand/ui-patterns",
       "brand/applications",

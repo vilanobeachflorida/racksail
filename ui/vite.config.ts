@@ -3,12 +3,28 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { bundleBudget } from "./scripts/bundle-budget.mjs";
 
 // The address of `racksail dev`, which serves the API the dev server proxies to.
 const devServer = process.env.RACKSAIL_DEV_ADDR ?? "127.0.0.1:7070";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // The shell's budget from docs/architecture/conventions.md. Before it
+    // renders, the shell also loads every module's entry file and English
+    // messages, and the theme engine when the server or a reseller has a
+    // theme.
+    bundleBudget({
+      budget: 250_000,
+      atStart: [
+        /\/src\/modules\/[^/]+\/index\.tsx?$/,
+        /\/src\/modules\/[^/]+\/messages\/en\.json$/,
+        /\/src\/design\/theme\/(?:css|layers)\.ts$/,
+      ],
+    }),
+  ],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
@@ -27,6 +43,10 @@ export default defineConfig({
     // The panel's Content-Security-Policy allows fonts only from 'self', so
     // nothing may be inlined as a data: URL.
     assetsInlineLimit: 0,
+    // The bundle budget measures what matters, the compressed first load;
+    // the entry chunk, React included, is larger than Vite's default for
+    // one chunk before compression.
+    chunkSizeWarningLimit: 600,
   },
   test: {
     environment: "jsdom",

@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { colorTokens, readToken, sharedTokens, tokenRef, tokenVar } from "./tokens";
+import {
+  colorTokens,
+  readChartPalette,
+  readToken,
+  sharedTokens,
+  tokenRef,
+  tokenVar,
+} from "./tokens";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (name: string) => readFileSync(join(here, name), "utf8");
@@ -34,6 +41,21 @@ describe("theme tokens", () => {
     for (const name of used) {
       expect(themeCSS, name).toContain(`${name}:`);
     }
+  });
+
+  it("give charts the colors the theme has, and no more", () => {
+    const element = document.createElement("div");
+    const colors = ["#007CFD", "#E2622C", "#139A6B", "#B88200", "#D9558B", "#008300"];
+    colors.forEach((c, i) => {
+      element.style.setProperty(`--rs-chart${i + 1}`, c);
+    });
+    element.style.setProperty("--rs-chart7", "initial");
+    element.style.setProperty("--rs-chart8", "#E34948");
+    document.body.append(element);
+    expect(readChartPalette(element)).toEqual(colors);
+    element.style.setProperty("--rs-chart7", "#4A3AA7");
+    expect(readChartPalette(element)).toHaveLength(8);
+    element.remove();
   });
 
   it("are referenced and read through their custom properties", () => {

@@ -1,23 +1,74 @@
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
 import type { IntlShape, MessageDescriptor } from "react-intl";
-import type { HomeCard, ModuleUI, NavEntry } from "@/modules/types";
+import type { ModuleState } from "@/lib/api/session";
+import type { ModuleId } from "@/modules/registry";
+import type { CommandAction, HomeCard, ModuleUI, NavEntry } from "@/modules/types";
 
-const ModulesContext = createContext<readonly ModuleUI[]>([]);
+export type { ModuleState };
 
-/** Makes the loaded modules available to the shell. */
-export function ModulesProvider({
-  modules,
-  children,
-}: {
+interface ModulesValue {
   modules: readonly ModuleUI[];
-  children: ReactNode;
-}) {
-  return <ModulesContext value={modules}>{children}</ModulesContext>;
+  /** Module states, or null while the panel doesn't report them. */
+  states: Partial<Record<ModuleId, ModuleState>> | null;
+  can: (permission: string) => boolean;
 }
 
-/** The modules whose entries the shell loaded. */
+const allowAll = () => true;
+
+const ModulesContext = createContext<ModulesValue>({ modules: [], states: null, can: allowAll });
+
+export interface ModulesProviderProps {
+  modules: readonly ModuleUI[];
+  /**
+   * Which modules are on. Without it every module counts as on, as in
+   * development before the panel reports states.
+   */
+  states?: Partial<Record<ModuleId, ModuleState>> | null;
+  /** Whether the signed-in person has a permission; everything is allowed without it. */
+  can?: (permission: string) => boolean;
+  children: ReactNode;
+}
+
+/** Makes the loaded modules, their states and the person's permissions available to the shell. */
+export function ModulesProvider({
+  modules,
+  states = null,
+  can = allowAll,
+  children,
+}: ModulesProviderProps) {
+  const value = useMemo(() => ({ modules, states, can }), [modules, states, can]);
+  return <ModulesContext value={value}>{children}</ModulesContext>;
+}
+
+/** Whether a module is visible: on, or active because something uses it. */
+export function isOn(states: ModulesValue["states"], id: ModuleId): boolean {
+  if (states === null) {
+    return true;
+  }
+  const state = states[id];
+  return state === "on" || state === "active";
+}
+
+/** Module states, or null while the panel doesn't report them. */
+export function useModuleStates(): ModulesValue["states"] {
+  return useContext(ModulesContext).states;
+}
+
+/** The modules whose entries the shell loaded, whatever their state. */
 export function useModules(): readonly ModuleUI[] {
-  return useContext(ModulesContext);
+  return useContext(ModulesContext).modules;
+}
+
+/** The modules that are on, which are the ones the shell shows. */
+export function useActiveModules(): readonly ModuleUI[] {
+  const { modules, states } = useContext(ModulesContext);
+  return useMemo(() => modules.filter((m) => isOn(states, m.id)), [modules, states]);
+}
+
+/** Checks the signed-in person's permissions; entries without a permission are always allowed. */
+export function usePermission(): (permission: string | undefined) => boolean {
+  const { can } = useContext(ModulesContext);
+  return (permission) => permission === undefined || can(permission);
 }
 
 /** The path of a module's screen, from a path relative to the module. */
@@ -41,11 +92,19 @@ function byOrderThenLabel<T extends { order?: number }>(
     intl.formatMessage(label(a)).localeCompare(intl.formatMessage(label(b)), intl.locale);
 }
 
+type Allowed = (permission: string | undefined) => boolean;
+
 /** The icon-rail entries of all modules, sorted by order, then label. */
-export function navEntries(modules: readonly ModuleUI[], intl: IntlShape): ResolvedNavEntry[] {
+export function navEntries(
+  modules: readonly ModuleUI[],
+  intl: IntlShape,
+  allowed: Allowed = () => true,
+): ResolvedNavEntry[] {
   return modules
     .flatMap((module) =>
-      (module.nav ?? []).map((entry) => ({ ...entry, module, href: modulePath(module, entry.to) })),
+      (module.nav ?? [])
+        .filter((entry) => allowed(entry.permission))
+        .map((entry) => ({ ...entry, module, href: modulePath(module, entry.to) })),
     )
     .sort(byOrderThenLabel<ResolvedNavEntry>(intl, (e) => e.label));
 }
@@ -57,10 +116,33 @@ export interface ResolvedHomeCard extends HomeCard {
 }
 
 /** The home cards of all modules, sorted by order, then title. */
-export function homeCards(modules: readonly ModuleUI[], intl: IntlShape): ResolvedHomeCard[] {
+export function homeCards(
+  modules: readonly ModuleUI[],
+  intl: IntlShape,
+  allowed: Allowed = () => true,
+): ResolvedHomeCard[] {
   return modules
     .flatMap((module) =>
-      (module.homeCards ?? []).map((card) => ({ ...card, module, key: `${module.id}.${card.id}` })),
+      (module.homeCards ?? [])
+        .filter((card) => allowed(card.permission))
+        .map((card) => ({ ...card, module, key: `${module.id}.${card.id}` })),
     )
     .sort(byOrderThenLabel<ResolvedHomeCard>(intl, (c) => c.title));
+}
+
+export interface ResolvedCommand extends CommandAction {
+  readonly module: ModuleUI;
+  readonly key: string;
+}
+
+/** The command-bar actions of all modules the person may run. */
+export function moduleCommands(
+  modules: readonly ModuleUI[],
+  allowed: Allowed = () => true,
+): ResolvedCommand[] {
+  return modules.flatMap((module) =>
+    (module.commands ?? [])
+      .filter((c) => allowed(c.permission))
+      .map((c) => ({ ...c, module, key: `${module.id}.${c.id}` })),
+  );
 }

@@ -21,8 +21,9 @@
 
 /*
  * Utilities get their values from the theme tokens and nothing else. The
- * default palette, fonts, radii and shadows are removed so a stray
- * bg-red-500 produces no CSS (scripts/check-tokens.mjs reports it too).
+ * default palette, fonts, type scale, radii and shadows are removed so a
+ * stray bg-red-500 produces no CSS (scripts/check-tokens.mjs reports it
+ * too).
  *
  * Besides Racksail's own names, the names shadcn/ui components expect are
  * mapped onto the tokens. Note that shadcn's "accent" is a subtle hover
@@ -33,6 +34,7 @@
   --color-*: initial;
   --font-*: initial;
   --font-weight-*: initial;
+  --text-*: initial;
   --radius-*: initial;
   --shadow-*: initial;
 
@@ -43,16 +45,30 @@
   --color-brand-foreground: var(--rs-brand-text);
   --color-success: var(--rs-success);
   --color-success-foreground: var(--rs-success-text);
+  --color-success-subtle: var(--rs-success-subtle);
   --color-warning: var(--rs-warning);
   --color-warning-foreground: var(--rs-warning-text);
+  --color-warning-subtle: var(--rs-warning-subtle);
   --color-danger: var(--rs-danger);
   --color-danger-foreground: var(--rs-danger-text);
+  --color-danger-subtle: var(--rs-danger-subtle);
   --color-info: var(--rs-info);
   --color-info-foreground: var(--rs-info-text);
+  --color-info-subtle: var(--rs-info-subtle);
   --color-border-strong: var(--rs-border-strong);
   --color-focus: var(--rs-focus);
+  --color-overlay: var(--rs-overlay);
   --color-mark-ink: var(--mark-ink);
   --color-mark-sea: var(--mark-sea);
+
+  --color-critical-surface: var(--rs-critical-surface);
+  --color-critical-text: var(--rs-critical-text);
+  --color-critical-border: var(--rs-critical-border);
+  --color-critical-danger: var(--rs-critical-danger);
+  --color-critical-danger-foreground: var(--rs-critical-danger-text);
+  --color-critical-warning: var(--rs-critical-warning);
+  --color-critical-warning-foreground: var(--rs-critical-warning-text);
+  --color-critical-focus: var(--rs-critical-focus);
 
   --color-background: var(--rs-surface);
   --color-foreground: var(--rs-text);
@@ -62,6 +78,7 @@
   --color-popover-foreground: var(--rs-text);
   --color-primary: var(--rs-accent);
   --color-primary-foreground: var(--rs-accent-text);
+  --color-primary-subtle: var(--rs-accent-subtle);
   --color-secondary: var(--rs-surface-sunken);
   --color-secondary-foreground: var(--rs-text);
   --color-muted: var(--rs-surface-sunken);
@@ -98,6 +115,23 @@
   --font-weight-semibold: var(--rs-weight-semibold);
   --font-weight-bold: var(--rs-weight-bold);
 
+  --text-xs: var(--rs-text-xs);
+  --text-xs--line-height: var(--rs-leading-xs);
+  --text-sm: var(--rs-text-sm);
+  --text-sm--line-height: var(--rs-leading-sm);
+  --text-base: var(--rs-text-base);
+  --text-base--line-height: var(--rs-leading-base);
+  --text-lg: var(--rs-text-lg);
+  --text-lg--line-height: var(--rs-leading-lg);
+  --text-xl: var(--rs-text-xl);
+  --text-xl--line-height: var(--rs-leading-xl);
+  --text-2xl: var(--rs-text-2xl);
+  --text-2xl--line-height: var(--rs-leading-2xl);
+  --text-3xl: var(--rs-text-3xl);
+  --text-3xl--line-height: var(--rs-leading-3xl);
+  --text-4xl: var(--rs-text-4xl);
+  --text-4xl--line-height: var(--rs-leading-4xl);
+
   --radius-xs: calc(var(--rs-radius-sm) / 2);
   --radius-sm: var(--rs-radius-sm);
   --radius-md: var(--rs-radius-md);
@@ -110,7 +144,38 @@
   --shadow-md: var(--rs-shadow-md);
   --shadow-lg: var(--rs-shadow-lg);
 
+  /* Density: control heights, table rows, cell padding and gaps. */
+  --spacing-control-sm: var(--rs-control-sm);
+  --spacing-control-md: var(--rs-control-md);
+  --spacing-control-lg: var(--rs-control-lg);
+  --spacing-row: var(--rs-row);
+  --spacing-cell-x: var(--rs-cell-x);
+  --spacing-cell-y: var(--rs-cell-y);
+  --spacing-stack: var(--rs-gap);
+  --spacing-card: var(--rs-card-pad);
+
   --default-transition-duration: var(--rs-motion-normal);
+  --animate-pulse: pulse calc(var(--rs-motion-slow) * 6) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* The focus ring every interactive element shows to keyboard users. */
+@utility focus-ring {
+  outline: var(--rs-focus-width) solid var(--rs-focus);
+  outline-offset: var(--rs-focus-offset);
+}
+
+/* Inside the edges, for controls in a scrolling container, which would clip an outer ring. */
+@utility focus-ring-inset {
+  outline: var(--rs-focus-width) solid var(--rs-focus);
+  outline-offset: calc(-1 * var(--rs-focus-width));
+}
+
+/* Safety-critical areas take their colors from the protected palette. */
+@utility critical-area {
+  background-color: var(--rs-critical-surface);
+  color: var(--rs-critical-text);
+  border-color: var(--rs-critical-border);
+  --rs-focus: var(--rs-critical-focus);
 }
 
 /*
@@ -146,7 +211,8 @@
   }
 
   html {
-    font-size: var(--rs-font-size-base);
+    /* The text-size preference scales every rem, so controls grow with text. */
+    font-size: calc(var(--rs-font-size-base) * var(--rs-text-zoom, 1));
     -webkit-text-size-adjust: 100%;
   }
 
@@ -168,8 +234,24 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--rs-focus);
-    outline-offset: 2px;
+    outline: var(--rs-focus-width) solid var(--rs-focus);
+    outline-offset: var(--rs-focus-offset);
+  }
+
+  ::selection {
+    background-color: var(--rs-accent-subtle);
+    color: var(--rs-text);
+  }
+}
+
+/*
+ * Safety-critical areas stay visible whatever custom CSS does; the layer
+ * ranks above it.
+ */
+@layer rs-protected {
+  [data-critical] {
+    visibility: visible;
+    opacity: 1;
   }
 }
 
@@ -178,12 +260,21 @@
  * which all live in cascade layers.
  */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) ::before,
+  :root:not([data-motion="full"]) ::after {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
     transition-duration: 0.01ms;
     scroll-behavior: auto;
   }
+}
+
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] ::before,
+:root[data-motion="reduce"] ::after {
+  animation-duration: 0.01ms;
+  animation-iteration-count: 1;
+  transition-duration: 0.01ms;
+  scroll-behavior: auto;
 }

@@ -1,6 +1,8 @@
-// Reports colors written into UI code instead of taken from theme tokens.
-// Themes can only restyle what goes through tokens, so a hard-coded color is
-// a bug even when it looks right in the default theme.
+// Reports colors and type sizes written into UI code instead of taken from
+// theme tokens. Themes can only restyle what goes through tokens, so a
+// hard-coded color is a bug even when it looks right in the default theme,
+// and a size off the type scale ignores the theme's scale and can fall
+// below the smallest step.
 //
 // Usage: node scripts/check-tokens.mjs [dir]   (default: src)
 
@@ -52,10 +54,21 @@ const rules = [
     pattern: new RegExp(`\\b(?:${styleProperties})\\s*:\\s*["'\`](?:${namedColors})\\b`, "g"),
     files: /\.(?:tsx?|mjs)$/,
   },
+  {
+    name: "arbitrary text size",
+    pattern: /(?<![\w-])text-\[(?:length:)?[\d.]+(?:px|r?em|pt)\]/g,
+    files: /\.(?:tsx?|mjs)$/,
+  },
 ];
 
 /** Generated from the theme by `racksail theme css`, so it holds the actual colors. */
 const generated = ["design/theme.css", "lib/api/schema.d.ts"];
+
+/**
+ * Tests check color values themselves, such as contrast math; they style nothing.
+ * @param {string} name
+ */
+const isTest = (name) => /\.test\.(?:tsx?|mjs)$/.test(name);
 
 /**
  * @typedef {{ file: string, line: number, column: number, rule: string, text: string }} Problem
@@ -90,8 +103,8 @@ export function findHardCodedColors(text, file) {
 }
 
 /**
- * Lists the files to check under dir, skipping hidden directories and
- * generated files.
+ * Lists the files to check under dir, skipping hidden directories,
+ * generated files and tests.
  * @param {string} dir
  * @returns {string[]}
  */
@@ -109,7 +122,7 @@ export function filesToCheck(dir) {
         walk(path);
       } else if (/\.(?:css|tsx?|mjs)$/.test(entry.name)) {
         const rel = relative(dir, path).split(sep).join("/");
-        if (!generated.includes(rel)) {
+        if (!generated.includes(rel) && !isTest(entry.name)) {
           files.push(path);
         }
       }

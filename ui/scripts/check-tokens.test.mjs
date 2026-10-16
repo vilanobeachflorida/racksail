@@ -46,6 +46,12 @@ describe("findHardCodedColors", () => {
     ]);
   });
 
+  it("reports text sizes off the type scale", () => {
+    expect(
+      rules(`<Badge className="text-[0.625rem] text-xs text-[length:11px]" />`, "a.tsx"),
+    ).toEqual(["arbitrary text size: text-[0.625rem]", "arbitrary text size: text-[length:11px]"]);
+  });
+
   it("reports named colors in declarations", () => {
     expect(rules(".a { background: white; outline: 1px solid red; }", "a.css")).toEqual([
       "named color: background: white",
@@ -65,7 +71,7 @@ describe("findHardCodedColors", () => {
 });
 
 describe("filesToCheck", () => {
-  it("skips hidden directories and generated files", () => {
+  it("skips hidden directories, generated files and tests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tokens-"));
     for (const sub of [".hidden", "design", "lib/api", "app"]) {
       mkdirSync(join(dir, sub), { recursive: true });
@@ -76,6 +82,7 @@ describe("filesToCheck", () => {
       "design/globals.css",
       "lib/api/schema.d.ts",
       "app/shell.tsx",
+      "app/shell.test.tsx",
       "app/logo.png",
     ]) {
       writeFileSync(join(dir, file), "");

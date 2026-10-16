@@ -1,0 +1,106 @@
+format: 1
+id: high-contrast
+name: High contrast
+version: 1.0.0
+license: MIT
+author: Racksail
+description: Black and white surfaces with strong borders, darker accents and a thicker focus ring.
+tokens:
+  light:
+    surface: '#FFFFFF'
+    surfaceRaised: '#FFFFFF'
+    surfaceSunken: '#EBEBEB'
+    text: '#000000'
+    textMuted: '#3D3D3D'
+    border: '#6B6B6B'
+    borderStrong: '#000000'
+    brand: '#01214F'
+    brandText: '#FFFFFF'
+    accent: '#0049B8'
+    accentText: '#FFFFFF'
+    success: '#0A6B26'
+    successText: '#FFFFFF'
+    warning: '#7A4F00'
+    warningText: '#FFFFFF'
+    danger: '#A3001B'
+    dangerText: '#FFFFFF'
+    info: '#0049B8'
+    infoText: '#FFFFFF'
+    focus: '#0049B8'
+    overlay: '#000000B3'
+    chart:
+      - '#0049B8'
+      - '#B33F0A'
+      - '#00806A'
+      - '#946800'
+      - '#B4316F'
+      - '#2D6E12'
+      - '#4A3AA7'
+      - '#C0262B'
+  dark:
+    surface: '#000000'
+    surfaceRaised: '#0B0B0B'
+    surfaceSunken: '#1C1C1C'
+    text: '#FFFFFF'
+    textMuted: '#D4D4D4'
+    border: '#8C8C8C'
+    borderStrong: '#FFFFFF'
+    brand: '#7EB8FF'
+    brandText: '#000000'
+    accent: '#8CC8FF'
+    accentText: '#000000'
+    success: '#6EE58A'
+    successText: '#000000'
+    warning: '#FFC94D'
+    warningText: '#000000'
+    danger: '#FF7A7A'
+    dangerText: '#000000'
+    info: '#8CC8FF'
+    infoText: '#000000'
+    focus: '#FFD60A'
+    overlay: '#000000CC'
+    chart:
+      - '#3390F7'
+      - '#D95926'
+      - '#199E70'
+      - '#C98500'
+      - '#D55181'
+      - '#1F9A1F'
+      - '#9085E9'
+      - '#E66767'
+  typography:
+    sans:
+      family: Inter Variable
+    mono:
+      family: JetBrains Mono Variable
+    baseSize: 16px
+    scale: 1.125
+    weights:
+      regular: 400
+      medium: 500
+      semibold: 600
+      bold: 700
+  radius:
+    sm: 4px
+    md: 6px
+    lg: 10px
+    xl: 16px
+  density: comfortable
+  shadows:
+    sm: 0 0 0 1px rgba(0, 0, 0, 0.6)
+    md: 0 0 0 2px rgba(0, 0, 0, 0.6)
+    lg: 0 0 0 2px rgba(0, 0, 0, 0.8)
+  motion:
+    fast: 120ms
+    normal: 200ms
+    slow: 320ms
+  focusRing:
+    width: 3px
+    offset: 2px
+console:
+  background: '#01214F'
+  foreground: '#E6EDF5'
+  accent: '#3D9BFF'
+  success: '#3FB950'
+  warning: '#D29922'
+  danger: '#F85149'
