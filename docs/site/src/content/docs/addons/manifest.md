@@ -124,6 +124,7 @@ The panel refuses a manifest, with the reason, when:
 - a scope under `permissions.read` asks to delete resources or run actions, which takes `write`;
 - it adds kinds without the `system` level, kinds of more than one group or of `core`, two kinds with the same name, prefix or plural, a kind without a title or a description, or an action without a risk;
 - a tab or a column names no `kind`, or a column's `path` isn't one of its `GET` routes;
+- a route's path starts with `/ui/` or `/frames/`, where the panel serves the add-on's [screens](../ui-extensions/#screens);
 - its `id` isn't the id the add-on is installed under.
 
 An add-on an account owner installs, a `core.account_addon`, also may not ask for `system` hooks or `override`, provide a capability, or attach to a point outside the change pipeline, such as `core.boot` or `auth.login.validate`; see [Permissions and sandboxing](../permissions/#add-ons-of-an-account).

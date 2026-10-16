@@ -143,6 +143,11 @@ type Server struct {
 	limiter *limiter
 	// catalog is the answer of GET /events/types.
 	catalog eventCatalog
+	// crossOrigin keeps other sites' pages from changing anything with the
+	// session, and credentials are the patterns of paths that carry a
+	// token of their own instead, as segments.
+	crossOrigin *http.CrossOriginProtection
+	credentials [][]string
 	// noSignIn is set when no authenticator is configured outside
 	// development mode.
 	noSignIn bool
@@ -201,6 +206,7 @@ func New(opts Options) *Server {
 	s := &Server{
 		opts: opts, mux: mux, api: humago.New(mux, cfg), kinds: kinds, docs: map[string]kindDoc{},
 		limiter: newLimiter(opts.RateLimit, opts.Now), noSignIn: noSignIn, closing: closing, close: close,
+		crossOrigin: http.NewCrossOriginProtection(),
 	}
 	if noSignIn && opts.Services.Store != nil {
 		opts.Log.Error("the panel has no way to sign anyone in, so it refuses every request that needs a signed-in user")
@@ -458,7 +464,7 @@ func (s *Server) Handler() http.Handler {
 		var actor *auth.Actor
 		defer func() {
 			if p := recover(); p != nil {
-				s.opts.Log.Error("request panicked", "request", id, "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
+				s.opts.Log.Error("request panicked", "request", id, "method", r.Method, "path", s.loggedPath(r.URL.Path), "panic", p, "stack", string(debug.Stack()))
 				if rec.status == 0 {
 					writeProblem(rec, i18n.ErrInternal.New())
 				}
@@ -467,7 +473,7 @@ func (s *Server) Handler() http.Handler {
 			if r.URL.Path == Prefix+"/health" {
 				level = slog.LevelDebug
 			}
-			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", r.URL.Path,
+			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", s.loggedPath(r.URL.Path),
 				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond),
 				"actor", actor.String(), "remote", r.RemoteAddr, "client", clientOf(r).IP)
 		}()
@@ -479,7 +485,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if isAPI && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if err := crossSite(r); err != nil {
+			if err := s.crossSite(r); err != nil {
 				writeProblem(rec, err)
 				return
 			}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -222,16 +223,23 @@ func ProtocolDocument() ([]byte, error) {
 			Responses:  map[string]*huma.Response{"default": {Description: "Whatever the route answers"}},
 		})
 	}
+	screen := append(slices.Clone(forwarded),
+		&huma.Param{Name: "Racksail-Frame-Base", In: "header", Description: "The address of the frame the panel shows the screen in, ending in a slash: " +
+			"the add-on's screens are at <base>ui/<path> and its routes at <base>routes/<path>, which the page's own scripts may call", Schema: &huma.Schema{Type: "string"}},
+		&huma.Param{Name: "Racksail-Nonce", In: "header", Description: "The nonce of the page's inline scripts, which run only with nonce=\"<this value>\"; " +
+			"a new one comes with every request", Schema: &huma.Schema{Type: "string"}},
+	)
 	doc.AddOperation(&huma.Operation{
 		OperationID: "screen",
 		Method:      http.MethodGet,
 		Path:        "/ui/{path}",
 		Summary:     "Serve one of the add-on's screens",
-		Description: "Pages of the add-on's UI extensions that need more than the panel's declarative entries. The panel shows them in a " +
-			"sandboxed frame of an origin of their own, so they can never read the panel's session.",
+		Description: "Pages of the add-on's UI extensions that need more than the panel's declarative entries, and what they load: scripts, " +
+			"style sheets, images and fonts. The panel shows them in a sandboxed frame of an origin of their own, so they can never read the " +
+			"panel's session; the frame's address signs in what its page loads and asks for under it, as the person who opened it.",
 		Tags:       []string{"Add-on"},
-		Parameters: forwarded,
-		Responses:  map[string]*huma.Response{"200": {Description: "The page", Content: map[string]*huma.MediaType{"text/html": {Schema: &huma.Schema{Type: "string"}}}}},
+		Parameters: screen,
+		Responses:  map[string]*huma.Response{"200": {Description: "The page, or what it loads", Content: map[string]*huma.MediaType{"text/html": {Schema: &huma.Schema{Type: "string"}}}}},
 	})
 	return json.MarshalIndent(doc, "", "  ")
 }

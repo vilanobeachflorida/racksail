@@ -641,6 +641,17 @@ routes:
 			}
 		})
 	}
+	// The panel serves the add-on's screens, and the frames it shows them
+	// in, under its paths' /ui/ and /frames/, so routes stay out of them.
+	for _, path := range []string{"/ui/report", "'/frames/{token}'", "/ui"} {
+		manifest := strings.Replace(base, "path: /unblock", "path: "+path, 1)
+		if _, err := ParseAddonManifest([]byte(manifest)); err == nil || !strings.Contains(err.Error(), "where the panel serves the add-on's screens") {
+			t.Errorf("a route at %s: %v", path, err)
+		}
+	}
+	if _, err := ParseAddonManifest([]byte(strings.Replace(base, "path: /unblock", "path: /uis/report", 1))); err != nil {
+		t.Errorf("a route whose path only starts like one of them: %v", err)
+	}
 }
 
 func TestPolicySpec(t *testing.T) {

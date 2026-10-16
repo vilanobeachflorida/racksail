@@ -119,6 +119,33 @@ type AddonRoute struct {
 	Summary string `yaml:"summary" json:"summary"`
 }
 
+// Matches reports whether a request of method for path, under the
+// add-on's own, is the route's, where {name} in the route stands for one
+// segment.
+func (rt AddonRoute) Matches(method, path string) bool {
+	if !strings.EqualFold(rt.Method, method) {
+		return false
+	}
+	ps, xs := strings.Split(strings.Trim(rt.Path, "/"), "/"), strings.Split(strings.Trim(path, "/"), "/")
+	if len(ps) != len(xs) {
+		return false
+	}
+	for i := range ps {
+		if strings.HasPrefix(ps[i], "{") && strings.HasSuffix(ps[i], "}") && xs[i] != "" {
+			continue
+		}
+		if ps[i] != xs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// screenAreas are the first segments of the paths under an add-on's own
+// where the panel serves its screens and the frames it shows them in, so
+// no route of its own may start with them.
+var screenAreas = []string{"ui", "frames"}
+
 // AddonKind is a kind an add-on adds, described by JSON Schema. Its
 // resources go through the change pipeline like any other, with hook points
 // and API operations of their own, and the add-on plans and applies them
@@ -194,8 +221,15 @@ func ParseAddonManifest(data []byte) (*AddonManifest, error) {
 
 // checkUI checks the entries a manifest adds to the panel. Tabs and columns
 // go on a kind's screens, so they name the kind, and the panel asks one of
-// the add-on's own GET routes for a column's values.
+// the add-on's own GET routes for a column's values. Routes stay out of
+// where the panel serves the add-on's screens.
 func (m *AddonManifest) checkUI() error {
+	for _, r := range m.Routes {
+		first, _, _ := strings.Cut(strings.Trim(r.Path, "/"), "/")
+		if slices.Contains(screenAreas, first) {
+			return fmt.Errorf("add-on %s: the route %s %s is under /%s/, where the panel serves the add-on's screens", m.ID, r.Method, r.Path, first)
+		}
+	}
 	for _, e := range m.UI {
 		if (e.Type == "tab" || e.Type == "column") && strings.TrimSpace(e.Kind) == "" {
 			return fmt.Errorf("add-on %s: the %s %q needs the kind whose screens it goes on", m.ID, e.Type, e.Label)

@@ -31,7 +31,8 @@ import { cn } from "@/lib/utils";
  * and columns of a kind's list, as GET /api/v1/addons/entries lists those
  * of the add-ons the person may use. An add-on's pages are its own: they
  * load in a sandboxed frame without the panel's origin, so they can never
- * read the panel's session.
+ * read the panel's session. The panel sends the frame on to an address of
+ * its own, which signs in what the page loads and asks for there.
  */
 
 /** An entry an add-on adds to the panel. */
@@ -119,7 +120,8 @@ export function addonPageSrc(addon: string, path: string, params?: Record<string
 
 /**
  * One of an add-on's pages, in a frame that runs its scripts without the
- * panel's origin, so it can't reach the panel's cookies or pages.
+ * panel's origin, so it can't reach the panel's cookies or pages; its own
+ * address lets it load what it serves and call the add-on's routes.
  */
 export function AddonFrame({
   addon,

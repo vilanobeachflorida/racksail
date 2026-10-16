@@ -94,17 +94,16 @@ func setSecurityHeaders(h http.Header, api, secure bool) {
 	}
 }
 
-// crossOrigin refuses requests that change something and were sent by
+// crossSite refuses requests that change something and were sent by
 // another site's page: browsers say where a request comes from in
 // Sec-Fetch-Site or Origin, and the session cookie is also SameSite=Strict.
-// Programs send neither, and API tokens can't be sent by another site.
-var crossOrigin = http.NewCrossOriginProtection()
-
-func crossSite(r *http.Request) error {
+// Programs send neither, and API tokens can't be sent by another site;
+// nor can the tokens in the paths of extensions' PathCredentials.
+func (s *Server) crossSite(r *http.Request) error {
 	if r.Header.Get("Authorization") != "" {
 		return nil
 	}
-	if err := crossOrigin.Check(r); err != nil {
+	if err := s.crossOrigin.Check(r); err != nil {
 		return auth.ErrCrossSite.New()
 	}
 	return nil

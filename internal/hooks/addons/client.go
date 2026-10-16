@@ -149,12 +149,13 @@ func (c *Client) ApplyKind(ctx context.Context, call hooks.KindCall) (hooks.Kind
 // Screens returns a handler that passes requests for the add-on's screens
 // to it at /ui/, telling it who is looking, as its routes are told who
 // asks.
-func (c *Client) Screens() http.Handler { return c.Proxy("/ui/", actorHeader) }
+func (c *Client) Screens() http.Handler { return c.Proxy("/ui/", actorHeaders) }
 
 // Proxy returns a handler that passes requests to the add-on under prefix,
-// such as /routes/ or /ui/, with what the add-on may know about who asks.
-// The panel's cookies and credentials never reach the add-on.
-func (c *Client) Proxy(prefix string, who func(r *http.Request) string) http.Handler {
+// such as /routes/ or /ui/, with the path value path, and with the headers
+// the panel tells it, such as who asks. The panel's cookies and
+// credentials never reach the add-on.
+func (c *Client) Proxy(prefix string, tell func(r *http.Request) http.Header) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.PathValue("path"), "/")
 		target := "http://addon" + prefix + rest
@@ -176,8 +177,10 @@ func (c *Client) Proxy(prefix string, who func(r *http.Request) string) http.Han
 			}
 		}
 		req.Header.Set("Racksail-Hook-API", hooks.APIVersion)
-		if who != nil {
-			req.Header.Set("Racksail-Actor", who(r))
+		if tell != nil {
+			for k, v := range tell(r) {
+				req.Header[http.CanonicalHeaderKey(k)] = v
+			}
 		}
 		// The panel answers with its ID for the request, which it makes up
 		// when the request brought none it takes.

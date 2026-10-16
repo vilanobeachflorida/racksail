@@ -69,15 +69,16 @@ Values that aren't text, and resources the answer leaves out, show as empty cell
 
 ## Screens
 
-A screen is a page the add-on serves itself at `GET /ui/<path>` on its socket. The panel shows it at `/api/v1/addons/<id>/ui/<path>`, with the query it was asked with, inside a frame, under a Content Security Policy that keeps it apart from the panel:
+A screen is a page the add-on serves itself at `GET /ui/<path>` on its socket, along with what the page loads: scripts, style sheets, images and fonts. When someone opens one, at `/api/v1/addons/<id>/ui/<path>`, the panel checks they may use the add-on and sends the frame it shows the screen in on to an address of its own, `/api/v1/addons/<id>/frames/<token>/ui/<path>`, with the query the screen was asked with. The token in it stands for that person with that add-on and nothing else, so what the page loads and asks for under the frame's address is signed in as them, without the panel's session:
 
-- it runs in a sandbox of its own origin, so it can never read the panel's session, cookies or pages;
-- it can't load anything from other sites or be framed by any of them, and sends no referrer;
-- since the frame has no session of the panel's, what it asks for from inside the frame, scripts, style sheets, images, fonts or the add-on's routes, isn't signed in and is refused, and inline scripts don't run.
+- the page runs in a sandbox with an origin of its own, so it can never read the panel's session, cookies or pages;
+- its scripts run when the add-on serves them, as `<script src="app.js">`, or inline with the nonce its request brings in `Racksail-Nonce`, as `<script nonce="…">`; styles may be inline too, and images and fonts `data:` URLs;
+- its scripts can call the routes the add-on declares at `routes/<path>` under the frame's address, which the request brings in `Racksail-Frame-Base`, such as `/api/v1/addons/site-guard/frames/<token>/`: a page at `ui/overview.html` reaches `GET /sites/{id}/findings` at `../routes/sites/s1/findings`;
+- it can't load anything from other sites or reach anything else of the panel's, it can't be framed by other sites, and it sends no referrer.
 
-So the add-on sends each screen complete, rendered for the request: the HTML of what the person should see, with its styles inline and its images as `data:` URLs. A card's frame is 12rem tall and a tab's 24rem, and a screen that an entry opens fills the panel's screen.
+A frame's address works while the screen is in use, for half an hour after its last request and twelve hours at most, and stops when the add-on is turned off or stops, or once the person who opened it is turned off or may no longer use the add-on; opening the screen again gives it a new one. A card's frame is 12rem tall and a tab's 24rem, and a screen that an entry opens fills the panel's screen.
 
-The request reaches the add-on with `Racksail-Actor`, who is looking, as JSON with their `type`, `id`, `name`, `user` and `source`, and `Racksail-Request-Id`, the panel's ID for the request, for the add-on's logs. The person's cookies and credentials stay with the panel.
+The request reaches the add-on with `Racksail-Actor`, who is looking, as JSON with their `type`, `id`, `name`, `user` and `source`, and `Racksail-Request-Id`, the panel's ID for the request, for the add-on's logs. The person's cookies and credentials stay with the panel. Of the headers the add-on answers with, the panel keeps only those of the content's type, language and caching, so the frame's Content Security Policy is always the panel's.
 
 ## API routes
 
@@ -95,7 +96,7 @@ routes:
 
 The panel serves them under `/api/v1/addons/<id>/`, here `GET /api/v1/addons/site-guard/sites/{id}/findings`, where `{name}` stands for one part of the path. A request is passed on to the add-on, at `/routes/<path>` on its socket, only when:
 
-- the person is signed in, by a session or an API token, and may use the add-on, as for entries;
+- the person is signed in, by a session or an API token, and may use the add-on, as for entries, or it comes from the frame of one of the add-on's screens, as the person who opened it;
 - the method and the path match a route the manifest declares. Anything else answers `404` without reaching the add-on.
 
 As with screens, the add-on learns who asks from `Racksail-Actor` and never sees their credentials. It decides itself what that person may do with what it serves, and changes it makes on their behalf go through its own API access, with its own [permissions](../permissions/). Bodies, both ways, are limited to 8 MiB, and an add-on that doesn't answer gives `addons.unreachable`.

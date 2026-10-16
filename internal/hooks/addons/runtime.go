@@ -96,6 +96,8 @@ type Runtime struct {
 	safe bool
 	// added are the kinds add-ons add.
 	added addedKinds
+	// frames are the frames people opened add-ons' screens in.
+	frames frames
 }
 
 // installed is an add-on the runtime attached.
@@ -135,7 +137,11 @@ func NewRuntime(opts Options) *Runtime {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		}
 	}
-	return &Runtime{opts: opts, running: map[string]*installed{}, added: addedKinds{kinds: map[string]*Kind{}, reconciling: map[string]bool{}}}
+	return &Runtime{
+		opts: opts, running: map[string]*installed{},
+		added:  addedKinds{kinds: map[string]*Kind{}, reconciling: map[string]bool{}},
+		frames: frames{open: map[string]*frame{}, now: opts.Now},
+	}
 }
 
 var instanceSuffix = regexp.MustCompile(`[^a-z0-9]`)
@@ -482,7 +488,7 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 	}
 	if len(in.manifest.Routes) > 0 {
 		add("routes", hooks.Registration{Point: hooks.ExtendRoutes, Kind: hooks.Extend, Owner: owner, Label: label, Extension: &hooks.Extension{
-			Routes: in.manifest.Routes, Handler: in.client.Proxy("/routes/", actorHeader),
+			Routes: in.manifest.Routes, Handler: in.client.Proxy("/routes/", actorHeaders),
 		}})
 	}
 	r.mu.Lock()
@@ -491,15 +497,15 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 	return count, problems
 }
 
-// actorHeader tells an add-on who is asking, or looking at one of its
+// actorHeaders tell an add-on who is asking, or looking at one of its
 // screens, without anything that would let it act as them.
-func actorHeader(req *http.Request) string {
-	a, ok := auth.ActorFrom(req.Context())
-	if !ok {
-		return "{}"
+func actorHeaders(req *http.Request) http.Header {
+	who := "{}"
+	if a, ok := auth.ActorFrom(req.Context()); ok {
+		raw, _ := json.Marshal(redactActor(a))
+		who = string(raw)
 	}
-	raw, _ := json.Marshal(redactActor(a))
-	return string(raw)
+	return http.Header{"Racksail-Actor": {who}}
 }
 
 // handlers fills in a registration's handler, which calls the add-on. An
@@ -599,10 +605,11 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 	}
 }
 
-// detach takes an add-on's hooks out of the pipeline, and with forget its
-// token too.
+// detach takes an add-on's hooks out of the pipeline and closes the frames
+// of its screens, and with forget forgets its token too.
 func (r *Runtime) detach(ctx context.Context, inst string, forget bool) {
 	r.opts.Registry.Unregister(hooks.OwnerAddon + ":" + inst)
+	r.closeFrames(inst)
 	r.mu.Lock()
 	in := r.running[inst]
 	delete(r.running, inst)

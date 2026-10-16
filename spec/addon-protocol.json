@@ -1407,7 +1407,7 @@
     },
     "/ui/{path}": {
       "get": {
-        "description": "Pages of the add-on's UI extensions that need more than the panel's declarative entries. The panel shows them in a sandboxed frame of an origin of their own, so they can never read the panel's session.",
+        "description": "Pages of the add-on's UI extensions that need more than the panel's declarative entries, and what they load: scripts, style sheets, images and fonts. The panel shows them in a sandboxed frame of an origin of their own, so they can never read the panel's session; the frame's address signs in what its page loads and asks for under it, as the person who opened it.",
         "operationId": "screen",
         "parameters": [
           {
@@ -1434,6 +1434,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "The address of the frame the panel shows the screen in, ending in a slash: the add-on's screens are at \u003cbase\u003eui/\u003cpath\u003e and its routes at \u003cbase\u003eroutes/\u003cpath\u003e, which the page's own scripts may call",
+            "in": "header",
+            "name": "Racksail-Frame-Base",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The nonce of the page's inline scripts, which run only with nonce=\"\u003cthis value\u003e\"; a new one comes with every request",
+            "in": "header",
+            "name": "Racksail-Nonce",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1445,7 +1461,7 @@
                 }
               }
             },
-            "description": "The page"
+            "description": "The page, or what it loads"
           }
         },
         "summary": "Serve one of the add-on's screens",

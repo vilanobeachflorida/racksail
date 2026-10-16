@@ -403,6 +403,14 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 			t.Errorf("%s without a grant = %d", path, resp.StatusCode)
 		}
 	}
+	// The frames of add-ons' screens are signed in by their token alone,
+	// so one nobody opened answers nobody, whoever asks.
+	frame := "/api/v1/addons/site-guard/frames/" + strings.Repeat("a", 43) + "/ui/index.html"
+	for _, who := range []string{"", "nobody", "admin"} {
+		if resp := do(who, http.MethodGet, frame, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("a frame nobody opened, for %q = %d", who, resp.StatusCode)
+		}
+	}
 
 	// The admin reaches what nobody may: the table's calls are real ones.
 	if resp := do("admin", http.MethodPost, "/api/v1/catalog/installations/"+string(installation)+"/upgrade?dryRun=true", map[string]any{}); resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {

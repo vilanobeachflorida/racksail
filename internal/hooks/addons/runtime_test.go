@@ -219,15 +219,22 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 			json.NewEncoder(w).Encode(hooks.KindApplied{Status: map[string]any{"watching": spec.Pattern, "phase": "forged"}})
 		}
 	})
-	mux.HandleFunc("GET /routes/{path...}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/routes/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"path": r.PathValue("path"), "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie")})
+		json.NewEncoder(w).Encode(map[string]string{
+			"method": r.Method, "path": r.PathValue("path"), "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie"),
+			"body": string(body),
+		})
 	})
 	mux.HandleFunc("GET /ui/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// What it answers can't loosen the panel's policy for its frame.
+		w.Header().Set("Content-Security-Policy", "script-src *")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		json.NewEncoder(w).Encode(map[string]string{
 			"path": r.PathValue("path"), "query": r.URL.RawQuery, "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie"),
-			"request": r.Header.Get("Racksail-Request-Id"),
+			"request": r.Header.Get("Racksail-Request-Id"), "nonce": r.Header.Get("Racksail-Nonce"), "base": r.Header.Get("Racksail-Frame-Base"),
 		})
 	})
 	srv := &http.Server{Handler: mux}
