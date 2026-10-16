@@ -1407,6 +1407,7 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 	if err != nil {
 		return refuse(err)
 	}
+	p.cs.ChangedSince = changedSince(orig, p.cs)
 	return e.finish(ctx, p, request, key, false)
 }
 
@@ -1517,6 +1518,35 @@ func (e *Engine) undoChanges(ctx context.Context, orig *ChangeSet) ([]Change, er
 	return out, nil
 }
 
+// changedSince lists the resources an undo puts back or deletes whose
+// settings or labels aren't the ones the change set it undoes left them
+// with: the undo replaces what changed since too, which its preview says.
+func changedSince(orig, undo *ChangeSet) []store.ID {
+	left := map[store.ID]ResourceChange{}
+	for _, c := range orig.Changes {
+		left[c.ID] = c
+	}
+	var out []store.ID
+	for _, c := range undo.Changes {
+		was, ok := left[c.ID]
+		if !ok || c.Source != RequestSource || slices.Contains(out, c.ID) {
+			continue
+		}
+		labels := c.LabelsBefore
+		switch c.Op {
+		case OpUpdate:
+		case OpDelete:
+			labels = c.Labels
+		default:
+			continue
+		}
+		if !sameJSON(was.After, c.Before) || !maps.Equal(was.Labels, labels) {
+			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
 // Apply implements Pipeline. Applies of one preview are taken one at a
 // time, so two requests that arrive together, as from a double click, apply
 // it once; the other is told it is already being applied, or that it is no
@@ -1564,9 +1594,9 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 	if stored.HadSecrets {
 		return refuse(ErrPreviewHasSecrets.New("title", preview.Title))
 	}
+	var orig *ChangeSet
 	if preview.UndoOf != "" {
-		orig, err := e.Get(ctx, preview.UndoOf)
-		if err != nil {
+		if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
 			return refuse(err)
 		}
 		if !req.DryRun {
@@ -1586,6 +1616,9 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 	p, err := e.plan(ctx, request, preview.ID, preview.UndoOf)
 	if err != nil {
 		return refuse(err)
+	}
+	if orig != nil {
+		p.cs.ChangedSince = changedSince(orig, p.cs)
 	}
 	if !samePlan(preview, p.cs) {
 		e.settle(ctx, key, "")

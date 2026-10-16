@@ -532,6 +532,56 @@ func TestApplyUpdateUndo(t *testing.T) {
 	}
 }
 
+// Undoing a change set puts back the settings from before it even when the
+// resource changed since, and its preview names the resources whose later
+// changes go with it.
+func TestUndoSaysWhatChangedSince(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	created := e.submit(t, false, e.createPage(pageSpec{Path: "since.html", Content: "v1"}))
+	id := created.Changes[0].ID
+	update := func(content string, labels map[string]string) *ChangeSet {
+		t.Helper()
+		raw, _ := json.Marshal(pageSpec{Path: "since.html", Content: content})
+		return e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw, Labels: labels})
+	}
+	first := update("v2", nil)
+	if preview, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: first.ID, DryRun: true}); err != nil || len(preview.ChangedSince) != 0 {
+		t.Errorf("nothing changed after the last change: %+v, %v", preview, err)
+	}
+	second := update("v3", map[string]string{"env": "prod"})
+	for _, undone := range []*ChangeSet{created, first} {
+		preview, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: undone.ID, DryRun: true})
+		if err != nil || !slices.Equal(preview.ChangedSince, []store.ID{id}) {
+			t.Errorf("undoing %q after a later change = %+v, %v", undone.Title, preview, err)
+		}
+	}
+	if preview, _ := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: second.ID, DryRun: true}); len(preview.ChangedSince) != 0 {
+		t.Errorf("undoing the last change = %+v", preview.ChangedSince)
+	}
+
+	// Applying the preview says so too, and the later change goes.
+	preview, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: first.ID, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	undo, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID})
+	if err != nil || !slices.Equal(undo.ChangedSince, []store.ID{id}) {
+		t.Fatalf("applied undo = %+v, %v", undo, err)
+	}
+	e.wait(t, undo)
+	if got := e.file(pagesDir + "/since.html"); got != "v1" {
+		t.Errorf("page after the undo = %q", got)
+	}
+	// A label someone added since counts as a change too.
+	labelled := update("v4", nil)
+	raw, _ := json.Marshal(pageSpec{Path: "since.html", Content: "v4"})
+	e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw, Labels: map[string]string{"team": "web"}})
+	if preview, _ := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: labelled.ID, DryRun: true}); !slices.Equal(preview.ChangedSince, []store.ID{id}) {
+		t.Errorf("undoing after a change of labels = %+v", preview.ChangedSince)
+	}
+}
+
 func TestActionsAndValidation(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)

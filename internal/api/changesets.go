@@ -309,7 +309,8 @@ func (s *Server) registerChangeSets() {
 		OperationID: "undoChangeSet", Method: http.MethodPost, Path: Prefix + "/changesets/{id}/undo", Tags: tags, Security: Protected,
 		Summary: "Undo a change",
 		Description: "Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: " +
-			"creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.",
+			"creates become deletes and deletes bring the resource back. Settings changed after that change set are replaced too; changedSince lists the resources that changed since. " +
+			"With dryRun=true the answer is the preview.",
 		Responses: map[string]*huma.Response{
 			"200": jsonResponse("The undo's change set without applying it, for a dry run", s.schemaOf(typeOfChangeSet, "ChangeSet")),
 			"202": jsonResponse("The undo's change set, applied to the settings; its job carries out the rest", s.schemaOf(typeOfChangeSet, "ChangeSet")),

@@ -207,11 +207,15 @@ type ChangeSet struct {
 	DryRun    bool             `json:"dryRun,omitempty"`
 	State     State            `json:"state" enum:"planned,applying,applied,failed,undone"`
 	// Job carries out the system changes once the change set is applied.
-	Job       store.ID   `json:"job,omitempty"`
-	UndoOf    store.ID   `json:"undoOf,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	AppliedAt *time.Time `json:"appliedAt,omitempty"`
+	Job    store.ID `json:"job,omitempty"`
+	UndoOf store.ID `json:"undoOf,omitempty"`
+	// ChangedSince lists, for an undo, the resources that changed after the
+	// change set it undoes. Undo puts back the settings from before that
+	// change set all the same, so it replaces those later changes too.
+	ChangedSince []store.ID `json:"changedSince,omitempty" doc:"For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too"`
+	Error        string     `json:"error,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	AppliedAt    *time.Time `json:"appliedAt,omitempty"`
 }
 
 // Clone returns a copy of cs whose actor, lists, maps and documents can be
@@ -230,6 +234,7 @@ func (cs *ChangeSet) Clone() *ChangeSet {
 	}
 	c.Effects = slices.Clone(cs.Effects)
 	c.Snapshots = slices.Clone(cs.Snapshots)
+	c.ChangedSince = slices.Clone(cs.ChangedSince)
 	if cs.Contributions != nil {
 		c.Contributions = make([]Contribution, len(cs.Contributions))
 		for i, con := range cs.Contributions {

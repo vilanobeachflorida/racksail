@@ -520,7 +520,7 @@ export interface paths {
         put?: never;
         /**
          * Undo a change
-         * @description Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.
+         * @description Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. Settings changed after that change set are replaced too; changedSince lists the resources that changed since. With dryRun=true the answer is the preview.
          */
         post: operations["undoChangeSet"];
         delete?: never;
@@ -4257,6 +4257,8 @@ export interface components {
             actor?: components["schemas"]["Actor"];
             /** Format: date-time */
             appliedAt?: string;
+            /** @description For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too */
+            changedSince?: string[] | null;
             changes: components["schemas"]["ResourceChange"][] | null;
             conflicts?: components["schemas"]["Conflict"][] | null;
             contributions?: components["schemas"]["Contribution"][] | null;

@@ -171,6 +171,7 @@ export async function undo(host: TrackerHost, id: string) {
   if (
     needsConfirmation(preview) ||
     (preview.conflicts ?? []).length > 0 ||
+    (preview.changedSince ?? []).length > 0 ||
     (preview.changes ?? []).some((c) => c.op === "delete")
   ) {
     host.confirm(preview, id);

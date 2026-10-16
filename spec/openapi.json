@@ -924,6 +924,16 @@
             "format": "date-time",
             "type": "string"
           },
+          "changedSince": {
+            "description": "For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "changes": {
             "items": {
               "$ref": "#/components/schemas/ResourceChange"
@@ -13955,7 +13965,7 @@
     },
     "/api/v1/changesets/{id}/undo": {
       "post": {
-        "description": "Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. With dryRun=true the answer is the preview.",
+        "description": "Makes a new change set that puts back the settings an applied or failed change set replaced, and applies it like any change: creates become deletes and deletes bring the resource back. Settings changed after that change set are replaced too; changedSince lists the resources that changed since. With dryRun=true the answer is the preview.",
         "operationId": "undoChangeSet",
         "parameters": [
           {
