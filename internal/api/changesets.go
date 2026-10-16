@@ -232,10 +232,9 @@ func (s *Server) registerChangeSets() {
 			if err := s.stepUpFor(actor, s.requestRisk(in.Body.Changes)); err != nil {
 				return nil, err
 			}
-			if err := s.confirmChanges(ctx, actor, in.Body.Changes); err != nil {
-				return nil, err
-			}
 		}
+		// Submit asks for what the changes themselves need confirming, such
+		// as those of kinds that ask for it.
 		return Submit(ctx, p, in.ChangeParams, changeset.Request{Title: in.Body.Title, Changes: in.Body.Changes})
 	})
 

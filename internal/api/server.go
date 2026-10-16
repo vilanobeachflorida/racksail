@@ -486,7 +486,7 @@ func (s *Server) Handler() http.Handler {
 			}
 		}
 		ctx := withAudit(events.WithRequestID(r.Context(), id), s.services().Audit, s.opts.Log)
-		ctx = withOrigin(auth.WithClient(ctx, client), r, client)
+		ctx = withConfirmer(withOrigin(auth.WithClient(ctx, client), r, client), s)
 		if strings.HasPrefix(r.URL.Path, providerPath+"/") {
 			ctx = context.WithValue(ctx, queryKey{}, r.URL.Query())
 		}

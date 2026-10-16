@@ -776,7 +776,8 @@ func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
 // submitOwn sends a change of the person's own user through the change
 // pipeline. It names no revision, so the pipeline plans it again when
 // something else changed the user while it was planned, unless asking
-// whether it needs a confirmation held it to the user as read then.
+// whether it needs a confirmation, as a new email address does, held it to
+// the user as read then.
 func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func() (changeset.Request, error)) (*ChangeSetOutput, error) {
 	p := s.pipeline()
 	if p == nil {
@@ -785,17 +786,6 @@ func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func(
 	req, err := build()
 	if err != nil {
 		return nil, err
-	}
-	if !params.DryRun {
-		actor, err := Actor(ctx)
-		if err != nil {
-			return nil, err
-		}
-		// A new email address takes confirming it's you; a new name or
-		// language doesn't.
-		if err := s.confirmChanges(ctx, actor, req.Changes); err != nil {
-			return nil, err
-		}
 	}
 	return Submit(ctx, p, params, req)
 }

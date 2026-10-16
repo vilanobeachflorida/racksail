@@ -217,6 +217,26 @@ func (s *Server) stepUpForKinds(actor *auth.Actor, confirms bool) error {
 	return s.stepUpFor(actor, store.RiskCritical)
 }
 
+// confirmerKey carries the server of an API request to Submit, which every
+// operation that changes something answers through, those of modules and
+// of the extension system included, so it asks for the confirmations the
+// request's changes need, whatever operation sent them.
+type confirmerKey struct{}
+
+func withConfirmer(ctx context.Context, s *Server) context.Context {
+	return context.WithValue(ctx, confirmerKey{}, s)
+}
+
+// confirmSubmitted asks for the confirmations a request's changes need,
+// unless the request only previews them.
+func confirmSubmitted(ctx context.Context, actor *auth.Actor, dryRun bool, changes []changeset.Change) error {
+	s, ok := ctx.Value(confirmerKey{}).(*Server)
+	if !ok || dryRun {
+		return nil
+	}
+	return s.confirmChanges(ctx, actor, changes)
+}
+
 // confirmChanges asks a person in the panel to confirm it's them before a
 // request's changes when one needs it: a change of a kind that asks for it,
 // or a profile change that gives a user another email address, which

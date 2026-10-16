@@ -1,10 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"slices"
 	"testing"
 
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -41,5 +46,36 @@ func TestUndosAreJudgedByWhatTheyDo(t *testing.T) {
 	}
 	if risk := s.server.undoRisk(&changeset.ChangeSet{Changes: cs.Changes[3:4]}); risk != identity.UserKind.Info().Risks.Update {
 		t.Errorf("undoing a profile change = %s, a user's update is %s", risk, identity.UserKind.Info().Risks.Update)
+	}
+}
+
+type addUserInput struct {
+	ChangeParams
+}
+
+// Operations modules and the extension system add answer through Submit
+// too, which asks for what their changes need confirming, as when a
+// catalog's recipe adds a user.
+func TestSubmitAsksWhicheverOperationSends(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	acct := s.openAccount(admin, "acme")
+	op := huma.Operation{OperationID: "addTestUser", Method: http.MethodPost, Path: Prefix + "/test/users", Security: Protected}
+	Describe(&op, Info{Risk: store.RiskLow, DryRun: true})
+	huma.Register(s.server.API(), op, func(ctx context.Context, in *addUserInput) (*ChangeSetOutput, error) {
+		spec, _ := json.Marshal(identity.UserSpec{Username: "bea", Grants: []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(acct)}}})
+		return Submit(ctx, s.server.pipeline(), in.ChangeParams, changeset.Request{Changes: []changeset.Change{{
+			Op: changeset.OpCreate, Kind: identity.KindUser, Scope: store.AccountScope(acct), Spec: spec,
+		}}})
+	})
+	if resp := admin.do("POST", Prefix+"/test/users", nil, nil); s.problem(resp) != auth.ErrStepUpRequired.Code {
+		t.Errorf("adding a user without confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := admin.do("POST", Prefix+"/test/users?dryRun=true", nil, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("a preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	if resp := admin.do("POST", Prefix+"/test/users", nil, nil); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
