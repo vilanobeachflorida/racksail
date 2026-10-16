@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -71,12 +72,12 @@ describe("findHardCodedColors", () => {
 });
 
 describe("filesToCheck", () => {
-  it("skips hidden directories, generated files and tests", () => {
+  it("checks tracked files only, outside hidden directories, generated files and tests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tokens-"));
-    for (const sub of [".hidden", "design", "lib/api", "app"]) {
+    for (const sub of [".hidden", "design", "lib/api", "app", ".worktrees/other/app"]) {
       mkdirSync(join(dir, sub), { recursive: true });
     }
-    for (const file of [
+    const tracked = [
       ".hidden/a.tsx",
       "design/theme.css",
       "design/globals.css",
@@ -84,9 +85,17 @@ describe("filesToCheck", () => {
       "app/shell.tsx",
       "app/shell.test.tsx",
       "app/logo.png",
-    ]) {
+      "app/gone.tsx",
+    ];
+    for (const file of [...tracked, "app/draft.tsx", ".worktrees/other/app/shell.tsx"]) {
       writeFileSync(join(dir, file), "");
     }
+    /** @param {...string} args */
+    const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+    git("init", "--quiet");
+    git("add", "--force", ...tracked);
+    // A file deleted in the working tree is still tracked until committed.
+    rmSync(join(dir, "app/gone.tsx"));
     expect(filesToCheck(dir).map((f) => f.slice(dir.length + 1))).toEqual([
       "app/shell.tsx",
       "design/globals.css",

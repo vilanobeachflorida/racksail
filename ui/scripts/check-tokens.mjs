@@ -6,8 +6,9 @@
 //
 // Usage: node scripts/check-tokens.mjs [dir]   (default: src)
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const palette =
@@ -103,33 +104,31 @@ export function findHardCodedColors(text, file) {
 }
 
 /**
- * Lists the files to check under dir, skipping hidden directories,
- * generated files and tests.
+ * Lists the files to check under dir: those git tracks, outside hidden
+ * directories, leaving out generated files and tests. Files nobody
+ * committed, and other checkouts or worktrees inside the repository, are
+ * never looked at.
  * @param {string} dir
  * @returns {string[]}
  */
 export function filesToCheck(dir) {
-  /** @type {string[]} */
-  const files = [];
-  /** @param {string} current */
-  const walk = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) {
-        continue;
-      }
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(path);
-      } else if (/\.(?:css|tsx?|mjs)$/.test(entry.name)) {
-        const rel = relative(dir, path).split(sep).join("/");
-        if (!generated.includes(rel) && !isTest(entry.name)) {
-          files.push(path);
-        }
-      }
-    }
-  };
-  walk(dir);
-  return files.sort();
+  const tracked = execFileSync("git", ["ls-files", "-z", "--", "."], {
+    cwd: dir,
+    encoding: "utf8",
+  });
+  return (
+    tracked
+      .split("\0")
+      .filter((rel) => rel !== "" && !rel.split("/").some((part) => part.startsWith(".")))
+      .filter(
+        (rel) =>
+          /\.(?:css|tsx?|mjs)$/.test(rel) && !generated.includes(rel) && !isTest(basename(rel)),
+      )
+      .map((rel) => join(dir, rel))
+      // A file deleted but not yet committed is still tracked.
+      .filter((path) => existsSync(path))
+      .sort()
+  );
 }
 
 function main() {

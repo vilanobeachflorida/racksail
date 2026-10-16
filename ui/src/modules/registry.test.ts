@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -22,10 +23,22 @@ describe("module registry", () => {
       ...(allGo.match(/var IDs = \[\]string\{([^}]*)\}/)?.[1] ?? "").matchAll(/"([a-z]+)"/g),
     ].map((m) => m[1]);
     expect(moduleIds).toEqual(goIds);
-    const dirs = readdirSync(join(repo, "modules"), { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name !== "all")
-      .map((d) => d.name)
-      .sort();
+    // The modules are the directories git tracks under modules/, so a
+    // checkout or a stray directory that isn't committed counts for nothing.
+    const tracked = execFileSync("git", ["ls-files", "-z", "--", "modules"], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    const dirs = [
+      ...new Set(
+        tracked
+          .split("\0")
+          .map((path) => path.split("/"))
+          .filter((parts) => parts.length > 2)
+          .map((parts) => parts[1] ?? "")
+          .filter((name) => name !== "all" && !name.startsWith(".")),
+      ),
+    ].sort();
     expect([...moduleIds].sort()).toEqual(dirs);
     expect(Object.keys(moduleRegistry)).toEqual([...moduleIds]);
   });
