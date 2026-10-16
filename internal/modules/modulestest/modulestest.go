@@ -27,6 +27,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
@@ -61,8 +62,8 @@ type Env struct {
 type Options struct {
 	// Machine is the simulated server; a new one when nil.
 	Machine *sim.Machine
-	// Kinds are core kinds the panel has besides the modules', such as
-	// catalogs or notification channels.
+	// Kinds are core kinds the panel has besides the modules' and accounts,
+	// such as catalogs or notification channels.
 	Kinds []store.Kind
 	// Reconcilers builds the reconcilers of those kinds from the services,
 	// once the store and the agent are there; it may fill in services too.
@@ -79,7 +80,12 @@ func New(t testing.TB, opts Options, mods ...modules.Module) *Env {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	reg := modules.NewRegistry()
 	kinds := store.NewKindRegistry()
-	for _, k := range append([]store.Kind{modules.Kind}, opts.Kinds...) {
+	// Accounts are there for resources to belong to, as the pipeline only
+	// creates resources of owners that exist (see Account).
+	for _, k := range append([]store.Kind{modules.Kind, account.Kind}, opts.Kinds...) {
+		if _, taken := kinds.Get(k.Info().Name); taken && k == account.Kind {
+			continue
+		}
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -505,6 +511,22 @@ func Lifecycle(t *testing.T, mod modules.Module, use Use, deps ...modules.Module
 		}
 	}
 	return e
+}
+
+// Account puts an account in the store, as opening one would, and returns
+// it as the scope of the resources a test makes for it. The change pipeline
+// refuses to create a resource for an account that doesn't exist.
+func (e *Env) Account(t testing.TB) store.Scope {
+	t.Helper()
+	ctx := context.Background()
+	id := store.NewID(account.Kind.Info().Prefix)
+	spec := JSON(t, account.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test account"})
+	if err := e.Store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: spec})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return store.AccountScope(id)
 }
 
 // JSON encodes v for a change's spec, failing the test when it can't.
