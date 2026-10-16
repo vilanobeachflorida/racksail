@@ -154,6 +154,11 @@ type Edge struct {
 	// when nil. Tests treat loopback addresses as public.
 	public func(string) bool
 
+	// purgeDelay is how long the edge waits, gathering changes, before it
+	// reloads to drop the certificates of names no longer served. Tests
+	// shorten it.
+	purgeDelay time.Duration
+
 	// adminBusy counts admin requests in progress and lastUse is when the
 	// edge last served or was asked something, in Unix nanoseconds, for
 	// IdleExit.
@@ -201,6 +206,7 @@ func New(opts Options) (*Edge, error) {
 		settings: opts.Settings, settingsC: make(chan struct{}, 1),
 	}
 	e.keeper = newKeeper(e)
+	e.purgeDelay = 2 * time.Minute
 	e.used()
 	opts.Table.checkWith(e.checkRoute)
 	return e, nil
@@ -491,7 +497,7 @@ func (e *Edge) Run(ctx context.Context, admin net.Listener) error {
 		if stale := e.keeper.sync(); stale && e.Running() && purgeC == nil {
 			// Certificates of names no longer served linger in Caddy's cache
 			// until a reload drops them; gather a few changes first.
-			purge = time.NewTimer(2 * time.Minute)
+			purge = time.NewTimer(e.purgeDelay)
 			purgeC = purge.C
 		}
 		select {
