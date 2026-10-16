@@ -63,13 +63,30 @@ UMask=0022
 [Install]
 WantedBy=multi-user.target
 
+### racksail-panel.socket
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail panel edge socket
+Documentation=https://github.com/vilanobeachflorida/racksail
+
+[Socket]
+ListenStream=/run/racksail/panel.sock
+SocketUser=root
+SocketGroup=racksail-edge
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target
+
 ### racksail-panel.service
 # Managed by Racksail. Changes made here are overwritten.
 
 [Unit]
 Description=Racksail panel
 Documentation=https://github.com/vilanobeachflorida/racksail
-After=network-online.target racksail-agent.service
+Requires=racksail-panel.socket
+After=network-online.target racksail-agent.service racksail-panel.socket
 Wants=network-online.target racksail-agent.service
 
 [Service]

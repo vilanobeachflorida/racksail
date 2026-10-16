@@ -218,6 +218,11 @@ func TestAccountValidation(t *testing.T) {
 		"memory":        {Slug: "acme", Name: "x", Limits: AccountLimits{MemoryHigh: 2 << 30, MemoryMax: 1 << 30}},
 		"tiny memory":   {Slug: "acme", Name: "x", Limits: AccountLimits{MemoryMax: 1 << 20}},
 		"few tasks":     {Slug: "acme", Name: "x", Limits: AccountLimits{Tasks: 3}},
+
+		// The agent refuses an account the name of a privileged group or of
+		// a package's user, so the panel does too.
+		"privileged group slug": {Slug: "kvm", Name: "x"},
+		"package user slug":     {Slug: "postdrop", Name: "x"},
 	} {
 		if _, err := h.submit(t, h.admin, true, createAccount(spec)); !i18n.ErrInvalid.Is(err) {
 			t.Errorf("%s: %v", name, err)

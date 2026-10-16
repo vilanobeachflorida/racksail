@@ -135,13 +135,11 @@ type DropInInput struct {
 
 // Validate implements Input. Drop-ins tune resources, restarts and
 // dependencies; they never change what a unit runs, as whom or with which
-// environment. The agent's own unit takes none.
+// environment. Racksail's own units and the root system services it renders
+// take none.
 func (in DropInInput) Validate() error {
-	if err := checkUnit(in.Unit); err != nil {
+	if err := checkAdjustableUnit(in.Unit); err != nil {
 		return err
-	}
-	if in.Unit == system.AgentUnit {
-		return fmt.Errorf("the agent's unit takes no drop-ins")
 	}
 	if !dropInNamePattern.MatchString(in.Name) {
 		return fmt.Errorf("drop-in name %q must start with racksail", in.Name)
@@ -281,6 +279,11 @@ func unitEnablement(name, summary, action string, enable bool) *Op[UnitsInput, R
 			var todo []string
 			var effects []system.Effect
 			for _, n := range in.Names {
+				if !enable && n == system.AgentUnit {
+					// Every server runs an agent and nothing else starts it again,
+					// so a panel never keeps it from starting at the next boot.
+					return Result{}, ErrNotAllowed.New("op", name, "target", n)
+				}
 				st, err := units.Status(ctx, n)
 				if err != nil {
 					return Result{}, err
@@ -375,13 +378,6 @@ var ListUnits = Register(Def[ListUnitsInput, UnitList]{
 	},
 })
 
-// resourceProperties are the unit properties SetUnitProperties may change:
-// resource control only.
-var resourceProperties = []string{
-	"MemoryMin", "MemoryLow", "MemoryHigh", "MemoryMax", "MemorySwapMax", "CPUQuota", "CPUWeight",
-	"AllowedCPUs", "IOWeight", "TasksMax",
-}
-
 // SetUnitPropertiesInput changes resource limits of a running unit.
 type SetUnitPropertiesInput struct {
 	Name       string                `json:"name" doc:"Unit name"`
@@ -389,16 +385,19 @@ type SetUnitPropertiesInput struct {
 	Properties []system.UnitProperty `json:"properties" doc:"Properties to set"`
 }
 
-// Validate implements Input.
+// Validate implements Input. A persistent change is kept as a drop-in, so
+// the units it may reach are those a drop-in may adjust: never Racksail's
+// own units, which a tiny limit on would leave the server unmanageable
+// until someone fixed it at the console, nor the root system services.
 func (in SetUnitPropertiesInput) Validate() error {
-	if err := checkUnit(in.Name); err != nil {
+	if err := checkAdjustableUnit(in.Name); err != nil {
 		return err
 	}
 	if len(in.Properties) == 0 {
 		return fmt.Errorf("no properties given")
 	}
 	for _, p := range in.Properties {
-		if !slices.Contains(resourceProperties, p.Name) {
+		if !slices.Contains(system.ResourceControlProperties, p.Name) {
 			return fmt.Errorf("property %s isn't a resource limit", p.Name)
 		}
 	}
@@ -406,19 +405,46 @@ func (in SetUnitPropertiesInput) Validate() error {
 }
 
 // SetUnitProperties applies resource limits, such as plan limits on an
-// account slice, without restarting anything.
+// account slice, without restarting anything. It reports no change only
+// when the limits are in effect with the asked values and, for a change
+// kept across reboots, are also what the unit's configuration keeps, so
+// running a plan twice does nothing and a limit is never left to the next
+// reboot.
 var SetUnitProperties = Register(Def[SetUnitPropertiesInput, Result]{
 	Name:    "SetUnitProperties",
 	Summary: "Change the resource limits of a unit",
+	Description: "Sets resource-control limits of a unit Racksail manages, as systemctl set-property does: at once, and unless runtime " +
+		"is set, also in a drop-in that outlives a reboot. Racksail's own units and the root system services can't be adjusted.",
 	Effects: func(in SetUnitPropertiesInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectService, Action: "limit", Target: in.Name}}
 	},
 	Run: func(ctx context.Context, env *Env, in SetUnitPropertiesInput) (Result, error) {
+		// A read error leaves a view empty, so every property counts as a
+		// change and set-property runs, reporting any real problem itself.
+		// The live values must match for either kind of change, so a runtime
+		// override with another value is replaced; a persistent change must
+		// also match what survives a reboot, so it still writes its drop-in
+		// when a runtime override is all that currently matches.
+		live, _ := env.System.Units.ResourceControl(ctx, in.Name, true)
+		var kept map[string]string
+		if !in.Runtime {
+			kept, _ = env.System.Units.ResourceControl(ctx, in.Name, false)
+		}
+		var todo []system.UnitProperty
+		for _, p := range in.Properties {
+			want, ok := system.CanonicalLimit(p.Name, p.Value)
+			if !ok || live[p.Name] != want || (!in.Runtime && kept[p.Name] != want) {
+				todo = append(todo, p)
+			}
+		}
+		if len(todo) == 0 {
+			return Unchanged(), nil
+		}
 		effect := system.Effect{Type: system.EffectService, Action: "limit", Target: in.Name}
 		if env.Check {
 			return Changed(effect), nil
 		}
-		return Changed(effect), env.System.Units.SetProperties(ctx, in.Name, in.Runtime, in.Properties...)
+		return Changed(effect), env.System.Units.SetProperties(ctx, in.Name, in.Runtime, todo...)
 	},
 })
 

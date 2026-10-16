@@ -457,6 +457,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("X-Request-Id", id)
 		rec := &statusRecorder{ResponseWriter: w}
 		var actor *auth.Actor
+		var client auth.Client
 		defer func() {
 			if p := recover(); p != nil {
 				s.opts.Log.Error("request panicked", "request", id, "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
@@ -470,9 +471,9 @@ func (s *Server) Handler() http.Handler {
 			}
 			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", r.URL.Path,
 				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond),
-				"actor", actor.String(), "remote", r.RemoteAddr, "client", clientOf(r).IP)
+				"actor", actor.String(), "remote", r.RemoteAddr, "client", client.IP)
 		}()
-		client := clientOf(r)
+		client = clientOf(r, trustedForwarder(r, s.opts.Dev))
 		isAPI := r.URL.Path == apiRoot || strings.HasPrefix(r.URL.Path, apiRoot+"/")
 		setSecurityHeaders(rec.Header(), isAPI, client.Secure)
 		if len(s.opts.AllowFrom) > 0 && !s.allowed(addrPort(client.IP)) {

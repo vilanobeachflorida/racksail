@@ -145,7 +145,7 @@ func newDevServer(ctx context.Context, cfg config.Config, dataDir string, fresh 
 		machine.Close()
 		return nil, err
 	}
-	if route, err := edge.PanelRoute(cfg.Panel.Hostname, cfg.Panel.Listen, false); err == nil {
+	if route, err := edge.PanelRoute(cfg.Panel.Hostname, cfg.Panel.Listen, "", false); err == nil {
 		if err := table.SetRoutes(ctx, edge.PanelOwner, []edge.Route{route}); err != nil {
 			log.Warn("serving the panel on the edge", "error", err)
 		}

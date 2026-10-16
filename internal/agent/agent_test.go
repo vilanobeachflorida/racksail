@@ -177,9 +177,15 @@ func TestUsersAndGroups(t *testing.T) {
 			t.Errorf("EnsureUser(%+v) = %v", bad, err)
 		}
 	}
+	// A group Racksail creates has to be one it can manage afterwards: a
+	// racksail-* system group or an account-range group, never a free name
+	// with a system-chosen GID that nothing could change later.
 	members := []string{"blog"}
-	if res, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "webusers", Members: &members}, CallOptions{}); err != nil || !res.Changed {
+	if res, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "racksail-webusers", System: true, Members: &members}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("group = %+v, %v", res, err)
+	}
+	if _, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "webusers", Members: &members}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a group with a free name and GID should be refused: %v", err)
 	}
 	for _, bad := range []EnsureUserInput{
 		{Name: "diskuser", UID: 20077, GID: 6, Home: "/srv/racksail/accounts/diskuser"},
@@ -325,8 +331,23 @@ func TestUnitsAndPolicy(t *testing.T) {
 	if res, err := EnsureDropIn.Call(ctx, c, limits, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("drop-in = %+v, %v", res, err)
 	}
-	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "1G"}}}, CallOptions{}); err != nil || !res.Changed {
-		t.Errorf("properties = %+v, %v", res, err)
+	// The drop-in already holds this limit, live and across reboots.
+	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "1G"}}}, CallOptions{}); err != nil || res.Changed {
+		t.Errorf("a limit the drop-in sets = %+v, %v", res, err)
+	}
+	// Another one takes effect, but set-property's drop-in sorts before
+	// racksail-limits.conf, which wins again at the next reboot, so it never
+	// counts as kept.
+	for range 2 {
+		if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "2G"}}}, CallOptions{}); err != nil || !res.Changed {
+			t.Errorf("a limit a drop-in overrides = %+v, %v", res, err)
+		}
+	}
+	if live, _ := m.Backend().Units.ResourceControl(ctx, unit.Name, true); live["MemoryMax"] != "2147483648" {
+		t.Errorf("live limits = %v", live)
+	}
+	if kept, _ := m.Backend().Units.ResourceControl(ctx, unit.Name, false); kept["MemoryMax"] != "1073741824" || kept["TasksMax"] != "64" {
+		t.Errorf("kept limits = %v", kept)
 	}
 	if res, err := RemoveUnit.Call(ctx, c, UnitInput{Name: unit.Name}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("remove = %+v, %v", res, err)

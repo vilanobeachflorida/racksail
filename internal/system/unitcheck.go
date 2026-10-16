@@ -306,10 +306,17 @@ func appendOrReset(list []string, value string) []string {
 
 // CheckDropIn checks a drop-in for a unit: it may tune resources, limits,
 // restarts and dependencies on mounts and Racksail's units, and nothing
-// that changes what the unit runs, as whom or with which environment.
+// that changes what the unit runs, as whom or with which environment. Its
+// sections are held to the unit's type, as systemd reads them: a service's
+// drop-in has [Unit] and [Service], a slice's [Unit] and [Slice].
 func CheckDropIn(unit string, data []byte, rules UnitRules) error {
 	if !ValidUnitName(unit) {
 		return fmt.Errorf("%q is not a unit name: %w", unit, ErrInvalid)
+	}
+	typ := path.Ext(unit)[1:]
+	sections, ok := dropInSections[typ]
+	if !ok {
+		return fmt.Errorf("unit %s: Racksail adjusts no %s units: %w", unit, typ, ErrInvalid)
 	}
 	u, err := ParseUnitFile(data)
 	if err != nil {
@@ -317,7 +324,7 @@ func CheckDropIn(unit string, data []byte, rules UnitRules) error {
 	}
 	c := &unitChecker{unit: unit, rules: rules}
 	for _, s := range u.Sections {
-		keys, ok := dropInSections[s.Name]
+		keys, ok := sections[s.Name]
 		if !ok {
 			return fmt.Errorf("a drop-in for %s can't have a [%s] section: %w", unit, s.Name, ErrInvalid)
 		}
@@ -1083,14 +1090,23 @@ var dropInTuning = map[string]valueCheck{
 	"RestartSec": timeSpan, "TimeoutStartSec": timeSpan, "TimeoutStopSec": timeSpan, "OOMPolicy": oneOf("continue", "stop", "kill"),
 }
 
-var dropInSections = map[string]map[string]valueCheck{
-	"Unit": {
-		"After": dependencies, "Before": dependencies, "Wants": dependencies, "Requires": dependencies,
-		"BindsTo": dependencies, "PartOf": dependencies,
-		"RequiresMountsFor": absolutePaths(false), "WantsMountsFor": absolutePaths(false),
-	},
-	"Service": merged(resourceKeys, dropInTuning),
-	"Socket":  resourceKeys,
-	"Slice":   resourceKeys,
-	"Mount":   resourceKeys,
+// dropInUnitKeys are the [Unit] settings a drop-in may change: ordering
+// and dependencies on what Racksail manages.
+var dropInUnitKeys = map[string]valueCheck{
+	"After": dependencies, "Before": dependencies, "Wants": dependencies, "Requires": dependencies,
+	"BindsTo": dependencies, "PartOf": dependencies,
+	"RequiresMountsFor": absolutePaths(false), "WantsMountsFor": absolutePaths(false),
+}
+
+// dropInSections are the sections and directives a drop-in may have, by
+// the type of the unit it adjusts.
+var dropInSections = map[string]map[string]map[string]valueCheck{
+	"service":   {"Unit": dropInUnitKeys, "Service": merged(resourceKeys, dropInTuning)},
+	"socket":    {"Unit": dropInUnitKeys, "Socket": resourceKeys},
+	"slice":     {"Unit": dropInUnitKeys, "Slice": resourceKeys},
+	"mount":     {"Unit": dropInUnitKeys, "Mount": resourceKeys},
+	"timer":     {"Unit": dropInUnitKeys},
+	"path":      {"Unit": dropInUnitKeys},
+	"target":    {"Unit": dropInUnitKeys},
+	"automount": {"Unit": dropInUnitKeys},
 }

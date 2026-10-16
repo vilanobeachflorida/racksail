@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
+	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,7 +20,12 @@ type unitRuntime struct {
 	pid      int
 	since    time.Time
 	restarts int
-	props    map[string]string
+	// applied are the limits set-property changed on the running unit since
+	// systemd last loaded its configuration. Its drop-ins hold them too, but
+	// a drop-in that sorts after them may say otherwise until the next
+	// daemon-reload or reboot, which replaces these with what the unit's
+	// files say.
+	applied map[string]string
 }
 
 type simUnits struct{ m *Machine }
@@ -147,7 +153,9 @@ func (u simUnits) RemoveUnit(ctx context.Context, name string) error {
 		return notFound("unit file " + name)
 	}
 	delete(m.files, unitPath(name))
-	m.removeTree(unitPath(name) + ".d")
+	for _, dir := range []string{system.UnitDir, system.ControlDir, system.RuntimeControlDir} {
+		m.removeTree(path.Join(dir, name+".d"))
+	}
 	delete(m.enabled, name)
 	return nil
 }
@@ -201,6 +209,11 @@ func (u simUnits) DaemonReload(ctx context.Context) error {
 		return err
 	}
 	m.reloads++
+	// Every unit's configuration is read again, so its limits are what its
+	// files say from now on.
+	for _, rt := range m.units {
+		rt.applied = nil
+	}
 	return nil
 }
 
@@ -448,6 +461,18 @@ func matchesAny(name string, patterns []string) bool {
 	return false
 }
 
+var (
+	propertyName  = regexp.MustCompile(`^[A-Z][A-Za-z]{1,63}$`)
+	propertyValue = regexp.MustCompile(`^[^\n\r\x00\\]{0,128}$`)
+)
+
+// setPropertyHeader starts the drop-ins set-property writes, as systemd's.
+const setPropertyHeader = "# This is a drop-in unit file extension, created via \"systemctl set-property\"\n# or an equivalent operation. Do not edit.\n"
+
+// SetProperties does what systemctl set-property does: it changes the
+// running unit's limits and keeps each in a drop-in of its own,
+// 50-<property>.conf under system.control, in /etc or, for a runtime
+// change, in /run, which a reboot empties.
 func (u simUnits) SetProperties(ctx context.Context, name string, runtime bool, props ...system.UnitProperty) error {
 	m := u.m
 	if err := m.lock(ctx); err != nil {
@@ -460,66 +485,160 @@ func (u simUnits) SetProperties(ctx context.Context, name string, runtime bool, 
 	if !m.unitExists(name) {
 		return notFound("unit " + name)
 	}
+	section, ok := system.ResourceControlSection(name)
+	if !ok {
+		return invalid("unit %s has no resource limits", name)
+	}
+	for _, p := range props {
+		if !propertyName.MatchString(p.Name) || !propertyValue.MatchString(p.Value) {
+			return invalid("unit property %s=%q", p.Name, p.Value)
+		}
+	}
+	dir := system.ControlDir
+	if runtime {
+		dir = system.RuntimeControlDir
+	}
+	dir = path.Join(dir, name+".d")
+	if err := m.mkdirs(dir); err != nil {
+		return err
+	}
 	rt := m.units[name]
 	if rt == nil {
 		rt = &unitRuntime{active: "inactive", sub: "dead"}
 		m.units[name] = rt
 	}
-	if rt.props == nil {
-		rt.props = map[string]string{}
+	if rt.applied == nil {
+		rt.applied = map[string]string{}
 	}
 	for _, p := range props {
-		rt.props[p.Name] = p.Value
-	}
-	if !runtime {
-		dir := unitPath(name) + ".d"
-		if _, ok := m.files[dir]; !ok {
-			if err := m.mkdir(dir, 0o755, system.Owner{}); err != nil {
-				return err
-			}
+		content := setPropertyHeader + "[" + section + "]\n" + p.Name + "=" + p.Value + "\n"
+		if err := m.writeFile(path.Join(dir, "50-"+p.Name+".conf"), []byte(content), 0o644, system.Owner{}); err != nil {
+			return err
 		}
-		var b strings.Builder
-		b.WriteString("[" + unitSectionFor(name) + "]\n")
-		for _, k := range sortedKeys(rt.props) {
-			fmt.Fprintf(&b, "%s=%s\n", k, rt.props[k])
-		}
-		return m.writeFile(path.Join(dir, "50-properties.conf"), []byte(b.String()), 0o644, system.Owner{})
+		rt.applied[p.Name] = p.Value
 	}
 	return nil
 }
 
-func unitSectionFor(name string) string {
-	switch path.Ext(name) {
-	case ".slice":
-		return "Slice"
-	case ".socket":
-		return "Socket"
-	case ".mount":
-		return "Mount"
-	default:
-		return "Service"
+// mkdirs creates a directory and its missing parents for root. The caller
+// holds m.mu.
+func (m *Machine) mkdirs(dir string) error {
+	if n, ok := m.files[dir]; ok {
+		if !n.mode.IsDir() {
+			return invalid("%s is not a directory", dir)
+		}
+		return nil
 	}
+	if parent := path.Dir(dir); parent != dir {
+		if err := m.mkdirs(parent); err != nil {
+			return err
+		}
+	}
+	return m.mkdir(dir, 0o755, system.Owner{})
 }
 
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// ResourceControl returns the unit's limits, each reduced to its base-unit
+// form, from its configuration as systemd loads it (system.LoadUnitConfig):
+// with runtime, from every directory, /run included, and with the limits
+// set-property applied since the last reload on top; without, from the
+// directories a reboot leaves, so a value only a runtime change set isn't
+// counted as kept.
+func (u simUnits) ResourceControl(ctx context.Context, name string, runtime bool) (map[string]string, error) {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return nil, err
 	}
-	sort.Strings(keys)
-	return keys
+	defer m.mu.Unlock()
+	if !m.unitExists(name) {
+		return map[string]string{}, nil
+	}
+	dirs := system.PersistentUnitSearchPath()
+	if runtime {
+		dirs = system.UnitSearchPath
+	}
+	files, err := system.LoadUnitConfig(name, dirs, configTree{m})
+	if err != nil {
+		return nil, err
+	}
+	limits, err := system.UnitResourceLimits(name, files)
+	if err != nil {
+		return nil, err
+	}
+	if rt, ok := m.units[name]; ok && runtime {
+		for k, v := range rt.applied {
+			if canon, ok := system.CanonicalLimit(k, v); ok {
+				limits[k] = canon
+			} else {
+				delete(limits, k)
+			}
+		}
+	}
+	return limits, nil
 }
 
-// Property returns a property set with SetProperties, for tests.
+// configTree is the machine's files as systemd reads unit configuration
+// from them. The caller holds m.mu.
+type configTree struct{ m *Machine }
+
+func (t configTree) Lstat(p string) (system.FileInfo, error) {
+	n, ok := t.m.files[p]
+	if !ok {
+		return system.FileInfo{}, notFound(p)
+	}
+	return t.m.info(p, n), nil
+}
+
+func (t configTree) ReadDir(p string) ([]system.FileInfo, error) {
+	n, ok := t.m.files[p]
+	if !ok {
+		return nil, notFound(p)
+	}
+	if !n.mode.IsDir() {
+		return nil, invalid("%s is not a directory", p)
+	}
+	var out []system.FileInfo
+	for child, cn := range t.m.files {
+		if child != p && path.Dir(child) == p {
+			out = append(out, t.m.info(child, cn))
+		}
+	}
+	return out, nil
+}
+
+func (t configTree) ReadFile(p string) ([]byte, error) {
+	n, ok := t.m.files[p]
+	switch {
+	case !ok:
+		return nil, notFound(p)
+	case n.mode.IsDir():
+		return nil, invalid("%s is a directory", p)
+	case n.mode&fs.ModeSymlink != 0:
+		return nil, invalid("%s is a symbolic link", p)
+	}
+	return bytes.Clone(n.data), nil
+}
+
+// Property returns the value a persistent set-property kept for a unit,
+// for tests.
 func (m *Machine) Property(unit, name string) (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rt, ok := m.units[unit]
+	n, ok := m.files[path.Join(system.ControlDir, unit+".d", "50-"+name+".conf")]
 	if !ok {
 		return "", false
 	}
-	v, ok := rt.props[name]
-	return v, ok
+	u, err := system.ParseUnitFile(n.data)
+	if err != nil {
+		return "", false
+	}
+	for _, s := range u.Sections {
+		for _, e := range s.Entries {
+			if e.Key == name {
+				return e.Value, true
+			}
+		}
+	}
+	return "", false
 }
 
 func (u simUnits) Kill(ctx context.Context, name string, signal system.Signal) error {
@@ -600,14 +719,14 @@ func (m *Machine) seedUnitsAndPackages(now time.Time) {
 	release := kernelRelease(catalogEntry(kernelPackage[m.facts.Arch]).version, m.facts.Arch)
 	m.files["/boot/vmlinuz-"+release] = &node{mode: 0o644, modTime: now.Add(-72 * time.Hour), data: []byte("simulated kernel " + release)}
 	for _, name := range []string{
-		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-agent.service",
+		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-panel.socket", "racksail-agent.service",
 		"racksail-edge.service", "racksail-edge.socket", "systemd-networkd.service", "systemd-journald.service",
 		"systemd-timesyncd.service", "ssh.service", "cron.service", "multi-user.target",
 	} {
 		m.builtin[name] = true
 	}
 	for _, name := range []string{
-		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-agent.service",
+		"racksail.slice", "racksail-accounts.slice", "racksail-panel.socket", "racksail-panel.service", "racksail-agent.service",
 		"racksail-edge.socket", "systemd-networkd.service", "systemd-journald.service", "systemd-timesyncd.service",
 		"ssh.service", "cron.service",
 	} {

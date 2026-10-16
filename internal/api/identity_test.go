@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -187,14 +190,59 @@ func TestSigningInOverTheAPI(t *testing.T) {
 		t.Errorf("a signed-out session = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 
-	// The edge says who the browser is; the panel believes it from
-	// loopback.
+	// A site that reaches the panel's port over loopback can't forge its
+	// address: the panel believes X-Forwarded-For only from the edge over its
+	// Unix socket (TestForwardedTrustBoundary), never from this TCP
+	// connection, so the audit records where the request really came from.
 	edge := s.browser()
 	edge.header.Set("X-Forwarded-For", "203.0.113.50")
 	edge.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
 	records, _, _ := s.log.QueryAudit(context.Background(), events.Query{Types: []string{"auth.sign_in"}, Limit: 1})
+	if len(records) != 1 || records[0].Actor.IP == "203.0.113.50" {
+		t.Errorf("a forged X-Forwarded-For over TCP must be ignored: audit = %+v", records)
+	}
+	if ip, err := netip.ParseAddr(records[0].Actor.IP); err != nil || !ip.Unmap().IsLoopback() {
+		t.Errorf("the recorded client should be the real loopback peer, got %q", records[0].Actor.IP)
+	}
+}
+
+// TestForwardedTrustBoundary checks the boundary the sandbox relies on: the
+// panel believes a forwarded client address only on the Unix socket the edge
+// proxies through (which account sandboxes can't reach), never on its TCP
+// port, which a site can reach over loopback.
+func TestForwardedTrustBoundary(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	s.setUp()
+
+	// The edge's channel: the same handler on a Unix socket. A request that
+	// arrives there is trusted, so its X-Forwarded-For is believed.
+	sock := filepath.Join(t.TempDir(), "e.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: s.server.Handler()}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	overSocket := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return net.Dial("unix", sock) },
+	}}
+	req, _ := http.NewRequest("POST", "http://edge/api/v1/auth/sign-in",
+		strings.NewReader(`{"username":"ada","password":"`+testPassword+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	resp, err := overSocket.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sign-in over the edge socket = %d", resp.StatusCode)
+	}
+	records, _, _ := s.log.QueryAudit(context.Background(), events.Query{Types: []string{"auth.sign_in"}, Limit: 1})
 	if len(records) != 1 || records[0].Actor.IP != "203.0.113.50" {
-		t.Errorf("audit = %+v", records)
+		t.Errorf("the edge's forwarded address should be believed over its socket: audit = %+v", records)
 	}
 }
 

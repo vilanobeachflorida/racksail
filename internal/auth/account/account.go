@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -110,8 +111,12 @@ var reservedSlugs = []string{
 	"postmaster", "webmaster", "abuse", "security", "noreply",
 }
 
-// Reserved reports whether slug can't be an account's short name.
-func Reserved(slug string) bool { return slices.Contains(reservedSlugs, slug) }
+// Reserved reports whether slug can't be an account's short name: one of
+// the names above, or one the agent refuses an account, such as a
+// privileged group's or a package's user.
+func Reserved(slug string) bool {
+	return slices.Contains(reservedSlugs, slug) || agent.ReservedName(slug)
+}
 
 func validate(ctx context.Context, obj, old *store.Object[AccountSpec, AccountStatus]) error {
 	var fields []i18n.FieldError

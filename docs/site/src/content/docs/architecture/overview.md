@@ -16,7 +16,7 @@ Racksail is one Go program, `racksail`, that runs in several roles on a Debian 1
 | `installer` | root, from the ISO or on Debian 13 | Installs Racksail, or converts a running Debian 13 server |
 | `dev` | a developer | Panel, agent and edge in one process against a simulated server |
 
-On a server they run as systemd services in `racksail.slice`: `racksail-agent.service`, `racksail-panel.service`, and `racksail-edge.service`, which starts the first time the panel sends it routes through `racksail-edge.socket`. Accounts' sites and workers run in `racksail-accounts.slice`, one slice per account.
+On a server they run as systemd services in `racksail.slice`: `racksail-agent.service`, `racksail-panel.service`, and `racksail-edge.service`, which starts the first time the panel sends it routes through `racksail-edge.socket`. The edge reaches the panel through `racksail-panel.socket`, a Unix socket sites can't reach. Accounts' sites and workers run in `racksail-accounts.slice`, one slice per account.
 
 The panel talks to the agent over HTTP and JSON on a Unix socket, `/run/racksail/agent.sock`, and to agents on other servers over mutual TLS, with each server connecting out to the panel so no management port has to be open.
 

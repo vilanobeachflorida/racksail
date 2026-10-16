@@ -161,7 +161,7 @@ type testEdge struct {
 	stop  func()
 }
 
-func startEdge(t *testing.T, opts Options) *testEdge {
+func startEdge(t *testing.T, opts Options, tweak ...func(*Edge)) *testEdge {
 	t.Helper()
 	dir := shortTemp(t)
 	// Caddy keeps an instance ID in the data directory; not the home of
@@ -179,6 +179,10 @@ func startEdge(t *testing.T, opts Options) *testEdge {
 	e, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// A tweak runs before Run starts, so it never races the serve loop.
+	for _, fn := range tweak {
+		fn(e)
 	}
 	sock := filepath.Join(dir, "edge.sock")
 	ln, err := net.Listen("unix", sock)
@@ -384,6 +388,45 @@ func TestEdgeServesRoutesWithoutReloading(t *testing.T) {
 	}
 	if act := te.Activity(); len(act) == 0 || act[0].Requests == 0 || act[0].Owner != owner {
 		t.Errorf("activity = %+v", act)
+	}
+}
+
+// Removing a site's automatic-certificate route leaves its certificate in
+// Caddy's cache until the edge reloads to drop it, which it does a while
+// later. This is the one reload a site change causes, so the docs and
+// Edge.Loads account for it.
+func TestEdgeReloadsToDropCertificatesNoLongerServed(t *testing.T) {
+	ctx := context.Background()
+	te := startEdge(t, Options{Dev: true}, func(e *Edge) { e.purgeDelay = 20 * time.Millisecond })
+	owner := store.NewID("site")
+	routes := []Route{
+		{ID: "keep", Hosts: []string{"keep.test"}, Handler: Handler{Type: HandleRespond, Body: "kept"}},
+		{ID: "plain", Hosts: []string{"plain.test"}, TLS: TLS{Mode: TLSOff}, Handler: Handler{Type: HandleRespond, Body: "plain"}},
+	}
+	if err := te.admin.SetRoutes(ctx, owner, routes); err != nil {
+		t.Fatal(err)
+	}
+	te.waitRunning(t, true)
+	c := te.client(t)
+	// Serving the automatic route makes the edge manage its certificate.
+	if _, b := get(t, c, "https://keep.test/"); b != "kept" {
+		t.Fatalf("keep.test = %q", b)
+	}
+
+	loads := te.Loads()
+	if err := te.admin.SetRoutes(ctx, owner, routes[1:]); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for te.Loads() == loads {
+		if time.Now().After(deadline) {
+			t.Fatalf("the edge never reloaded to drop the certificate of keep.test (loads stayed %d)", loads)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The remaining route keeps serving across the reload.
+	if _, b := get(t, c, "http://plain.test/"); b != "plain" {
+		t.Errorf("plain.test after the reload = %q", b)
 	}
 }
 

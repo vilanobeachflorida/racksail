@@ -101,7 +101,7 @@ func TestInstallDryRun(t *testing.T) {
 	}
 	// The simulated server has Racksail where its package puts it.
 	out, err = run(t, "install", "--answers", answers, "--sim")
-	if err != nil || !strings.Contains(out, "[5/5] Start the agent, the panel and the edge's socket") {
+	if err != nil || !strings.Contains(out, "[5/5] Start the agent, the panel and their sockets") {
 		t.Errorf("simulated conversion = %s, %v", out, err)
 	}
 	if _, err := run(t, "install", "--answers", answers, "--sim", "--binary", "/srv/racksail/racksail"); err == nil {

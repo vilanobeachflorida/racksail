@@ -164,6 +164,80 @@ var accounting = []UnitEntry{
 	{"CPUAccounting", "yes"}, {"MemoryAccounting", "yes"}, {"IOAccounting", "yes"}, {"TasksAccounting", "yes"},
 }
 
+// ResourceControlProperties are the cgroup properties a running unit's limits
+// can be changed through: memory and task limits, the CPU quota and the
+// weights. They are the only properties SetUnitProperties sets.
+var ResourceControlProperties = []string{
+	"MemoryMin", "MemoryLow", "MemoryHigh", "MemoryMax", "MemorySwapMax",
+	"CPUQuota", "CPUWeight", "AllowedCPUs", "IOWeight", "TasksMax",
+}
+
+var limitAmount = regexp.MustCompile(`^([0-9]+)([KMGTPE]?)$`)
+
+// CanonicalLimit reduces a resource-control property's value to a base-unit
+// string, so two spellings of the same limit compare equal: memory and task
+// counts to bytes or a plain count, a CPU quota to microseconds of CPU per
+// second, and the weights to a plain number. It returns ok=false for a value
+// it can't reduce with certainty, such as a memory percentage of the total
+// RAM, an "idle" weight or a CPU set, so a caller never mistakes two of those
+// for equal.
+func CanonicalLimit(name, value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	switch name {
+	case "MemoryMin", "MemoryLow", "MemoryHigh", "MemoryMax", "MemorySwapMax", "TasksMax":
+		if value == "infinity" {
+			return "infinity", true
+		}
+		m := limitAmount.FindStringSubmatch(value)
+		if m == nil {
+			return "", false
+		}
+		n, err := strconv.ParseInt(m[1], 10, 64)
+		if err != nil {
+			return "", false
+		}
+		if mul := map[string]int64{"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40, "P": 1 << 50, "E": 1 << 60}[m[2]]; mul > 1 {
+			if n > (1<<62)/mul {
+				return "", false
+			}
+			n *= mul
+		}
+		return strconv.FormatInt(n, 10), true
+	case "CPUQuota":
+		// "N%" is N% of one CPU per second; systemd keeps it as microseconds
+		// of CPU time per second, so 100% is 1,000,000.
+		pct, ok := strings.CutSuffix(value, "%")
+		if !ok {
+			return "", false
+		}
+		whole, frac, _ := strings.Cut(pct, ".")
+		usec, err := strconv.ParseInt(whole, 10, 64)
+		if err != nil || usec > 1<<40 {
+			return "", false
+		}
+		usec *= 10000
+		// Up to four fractional digits of a percent still land on a whole
+		// microsecond.
+		for i, r := range frac {
+			if i >= 4 || r < '0' || r > '9' {
+				return "", false
+			}
+			usec += int64(r-'0') * []int64{1000, 100, 10, 1}[i]
+		}
+		return strconv.FormatInt(usec, 10), true
+	case "CPUWeight", "IOWeight":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > 10000 {
+			return "", false
+		}
+		return strconv.Itoa(n), true
+	}
+	return "", false
+}
+
 func checkUnitNames(names []string) error {
 	for _, n := range names {
 		if !ValidUnitName(n) {

@@ -273,6 +273,51 @@ func checkUnit(name string) error {
 	return nil
 }
 
+// systemUnits are the root-running units Racksail controls but whose
+// configuration it renders itself, from typed input: networkd, the clock
+// and the firewall. Neither drop-ins nor resource limits reach them, so a
+// compromised panel can't change what they run, as whom or with which
+// limits and dependencies.
+var systemUnits = []string{"systemd-networkd.service", "systemd-timesyncd.service", "nftables.service"}
+
+// agentRenderedUnit reports whether a unit is one the agent writes itself
+// from typed input, never from content the panel supplies: Racksail's
+// platform units (InstallPlatformUnits) and the add-on service family
+// (EnsureAddonService), which runs with a token credential.
+func agentRenderedUnit(name string) bool {
+	return system.IsPlatformUnit(name) || strings.HasPrefix(name, "racksail-addon@")
+}
+
+// checkAdjustableUnit validates a unit whose configuration the panel
+// adjusts, with a drop-in or with resource limits set-property keeps in one:
+// a unit Racksail manages, but never a unit the agent renders itself or a
+// root-running system service.
+func checkAdjustableUnit(name string) error {
+	if err := checkUnit(name); err != nil {
+		return err
+	}
+	// systemd also reads <prefix>-.<type>.d/ for every unit whose name starts
+	// with that prefix (systemd.unit(5)), so a drop-in for racksail-.service,
+	// racksail-.slice or -.service would reach the agent, the panel, the edge,
+	// the add-on instances and the root system services all at once. A real
+	// unit never ends its name part in a dash, so such a target only ever
+	// widens a drop-in's reach.
+	if dashPrefixUnit(name) {
+		return fmt.Errorf("unit %s is a prefix that a drop-in would apply to every unit under it, not a single unit", name)
+	}
+	if agentRenderedUnit(name) || slices.Contains(systemUnits, name) {
+		return fmt.Errorf("unit %s is one of Racksail's own or a system service, which the panel can't adjust", name)
+	}
+	return nil
+}
+
+// dashPrefixUnit reports whether name is a systemd dash-prefix (or type-wide)
+// drop-in target: the part before the type suffix ends in '-'. A drop-in for
+// such a name applies to every unit whose name starts with that prefix.
+func dashPrefixUnit(name string) bool {
+	return strings.HasSuffix(strings.TrimSuffix(name, path.Ext(name)), "-")
+}
+
 // checkOwnedUnit validates the name of a unit Racksail installs: racksail-*
 // units, and mount units for Racksail's own locations.
 func checkOwnedUnit(name string) error {
@@ -307,8 +352,8 @@ func checkUnitFile(name string, content []byte) (system.CheckedUnit, error) {
 	if err := checkOwnedUnit(name); err != nil {
 		return system.CheckedUnit{}, err
 	}
-	if system.IsPlatformUnit(name) {
-		return system.CheckedUnit{}, fmt.Errorf("unit %s is one of Racksail's own; InstallPlatformUnits installs those", name)
+	if agentRenderedUnit(name) {
+		return system.CheckedUnit{}, fmt.Errorf("unit %s is one the agent renders itself; the panel doesn't supply its content", name)
 	}
 	if len(content) > 1<<20 {
 		return system.CheckedUnit{}, fmt.Errorf("unit %s is larger than 1 MiB", name)
@@ -328,13 +373,17 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 	if err != nil {
 		return err
 	}
-	privilegedGID := func(gid int) bool {
+	// ownedGID reports whether a GID names a group Racksail owns: an account
+	// group or a racksail-* group, never a privileged or unrelated system
+	// group such as ssl-cert. A GID that names no group (root's 0 among them)
+	// isn't owned.
+	ownedGID := func(gid int) bool {
 		for _, g := range groups {
-			if g.GID == gid && slices.Contains(privilegedGroups, g.Name) {
-				return true
+			if g.GID == gid {
+				return ownedGroup(g)
 			}
 		}
-		return gid == 0
+		return false
 	}
 	u, err := users.LookupUser(ctx, id.User)
 	switch {
@@ -352,13 +401,18 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 	case id.Dynamic:
 		return fmt.Errorf("%s exists, so systemd would run the service as that user instead of a dynamic one", id.User)
 	default:
-		account := u.UID >= system.AccountUIDMin && u.UID <= system.AccountUIDMax
+		account := accountUser(u)
 		service := u.System && strings.HasPrefix(u.Name, "racksail-") && !slices.Contains(platformUsers, u.Name)
-		if !account && !service {
+		switch {
+		case strings.HasPrefix(u.Name, "racksail-") && !service:
+			// The unit's checks spare a racksail-* user the account sandbox,
+			// so only one of Racksail's own system users may carry the name.
+			return fmt.Errorf("user %s is named like one of Racksail's service users but isn't one", u.Name)
+		case !account && !service:
 			return fmt.Errorf("user %s isn't an account or one of Racksail's service users", u.Name)
 		}
-		if privilegedGID(u.GID) {
-			return fmt.Errorf("user %s has a privileged primary group", u.Name)
+		if !ownedGID(u.GID) {
+			return fmt.Errorf("user %s's primary group isn't an account's or one of Racksail's, so the service won't run as it", u.Name)
 		}
 		for _, g := range u.Groups {
 			if slices.Contains(privilegedGroups, g) {
@@ -377,10 +431,8 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 	case errors.Is(err, system.ErrNotFound) && (id.Dynamic || check):
 	case err != nil:
 		return fmt.Errorf("the service's group %s: %w", id.Group, err)
-	case privilegedGID(g.GID):
-		return fmt.Errorf("group %s is privileged", id.Group)
-	case !(g.GID >= system.AccountUIDMin && g.GID <= system.AccountUIDMax) && !strings.HasPrefix(g.Name, "racksail-"):
-		return fmt.Errorf("group %s isn't an account's or one of Racksail's service groups", g.Name)
+	case !ownedGroup(g):
+		return fmt.Errorf("group %s isn't an account's or one of Racksail's service groups", id.Group)
 	}
 	return nil
 }
@@ -402,6 +454,36 @@ func checkAccountName(kind, name string) error {
 var privilegedGroups = []string{
 	"root", "sudo", "adm", "shadow", "disk", "docker", "incus-admin", "incus", "lxd", "libvirt", "kvm",
 	"systemd-journal", "staff", "wheel", "racksail", "racksail-edge",
+}
+
+// systemNames are the users and groups a Debian 13 server has from the
+// start or gets from the packages Racksail installs, such as postgres,
+// ssl-cert or www-data. useradd makes a group named after each new user,
+// and a package that finds its user or group already there adopts it with
+// whoever is in it, so an account that took one of these names first would
+// get the package's rights, such as reading the private keys in
+// /etc/ssl/private or every database as postgres.
+var systemNames = []string{
+	// base-passwd and the base system.
+	"daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup",
+	"list", "irc", "gnats", "nobody", "tty", "kmem", "dialout", "fax", "voice", "cdrom", "floppy", "tape", "audio",
+	"dip", "operator", "src", "utmp", "video", "sasl", "plugdev", "users", "nogroup", "input", "render", "sgx",
+	"netdev", "crontab", "messagebus", "polkitd", "tss", "uuidd", "lpadmin", "_apt", "_ssh", "sshd", "statd", "_rpc",
+	"systemd-network", "systemd-resolve", "systemd-timesync", "systemd-coredump", "systemd-oom",
+	// The web, mail, DNS, database, container, VM, share and home software
+	// of decisions S2 to S11.
+	"ssl-cert", "postfix", "postdrop", "opendkim", "opendmarc", "dovecot", "dovenull", "cyrus", "_rspamd", "rspamd",
+	"clamav", "redis", "valkey", "memcache", "mysql", "postgres", "knot", "bind", "unbound", "dnsmasq",
+	"podman", "libvirt-qemu", "libvirt-dnsmasq", "swtpm", "samba", "sambashare", "nut", "ntpsec", "_chrony",
+	"headscale",
+}
+
+// ReservedName reports whether a new account, or an account's group, can't
+// take name: a privileged group's, or a user's or group's the system has or
+// may get. The agent refuses them, and the panel asks so it can say so
+// before anything is planned.
+func ReservedName(name string) bool {
+	return slices.Contains(privilegedGroups, name) || slices.Contains(systemNames, name)
 }
 
 var allowedShells = []string{"/usr/sbin/nologin", "/bin/false", "/usr/bin/false", "/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/git-shell"}
