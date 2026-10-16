@@ -317,44 +317,57 @@ func (c *Catalogs) Sync(ctx context.Context, id store.ID) (*Index, error) {
 	if !c.active() {
 		return nil, ErrMarketplaceOn.New()
 	}
+	idx, record, err := c.fetch(ctx, obj)
+	c.setStatus(ctx, id, record)
+	return idx, err
+}
+
+// fetch fetches a catalog's index, checks it and keeps it. It returns what
+// to record in the catalog's status about how that went.
+func (c *Catalogs) fetch(ctx context.Context, obj *store.Object[CatalogSpec, CatalogStatus]) (*Index, func(st *CatalogStatus), error) {
+	id := obj.ID
+	official := c.official(obj.Spec)
 	idx, data, sig, err := c.fetchIndex(ctx, obj.Spec)
 	if err == nil {
 		if cur, cerr := c.Index(ctx, id); cerr == nil && idx.Built.Before(cur.Built) {
 			err = ErrOlderIndex.New("catalog", obj.Spec.Title)
 		}
 	}
-	now := c.opts.Now().UTC()
+	if err == nil {
+		err = c.keep(id, data, sig)
+	}
 	if err != nil {
-		c.setStatus(ctx, id, func(st *CatalogStatus) {
-			st.SyncError = reasonOf(err)
-			st.Official = c.official(obj.Spec)
-		})
+		reason := reasonOf(err)
 		if i18n.CodeOf(err) == i18n.ErrInternal.Code {
 			err = ErrSyncFailed.Wrap(err, "catalog", obj.Spec.Title, "reason", err.Error())
 		}
-		return nil, err
-	}
-	if dir := c.dir(id); dir != "" {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(filepath.Join(dir, IndexName), data, 0o640); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(filepath.Join(dir, SignatureName), sig, 0o640); err != nil {
-			return nil, err
-		}
+		return nil, func(st *CatalogStatus) { st.SyncError, st.Official = reason, official }, err
 	}
 	c.mu.Lock()
 	c.indexes[id] = idx
 	c.mu.Unlock()
+	now := c.opts.Now().UTC()
 	sum := sha256.Sum256(data)
 	built := idx.Built
-	c.setStatus(ctx, id, func(st *CatalogStatus) {
+	return idx, func(st *CatalogStatus) {
 		st.SyncedAt, st.Built, st.Items, st.IndexSHA256, st.SyncError = &now, &built, len(idx.Items), hex.EncodeToString(sum[:]), ""
-		st.Official = c.official(obj.Spec)
-	})
-	return idx, nil
+		st.Official = official
+	}, nil
+}
+
+// keep writes a checked index and its signature to the cache.
+func (c *Catalogs) keep(id store.ID, data, sig []byte) error {
+	dir := c.dir(id)
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, IndexName), data, 0o640); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, SignatureName), sig, 0o640)
 }
 
 func (c *Catalogs) fetchIndex(ctx context.Context, spec CatalogSpec) (*Index, []byte, []byte, error) {
@@ -680,8 +693,9 @@ func (c *Catalogs) syncDue(ctx context.Context) {
 }
 
 // Reconciler returns the reconciler of core.catalog: a catalog lives in the
-// panel, so it only fetches the index when the catalog is added or
-// changed, and its action fetches it again.
+// panel, so applying one fetches its index, when the catalog is added or
+// changed while the marketplace module is on, and its action fetches it
+// again.
 func (c *Catalogs) Reconciler() reconcile.Reconciler {
 	return reconcile.Typed(CatalogKind, catalogReconciler{c: c})
 }
@@ -701,12 +715,27 @@ func (r catalogReconciler) Apply(ctx context.Context, obj *store.Object[CatalogS
 		return st, nil
 	}
 	// New keys or a new address: what was kept may no longer check out.
-	r.c.mu.Lock()
-	delete(r.c.indexes, obj.ID)
-	r.c.mu.Unlock()
+	// The resync applies a catalog that didn't change too, which keeps
+	// what it has.
+	changed := st.ObservedGeneration != obj.Generation
+	if changed {
+		r.c.mu.Lock()
+		delete(r.c.indexes, obj.ID)
+		r.c.mu.Unlock()
+	}
 	st.Official = r.c.official(obj.Spec)
 	if err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, r.c.opts.Now()); err != nil {
 		return st, err
+	}
+	if !changed || obj.Spec.Disabled || !r.c.active() {
+		return st, nil
+	}
+	// A catalog that can't be fetched now is still kept, and says why; the
+	// next daily fetch or Fetch now tries again.
+	_, record, err := r.c.fetch(ctx, obj)
+	record(&st)
+	if err != nil {
+		st.Phase, st.Message = store.PhaseDegraded, "Its index couldn't be fetched: "+reasonOf(err)
 	}
 	return st, nil
 }

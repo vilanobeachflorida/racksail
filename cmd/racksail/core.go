@@ -276,7 +276,8 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		log: log, agent: agentClient, modules: reg, manager: manager, services: svc, db: db, timeline: timeline, webhooks: dispatcher,
 		queue: queue, runner: runner, cancel: cancel,
 	}
-	c.health = append([]api.HealthCheck{
+	// These are what a new release must have working to confirm itself.
+	coreHealth = []api.HealthCheck{
 		{Name: "agent", Check: func(ctx context.Context) error {
 			_, err := facts(ctx)
 			return err
@@ -286,6 +287,8 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		}},
 		{Name: "jobs", Check: queue.Check},
 		{Name: "reconcile", Check: runner.Check},
+	}
+	c.health = append(slices.Clone(coreHealth), []api.HealthCheck{
 		{Name: "webhooks", Check: dispatcher.Check},
 		{Name: "notifications", Check: notifier.Check},
 		{Name: "modules", Check: func(ctx context.Context) error {
@@ -296,8 +299,8 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			}
 			return failed[ids[0]]
 		}},
-	}, moduleHealthChecks(reg, manager, svc)...)
-	coreHealth = c.health[:4]
+	}...)
+	c.health = append(c.health, moduleHealthChecks(reg, manager, svc)...)
 	// A module that doesn't start is reported by the health check rather
 	// than keeping the panel down, so it can still be turned off.
 	if err := manager.Boot(ctx); err != nil {

@@ -257,21 +257,26 @@ func TestCatalogSync(t *testing.T) {
 	c.add(wordpress, func(it *IndexItem) { it.Featured = true })
 	c.add(strings.NewReplacer("id: wordpress", "id: ghost", "name: WordPress", "name: Ghost").Replace(wordpress), nil)
 	p := newPanel(t, nil)
+	// Adding a catalog fetches its index.
 	id := p.addCatalog(t, c, c.srv.URL)
-	if _, err := p.catalogs.Index(ctx, id); !errors.Is(err, ErrNotSynced) {
-		t.Errorf("before a sync: %v", err)
+	if idx, err := p.catalogs.Index(ctx, id); err != nil || len(idx.Items) != 2 {
+		t.Errorf("once added: %+v, %v", idx, err)
 	}
+	if obj, _ := CatalogKind.Get(ctx, p.store, id); obj.Status.SyncedAt == nil || obj.Status.Phase != store.PhaseReady {
+		t.Errorf("status once added = %+v", obj.Status)
+	}
+	c.add(strings.NewReplacer("id: wordpress", "id: forgejo", "name: WordPress", "name: Forgejo").Replace(wordpress), nil)
 	cs := p.submit(t, changeset.Request{Changes: []changeset.Change{{Op: changeset.OpAction, Kind: CatalogKind.Name(), ID: id, Action: "sync"}}})
 	var out SyncOutput
-	if err := json.Unmarshal(cs.Changes[0].Output, &out); err != nil || out.Items != 2 {
+	if err := json.Unmarshal(cs.Changes[0].Output, &out); err != nil || out.Items != 3 {
 		t.Fatalf("sync = %s, %v", cs.Changes[0].Output, err)
 	}
 	obj, _ := CatalogKind.Get(ctx, p.store, id)
-	if obj.Status.Items != 2 || obj.Status.SyncedAt == nil || obj.Status.IndexSHA256 == "" || obj.Status.Official {
+	if obj.Status.Items != 3 || obj.Status.SyncedAt == nil || obj.Status.IndexSHA256 == "" || obj.Status.Official {
 		t.Errorf("status = %+v", obj.Status)
 	}
 	items, err := p.catalogs.Items(ctx, ItemFilter{})
-	if err != nil || len(items) != 2 || items[0].ID != "wordpress" || items[0].Official {
+	if err != nil || len(items) != 3 || items[0].ID != "wordpress" || items[0].Official {
 		t.Fatalf("items = %+v, %v: featured first, and labelled third-party", items, err)
 	}
 	if found, _ := p.catalogs.Items(ctx, ItemFilter{Query: "GHO"}); len(found) != 1 || found[0].ID != "ghost" {
@@ -320,7 +325,7 @@ func TestCatalogSync(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, id); !errors.Is(err, ErrOlderIndex) {
 		t.Errorf("replayed index: %v", err)
 	}
-	if items, _ := p.catalogs.Items(ctx, ItemFilter{}); len(items) != 2 {
+	if items, _ := p.catalogs.Items(ctx, ItemFilter{}); len(items) != 3 {
 		t.Error("the index kept before is still offered")
 	}
 }
