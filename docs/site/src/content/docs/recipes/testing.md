@@ -77,4 +77,6 @@ tests:
   timeoutSeconds: 300
 ```
 
-It installs the item with those inputs on a fresh server, and passes when the install applies and its health checks pass within `timeoutSeconds`. Every official recipe has one, and the official catalog marks an item whose test keeps failing as broken, so panels stop offering it until it's fixed.
+The catalog tool checks that every input the recipe requires has a value there that the recipe accepts, and that `timeoutSeconds` is set. To run the test yourself, install the item with those inputs on a fresh server, as in [Try it on a real server](#try-it-on-a-real-server): it passes when the change set applies, since the install ends with its health checks and gives each of them its whole timeout to pass.
+
+Every official recipe has an install test. When an item's install doesn't work, its maintainers list it under `broken` in the catalog's `maintenance.yaml`, with why and since when; panels show it as broken and don't install it until it's fixed.

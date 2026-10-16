@@ -60,6 +60,8 @@ Under **Your notifications**, everyone with a sign-in chooses:
 
 People only hear about what they may see: a customer gets the events of their own account, never the server's. **Email me a test** checks that email reaches them.
 
+Each person's choices are a resource of their own, `core.notification_preferences`, that only they change. **Save** previews the change before it is made, like every change, and the audit log records it.
+
 ## Quiet hours
 
 Quiet hours hold back what can wait. They have a start and an end, such as 22:00 to 07:00, in a time zone, and can start only on some days of the week, such as Friday and Saturday nights.
@@ -96,7 +98,9 @@ curl -H "$auth" -X POST "$api/core/notification-channels?dryRun=true" -d '{
            "events": ["*.failed", "core.safe_mode.*"], "minSeverity": "warning"}
 }'
 curl -H "$auth" "$api/notifications?state=failed"                    # what couldn't be delivered
-curl -H "$auth" -X PUT "$api/notifications/preferences" -d '{"email": true, "events": ["*.failed"]}'
+curl -H "$auth" -X PUT "$api/notifications/preferences?dryRun=true" -d '{"email": true, "events": ["*.failed"]}'
 ```
+
+Changing your preferences answers with its change set; with `dryRun=true` it is the preview, and the same call without it makes the change.
 
 Secret settings go in the change's `secrets`, as `settings.<name>`, so their values never appear in the spec.

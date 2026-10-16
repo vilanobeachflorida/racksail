@@ -60,13 +60,23 @@ A hook that fails five times in a row is switched off. The panel publishes `core
 
 System hooks patch a copy of a service's configuration. The patched configuration goes through the service's own check, such as `postfix check` or `caddy validate`, before it is written; when the check fails, or the service doesn't come back healthy, the previous configuration is put back.
 
-Some settings can't be loosened by any hook: authentication, authorization checks, the audit log, the minimum sandbox of services and the agent's allowlist of operations. Hooks can always make them stricter. Loosening one needs the `core.override` permission, which only a server admin can grant; every time it is used, the panel logs it and records it in the audit log. Rules never hold it.
+Some settings can't be loosened by any hook: authentication, authorization checks, the audit log, the minimum sandbox of services and the agent's allowlist of operations. Hooks can always make them stricter. Loosening one needs the `core.override` permission, which only a server admin can grant; every time it is used, the panel logs it and records it in the audit log. Rules never hold it. **Settings → Rules** marks the hooks that hold it in red.
+
+## Add-ons of an account
+
+An add-on an account owner installs, a `core.account_addon`, affects only that account:
+
+- its hooks attach only to points of the change pipeline, `<kind>.<operation>.<stage>` or patterns of them such as `web.site.*.validate`, never to `core.boot`, `auth.login.validate`, `modules.<id>.on` or any other point that belongs to the whole server;
+- it hears only about the changes to its account: a change set that also changes other accounts reaches it with those changes left empty, and without its title, effects and estimate;
+- it can't provide a capability, since what add-ons provide serves the whole server, patch configuration with system hooks, or hold `core.override`.
+
+An add-on whose manifest asks for any of these can only be installed by a server admin, as a `core.addon`.
 
 ## Safe mode
 
 Safe mode takes every add-on out of the pipeline and stops it, so a misbehaving add-on can't keep the panel from working. It comes on:
 
-- from the boot menu, with the `racksail.safe_mode` boot option, until the server boots without it;
+- with the `racksail.safe_mode` boot option, until the server boots without it: at the boot menu, press <kbd>e</kbd>, add `racksail.safe_mode` to the end of the line that starts with `linux`, and press <kbd>Ctrl</kbd>+<kbd>X</kbd> to boot;
 - from the server's console, with `racksail safe-mode on`, until `racksail safe-mode off`;
 - from the panel, in **Settings → Rules**, or with `POST /api/v1/safe-mode`;
 - by itself, when an add-on crashes three times within two minutes of starting.

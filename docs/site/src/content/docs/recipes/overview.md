@@ -7,7 +7,7 @@ Everything the [marketplace](../../modules/marketplace/) offers is described by 
 
 ## Installing
 
-Installing an item asks for the recipe's inputs, such as a domain and an admin password, and shows the preview of one change set: every resource the recipe creates, in the order it creates them, with what each downloads, installs, starts and opens. Applying it creates them all, or none.
+Installing an item asks for the recipe's inputs, such as a domain and an admin password, and shows the preview of one change set: the installation that records it, every resource the recipe creates, in the order it creates them, with what each downloads, installs, starts and opens, and last the recipe's health checks. Applying it creates them all, or none.
 
 Before the preview, the panel checks that the item can be installed here:
 
@@ -29,11 +29,11 @@ Every install also creates an installation, `core.installation` for what goes in
 
 ## Health checks
 
-A recipe's health checks confirm that what it installed works: an `http` check of the app's address, a `unit` check of its service, or a `resource` check that waits for what the recipe created to be ready. They run when the install is applied, where a check that fails fails the change set so it can be undone, and then every five minutes. The installation's status says how each went.
+A recipe's health checks confirm that what it installed works: an `http` check of the app's address, a `unit` check of its service, or a `resource` check that waits for what the recipe created to be ready. An install or an upgrade ends with them, as the installation's **Check health** action, which gives each check its whole timeout to pass; a check that doesn't pass fails the change set, so it can be undone. After that they run every five minutes, and the installation's status says how each went.
 
 ## Downloads
 
-Files a recipe downloads from upstream, such as an app's release archive, are pinned by checksum and size, and many by the upstream's signature too. The panel checks them when the installation is applied, and refuses a file that changed since the recipe was written. See [the recipe format](../format/#downloads).
+Files a recipe downloads from upstream, such as an app's release archive, are pinned by checksum and size, and many by the upstream's signature too. The installation comes first in an install's change set, and applying it checks them before anything else is applied, so a file that changed since the recipe was written refuses the install while nothing of it is on the server. The preview lists each file checked, with where it comes from and how large it is. See [the recipe format](../format/#downloads).
 
 ## Upgrading
 
@@ -51,7 +51,7 @@ Resources both versions have are updated, ones the new version adds are created,
 
 Uninstalling removes what the installation created, in reverse order. What holds data, such as databases and site files, is kept unless you choose otherwise, or the recipe says its data isn't worth keeping. A kept resource stays where it is, with its data and the `racksail.dev/kept-from` label, and can be used again or removed later. Removing one takes a snapshot of its data first, as every change that deletes data does.
 
-Like every change set, an install, an upgrade and an uninstall can be undone.
+Like every change set, an install, an upgrade and an uninstall can be undone. Only someone who may change the installation's account can upgrade or uninstall it; to anyone else, it doesn't exist.
 
 ## From the API
 

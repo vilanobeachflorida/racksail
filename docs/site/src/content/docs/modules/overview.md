@@ -5,7 +5,7 @@ description: "How modules are turned on and off, what each profile includes and 
 
 Racksail is built from modules: web hosting, mail, DNS, databases, containers, virtual machines and the rest. Every module ships in the `racksail` binary, but a module that is off installs nothing, runs nothing, stores nothing and makes no network calls. Turning one on is a change you preview first, like any other.
 
-Find them in **Settings → Modules**. Each card says what the module does, what it costs in memory and disk when idle and when in use, what it needs, what uses it, and why it can't run on this server when that's the case.
+Find them in **Settings → Modules**. Each card says what the module does, what it costs in memory and disk when idle and when in use, what it needs, what uses it, the software it installs once something needs it, and why it can't run on this server when that's the case. Cards follow the module's state as it changes, such as a module turning active when the first resource uses it.
 
 ## States
 
@@ -21,7 +21,7 @@ A module's state is a resource of its own, `core.module`, so turning it on or of
 
 ## Turning a module on
 
-**Turn on** shows a preview of everything the module would do: the packages it downloads and how large they are, the services it starts, the ports it opens, the memory it takes and the disk it uses. Modules it needs are turned on with it, in order. Nothing heavy is installed yet: a module installs its software the first time a resource needs it, so turning on the mail module costs nothing until you create a mailbox.
+**Turn on** shows a preview of everything the module would do: starting in the panel, with the memory it takes while idle, and what it does once something uses it, the software it downloads then, from where and how large, the packages that brings in, the services it runs, the ports it opens, and the memory and disk it takes. The sizes come from the server's package index where it can tell, and from the module's estimates otherwise. Modules it needs are turned on with it, in order. Nothing heavy is installed yet: a module installs its software the first time a resource needs it, so turning on the mail module costs nothing until you create a mailbox.
 
 A module whose hardware requirements this server doesn't meet, such as virtual machines on a processor without hardware virtualization, can't be turned on, and its card says why.
 
@@ -31,7 +31,7 @@ A module whose hardware requirements this server doesn't meet, such as virtual m
 
 ## Removing a module
 
-**Remove** uninstalls a module's software once it is off. With **Keep its data**, its resources and their data stay, and come back when the module is turned on again; without it, they are deleted, after a snapshot. You type the module's name to confirm.
+**Remove** uninstalls a module's software once it is off, and the module shows as being removed while it does. With **Keep its data**, its resources and their data stay, and come back when the module is turned on again; without it, they are deleted, after a snapshot, and **Download its resources** first keeps a copy of their settings as a JSON file. Fields that refer to secrets, such as passwords, are left out of it. You type the module's name to confirm, and the removal is previewed like any change. A removed module installs its software again the first time something needs it once it is on again.
 
 ## Profiles
 
@@ -56,9 +56,15 @@ The assistant, migration, the cluster, the builder and security scanning are in 
 ```sh
 api=https://panel.example.com:8443/api/v1
 auth="Authorization: Bearer $RACKSAIL_TOKEN"
-curl -H "$auth" $api/modules                                                # every module, its state, needs and cost
-curl -H "$auth" -X POST "$api/core/modules/mod_.../actions/turn_on?dryRun=true"  # preview turning one on
-curl -H "$auth" -X POST "$api/modules/profiles/web-hosting?dryRun=true"          # preview a profile
+curl -H "$auth" $api/modules                                                 # every module, its state, needs and cost
+curl -H "$auth" $api/modules/mail/software                                   # what it installs, from where, how large
+curl -H "$auth" -X POST "$api/modules/mail/actions/turn_on?dryRun=true"        # preview turning it on, with what it needs
+curl -H "$auth" -X POST "$api/modules/mail/actions/turn_off?dryRun=true"       # preview turning it off
+curl -H "$auth" $api/modules/mail/export > mail.json                         # its resources, before removing it
+curl -H "$auth" -X POST "$api/modules/mail/actions/remove?dryRun=true" -d '{"confirm": "Mail", "keepData": false}'
+curl -H "$auth" -X POST "$api/modules/profiles/web-hosting?dryRun=true"       # preview a profile
 ```
+
+The actions of a module's `core.module` resource, `POST /api/v1/core/modules/{id}/actions/turn_on` and the others, change that one module: turning it on that way needs the modules it needs on already, and removing it without its data needs its resources deleted in the same change set.
 
 Every change answers with its change set; with `dryRun=true` it is the preview, which `POST /api/v1/changesets/{id}/apply` applies as it was shown.

@@ -22,7 +22,7 @@ They are attached to the `catalog` release on GitHub and pushed to the GitHub Co
 - The index must be signed by one of the keys the catalog was added with. An index that isn't is refused, and the panel keeps offering the last good one.
 - An index built before the one the panel already has is refused, so nobody can serve an old index to bring back a version with a known problem.
 - Every file the panel fetches, a recipe or an icon, must have the size and checksum the index lists.
-- While the marketplace is on, the panel fetches every catalog's index once a day, and when you choose **Fetch now**.
+- While the marketplace is on, the panel fetches a catalog's index when you add the catalog or change it, once a day after that, and when you choose **Fetch now**. A catalog whose index can't be fetched is kept, and its status says why.
 
 ## Maintenance flags
 

@@ -90,7 +90,7 @@ Strings in a spec may use `${inputs.<name>}` and `${resources.<name>.id}`. A str
 
 ## Downloads
 
-`downloads` pins the upstream files the recipe uses by `url` (https only), `sha256` and `size`. The panel checks every one when the item is installed and refuses a file that changed. Where upstream signs its releases, add the signature:
+`downloads` pins the upstream files the recipe uses by `url` (https only), `sha256` and `size`. The panel checks every one before anything of an install or an upgrade is applied, and refuses a file that changed, leaving the server as it was. Where upstream signs its releases, add the signature:
 
 ```yaml
 downloads:

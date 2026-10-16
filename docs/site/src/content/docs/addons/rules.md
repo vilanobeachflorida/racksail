@@ -89,7 +89,7 @@ A rule that doesn't compile can't be saved: the panel says which part of the exp
 
 ## Trying a rule
 
-**Settings → Rules → Try a rule** runs a rule on a change you describe, as the hook pipeline would, without saving the rule or making the change. It shows whether the rule applies, what a validate rule decides and the message it would show, what a default rule fills in, how much of the cost limit the evaluation used and the hook points the rule would be attached to. **Save as a server rule** saves it, after a preview.
+**Settings → Rules → Try a rule** runs a rule on a change you describe, as the hook pipeline would, without saving the rule or making the change. It shows whether the rule applies, what a validate rule decides and the message it would show, what a default rule fills in, how much of the cost limit the evaluation used and the hook points the rule would be attached to. The rule belongs to the owner chosen at the top of the screen, the server, a reseller or an account, and the change to the owner of the resource you choose, so rules that read `account` or `plan` see that account's. **Save** saves the rule for its owner, after a preview.
 
 The tester is in the API too:
 
@@ -111,6 +111,6 @@ curl -H "Authorization: Bearer $RACKSAIL_TOKEN" -X POST https://panel.example.co
 
 ## Managing rules
 
-Server rules are listed in **Settings → Rules**, where switching one off or on is a change you preview first. Rules are resources, so the API manages them like any other: `/api/v1/core/policies`, `/api/v1/core/reseller-policies` and `/api/v1/core/account-policies`. A rule's status lists the hook points it is attached to, and says when something it names, such as a kind, doesn't exist.
+**Settings → Rules** lists the rules of the server, or of the reseller or account chosen at the top, and switching one off or on is a change you preview first. Rules are resources, so the API manages them like any other: `/api/v1/core/policies`, `/api/v1/core/reseller-policies` and `/api/v1/core/account-policies`. A rule's status lists the hook points it is attached to, and says when something it names, such as a kind, doesn't exist.
 
 Changing a rule takes effect for the next change: rules are compiled when they are saved, and again as the panel starts.
