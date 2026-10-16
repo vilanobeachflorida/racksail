@@ -1,8 +1,9 @@
-import { Link } from "@tanstack/react-router";
-import { CircleAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { type ErrorComponentProps, Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
-import { errorMessage } from "@/lib/errors";
+import { ErrorState } from "@/design/components/ui/states";
+import { errorDetails, errorMessage } from "@/lib/errors";
 import { BrandMark } from "./brand";
 import { messages } from "./messages";
 
@@ -20,19 +21,31 @@ export function NotFound() {
   );
 }
 
-/** Shown in place of a screen that threw while loading or rendering. */
-export function RouteError({ error }: { error: unknown }) {
+/**
+ * Shown in place of a screen that threw while loading or rendering, in the
+ * shell, so the rest of the panel still works: what went wrong, Try again,
+ * and the technical details folded away for a bug report.
+ */
+export function RouteError({ error, reset }: ErrorComponentProps) {
   const intl = useIntl();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const address = useRouterState({ select: (state) => state.location.href });
+  const tryAgain = async () => {
+    // What failed loads again, rather than fail at once from what was kept.
+    await queryClient.resetQueries({ predicate: (query) => query.state.status === "error" });
+    reset();
+    await router.invalidate();
+  };
   return (
-    <div role="alert" className="mx-auto flex max-w-xl flex-col items-start gap-4 py-12">
-      <h1 className="flex items-center gap-2 font-semibold text-2xl">
-        <CircleAlert className="size-6 text-danger" aria-hidden="true" />
-        {intl.formatMessage(messages.errorTitle)}
-      </h1>
-      <p className="text-muted-foreground">{errorMessage(intl, error)}</p>
-      <Button variant="outline" onClick={() => window.location.reload()}>
-        {intl.formatMessage(messages.errorReload)}
-      </Button>
+    <div className="mx-auto flex max-w-xl flex-col py-12">
+      <ErrorState
+        headingLevel={1}
+        title={intl.formatMessage(messages.errorTitle)}
+        error={error}
+        details={`${address}\n${errorDetails(error)}`}
+        onRetry={() => void tryAgain()}
+      />
     </div>
   );
 }

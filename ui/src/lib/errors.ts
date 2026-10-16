@@ -31,6 +31,28 @@ export function problemMessage(intl: IntlShape, problem: Problem): string {
   );
 }
 
+/**
+ * What an error says for a bug report, as it is rather than translated:
+ * a problem's code, status, English explanation, parameters and where it
+ * happened, or an exception's name, message and stack.
+ */
+export function errorDetails(error: unknown): string {
+  if (error instanceof ApiError) {
+    const p = error.problem;
+    const params = p.params && Object.keys(p.params).length > 0 ? JSON.stringify(p.params) : "";
+    return [`${p.code} (${error.status})`, p.detail ?? p.title ?? "", params, p.instance ?? ""]
+      .filter((line) => line !== "")
+      .join("\n");
+  }
+  if (error instanceof Error) {
+    const head = `${error.name}: ${error.message}`;
+    const stack = error.stack ?? "";
+    // V8 starts the stack with the name and message; other engines don't.
+    return stack.startsWith(head) ? stack : [head, stack].filter((s) => s !== "").join("\n");
+  }
+  return String(error);
+}
+
 /** The message for any error: problems from the API, or what an exception says. */
 export function errorMessage(intl: IntlShape, error: unknown): string {
   if (error instanceof ApiError) {
