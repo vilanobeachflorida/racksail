@@ -274,7 +274,7 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		ctx = context.Background()
 	}
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind, account.Kind, resellerKind, offerKind} {
+	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind, probeKind, account.Kind, resellerKind, offerKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -303,7 +303,7 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		m = sim.New(sim.Options{})
 	}
 	recs := reconcile.NewRegistry()
-	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{}), reconcile.Typed(ticketKind, ticketReconciler{}), reconcile.Typed(gateKind, gateReconciler{})} {
+	for _, r := range []reconcile.Reconciler{reconcile.Typed(pageKind, pageReconciler{}), reconcile.Typed(menuKind, menuReconciler{}), reconcile.Typed(ticketKind, ticketReconciler{}), reconcile.Typed(gateKind, gateReconciler{}), reconcile.Typed(probeKind, probeReconciler{})} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -688,6 +689,38 @@ func TestTurningOnWithWhatItNeeds(t *testing.T) {
 	}
 	if len(req.Changes) != 1 || req.Title != "Turn on Web" {
 		t.Errorf("web needs only net, which is on: %+v", req)
+	}
+}
+
+// Turning a module on looks for each piece of its software on its own, and
+// the job's log says what each step looks for, so no two lines read the
+// same.
+func TestTurningOnLooksForEachPieceOfSoftware(t *testing.T) {
+	tools := &netModule{modules.NewBase(manifest("tools", `dependencies: {}
+upstream:
+  - {id: lathe, name: Lathe, license: MIT, source: {type: vendor-archive, verification: A checksum.}, install: When the first part is made.}
+  - {id: drill, name: Drill, license: MIT, source: {type: racksail-build, verification: A signature.}, install: When the first hole is made.}
+  - {id: webd, name: Webd, license: MIT, source: {type: debian, packages: [webd]}, install: When the first page is made.}
+`))}
+	e := modulestest.New(t, modulestest.Options{}, newNet(), tools)
+	cs := e.TurnOn(t, "tools")
+	logs, err := e.Queue.Logs(context.Background(), cs.Job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range logs {
+		if step, ok := l.Attrs["step"]; ok {
+			lines = append(lines, fmt.Sprintf("%s step=%v", l.Message, step))
+		}
+	}
+	for _, want := range []string{"Look for Lathe", "Look for Drill", "Look for Webd"} {
+		if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, want+" step=") }) {
+			t.Errorf("the log doesn't say it looks for %s: %q", strings.TrimPrefix(want, "Look for "), lines)
+		}
+	}
+	if len(slices.Compact(slices.Sorted(slices.Values(lines)))) != len(lines) {
+		t.Errorf("two lines of the log read the same: %q", lines)
 	}
 }
 

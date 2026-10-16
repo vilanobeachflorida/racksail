@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
@@ -58,6 +61,87 @@ func (gateReconciler) Apply(ctx context.Context, obj *store.Object[gateSpec, pag
 		}
 	}
 	return st, reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
+}
+
+// A probe looks for files on the server, each in a plan of its own so a
+// file that isn't there doesn't stop the others, as the module manager looks
+// for the software a module installed.
+type probeSpec struct {
+	Paths []string `json:"paths"`
+}
+
+type probeStatus struct {
+	store.Status
+	Found []string `json:"found,omitempty"`
+}
+
+var probeKind = store.Define[probeSpec, probeStatus](store.KindInfo{
+	Name: "test.probe", Prefix: "probe", Scope: store.ScopeAccount, Title: "Probe", Plural: "probes",
+	Description: "Files to look for on the server one at a time, for the steps of a job's log.",
+})
+
+type probeReconciler struct{}
+
+func (probeReconciler) Plan(ctx context.Context, obj *store.Object[probeSpec, probeStatus], req reconcile.Request) (reconcile.Plan, error) {
+	return reconcile.Plan{}, nil
+}
+
+func (probeReconciler) Apply(ctx context.Context, obj *store.Object[probeSpec, probeStatus], plan reconcile.Plan, ex reconcile.Executor) (probeStatus, error) {
+	st := obj.Status
+	st.Found = nil
+	for _, p := range obj.Spec.Paths {
+		if _, err := ex.Run(ctx, []agent.Step{agent.StatPath.Step(agent.PathInput{Path: p})}); err == nil {
+			st.Found = append(st.Found, p)
+		}
+	}
+	return st, reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
+}
+
+// steps lists the steps a job's log names, as title and number.
+func steps(t *testing.T, q jobs.Queue, id store.ID) []string {
+	t.Helper()
+	logs, err := q.Logs(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, l := range logs {
+		if n, ok := l.Attrs["step"]; ok {
+			out = append(out, fmt.Sprintf("%s %v", l.Message, n))
+		}
+	}
+	return out
+}
+
+// A job's log numbers the steps of a change in the order they run, however
+// many plans run them, so two steps that do the same to different things
+// never read the same.
+func TestJobLogNumbersEveryStep(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	raw, _ := json.Marshal(probeSpec{Paths: []string{pagesDir, pagesDir + "/missing.html"}})
+	probe := e.submit(t, false, Change{Op: OpCreate, Kind: "test.probe", Scope: store.AccountScope(e.acct), Spec: raw})
+	if probe.State != StateApplied {
+		t.Fatalf("probe = %+v", probe)
+	}
+	if got, want := steps(t, e.jobs, probe.Job), []string{"Describe a file or directory 1", "Describe a file or directory 2"}; !slices.Equal(got, want) {
+		t.Errorf("steps of two one-step plans = %q, want %q", got, want)
+	}
+
+	// An action's own steps come first, and its reconcile's carry on from them.
+	page := e.submit(t, false, e.createPage(pageSpec{Path: "steps.html", Content: "steps"}))
+	pub, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpAction, Kind: "test.page", ID: page.Changes[0].ID, Action: "publish", Input: json.RawMessage(`{"message":"hello"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.wait(t, pub)
+	var numbers []string
+	for _, s := range steps(t, e.jobs, pub.Job) {
+		numbers = append(numbers, s[len(s)-1:])
+	}
+	if want := []string{"1", "2", "3"}; !slices.Equal(numbers, want) {
+		t.Errorf("steps of an action and its reconcile = %q", steps(t, e.jobs, pub.Job))
+	}
 }
 
 // running waits until a job runs.

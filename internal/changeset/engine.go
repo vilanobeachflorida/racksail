@@ -1165,12 +1165,17 @@ func (e *Engine) applyEnded(ctx context.Context, job *jobs.Job) {
 // It returns the action's output.
 func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Reporter) (json.RawMessage, error) {
 	runner := e.opts.Runner
-	progress := func(id store.ID, i int, s agent.Step) {
+	// The change's steps are numbered in the order they run, the action's
+	// own first and then those of every plan the reconcile runs, so steps
+	// with the same title in different plans still read apart in the log.
+	step := 0
+	progress := func(id store.ID, _ int, s agent.Step) {
+		step++
 		title := s.Title
 		if title == "" {
 			title = s.Op
 		}
-		r.Log(slog.LevelInfo, title, "resource", id, "step", i+1)
+		r.Log(slog.LevelInfo, title, "resource", id, "step", step)
 	}
 	if len(c.Steps) > 0 {
 		if runner == nil || runner.Agent == nil {

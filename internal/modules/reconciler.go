@@ -368,21 +368,24 @@ func (m *Manager) enqueueResources(ctx context.Context, id string) {
 
 // installed finds which of the module's upstream software is on the
 // server: Debian packages it names exactly, and the runtime directories of
-// archives.
+// archives. Each check runs as a plan of its own, since a runtime directory
+// that isn't there fails its step, and says what it looks for, so the job's
+// log tells the checks apart.
 func (m *Manager) installed(ctx context.Context, ex reconcile.Executor, man *Manifest) ([]string, error) {
 	var steps []agent.Step
 	var owners []string
 	for _, u := range man.Upstream {
+		title := "Look for " + u.Name
 		switch u.Source.Type {
 		case "debian", "apt-repository":
 			names := exactPackages(u)
 			if len(names) == 0 {
 				continue
 			}
-			steps = append(steps, agent.QueryPackages.Step(agent.QueryPackagesInput{Names: names}))
+			steps = append(steps, agent.QueryPackages.Titled(title, agent.QueryPackagesInput{Names: names}))
 			owners = append(owners, u.ID)
 		case "vendor-archive", "racksail-build":
-			steps = append(steps, agent.StatPath.Step(agent.PathInput{Path: RuntimeDir(u.ID, "")}))
+			steps = append(steps, agent.StatPath.Titled(title, agent.PathInput{Path: RuntimeDir(u.ID, "")}))
 			owners = append(owners, u.ID)
 		}
 	}
