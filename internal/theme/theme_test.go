@@ -172,6 +172,29 @@ func TestParseRejectsBadThemes(t *testing.T) {
 	}
 }
 
+func TestProtectedTokensAreRefusedWhereTokensGo(t *testing.T) {
+	d := Default()
+	base := string(encode(t, d))
+	for name, tt := range map[string]struct{ doc, want string }{
+		"palette": {strings.Replace(base, "  light:\n", "  light:\n    criticalDanger: '#00FF00'\n", 1), "tokens.light.criticalDanger"},
+		"root":    {"criticalSurface: '#000000'\n" + base, "(criticalSurface)"},
+		"tokens":  {strings.Replace(base, "tokens:\n", "tokens:\n  critical:\n    danger: '#00FF00'\n", 1), "tokens.critical"},
+		"console": {strings.Replace(base, "console:\n", "console:\n  criticalText: '#FFFFFF'\n", 1), "console.criticalText"},
+		"several": {strings.Replace(base, "  dark:\n", "  dark:\n    CriticalFocus: '#00FF00'\n    criticalText: '#00FF00'\n", 1), "(tokens.dark.CriticalFocus, tokens.dark.criticalText)"},
+	} {
+		_, err := Parse([]byte(tt.doc))
+		if err == nil || !strings.Contains(err.Error(), "protected tokens") || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: %v, want it to name %s", name, err, tt.want)
+		}
+	}
+	// Names people choose are only names: an illustration may be called
+	// anything.
+	d.Assets.Illustrations = map[string]string{"criticalError": "art/error.svg"}
+	if _, err := Parse(encode(t, d)); err != nil {
+		t.Errorf("an illustration called criticalError: %v", err)
+	}
+}
+
 func TestCheckReportsEveryProblem(t *testing.T) {
 	th := Default()
 	th.Tokens.Light.Text = "#C0C0C0"

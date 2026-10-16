@@ -208,28 +208,31 @@ func (t *Theme) Validate() error {
 	return errors.Join(errs...)
 }
 
-// protectedKeys finds keys anywhere in a raw document that name protected
-// tokens, so a theme that tries to change them gets a clear answer rather
-// than a schema error about an unknown field.
+// protectedKeys finds keys that name protected tokens where tokens go: at
+// the top of the document, in tokens and each group in it, and in the
+// console palette. A theme that tries to set them gets a clear answer
+// rather than a schema error about an unknown field. Names people choose,
+// such as those of illustrations, may be anything. It returns their paths,
+// sorted.
 func protectedKeys(doc any) []string {
 	var found []string
-	var walk func(v any)
-	walk = func(v any) {
-		switch x := v.(type) {
-		case map[string]any:
-			for k, child := range x {
-				if strings.HasPrefix(strings.ToLower(k), "critical") {
-					found = append(found, k)
-				}
-				walk(child)
-			}
-		case []any:
-			for _, child := range x {
-				walk(child)
+	check := func(path string, v any) {
+		m, _ := v.(map[string]any)
+		for k := range m {
+			if strings.HasPrefix(strings.ToLower(k), "critical") {
+				found = append(found, path+k)
 			}
 		}
 	}
-	walk(doc)
+	root, _ := doc.(map[string]any)
+	check("", root)
+	check("console.", root["console"])
+	tokens, _ := root["tokens"].(map[string]any)
+	check("tokens.", tokens)
+	for name, group := range tokens {
+		check("tokens."+name+".", group)
+	}
+	slices.Sort(found)
 	return found
 }
 

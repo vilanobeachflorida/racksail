@@ -15,7 +15,13 @@ import {
 } from "./prefs";
 import { builtinTheme, builtinThemes, defaultTheme, themeSpec } from "./spec";
 import type { Theme } from "./types";
-import { readThemeDocument, readThemeFile, themeToJSON, themeToYAML } from "./validate";
+import {
+  findProtectedKeys,
+  readThemeDocument,
+  readThemeFile,
+  themeToJSON,
+  themeToYAML,
+} from "./validate";
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>();
@@ -380,7 +386,24 @@ describe("reading theme files", () => {
     (withProtected.tokens as { light: Record<string, string> }).light.criticalDanger = "#00FF00";
     const reading = readThemeDocument(withProtected);
     expect(reading.error).toBe("protected");
-    expect(reading.protectedKeys).toEqual(["criticalDanger"]);
+    expect(reading.protectedKeys).toEqual(["tokens.light.criticalDanger"]);
+    expect(
+      findProtectedKeys({
+        criticalSurface: "#000000",
+        tokens: { critical: {}, dark: { CriticalFocus: "#00FF00" } },
+        console: { criticalText: "#FFFFFF" },
+      }),
+    ).toEqual([
+      "console.criticalText",
+      "criticalSurface",
+      "tokens.critical",
+      "tokens.dark.CriticalFocus",
+    ]);
+
+    // Names people choose are only names: an illustration may be called anything.
+    const illustrated = structuredClone(theme);
+    illustrated.assets = { illustrations: { criticalError: "art/error.svg" } };
+    expect(readThemeDocument(illustrated)).toMatchObject({ error: null, issues: [], problems: [] });
 
     const remote = structuredClone(theme);
     remote.assets = { logoLight: "https://example.com/logo.png" };

@@ -22,20 +22,36 @@ export interface ThemeReading {
   protectedKeys: string[];
 }
 
-function findProtectedKeys(value: unknown, found: string[] = []): string[] {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      findProtectedKeys(item, found);
-    }
-  } else if (typeof value === "object" && value !== null) {
-    for (const [key, child] of Object.entries(value)) {
+function entries(value: unknown): [string, unknown][] {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? Object.entries(value)
+    : [];
+}
+
+/**
+ * Keys that name protected tokens where tokens go: at the top of the
+ * document, in tokens and each group in it, and in the console palette, as
+ * internal/theme looks for them. Names people choose, such as those of
+ * illustrations, may be anything. Returns their paths, sorted.
+ */
+export function findProtectedKeys(doc: unknown): string[] {
+  const found: string[] = [];
+  const check = (path: string, value: unknown) => {
+    for (const [key] of entries(value)) {
       if (key.toLowerCase().startsWith("critical")) {
-        found.push(key);
+        found.push(path + key);
       }
-      findProtectedKeys(child, found);
     }
+  };
+  const root = Object.fromEntries(entries(doc));
+  check("", root);
+  check("console.", root.console);
+  check("tokens.", root.tokens);
+  for (const [name, group] of entries(root.tokens)) {
+    check(`tokens.${name}.`, group);
   }
-  return found;
+  // Sorted by code point, as Go sorts strings.
+  return found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /**

@@ -220,7 +220,7 @@ Every template also has `lang` and `dir` for the reader's language and direction
 
 ## Protected colors
 
-Themes can't set the protected palette that safety-critical screens use, and a theme that tries, with any token whose name starts with `critical`, is refused.
+Themes can't set the protected palette that safety-critical screens use. A theme that tries, with a key starting with `critical` where tokens go (at the top of the file, in `tokens` or one of its groups, such as `tokens.light`, or in `console`), is refused. Names you choose, such as those of illustrations, can be anything.
 
 ## The command line
 

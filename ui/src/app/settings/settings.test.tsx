@@ -96,7 +96,9 @@ describe("the theme editor", () => {
       new File(["name: Loud\ntokens:\n  light:\n    criticalDanger: '#FF0000'\n"], "loud.yaml"),
     );
     expect(
-      await screen.findByText(/^Themes can't set protected colors \(criticalDanger\)\./),
+      await screen.findByText(
+        /^Themes can't set protected colors \(tokens\.light\.criticalDanger\)\./,
+      ),
     ).toBeInTheDocument();
 
     await user.upload(input, new File(["id: Not An ID\n"], "partial.yaml"));
