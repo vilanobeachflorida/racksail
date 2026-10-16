@@ -42,11 +42,13 @@ or give it to each command in `RACKSAIL_TOKEN`.
 Tokens are for using the panel, not for changing who can use it. Whatever its permissions, a token can't:
 
 - change how anyone signs in: passwords, second steps, passkeys, API tokens, SSH keys, outside sign-ins and where security alerts go;
-- change your name, email address or language;
+- change your name, email address, language or display preferences;
 - sign out sessions or forget trusted browsers;
 - view the panel as someone else.
 
 These answer `auth.panel_only`; do them in the panel. Tokens also never need to confirm it's you, since they can only do what they were given.
+
+One thing a token can always do is revoke itself, whatever its permissions, so a token that leaked can be stopped by whoever has it, such as with `racksail logout --revoke`. It can't revoke your other tokens.
 
 ## Keep track of tokens
 

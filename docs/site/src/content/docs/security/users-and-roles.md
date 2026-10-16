@@ -63,15 +63,29 @@ Three permissions are never part of a role, even an admin's `*`, and are given b
 
 ### What you can give
 
-Nobody can give more than they have: you can only give a role somewhere if you have all of its permissions there yourself. A reseller can make their customers' users account owners, but never admins; an account owner can add collaborators to their own account. The panel also keeps one admin who can sign in: the last one can't be turned off, deleted or lose the role, and nobody can turn off or delete themselves.
+Nobody can give more than they have: you can only give a role somewhere if you have all of its permissions there yourself, and taking one away takes the same. A reseller can make their customers' users account owners, but never admins; an account owner can add collaborators to their own account. The panel also keeps one admin who can sign in: the last one can't be turned off, deleted or lose the role, and nobody can turn off or delete themselves.
+
+When someone's roles change, their sessions get a new secret on their next request, carrying what they may do now; nobody keeps acting with roles they lost.
+
+Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user.
 
 ## Users
 
 Add users under **Users → Add a user**. Each user **belongs** somewhere, the whole server, a reseller or an account, which decides who manages them: an account's users are managed by its owner, its reseller and the server's admins. Where a user belongs is set when they're added.
 
+Users are changes like any other: adding one, changing their details or roles, and removing one show a preview first, go through the same checks, hooks and rules as every change, are recorded in the audit log, and can be undone. Only who someone is and what they may do is in such a change. How they sign in, their password, passkeys, second steps, sessions and API tokens, is theirs alone and never part of one, so it doesn't show in previews or history, and undoing a change never brings back an old password.
+
 A new user gets in one of two ways: a **sign-in link** to choose their own password, which you pass on to them, or a password you set, which you can ask them to change the first time they sign in.
 
-On a user's page you can change their details and roles, see where they're signed in, their API tokens and SSH keys, and:
+The same from the [racksail command](../../api/cli/):
+
+```sh
+racksail user create --scope account:acct_01j9… --username ana --name "Ana Silva" --grants owner@acct_01j9…
+racksail user link user_01j9…
+racksail user password user_01j9… --password - --must-change
+```
+
+On a user's page you can change their details and roles, see where they're signed in, their API tokens and SSH keys, set a password for them, and:
 
 - **Turn the user off**: they can't sign in, their sessions end and their API tokens stop working, until you turn them back on;
 - **Help them back in**, with a new sign-in link, by signing them out everywhere, removing their second steps, revoking their tokens or ending a lockout (see [Sign-in](../sign-in/#getting-back-in));

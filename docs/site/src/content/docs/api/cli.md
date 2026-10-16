@@ -31,6 +31,7 @@ Profiles are kept in `racksail/cli.json` in your configuration directory (`~/.co
 racksail profile list          # the profiles, the current one starred
 racksail profile use work      # make one the current one
 racksail logout                # forget the current profile and its token
+racksail logout --revoke       # revoke the token first, so it stops working everywhere
 ```
 
 `racksail whoami` says who the token signs in as, what it may do and which panel it's talking to. `racksail status` says whether the panel is healthy and which version it runs.
@@ -42,7 +43,7 @@ Every client command takes these flags and environment variables, which win over
 | Flag | Environment | What it does |
 |---|---|---|
 | `--profile` | `RACKSAIL_PROFILE` | Uses another profile than the current one |
-| `--server` | `RACKSAIL_SERVER` | The panel's address. Without either, the profile's, or `http://127.0.0.1:7070` on the server itself |
+| `--server` | `RACKSAIL_SERVER` | The panel's address. Without either, the profile's, or the panel of the server the command runs on: where `racksail.toml` says it listens, `https://localhost:8443` to start with, trusting the certificate the panel made for itself when you may read it |
 | | `RACKSAIL_TOKEN` | The API token to send. A profile's token is only ever sent to the profile's own panel |
 | `--ca-file` | | A certificate authority to trust, for a panel with its own certificate; `login` keeps it in the profile |
 | | `RACKSAIL_CONFIG` | Where profiles are kept, instead of `racksail/cli.json` |
@@ -54,7 +55,7 @@ The token is never a flag, so it stays out of your shell's history.
 Commands are named after what they act on, then what they do:
 
 - **Resources** are `racksail <kind> <operation>` for the core's kinds and `racksail <module> <kind> <operation>` for a module's: `racksail account list`, `racksail webhook create`, `racksail dns zone get`. Each kind has `list`, `get`, `create`, `update`, `delete` and `history`, and a command per action, such as `racksail webhook test`.
-- **The rest of the panel** has commands of its own: `racksail user list`, `racksail role list`, `racksail changeset undo`, `racksail job logs`, `racksail event watch`, `racksail audit export`, `racksail me show`, `racksail health`.
+- **The rest of the panel** has commands of its own: `racksail user password`, `racksail user link`, `racksail role list`, `racksail changeset undo`, `racksail job logs`, `racksail event watch`, `racksail audit export`, `racksail me show`, `racksail health`. Users are a kind like any other, `core.user`, so `racksail user list`, `create`, `update` and `delete` are resource commands, with previews and undo.
 
 `racksail --help` lists them, and `racksail <command> --help` says what one does, what it needs and its flags, with an example. Operations only people in the panel may use, such as signing in or changing how someone signs in, have no command.
 
@@ -69,6 +70,7 @@ What an operation is about comes first, as arguments: `racksail user get user_01
 - **Owners** take `server`, `account:ID`, `reseller:ID` or an account's ID on its own.
 - **Roles** take `ROLE` or `ROLE@OWNER`: `--grants admin`, `--grants owner@acct_01j9…`.
 - **Secrets**, such as a webhook's signing secret, go apart from the settings, as in the panel. Read them from a file with `@file`, or from standard input with `-`, so they stay out of your history: `--secret @secret.txt`.
+- **Passwords**, such as the one `racksail user password` sets, take `-` to type them without showing them, or to read them from standard input in scripts, and `@file` to read them from a file. A password written on the command line is refused, since shells keep it in their history and other people on the machine can see it in the process list.
 
 For anything the flags don't reach, give the whole request as JSON or YAML with `--file` (`-` reads standard input), and change single fields with `--set path=value`, where values that read as JSON are JSON:
 
@@ -98,7 +100,16 @@ racksail account open --slug acme --name "Acme Inc." --limits-memory-max 2G --dr
 
 Without `--dry-run` the command shows the same change set, then follows the job that carries it out, with its log as it comes and a progress line, until it's done. A job that fails makes the command fail with its reason. Ctrl-C stops following, not the job; `racksail job watch` follows it again. `--detach` returns as soon as the change is accepted, and with `-o json` the command prints the change set and waits quietly, so its exit status says how the job went.
 
-Operations that aren't changes to resources, such as adding a user, show the request they would send under `--dry-run`, with secrets hidden, and send nothing.
+Operations that aren't changes to resources, such as setting a user's password, show the request they would send under `--dry-run`, with secrets and passwords hidden, and send nothing.
+
+Commands that remove data, such as `racksail user delete` or `racksail account delete`, and critical ones ask you to type what they're about before they go ahead, such as the ID of what they delete. Without a terminal to ask on, as in scripts, they need `--yes`; `--dry-run` never asks, since it changes nothing.
+
+```sh
+racksail user create --scope account:acct_01j9… --username ana --grants owner@acct_01j9…
+racksail user link user_01j9…                         # a sign-in link to choose a password with
+racksail user password user_01j9… --password - --must-change
+racksail user delete user_01j9… --yes
+```
 
 ## Live streams
 

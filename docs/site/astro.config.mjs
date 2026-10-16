@@ -131,6 +131,7 @@ const sidebar = [
       "security/model",
       "security/users-and-roles",
       "security/sign-in",
+      "security/outside-providers",
       "security/api-tokens",
       "security/hardening",
       "security/reporting",

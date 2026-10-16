@@ -18,7 +18,9 @@ A new panel has nobody to sign in as, so it makes its first admin one of two way
       WHMZ3-WY84P-SM8XB-95KJ9
   ```
 
-  Open the panel, type the code, and choose the admin's username and password. The code works once; it's gone as soon as the first admin exists.
+  Open the panel, type the code, and choose the admin's username and password. The code works once; it's gone as soon as the first admin exists, from the console too.
+
+Either way the first admin is a user like any other, added through the change pipeline, so the audit log shows where they came from.
 
 ## Ways to sign in
 
@@ -26,7 +28,7 @@ A new panel has nobody to sign in as, so it makes its first admin one of two way
 |---|---|
 | Password | The username and password. Passwords are hashed with Argon2id; hashes the installer brought from Debian (yescrypt or SHA-512 crypt) keep working and are replaced with Argon2id ones the next time the person signs in |
 | Passkey | Nothing to type: the browser offers the person's passkeys for the panel, and their fingerprint, face, device PIN or security key confirms it. A passkey is a second step in itself, so it signs in on its own |
-| Outside provider | The provider's own page, such as an OpenID Connect provider's, or a username and password a directory such as LDAP checks. An admin connects providers under **Settings → Sign-in** |
+| Outside provider | The provider's own page, such as an OpenID Connect provider's, or a username and password a directory such as LDAP checks. An admin connects providers under **Settings → Sign-in**, from the [LDAP and OpenID Connect add-ons](../outside-providers/) of the official catalog |
 
 A password needs at least 10 characters, more than a few different ones, and nothing close to the username or to the passwords everyone tries first. A few unrelated words make one that's strong and easy to remember.
 
@@ -50,7 +52,7 @@ The sign-in policy can require a second step for some roles. Someone with such a
 
 ## Sessions
 
-A session lives in a cookie the browser keeps for the panel only: it's `HttpOnly`, so scripts can't read it, `Secure` over HTTPS, and `SameSite=Strict`, so other sites can't use it. The panel gives the session a new secret whenever the person signs in, confirms it's them, or starts or stops viewing the panel as someone else.
+A session lives in a cookie the browser keeps for the panel only: it's `HttpOnly`, so scripts can't read it, `Secure` over HTTPS, and `SameSite=Strict`, so other sites can't use it. The panel gives the session a new secret whenever the person signs in, confirms it's them, or starts or stops viewing the panel as someone else, and when their roles change, so a session always acts with what its person may do now. Requests already on their way with the secret before still go through for 30 seconds.
 
 A session ends after an hour without activity, or 12 hours after signing in however active the person is; the sign-in policy changes both. **Settings → Where you're signed in** lists every session with its browser, address and when it was last used, and signs out any of them, or all but the current one. Changing your password can sign you out everywhere else too.
 
@@ -69,7 +71,7 @@ API tokens never ask: they can only do what they were given, and can't change ho
 
 ## Lockouts and rate limits
 
-Ten failed sign-ins in a row lock a user out for 15 minutes, and the person gets an alert. Passkeys still sign a locked-out user in, so someone guessing at a password can't keep its owner out. Each address may also try to sign in, use a sign-in link or confirm it's someone only so often: 20 tries at once, then one every six seconds. An admin can end a lockout early by helping the user back in.
+Ten failed sign-ins in a row lock a user out for 15 minutes, and the person gets an alert. Wrong passwords count the same whether the panel checks them or an outside directory does, and a lockout stops the directory's password too. Failed sign-ins at the same moment each count, so guessing in parallel doesn't get more tries. Passkeys still sign a locked-out user in, so someone guessing at a password can't keep its owner out. Each address may also try to sign in, use a sign-in link or confirm it's someone only so often: 20 tries at once, then one every six seconds. An admin can end a lockout early by helping the user back in.
 
 ## Alerts
 
@@ -78,6 +80,8 @@ People choose under **Settings → Security** where their security alerts go, su
 ## Getting back in
 
 Someone who forgot their password or lost their second step asks an admin, a reseller or their account's owner, who opens their user and chooses **Help them back in**. That can make a **sign-in link** to choose a new password with, sign them out everywhere, remove their second steps, revoke their API tokens and end a lockout. A sign-in link works once, for a day; one made for a new user works for a week. Whoever makes it passes it on, privately.
+
+Whoever may help someone back in can also **set a password** for them on their user's page, which signs them out everywhere, and ask them to choose their own when they next sign in. Until they do, they can't do anything else in the panel. Nobody sets their own password this way: that's **Settings → Profile**, which asks for the current one.
 
 ## The sign-in policy
 
