@@ -10,7 +10,7 @@ if !addon.Supports("v1") {
 }
 ```
 
-`addon.APIVersions` lists the hook API versions the SDK speaks, newest first; a test keeps the newest equal to the protocol document's version. Serving the protocol, the hook types, the API client, reading `addon.yaml` and the local test harness build on it, as [the SDK overview](../README.md) describes.
+`addon.APIVersions` lists the hook API versions the SDK speaks, newest first, and `addon.Supports` says whether it speaks one; a test keeps the newest equal to the protocol document's version. That is all the SDK has: an add-on serves the protocol itself, as [the SDK overview](../README.md) describes, and the official add-ons in [addons/](../../addons/) show how in Go.
 
 ```sh
 cd sdk/go

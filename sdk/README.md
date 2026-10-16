@@ -8,16 +8,17 @@ This directory is for the libraries add-on authors use, in Go, TypeScript and Py
 | [ts/](ts/) | TypeScript on Node.js |
 | [python/](python/) | Python |
 
-Each SDK provides the same things:
+Each SDK has the same things, under the names its language expects:
 
-- serving the add-on protocol, [spec/addon-protocol.json](../spec/addon-protocol.json), on the socket systemd hands the add-on: its health, and hook calls dispatched to the add-on's handlers by hook point
-- types for what hooks receive and return: change sets, resource changes, configuration patches and denials
-- a client for the panel API, generated from [spec/openapi.json](../spec/openapi.json)
-- reading the add-on's manifest, `addon.yaml` ([spec/schemas/addon.schema.json](../spec/schemas/addon.schema.json))
-- a local test harness that plays the panel, so hooks can be tested without a server
+| What | Go | TypeScript | Python |
+|---|---|---|---|
+| The hook API versions the SDK speaks, newest first | `addon.APIVersions` | `apiVersions` | `racksail_addon.API_VERSIONS` |
+| Whether the SDK speaks a version | `addon.Supports` | `supports` | `racksail_addon.supports` |
 
-The SDKs follow the hook API version of the protocol document. When it changes, every SDK supports the new version in the same release, and deprecated versions keep working for the published period. Each SDK lists the versions it speaks, and a test in each keeps the newest equal to the protocol document's.
+That is all they have. An add-on serves the protocol itself: [spec/addon-protocol.json](../spec/addon-protocol.json) describes what the panel calls on the add-on's socket, and the [SDKs page](https://vilanobeachflorida.github.io/racksail/addons/sdks/) of the documentation shows how to answer it with each language's standard library. The official add-ons in [addons/](../addons/) do it in Go.
 
-`make sdk-check`, part of `make check`, runs the tests of all three: `go test` in [go/](go/), which is a Go module of its own, the type check and tests of [ts/](ts/) with Node.js, and the tests of [python/](python/) with the standard library's unittest.
+The SDKs follow the hook API version of the protocol document. When it changes, every SDK supports the new version in the same release, and deprecated versions keep working for the published period. A test in each keeps the newest version it lists equal to the protocol document's, and `docs/sdk_test.go` keeps this table, and the examples in each SDK's README, to what the SDKs define.
+
+`make sdk-check`, part of `make check`, runs the tests of all three: `go test` in [go/](go/), which is a Go module of its own, the type check and tests of [ts/](ts/) with Node.js, and the tests of [python/](python/) with the standard library's unittest, on Python 3.11 or later.
 
 How hooks, permissions and manifests work is described in [docs/architecture/extensibility.md](../docs/architecture/extensibility.md).

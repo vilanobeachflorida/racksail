@@ -1,6 +1,6 @@
 # TypeScript SDK
 
-This directory is the add-on SDK for TypeScript on Node.js, published as `@racksail/addon-sdk`. Its types are to be generated from [spec/addon-protocol.json](../../spec/addon-protocol.json) and [spec/openapi.json](../../spec/openapi.json) with openapi-typescript, as the panel's UI does.
+This directory is the add-on SDK for TypeScript on Node.js, published as `@racksail/addon-sdk`. It follows the add-on protocol in [spec/addon-protocol.json](../../spec/addon-protocol.json).
 
 ```ts
 import { supports } from "@racksail/addon-sdk";
@@ -10,7 +10,7 @@ if (!supports("v1")) {
 }
 ```
 
-`apiVersions` lists the hook API versions the SDK speaks, newest first; a test keeps the newest equal to the protocol document's version. Serving the protocol, the hook types, the API client, reading `addon.yaml` and the local test harness build on it, as [the SDK overview](../README.md) describes.
+`apiVersions` lists the hook API versions the SDK speaks, newest first, and `supports` says whether it speaks one; a test keeps the newest equal to the protocol document's version. That is all the SDK has: an add-on serves the protocol itself, as [the SDK overview](../README.md) describes.
 
 ```sh
 cd sdk/ts

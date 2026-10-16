@@ -79,7 +79,7 @@ help:
 	@echo "make fuzz        run every fuzz target for FUZZ_TIME ($(FUZZ_TIME)) each, or FUZZ_TARGET=dir:FuzzName alone"
 	@echo "make fuzz-list   list the fuzz targets as dir:FuzzName, as CI's daily fuzzing runs them"
 	@echo "make gen-check   fail when the generated files differ from what make gen writes"
-	@echo "make sdk-check   test the add-on SDKs"
+	@echo "make sdk-check   test the add-on SDKs; PYTHON names a Python 3.11 or later"
 	@echo "make addons-check  vet, staticcheck and test the official add-ons in addons/"
 	@echo "make addons      build the official add-ons' release archives into $(DIST)/addons/"
 
@@ -217,6 +217,12 @@ E2E_DATA  ?= .dev-e2e
 E2E_FLAGS ?=
 E2E_DEPS  := test/e2e/node_modules/.package-lock.json
 SDK_TS_DEPS := sdk/ts/node_modules/.package-lock.json
+
+# The Python SDK needs Python 3.11 or later, and macOS comes with 3.9.
+# PYTHON names the interpreter its tests run on; without it, the newest
+# python3.x on the PATH that is new enough.
+PYTHON ?= $(firstword $(foreach p,$(foreach v,20 19 18 17 16 15 14 13 12 11,python3.$(v)) python3,\
+	$(shell command -v $(p) >/dev/null 2>&1 && $(p) -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null && echo $(p))))
 
 # Debian's cloud image, which the end-to-end tests convert or install the
 # Debian package on, checked against the checksums Debian publishes beside it.
@@ -402,7 +408,8 @@ gen-check: gen
 sdk-check: $(SDK_TS_DEPS)
 	cd sdk/go && $(GO) vet ./... && $(GO) run $(STATICCHECK) ./... && $(GO) test ./...
 	cd sdk/ts && $(NPM) run typecheck && $(NPM) test
-	cd sdk/python && PYTHONPATH=src python3 -B -m unittest discover -s tests
+	@test -n "$(PYTHON)" || { echo "the Python SDK's tests need Python 3.11 or later, and the PATH has none (python3 is $$(python3 --version 2>&1)); install one, or name it with PYTHON=/path/to/python3"; exit 1; }
+	cd sdk/python && PYTHONPATH=src $(PYTHON) -B -m unittest discover -s tests
 
 # Lints the workflows and the shell scripts; CI runs it, with shellcheck.
 ci-lint:

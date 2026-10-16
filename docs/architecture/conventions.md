@@ -41,8 +41,9 @@ sdk/go, sdk/ts, sdk/python   add-on SDKs
 addons/                  the official catalog's add-ons, such as LDAP and OIDC sign-in (a Go module)
 spec/                    openapi.json, addon-protocol.json, agent-protocol.json, schemas/
 catalog/                 the official catalog (recipes, templates, models, themes)
-docs/architecture/       how Racksail is built
-docs/site/               the documentation website
+docs/                    tests that keep the docs, the community files and the READMEs true to the code
+  architecture/          how Racksail is built, and the tests that run its examples
+  site/                  the documentation website
 brand/                   logo files and brand assets
 iso/                     live-build configuration and boot branding
 packaging/               systemd units, install script, cloud images
@@ -95,7 +96,8 @@ test/                    end-to-end harness and fixtures
 - Comments explain why, not what. Keep them short. No banners, no emoji.
 - Exported Go identifiers have doc comments.
 - Docs are written for the person using Racksail: sentence-case headings, plain words, short paragraphs, examples.
-- Commit messages: an imperative subject line under 72 characters ("Add DNS zone import"), and a body only when the why isn't obvious. No trailers.
+- Commit messages: an imperative subject line under 72 characters ("Add DNS zone import"), and a body only when the why isn't obvious.
+- Sign-off: every commit a pull request adds ends with its author's `Signed-off-by` line, which certifies the [Developer Certificate of Origin](https://developercertificate.org/) (decision P3), and the Sign-off workflow checks each of them. The maintainers' own commits pushed straight to `main` don't go through a pull request and carry no sign-off. No commit carries any other trailer.
 
 ## Naming
 
