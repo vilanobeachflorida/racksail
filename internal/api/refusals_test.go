@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
@@ -219,6 +220,117 @@ func TestRetryingAJobOnce(t *testing.T) {
 		if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(first.ID)+"/cancel", nil, nil, "Idempotency-Key", "cancel-1"); resp.StatusCode != http.StatusOK {
 			t.Errorf("cancel = %d %s", resp.StatusCode, bodyOf(resp))
 		}
+	}
+	if got, _ := s.jobs.Wait(ctx, first.ID); got.State != jobs.StateFailed && got.State != jobs.StateCanceled {
+		t.Fatalf("the retry = %+v", got)
+	}
+
+	// Once the job it retried is no longer kept, as retention drops old
+	// jobs, the same request still answers with the retry it queued,
+	// without reading the job it names.
+	if _, err := s.db.Exec(ctx, `DELETE FROM jobs WHERE id = ?`, failed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.jobs.Get(ctx, failed.ID); err == nil {
+		t.Fatal("the retried job is still kept")
+	}
+	again = jobs.Job{}
+	if resp := s.call("owner", "POST", path, nil, &again, "Idempotency-Key", "retry-1"); resp.StatusCode != http.StatusAccepted || again.ID != first.ID {
+		t.Errorf("the same request once the retried job is gone = %d %s, want %s", resp.StatusCode, bodyOf(resp), first.ID)
+	}
+	if resp := s.call("owner", "POST", path, nil, nil, "Idempotency-Key", "retry-2"); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("another retry of the job that is gone = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// A dry run of a job's controls checks the request and answers with the
+// job, and leaves it alone: a running job keeps running, a queued one
+// stays queued, and a failed one isn't retried.
+func TestJobControlDryRunsChangeNothing(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	ctx := context.Background()
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	if err := s.jobs.Handle(jobs.Type{Name: "apitest.held", Run: func(ctx context.Context, job *jobs.Job, args json.RawMessage, r jobs.Reporter) (any, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.jobs.Handle(jobs.Type{Name: "apitest.broken", Run: func(ctx context.Context, job *jobs.Job, args json.RawMessage, r jobs.Reporter) (any, error) {
+		return nil, i18n.ErrUnavailable.New("what", "The mirror")
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	owner := jobs.Options{Actor: s.actors["owner"], Scope: store.AccountScope(s.account)}
+	running, err := s.jobs.Enqueue(ctx, "apitest.held", nil, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the job never started")
+	}
+	later := owner
+	later.RunAfter = time.Now().Add(time.Hour)
+	queued, err := s.jobs.Enqueue(ctx, "apitest.held", nil, later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := s.jobs.Enqueue(ctx, "apitest.broken", nil, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.jobs.Wait(ctx, failed.ID); got.State != jobs.StateFailed {
+		t.Fatalf("job = %+v", got)
+	}
+
+	for _, tc := range []struct {
+		name, path string
+		job        store.ID
+		state      jobs.State
+	}{
+		{"canceling a running job", "/cancel", running.ID, jobs.StateRunning},
+		{"canceling a queued job", "/cancel", queued.ID, jobs.StateQueued},
+		{"retrying a failed job", "/retry", failed.ID, jobs.StateFailed},
+	} {
+		var answer jobs.Job
+		resp := s.call("owner", "POST", "/api/v1/jobs/"+string(tc.job)+tc.path+"?dryRun=true", nil, &answer, "Idempotency-Key", "dry-"+tc.path)
+		if resp.StatusCode != http.StatusOK || answer.ID != tc.job || answer.State != tc.state {
+			t.Errorf("%s with dryRun = %d %s", tc.name, resp.StatusCode, bodyOf(resp))
+		}
+		if got, err := s.jobs.Get(ctx, tc.job); err != nil || got.State != tc.state {
+			t.Errorf("after %s with dryRun the job is %+v, %v", tc.name, got, err)
+		}
+	}
+	// Nothing was queued in place of the failed job, and nothing was
+	// recorded as canceled or retried.
+	if list, _, err := s.jobs.List(ctx, jobs.Filter{Type: "apitest.broken"}); err != nil || len(list) != 1 {
+		t.Errorf("broken jobs = %d, %v", len(list), err)
+	}
+	if records, _, _ := s.log.QueryAudit(ctx, events.Query{Actor: s.actors["owner"].ID, Types: []string{"core.job.cancel", "core.job.retry"}}); len(records) != 0 {
+		t.Errorf("dry runs are recorded: %+v", records)
+	}
+	// The keys of the dry runs claimed nothing: the real requests with them
+	// go ahead.
+	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(failed.ID)+"/retry", nil, nil, "Idempotency-Key", "dry-/retry"); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("retrying with the dry run's key = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	close(release)
+	if got, _ := s.jobs.Wait(ctx, running.ID); got.State != jobs.StateSucceeded {
+		t.Errorf("the running job ended %s", got.State)
+	}
+	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(queued.ID)+"/cancel", nil, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("canceling the queued job = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if got, _ := s.jobs.Get(ctx, queued.ID); got.State != jobs.StateCanceled {
+		t.Errorf("the queued job is %s once canceled", got.State)
 	}
 }
 

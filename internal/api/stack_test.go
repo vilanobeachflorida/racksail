@@ -140,6 +140,7 @@ func (a testAuth) Authenticate(ctx context.Context, r *http.Request) (*auth.Acto
 // database and a simulated server, with in-process test hooks.
 type stack struct {
 	t        *testing.T
+	db       *store.DB
 	server   *Server
 	http     *httptest.Server
 	store    store.Store
@@ -234,7 +235,7 @@ func newStackWith(t *testing.T, limits RateLimit, mods *modules.Registry) *stack
 			t.Fatal(err)
 		}
 	}
-	s := &stack{t: t, store: st, log: log, jobs: q, machine: machine, kinds: kinds, reseller: store.NewID("rsl")}
+	s := &stack{t: t, db: db, store: st, log: log, jobs: q, machine: machine, kinds: kinds, reseller: store.NewID("rsl")}
 	s.account = s.newAccount(s.reseller)
 	registry := hooks.NewRegistry()
 	for _, k := range kinds.All() {
