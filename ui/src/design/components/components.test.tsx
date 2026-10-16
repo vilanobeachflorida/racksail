@@ -38,6 +38,7 @@ import {
 } from "./ui/overlay";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { EmptyState, ErrorState, StatTile, StatusDot } from "./ui/states";
+import { Table, TableBody, TableCell, TableRow } from "./ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Toaster, toastWithUndo } from "./ui/toaster";
 
@@ -403,6 +404,32 @@ describe("toasts", () => {
     expect(
       await within(again).findByText("Couldn't undo: the site came back already"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("tables", () => {
+  const table = (
+    <Table aria-label="What each role may do">
+      <TableBody>
+        <TableRow>
+          <TableCell>web.site.read</TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
+  );
+
+  it("take focus only while they scroll sideways, so the keyboard can scroll them", () => {
+    const { unmount } = renderWithProviders(table);
+    const container = () =>
+      screen.getByRole("table", { name: "What each role may do" }).parentElement as HTMLElement;
+    expect(container()).not.toHaveAttribute("tabindex");
+    unmount();
+
+    // As on a phone, where the table is wider than the screen.
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+    renderWithProviders(table);
+    expect(container()).toHaveAttribute("tabindex", "0");
   });
 });
 
