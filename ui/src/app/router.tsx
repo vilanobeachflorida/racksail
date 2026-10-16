@@ -83,25 +83,25 @@ export function createAppRouter(
     createRoute({
       getParentRoute: () => settings,
       path: "modules",
-      component: lazyRouteComponent(() => import("./settings/modules")),
+      component: screen(() => import("./settings/modules")),
       staticData: { title: messages.modulesTitle },
     }),
     createRoute({
       getParentRoute: () => settings,
       path: "rules",
-      component: lazyRouteComponent(() => import("./settings/rules")),
+      component: screen(() => import("./settings/rules")),
       staticData: { title: messages.rulesTitle },
     }),
     createRoute({
       getParentRoute: () => settings,
       path: "notifications",
-      component: lazyRouteComponent(() => import("./settings/notifications")),
+      component: screen(() => import("./settings/notifications")),
       staticData: { title: messages.notifyTitle },
     }),
     createRoute({
       getParentRoute: () => settings,
       path: "updates",
-      component: lazyRouteComponent(() => import("./settings/updates")),
+      component: screen(() => import("./settings/updates")),
       staticData: { title: messages.updatesTitle },
     }),
     ...modules.flatMap((module) =>

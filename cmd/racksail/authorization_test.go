@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -37,11 +38,13 @@ func (a testActors) Authenticate(ctx context.Context, r *http.Request) (*auth.Ac
 	return actor.Clone(), nil
 }
 
-// call is how the test calls one operation: what fills its path, and its
-// body, which must be one the operation takes, so that its handler runs.
+// call is how the test calls one operation: what fills its path, the
+// query parameters it needs, and its body, which must be one the operation
+// takes, so that its handler runs.
 type call struct {
-	path map[string]string
-	body any
+	path  map[string]string
+	query url.Values
+	body  any
 	// open operations need nothing more than a sign-in: they answer with
 	// what the caller may see, or about the caller's own things.
 	open bool
@@ -106,6 +109,7 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		"listChangeSets":  {open: true},
 		"listJobs":        {open: true},
 		"streamResources": {open: true},
+		"searchResources": {open: true, query: url.Values{"q": {string(installation)}}},
 		"listAudit":       {},
 		"exportAudit":     {},
 		"listEvents":      {},
@@ -125,6 +129,13 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		"streamJob":                 {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}},
 		"cancelJob":                 {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}},
 		"retryJob":                  {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}, body: map[string]any{}},
+
+		// The attention inbox shows what the caller may see, and dismissals
+		// are the caller's own.
+		"listInbox":        {open: true},
+		"streamInbox":      {open: true},
+		"dismissInboxItem": {open: true, path: map[string]string{"id": "suggestion:storage"}},
+		"restoreInboxItem": {open: true, path: map[string]string{"id": "suggestion:storage"}},
 
 		// Hooks, rules, safe mode and add-ons.
 		"listHooks":        {},
@@ -232,9 +243,16 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 			t.Errorf("%s: the table doesn't fill in %s", op.ID, path)
 			continue
 		}
-		query := ""
+		params := url.Values{}
+		for name, values := range c.query {
+			params[name] = values
+		}
 		if op.DryRun {
-			query = "?dryRun=true"
+			params.Set("dryRun", "true")
+		}
+		query := ""
+		if len(params) > 0 {
+			query = "?" + params.Encode()
 		}
 		if resp := do("", op.Method, path+query, c.body); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s without signing in = %d", op.ID, resp.StatusCode)

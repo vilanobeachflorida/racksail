@@ -36,7 +36,8 @@ import type { ApiClient } from "@/lib/api/client";
 import { type Schemas, unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
-import { messages as m } from "../messages";
+import { messages } from "../messages";
+import { ruleSettingsMessages as m } from "../screens/messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
 import { useResourceUpdates, useTimelineUpdates } from "./live";
 
@@ -935,7 +936,7 @@ export default function RulesSettings() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <h1 className="font-semibold text-2xl">{intl.formatMessage(m.rulesTitle)}</h1>
+        <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.rulesTitle)}</h1>
         <p className="text-muted-foreground">{intl.formatMessage(m.rulesDescription)}</p>
       </div>
       <div className="flex flex-col gap-1.5">

@@ -36,7 +36,8 @@ import { type Schemas, unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
 import { useFormat } from "@/lib/format";
-import { messages as m } from "../messages";
+import { messages } from "../messages";
+import { moduleSettingsMessages as m } from "../screens/messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
 import { saveJSON, useResourceUpdates } from "./live";
 
@@ -484,7 +485,7 @@ export default function ModulesSettings() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <h1 className="font-semibold text-2xl">{intl.formatMessage(m.modulesTitle)}</h1>
+        <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.modulesTitle)}</h1>
         <p className="text-muted-foreground">{intl.formatMessage(m.modulesDescription)}</p>
       </div>
 

@@ -38,7 +38,8 @@ import { errorMessage } from "@/lib/errors";
 import { useFormat } from "@/lib/format";
 import type { UIHints } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
-import { messages as m } from "../messages";
+import { messages } from "../messages";
+import { notifySettingsMessages as m } from "../screens/messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
 import { useRefreshAt, useResourceUpdates, useTimelineUpdates } from "./live";
 
@@ -803,7 +804,7 @@ export default function NotificationSettings() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <h1 className="font-semibold text-2xl">{intl.formatMessage(m.notifyTitle)}</h1>
+        <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.notifyTitle)}</h1>
         <p className="text-muted-foreground">{intl.formatMessage(m.notifyDescription)}</p>
       </div>
       <MyPreferences />

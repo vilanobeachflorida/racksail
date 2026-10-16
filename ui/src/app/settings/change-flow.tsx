@@ -13,7 +13,7 @@ import { unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import type { ChangeSet } from "@/lib/changes";
 import { errorMessage } from "@/lib/errors";
-import { messages } from "../messages";
+import { settingsChangeMessages as m } from "../screens/messages";
 
 /** Sends a change, as a preview when dryRun is true. */
 export type ChangeRequest = (dryRun: boolean) => Promise<unknown>;
@@ -74,7 +74,7 @@ export function useChangeFlow({ onApplied }: { onApplied?: () => void } = {}) {
           }),
         );
       }
-      toast.success(intl.formatMessage(messages.changeApplied, { title: pending.preview.title }));
+      toast.success(intl.formatMessage(m.changeApplied, { title: pending.preview.title }));
       setPending(null);
       await queryClient.invalidateQueries();
       onApplied?.();
@@ -97,11 +97,9 @@ export function ChangeDialog({ flow }: { flow: ChangeFlow }) {
   return (
     <Dialog open={cs !== undefined} onOpenChange={(open) => (open ? undefined : flow.cancel())}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogTitle className="sr-only">
-          {intl.formatMessage(messages.changePreviewTitle)}
-        </DialogTitle>
+        <DialogTitle className="sr-only">{intl.formatMessage(m.changePreviewTitle)}</DialogTitle>
         <DialogDescription className="sr-only">
-          {intl.formatMessage(messages.changePreviewDescription)}
+          {intl.formatMessage(m.changePreviewDescription)}
         </DialogDescription>
         {cs ? (
           <ChangePreview

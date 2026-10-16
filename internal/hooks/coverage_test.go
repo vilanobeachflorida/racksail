@@ -31,6 +31,8 @@ var outsidePipeline = map[string]string{
 	"enterSafeMode":        "takes add-ons out of the hook pipeline, which can't wait for their hooks; the audit log records it",
 	"leaveSafeMode":        "lets add-ons back into the hook pipeline; the audit log records it",
 	"sendTestNotification": "sends the signed-in person a message and changes nothing",
+	"dismissInboxItem":     "hides an item from the signed-in person's own inbox; nothing Racksail manages changes",
+	"restoreInboxItem":     "shows a dismissed item in the signed-in person's own inbox again; nothing Racksail manages changes",
 }
 
 // Every operation of every kind has its hook points, at every stage, and
