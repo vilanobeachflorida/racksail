@@ -1,11 +1,15 @@
 package theme
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/vilanobeachflorida/racksail/spec"
 )
 
 // Cascade layers, lowest first. Themes sit at the bottom, an admin's custom
@@ -111,6 +115,42 @@ var TextSizes = []struct {
 	Zoom string
 }{{"small", "0.875"}, {"large", "1.125"}, {"larger", "1.25"}, {"largest", "1.5"}}
 
+// shadowPattern is the theme schema's pattern for shadows, whose color
+// functions take numbers only. Parse refuses shadows that don't match it,
+// and the renderer leaves them out, so not even a theme built in code can
+// leave a parenthesis open and swallow the rest of its layer.
+var shadowPattern = regexp.MustCompile(schemaPattern("shadow"))
+
+// schemaPattern returns the pattern of a definition in the theme schema.
+func schemaPattern(def string) string {
+	raw, err := spec.SchemaJSON(spec.Theme)
+	if err != nil {
+		panic(err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			Pattern string `json:"pattern"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		panic(fmt.Sprintf("reading the theme schema: %v", err))
+	}
+	pattern := schema.Defs[def].Pattern
+	if pattern == "" {
+		panic("the theme schema has no pattern for " + def)
+	}
+	return pattern
+}
+
+// cssShadow is a shadow as the stylesheet gets it: as it is when the schema
+// allows it, and left out otherwise.
+func cssShadow(s string) string {
+	if shadowPattern.MatchString(s) {
+		return s
+	}
+	return ""
+}
+
 // sharedVars are the tokens both modes share.
 func sharedVars(tok Tokens) [][2]string {
 	vars := [][2]string{
@@ -128,7 +168,7 @@ func sharedVars(tok Tokens) [][2]string {
 	}
 	vars = append(vars,
 		[2]string{"radiusSm", tok.Radius.SM}, [2]string{"radiusMd", tok.Radius.MD}, [2]string{"radiusLg", tok.Radius.LG}, [2]string{"radiusXl", tok.Radius.XL},
-		[2]string{"shadowSm", tok.Shadows.SM}, [2]string{"shadowMd", tok.Shadows.MD}, [2]string{"shadowLg", tok.Shadows.LG},
+		[2]string{"shadowSm", cssShadow(tok.Shadows.SM)}, [2]string{"shadowMd", cssShadow(tok.Shadows.MD)}, [2]string{"shadowLg", cssShadow(tok.Shadows.LG)},
 		[2]string{"motionFast", tok.Motion.Fast}, [2]string{"motionNormal", tok.Motion.Normal}, [2]string{"motionSlow", tok.Motion.Slow},
 		[2]string{"focusWidth", tok.FocusRing.Width}, [2]string{"focusOffset", tok.FocusRing.Offset},
 	)

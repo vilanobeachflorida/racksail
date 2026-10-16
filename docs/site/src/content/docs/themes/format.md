@@ -149,7 +149,7 @@ The panel bundles Inter (`Inter Variable`) and JetBrains Mono (`JetBrains Mono V
 |---|---|
 | `radius` | Corner radius `sm`, `md`, `lg` and `xl`, in `px` or `rem` |
 | `density` | `comfortable` or `compact`: how tall controls and table rows are |
-| `shadows` | `sm`, `md` and `lg` box shadows in CSS syntax: offsets, blur, spread and a color |
+| `shadows` | `sm`, `md` and `lg` box shadows in CSS syntax, separated by commas: offsets, blur and spread in `px`, `rem` or `em`, a color as `#RGB`, `#RRGGBB`, `#RRGGBBAA`, a name or a color function such as `rgba()` with numbers only, and `inset` |
 | `motion` | `fast`, `normal` and `slow` durations in `ms` |
 | `focusRing` | The focus ring's `width` and `offset`, in `px` or `rem` |
 

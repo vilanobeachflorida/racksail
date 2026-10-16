@@ -159,6 +159,7 @@
   "app.theme.density": "Density",
   "app.theme.radius": "{size, select, sm {Small corners} md {Medium corners} lg {Large corners} xl {Extra large corners} other {{size}}}",
   "app.theme.shadow": "{size, select, sm {Small shadow} md {Medium shadow} lg {Large shadow} other {{size}}}",
+  "app.theme.shadowHelp": "As in CSS: offsets, blur and spread, a color and optionally inset, such as 0 1px 2px rgba(1, 33, 79, 0.08). Separate several shadows with commas.",
   "app.theme.motion": "{speed, select, fast {Fast motion} normal {Normal motion} slow {Slow motion} other {{speed}}}",
   "app.theme.focusWidth": "Focus ring width",
   "app.theme.focusOffset": "Focus ring offset",

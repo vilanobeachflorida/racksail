@@ -87,6 +87,21 @@ export const densityVars: Record<"comfortable" | "compact", Vars> = {
   ],
 };
 
+// The theme schema's pattern for shadows, whose color functions take
+// numbers only. A shadow that doesn't match is left out, as internal/theme
+// leaves it out, so it can't leave a parenthesis open and swallow the rest
+// of its layer.
+const shadowPattern = new RegExp(
+  (themeSpec as unknown as { schema: { $defs: { shadow: { pattern: string } } } }).schema.$defs
+    .shadow.pattern,
+  "u",
+);
+
+/** A shadow as the stylesheet gets it: as it is when the schema allows it, or left out. */
+export function cssShadow(shadow: string | undefined): string {
+  return shadow !== undefined && shadowPattern.test(shadow) ? shadow : "";
+}
+
 function fontStack(family: string | undefined, fallback: string): string {
   return family ? `${JSON.stringify(family)}, ${fallback}` : fallback;
 }
@@ -116,9 +131,9 @@ function sharedVars(theme: Theme): Vars {
     ["radiusMd", t.radius?.md ?? ""],
     ["radiusLg", t.radius?.lg ?? ""],
     ["radiusXl", t.radius?.xl ?? ""],
-    ["shadowSm", t.shadows?.sm ?? ""],
-    ["shadowMd", t.shadows?.md ?? ""],
-    ["shadowLg", t.shadows?.lg ?? ""],
+    ["shadowSm", cssShadow(t.shadows?.sm)],
+    ["shadowMd", cssShadow(t.shadows?.md)],
+    ["shadowLg", cssShadow(t.shadows?.lg)],
     ["motionFast", t.motion?.fast ?? ""],
     ["motionNormal", t.motion?.normal ?? ""],
     ["motionSlow", t.motion?.slow ?? ""],

@@ -928,6 +928,7 @@ export default function ThemeEditor() {
               <Field
                 key={`shadow-${size}`}
                 label={t(messages.themeShadow, { size })}
+                description={t(messages.themeShadowHelp)}
                 className="sm:col-span-2"
               >
                 <Input

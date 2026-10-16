@@ -139,3 +139,39 @@ func TestLayerCSSClearsUnusedChartSlots(t *testing.T) {
 		t.Error("high contrast clears chart colors past its own")
 	}
 }
+
+func TestShadows(t *testing.T) {
+	d := Default()
+	for _, ok := range []string{
+		d.Tokens.Shadows.SM, HighContrast().Tokens.Shadows.LG, "none", "inset 0 0 0 1px #FFFFFF",
+		"0 1px 2px rgba(1, 33, 79, 0.08), 0 0 0 1px #0000001A", "0 0 .5rem -1px hsl(210 50% 40% / 0.2)",
+		"0 1px 2px color(display-p3 0 0 0 / 0.1)", "0 2px 4px transparent",
+	} {
+		if !shadowPattern.MatchString(ok) {
+			t.Errorf("%q should be a shadow", ok)
+		}
+	}
+	for _, bad := range []string{
+		"", "0 1px 2px rgba(0, 0, 0, 0.1", "0 1px 2px rgba(0, 0, 0, (0.1))", "0 1px url(x)", "0 1px var(--rs-brand)",
+		"0 1px 2px #000;}", "1px2px", "0 1px 2px #000,", ", 0 1px #000", "0 1px 2px rgba(0, 0, 0, 0.1))",
+	} {
+		if shadowPattern.MatchString(bad) {
+			t.Errorf("%q shouldn't be a shadow", bad)
+		}
+	}
+
+	// A theme built in code can't get an unclosed function into the
+	// stylesheet, where it would swallow the rest of the layer.
+	d.Tokens.Shadows.SM = "0 1px 2px rgba(0, 0, 0, 0.1"
+	d.Tokens.Shadows.LG = "0 12px 32px rgba(1, 33, 79, 0.14), inset 0 0 0 1px #FFFFFF"
+	css := d.LayerCSS(nil)
+	if strings.Contains(css, "--rs-shadow-sm") || !strings.Contains(css, "--rs-shadow-lg: "+d.Tokens.Shadows.LG+";") {
+		t.Errorf("shadows in the layer:\n%s", css)
+	}
+	if strings.Count(css, "(") != strings.Count(css, ")") || strings.Count(css, "{") != strings.Count(css, "}") {
+		t.Errorf("the layer doesn't balance:\n%s", css)
+	}
+	if _, err := Parse(encode(t, d)); err == nil || !strings.Contains(err.Error(), "shadows/sm") {
+		t.Errorf("an unclosed shadow: %v", err)
+	}
+}

@@ -172,6 +172,7 @@ export const messages = {
   themeDensity: m("app.theme.density"),
   themeRadius: m("app.theme.radius"),
   themeShadow: m("app.theme.shadow"),
+  themeShadowHelp: m("app.theme.shadowHelp"),
   themeMotion: m("app.theme.motion"),
   themeFocusWidth: m("app.theme.focusWidth"),
   themeFocusOffset: m("app.theme.focusOffset"),

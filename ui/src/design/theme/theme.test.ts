@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkTheme, consoleColors, contrastTable, isBundledFont, paletteColors } from "./check";
 import { contrast, hue, isColor, luminance, mix, parseColor } from "./color";
-import { cssVar, renderLayerCSS, renderScopedCSS } from "./css";
+import { cssShadow, cssVar, renderLayerCSS, renderScopedCSS } from "./css";
 import { fontLayer, layerAssetURLs } from "./files";
 import { overlay, resolveLayers } from "./layers";
 import {
@@ -244,6 +244,25 @@ describe("theme CSS", () => {
     expect(light).toContain("--rs-chart12: initial;");
     const scoped = renderScopedCSS(theme, ".preview", "light");
     expect(scoped).toContain("--rs-chart7: initial;");
+  });
+
+  it("leaves out shadows that would leave a parenthesis open", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.shadows = {
+      sm: "0 1px 2px rgba(0, 0, 0, 0.1",
+      lg: "0 12px 32px rgba(1, 33, 79, 0.14), inset 0 0 0 1px #FFFFFF",
+    };
+    const css = renderLayerCSS(theme);
+    expect(css).not.toContain("--rs-shadow-sm");
+    expect(css).toContain(
+      "--rs-shadow-lg: 0 12px 32px rgba(1, 33, 79, 0.14), inset 0 0 0 1px #FFFFFF;",
+    );
+    expect(css.split("(").length).toBe(css.split(")").length);
+    expect(cssShadow("none")).toBe("none");
+    expect(cssShadow("0 1px url(x)")).toBe("");
+    expect(readThemeDocument(theme).issues).toContainEqual(
+      expect.objectContaining({ path: "tokens.shadows.sm", keyword: "pattern" }),
+    );
   });
 
   it("scopes a preview to one element and one mode", () => {
