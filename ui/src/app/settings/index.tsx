@@ -8,6 +8,7 @@ import {
   LogIn,
   Paintbrush,
   Palette,
+  Puzzle,
   RefreshCw,
   ScrollText,
   ShieldCheck,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
+import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "../addons";
 import { useSession } from "../identity/session";
 import { messages } from "../messages";
 import { useActiveModules, usePermission } from "../modules";
@@ -58,12 +60,13 @@ function Entry({
   );
 }
 
-/** Every settings page: the panel's own, then each module's. */
+/** Every settings page: the panel's own, then each module's, then the add-ons'. */
 export default function SettingsIndex() {
   const intl = useIntl();
   const { session } = useSession();
   const modules = useActiveModules();
   const allowed = usePermission();
+  const addonPages = useAddonEntries("ui.settings");
   const withPages = modules
     .map((m) => ({ module: m, pages: (m.settings ?? []).filter((p) => allowed(p.permission)) }))
     .filter((m) => m.pages.length > 0);
@@ -234,6 +237,28 @@ export default function SettingsIndex() {
           </ul>
         </section>
       ))}
+      {addonPages.length > 0 ? (
+        <section className="flex flex-col gap-3" aria-labelledby="settings-addons">
+          <h2 id="settings-addons" className="flex items-center gap-2 font-semibold text-lg">
+            <Puzzle className="size-5 text-muted-foreground" aria-hidden="true" />
+            {intl.formatMessage(messages.addonsHeading)}
+          </h2>
+          <ul className="flex flex-col gap-2">
+            {addonPages.map((entry) => {
+              const Icon = addonIcon(entry.ui.icon);
+              return (
+                <Entry
+                  key={addonEntryKey(entry)}
+                  to={addonScreenPath(entry)}
+                  icon={<Icon aria-hidden="true" />}
+                  title={entry.ui.label}
+                  description={intl.formatMessage(messages.addonsFrom, { addon: entry.label })}
+                />
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

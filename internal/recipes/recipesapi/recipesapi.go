@@ -50,7 +50,7 @@ type itemList struct {
 }
 
 type itemInput struct {
-	Catalog store.ID `path:"catalog" doc:"The catalog's ID"`
+	Catalog store.ID `path:"catalog" doc:"The catalog's ID, or its name, such as official"`
 	Item    string   `path:"item" doc:"The item's id"`
 }
 
@@ -155,8 +155,9 @@ func register(a huma.API, svc *modules.Services) {
 
 	op = huma.Operation{
 		OperationID: "getCatalogItemIcon", Method: http.MethodGet, Path: api.Prefix + "/catalog/items/{catalog}/{item}/icon", Tags: tags, Security: api.Protected,
-		Summary:     "Fetch an item's icon",
-		Description: "Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.",
+		Summary: "Fetch an item's icon",
+		Description: "Returns the item's icon, a PNG or an SVG checked against the catalog's signed index, served so that it can't run or load anything. " +
+			"It is fetched from the catalog the first time, while the marketplace module is on, and kept after that.",
 	}
 	api.Describe(&op, api.Info{Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *itemInput) (*iconOutput, error) {

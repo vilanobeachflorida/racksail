@@ -15,7 +15,9 @@ Racksail's own catalog lives in [`catalog/`](https://github.com/vilanobeachflori
 | `index.json.sig` | The Ed25519 signature of `index.json`, 64 bytes |
 | `catalog.tar.gz` | The index, its signature and every file it lists |
 
-They are attached to the `catalog` release on GitHub and pushed to the GitHub Container Registry. The panel adds the official catalog the first time it starts, and trusts it through the public keys built into the binary, so a new key always arrives in a Racksail release of its own.
+They are attached to the `catalog` release on GitHub and pushed to the GitHub Container Registry. The panel adds the official catalog the first time it starts, and trusts it through the public keys built into the binary, so a new key always arrives in a Racksail release of its own. A binary built without those keys doesn't add it, says so in its log when it starts, and answers `recipes.no_official_key` when asked for the official catalog's items; catalogs of your own work all the same.
+
+The API names a catalog by its ID or its name, so `GET /api/v1/catalog/items/official/wordpress` describes the official catalog's WordPress.
 
 ## How the panel checks a catalog
 

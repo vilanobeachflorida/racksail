@@ -141,8 +141,13 @@ type Server struct {
 	kinds   *store.KindRegistry
 	docs    map[string]kindDoc
 	limiter *limiter
-	// typeList is the answer of GET /events/types.
-	typeList []EventType
+	// catalog is the answer of GET /events/types.
+	catalog eventCatalog
+	// crossOrigin keeps other sites' pages from changing anything with the
+	// session, and credentials are the paths that carry a token of their
+	// own instead.
+	crossOrigin *http.CrossOriginProtection
+	credentials []pathCredential
 	// noSignIn is set when no authenticator is configured outside
 	// development mode.
 	noSignIn bool
@@ -201,6 +206,7 @@ func New(opts Options) *Server {
 	s := &Server{
 		opts: opts, mux: mux, api: humago.New(mux, cfg), kinds: kinds, docs: map[string]kindDoc{},
 		limiter: newLimiter(opts.RateLimit, opts.Now), noSignIn: noSignIn, closing: closing, close: close,
+		crossOrigin: http.NewCrossOriginProtection(),
 	}
 	if noSignIn && opts.Services.Store != nil {
 		opts.Log.Error("the panel has no way to sign anyone in, so it refuses every request that needs a signed-in user")
@@ -213,6 +219,7 @@ func New(opts Options) *Server {
 	s.registerUsers()
 	s.registerCatalog()
 	s.registerKindDocs()
+	s.registerSchemaKinds()
 	s.registerResources()
 	s.registerChangeSets()
 	s.registerJobs()
@@ -231,12 +238,10 @@ func New(opts Options) *Server {
 	// The operations of kinds come last, so the schemas they build take
 	// names no Go type has.
 	s.registerKinds()
-	types, err := s.describeEventTypes()
-	if err != nil {
+	if _, err := s.eventTypeList(); err != nil {
 		// Like a schema Huma can't build, this is a mistake in the code.
 		panic(fmt.Sprintf("api: describing event types: %v", err))
 	}
-	s.typeList = types
 	mux.HandleFunc("GET "+Prefix+"/openapi.json", s.serveOpenAPI)
 	// Everything under /api is the API's, so paths no operation matches get
 	// a problem rather than the UI's page.
@@ -460,7 +465,7 @@ func (s *Server) Handler() http.Handler {
 		var client auth.Client
 		defer func() {
 			if p := recover(); p != nil {
-				s.opts.Log.Error("request panicked", "request", id, "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
+				s.opts.Log.Error("request panicked", "request", id, "method", r.Method, "path", s.loggedPath(r.URL.Path), "panic", p, "stack", string(debug.Stack()))
 				if rec.status == 0 {
 					writeProblem(rec, i18n.ErrInternal.New())
 				}
@@ -469,7 +474,7 @@ func (s *Server) Handler() http.Handler {
 			if r.URL.Path == Prefix+"/health" {
 				level = slog.LevelDebug
 			}
-			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", r.URL.Path,
+			s.opts.Log.Log(r.Context(), level, "request", "request", id, "method", r.Method, "path", s.loggedPath(r.URL.Path),
 				"status", rec.status, "bytes", rec.bytes, "duration", time.Since(start).Round(time.Microsecond),
 				"actor", actor.String(), "remote", r.RemoteAddr, "client", client.IP)
 		}()
@@ -481,7 +486,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if isAPI && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if err := crossSite(r); err != nil {
+			if err := s.crossSite(r); err != nil {
 				writeProblem(rec, err)
 				return
 			}
@@ -509,6 +514,12 @@ func (s *Server) Handler() http.Handler {
 		case found != nil:
 			actor = found
 			ctx = auth.WithActor(ctx, actor)
+		}
+		if who, ok := s.pathActor(r.URL.Path); ok {
+			// The token in the path signs the request in, never the
+			// session it carries.
+			actor = who
+			ctx = auth.WithActor(ctx, who)
 		}
 		if isAPI {
 			rec.Header().Set("Cache-Control", "no-store")

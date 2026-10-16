@@ -437,7 +437,7 @@ export interface paths {
         };
         /**
          * Fetch an item's icon
-         * @description Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.
+         * @description Returns the item's icon, a PNG or an SVG checked against the catalog's signed index, served so that it can't run or load anything. It is fetched from the catalog the first time, while the marketplace module is on, and kept after that.
          */
         get: operations["getCatalogItemIcon"];
         put?: never;
@@ -2772,6 +2772,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/kinds/{name}/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List resources of an add-on's kind
+         * @description Lists the resources you can see of a kind an add-on adds, described by JSON Schema rather than generated with the API, oldest first unless sort says otherwise, a page at a time. Its read permission, <kind>.read, decides what you see.
+         */
+        get: operations["listSchemaKindResources"];
+        put?: never;
+        /**
+         * Create a resource of an add-on's kind
+         * @description Creates a resource of a kind an add-on adds, as a change like any other: the add-on plans it, so with dryRun=true the answer is the change set with what it would do; otherwise the change set is applied, and its job runs the plan and has the add-on apply it.
+         */
+        post: operations["createSchemaKindResource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kinds/{name}/resources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a resource of an add-on's kind
+         * @description Returns one resource of a kind an add-on adds: its settings, and the status the add-on last reported with the phase and conditions the panel keeps.
+         */
+        get: operations["getSchemaKindResource"];
+        /**
+         * Change a resource of an add-on's kind
+         * @description Replaces the resource's settings, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateSchemaKindResource"];
+        post?: never;
+        /**
+         * Delete a resource of an add-on's kind
+         * @description Deletes the resource, previewed and applied like any change: the add-on plans removing what it set up for it, and undoes the rest.
+         */
+        delete: operations["deleteSchemaKindResource"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kinds/{name}/resources/{id}/actions/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an action of a resource of an add-on's kind
+         * @description Runs one of the actions the kind declares, which the add-on plans and carries out, as a change like any other. Its input, when it takes one, is checked against the action's JSON Schema from GET /api/v1/kinds/{name}. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["runSchemaKindAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/kinds/{name}/resources/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the history of a resource of an add-on's kind
+         * @description Returns every recorded version of the resource's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getSchemaKindResourceHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -3401,7 +3493,7 @@ export interface paths {
         };
         /**
          * Describe a module
-         * @description Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.
+         * @description Returns a module with its manifest and state: whether it is on, what it needs and costs, the modules it needs and those that need it, what uses it, why it can't run here when it can't, and the ID of the core.module resource whose actions turn it on, off and remove it.
          */
         get: operations["getModule"];
         put?: never;
@@ -3605,7 +3697,7 @@ export interface paths {
         };
         /**
          * Show a notification and its message
-         * @description Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.
+         * @description Returns one notification with the message it carries: where it goes, how its attempts went and why the last one failed, and when it is sent or tried again. You see your own; those sent through channels, and to other people, are for those who may see the channels.
          */
         get: operations["getNotification"];
         put?: never;
@@ -3725,7 +3817,7 @@ export interface paths {
         };
         /**
          * Say whether safe mode is on
-         * @description Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.
+         * @description Says whether safe mode is on and what turned it on: the boot option, the console, the panel, or an add-on that crashed as it started, with when and why. While it is on no add-on runs, so a broken one can't keep the panel from working.
          */
         get: operations["getSafeMode"];
         put?: never;
@@ -4397,6 +4489,8 @@ export interface components {
              *     ]
              */
             events: string[] | null;
+            /** @description The language of the panel's own words in the channel's messages, such as de or pt-BR; English when empty */
+            locale?: string;
             /**
              * @description Only send events at least this urgent
              * @enum {string}
@@ -6162,10 +6256,16 @@ export interface components {
             user: string;
         };
         DataScope: {
-            /** @description The spec fields it reaches, as dotted paths; every one when empty */
+            /** @description For changing: the actions of the kind the add-on may run, such as purge */
+            actions?: string[] | null;
+            /** @description For changing: the add-on may delete resources of the kind */
+            delete?: boolean;
+            /** @description The fields of the spec, as dotted paths such as cdn or tls.mode */
             fields?: string[] | null;
             /** @description The kind, such as web.site */
             kind: string;
+            /** @description The resources' labels, which the add-on may see, or change when the scope is for changing */
+            labels?: boolean;
         };
         DeliveriesOutputBody: {
             /** @description The deliveries on this page, newest first */
@@ -6851,7 +6951,7 @@ export interface components {
         InstallInput: {
             /** @description Accept the license of software that isn't open source */
             acceptLicense?: boolean;
-            /** @description The catalog the item is from */
+            /** @description The catalog the item is from, by its ID or its name, such as official */
             catalog?: string;
             /** @description Values for the recipe's inputs */
             inputs?: {
@@ -7397,6 +7497,8 @@ export interface components {
             event?: components["schemas"]["Event"];
             /** @description The same on every attempt to deliver the message */
             id?: string;
+            /** @description The language of the panel's own words in the message, such as de or pt-BR; English when empty */
+            locale?: string;
             /**
              * @description How serious it is: info, notice, warning, error or critical
              * @enum {string}
@@ -8243,6 +8345,8 @@ export interface components {
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         RelayTestInput: {
+            /** @description The language of the panel's own words in the test email, such as de; English when empty */
+            locale?: string;
             /**
              * @description Who gets the test email
              * @example you@example.com
@@ -8969,10 +9073,10 @@ export interface components {
             /** @description Which contributor it was, such as an add-on's id and version */
             name?: string;
             /**
-             * @description Who contributed it: the request itself, a hook, a rule, an add-on or a module
+             * @description Who contributed it: the request itself, a hook, a rule, an add-on, a module or the panel itself
              * @enum {string}
              */
-            type: "request" | "hook" | "rule" | "addon" | "module";
+            type: "request" | "hook" | "rule" | "addon" | "module" | "core";
         };
         SshKeysOutputBody: {
             /** @description The SSH public keys */
@@ -9277,6 +9381,8 @@ export interface components {
         UpgradeOSOutput: {
             /** @description The Debian release before the upgrade, such as trixie */
             from: string;
+            /** @description Why the server needs a reboot: the new release, and whatever else wants one, such as its kernel */
+            rebootReasons?: string[] | null;
             /** @description Whether the server needs a reboot to finish */
             rebootRequired: boolean;
             /** @description The snapshots taken first */
@@ -10361,7 +10467,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The catalog's ID */
+                /** @description The catalog's ID, or its name, such as official */
                 catalog: string;
                 /** @description The item's id */
                 item: string;
@@ -10395,7 +10501,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The catalog's ID */
+                /** @description The catalog's ID, or its name, such as official */
                 catalog: string;
                 /** @description The item's id */
                 item: string;
@@ -17423,6 +17529,384 @@ export interface operations {
                 };
             };
             /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listSchemaKindResources: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID contains this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation or phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of resources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The resources on this page */
+                        items: components["schemas"]["Resource"][];
+                        /** @description The cursor of the next page; empty on the last one */
+                        next?: string;
+                    };
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createSchemaKindResource: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description An ID chosen up front, starting with the kind's prefix; one is made when left out */
+                    id?: string;
+                    /** @description Labels for grouping and filtering */
+                    labels?: {
+                        [key: string]: string;
+                    };
+                    /** @description Who it belongs to, at the level the kind says; the server when left out for kinds of the server */
+                    scope?: components["schemas"]["Scope"];
+                    /** @description Values for secret fields, by field path */
+                    secrets?: {
+                        [key: string]: string;
+                    };
+                    /** @description The cluster server to place it on; the panel's own server when left out */
+                    server?: string;
+                    /** @description Settings as the kind's JSON Schema, from GET /api/v1/kinds/{name}, describes them */
+                    spec: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSchemaKindResource: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+                /** @description The resource's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Resource"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateSchemaKindResource: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+                /** @description The resource's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Labels for grouping and filtering */
+                    labels?: {
+                        [key: string]: string;
+                    };
+                    /**
+                     * Format: int64
+                     * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+                     */
+                    revision?: number;
+                    /** @description Values for secret fields, by field path */
+                    secrets?: {
+                        [key: string]: string;
+                    };
+                    /** @description Settings as the kind's JSON Schema, from GET /api/v1/kinds/{name}, describes them */
+                    spec: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteSchemaKindResource: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the resource since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+                /** @description The resource's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the resource */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    runSchemaKindAction: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+                /** @description The resource's ID */
+                id: string;
+                /** @description The action, as the kind declares it */
+                action: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSchemaKindResourceHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths */
+                name: string;
+                /** @description The resource's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;

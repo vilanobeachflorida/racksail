@@ -19,6 +19,8 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
+	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/recipes"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -77,6 +79,18 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 	}
 	// Every operation is called twice in a row from one address.
 	cfg.API.RateLimit, cfg.API.AnonymousRateLimit = 0, 0
+	// A kind an add-on adds, which the API serves at paths that name it.
+	guard, err := addons.NewKind("site-guard", "Site guard", hooks.AddonKind{
+		Name: "guard.rule", Prefix: "grule", Scope: "server", Title: "Guard rule", Plural: "rules", Description: "A rule the site guard enforces.",
+		Schema: map[string]any{"type": "object"}, Actions: []hooks.AddonAction{{Name: "purge", Summary: "Purge what the rule caught", Risk: "low"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Kinds().Register(guard); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Kinds().Unregister("guard.rule") })
 	d, err := newDevServer(ctx, cfg, dir, false, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +172,16 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		"cancelJob":                 {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}},
 		"retryJob":                  {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}, body: map[string]any{}},
 		"listRoles":                 {open: true},
+
+		// The kinds add-ons add, which authorize with the kind's own
+		// permissions.
+		"listSchemaKindResources":      {path: map[string]string{"name": "guard.rule"}},
+		"getSchemaKindResource":        {path: map[string]string{"name": "guard.rule", "id": string(store.NewID("grule"))}},
+		"getSchemaKindResourceHistory": {path: map[string]string{"name": "guard.rule", "id": string(store.NewID("grule"))}},
+		"createSchemaKindResource":     {path: map[string]string{"name": "guard.rule"}, body: map[string]any{"spec": map[string]any{}, "scope": server}},
+		"updateSchemaKindResource":     {path: map[string]string{"name": "guard.rule", "id": string(store.NewID("grule"))}, body: map[string]any{"spec": map[string]any{}}},
+		"deleteSchemaKindResource":     {path: map[string]string{"name": "guard.rule", "id": string(store.NewID("grule"))}},
+		"runSchemaKindAction":          {path: map[string]string{"name": "guard.rule", "id": string(store.NewID("grule")), "action": "purge"}, body: map[string]any{}},
 
 		// People and access: helping someone back in and viewing the panel
 		// as them are for who may manage them, and an account with an owner
@@ -377,6 +401,14 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		}
 		if resp := do("nobody", http.MethodGet, path, nil); resp.StatusCode != http.StatusNotFound {
 			t.Errorf("%s without a grant = %d", path, resp.StatusCode)
+		}
+	}
+	// The frames of add-ons' screens are signed in by their token alone,
+	// so one nobody opened answers nobody, whoever asks.
+	frame := "/api/v1/addons/site-guard/frames/" + strings.Repeat("a", 43) + "/ui/index.html"
+	for _, who := range []string{"", "nobody", "admin"} {
+		if resp := do(who, http.MethodGet, frame, nil); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("a frame nobody opened, for %q = %d", who, resp.StatusCode)
 		}
 	}
 

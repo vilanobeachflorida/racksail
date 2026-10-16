@@ -7,7 +7,9 @@ const wcag = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
  * element. Whole pages also get axe's best practices, such as landmarks and
  * heading order, which don't apply to a component on its own. jsdom has no
  * layout or styles, so color contrast is left to the theme checks, which
- * test every pairing the tokens make.
+ * test every pairing the tokens make. Frames are checked as elements, such
+ * as for their titles; what they load, like an add-on's page, isn't the
+ * panel's and jsdom doesn't load it.
  */
 export async function axeViolations(
   context: Element | Document = document,
@@ -17,6 +19,7 @@ export async function axeViolations(
     runOnly: { type: "tag", values: page ? [...wcag, "best-practice"] : wcag },
     rules: { "color-contrast": { enabled: false } },
     resultTypes: ["violations"],
+    iframes: false,
   });
   return results.violations.flatMap((v) =>
     v.nodes.map((n) => `${v.id}: ${v.help} (${n.target.join(" ")})`),

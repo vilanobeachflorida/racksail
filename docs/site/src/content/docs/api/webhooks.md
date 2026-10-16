@@ -42,7 +42,7 @@ curl -X POST https://panel.example.com:8443/api/v1/core/webhooks \
 | `disabled` | Stops sending events until you turn it back on, including deliveries waiting to be tried again, which are given up |
 | `description` | What the webhook is for |
 
-`GET /api/v1/events/types` lists every event type with what it means and the schema of its data. A webhook gets the events that happen after it was created.
+`GET /api/v1/events/types` lists every event type with what it means and the schema of its data, those of the kinds add-ons add included, from the moment the add-on is installed. A webhook gets the events that happen after it was created.
 
 To change the secret, update the webhook with the new value in `secrets`. Deliveries signed after that use the new one.
 

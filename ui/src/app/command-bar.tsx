@@ -38,6 +38,7 @@ import {
 } from "@/design/components/ui/command";
 import { DialogOverlay } from "@/design/components/ui/dialog";
 import { useTheme } from "@/design/theme/provider";
+import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "./addons";
 import { useChangeTracker } from "./changes/tracker";
 import { useGeneralPreferences } from "./general";
 import { IdentityCommands, peopleKinds } from "./identity/commands";
@@ -106,6 +107,11 @@ export default function CommandBar() {
   const slash = query.startsWith("/");
   const listable = useKindsFor("list").filter((k) => !peopleKinds.has(k.name));
   const creatable = useKindsFor("create").filter((k) => !peopleKinds.has(k.name));
+  // Add-ons' commands, and the pages their navigation entries and
+  // settings open.
+  const addonEntries = useAddonEntries().filter(
+    (e) => e.point === "ui.command" || e.point === "ui.nav" || e.point === "ui.settings",
+  );
   const shown = useShownResource();
   const text = query.trim();
   const searching = !slash && text.length >= minSearch;
@@ -396,6 +402,24 @@ export default function CommandBar() {
                           ) : null}
                         </CommandItem>
                       ))}
+                    </CommandGroup>
+                  ) : null}
+                  {addonEntries.length > 0 ? (
+                    <CommandGroup heading={intl.formatMessage(messages.addonsHeading)}>
+                      {addonEntries.map((entry) => {
+                        const Icon = addonIcon(entry.ui.icon);
+                        return (
+                          <CommandItem
+                            key={addonEntryKey(entry)}
+                            value={`${entry.ui.label} ${entry.label}`}
+                            onSelect={() => go(addonScreenPath(entry))}
+                          >
+                            <Icon aria-hidden="true" />
+                            {entry.ui.label}{" "}
+                            <span className="text-muted-foreground text-xs">{entry.label}</span>
+                          </CommandItem>
+                        );
+                      })}
                     </CommandGroup>
                   ) : null}
                   <CommandSeparator />

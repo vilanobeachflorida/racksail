@@ -12,9 +12,9 @@ export interface Scope {
   id?: string;
 }
 
-/** Who contributed part of a change set. */
+/** Who contributed part of a change set: core is the panel's own hooks. */
 export interface ChangeSource {
-  type: "request" | "hook" | "rule" | "addon" | "module";
+  type: "request" | "hook" | "rule" | "addon" | "module" | "core";
   /** Such as an add-on id and version. */
   name?: string;
   /** The hook point the contribution came through. */

@@ -193,6 +193,12 @@ export function createAppRouter(
       component: screen(() => import("./screens/resources/index")),
       staticData: { title: messages.resourcesTitle },
     }),
+    // The pages add-ons serve, which their entries open.
+    createRoute({
+      getParentRoute: () => root,
+      path: "addons/$addon/$",
+      component: lazyRouteComponent(() => import("./screens/addon")),
+    }),
   ];
 
   // The generic screens of every kind: /<module>/<plural>[/new | /<id>[/edit]].

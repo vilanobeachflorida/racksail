@@ -158,9 +158,12 @@ func TestAddonEntriesAndRoutes(t *testing.T) {
 		"/sites/{id}/log": {"/sites/s1/log": true, "/sites//log": false},
 	} {
 		for path, want := range matches {
-			if got := routeMatches(pattern, path); got != want {
-				t.Errorf("routeMatches(%s, %s) = %v", pattern, path, got)
+			if got := (hooks.AddonRoute{Method: "GET", Path: pattern}).Matches(http.MethodGet, path); got != want {
+				t.Errorf("%s matching %s = %v", pattern, path, got)
 			}
+		}
+		if (hooks.AddonRoute{Method: "POST", Path: pattern}).Matches(http.MethodGet, pattern) {
+			t.Errorf("a GET matches the POST route %s", pattern)
 		}
 	}
 }

@@ -91,6 +91,20 @@ func contributor(s Source) string {
 	return s.Type + ":" + s.Name
 }
 
+// requestedKey carries the change as it was asked for while the validate
+// stage runs again for one a modify hook rewrote.
+type requestedKey struct{}
+
+// Requested returns the change as it was asked for, while the validate hooks
+// run again for a change whose spec a modify hook rewrote. What the change
+// says then is partly the hooks', so a hook that decides by who asked, as
+// approving what only some people may approve does, holds the actor to this
+// one. ok is false at every other time.
+func Requested(ctx context.Context) (ResourceChange, bool) {
+	c, ok := ctx.Value(requestedKey{}).(ResourceChange)
+	return c, ok
+}
+
 // recheck makes sure modify hooks didn't get around the checks every change
 // goes through. The requested changes must still be what was asked for, apart
 // from their specs, and the effects planned for them must still be there. A
@@ -122,7 +136,8 @@ func (e *Engine) recheck(ctx context.Context, p *draft, actor *auth.Actor, reque
 		case ChangedPart(requested[i], *c) != "":
 			return ErrHookTampered.New("what", fmt.Sprintf("the %s of change %d", ChangedPart(requested[i], *c), i))
 		case !bytes.Equal(requested[i].After, c.After):
-			err = e.recheckChange(ctx, p, actor, c, last[c.ID] == i)
+			asked := context.WithValue(ctx, requestedKey{}, requested[i].Clone())
+			err = e.recheckChange(asked, p, actor, c, last[c.ID] == i)
 			if rewritten < 0 {
 				rewritten = i
 			}

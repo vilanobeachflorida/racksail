@@ -369,6 +369,7 @@ describe("the rules page", () => {
     let breakerOff = true;
     let enabled: unknown;
     let safe: Record<string, unknown> = { active: false };
+    let entriesAsked = 0;
     const guard = () => ({
       owner: "addon:site-guard",
       label: "Site guard 1.2.0",
@@ -428,6 +429,10 @@ describe("the rules page", () => {
         safe = { active: false };
         return json(safe);
       },
+      "GET /api/v1/addons/entries": () => {
+        entriesAsked++;
+        return json({ entries: [] });
+      },
     });
     const { container } = renderShell({
       modules: [],
@@ -476,10 +481,14 @@ describe("the rules page", () => {
       within(safeMode).getByRole("textbox", { name: "Why" }),
       "An add-on keeps failing",
     );
+    await waitFor(() => expect(entriesAsked).toBeGreaterThan(0));
+    const askedBefore = entriesAsked;
     await user.click(turnOn);
     expect(
       await within(safeMode).findByText("Safe mode is on, so no add-on runs"),
     ).toBeInTheDocument();
+    // What add-ons add to the panel goes with them.
+    await waitFor(() => expect(entriesAsked).toBeGreaterThan(askedBefore));
     expect(
       within(safeMode).getByText(
         "Turned on from the console or this panel: An add-on keeps failing",

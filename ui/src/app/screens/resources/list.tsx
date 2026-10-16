@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo } from "react";
 import { type IntlShape, useIntl } from "react-intl";
+import { useAddonColumns } from "@/app/addons";
 import { usePermission } from "@/app/modules";
 import { DataTable } from "@/design/components/data-table/data-table";
 import type { CellValue, Column } from "@/design/components/data-table/model";
@@ -80,12 +81,13 @@ function sortable(value: unknown): CellValue {
   return typeof value === "object" ? JSON.stringify(value) : (value as CellValue);
 }
 
-/** The columns of a kind's list, from its UI hints. */
+/** The columns of a kind's list, from its UI hints, with those add-ons add. */
 export function kindColumns(
   intl: IntlShape,
   kind: Kind,
   kinds: readonly Kind[],
   schemas: { spec?: unknown; status?: unknown } | undefined,
+  extra: readonly Column<Resource>[],
   menu: (resource: Resource) => ReactNode,
 ): Column<Resource>[] {
   const columns: Column<Resource>[] = [
@@ -169,6 +171,8 @@ export function kindColumns(
       cell: (r) => <code className="font-mono text-xs">{r.scope.id}</code>,
     });
   }
+  // Columns add-ons add come after the kind's own.
+  columns.push(...extra);
   columns.push(
     {
       id: "updatedAt",
@@ -205,6 +209,8 @@ export default function KindList() {
   const schemas = useKindSchemas(kind?.name);
   const changes = useResourceChanges();
   const newPath = kind ? `${kindPath(kind)}/new` : "";
+  const ids = useMemo(() => (list.data?.items ?? []).map((r) => r.id), [list.data]);
+  const addonColumns = useAddonColumns(kind?.name, ids);
 
   // Commands link to a kind's list with ?new=1 to create one.
   useEffect(() => {
@@ -218,7 +224,16 @@ export default function KindList() {
       return [];
     }
     const may = (operation: string) => allowed(`${kind.name}.${operation}`);
-    return kindColumns(intl, kind, kinds, schemas.data, (r) => (
+    const extra = addonColumns.map(
+      ({ entry, values }): Column<Resource> => ({
+        id: `addon.${entry.addon}.${entry.ui.path ?? entry.ui.label}`,
+        header: entry.ui.label,
+        value: (r) => values[r.id],
+        sortable: true,
+        filter: "text",
+      }),
+    );
+    return kindColumns(intl, kind, kinds, schemas.data, extra, (r) => (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -266,7 +281,7 @@ export default function KindList() {
         </DropdownMenuContent>
       </DropdownMenu>
     ));
-  }, [intl, kind, kinds, schemas.data, allowed, changes]);
+  }, [intl, kind, kinds, schemas.data, allowed, changes, addonColumns]);
 
   if (!kind) {
     return null;

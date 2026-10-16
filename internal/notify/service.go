@@ -239,10 +239,19 @@ func (s *Service) route(ctx context.Context) error {
 		people := map[store.ID]*Person{}
 		var out []*Notification
 		for _, e := range batch {
-			msg := s.messageOf(e)
+			// Each destination gets the message in its own language.
+			byLocale := map[string]Message{}
+			messageIn := func(locale string) Message {
+				msg, ok := byLocale[locale]
+				if !ok {
+					msg = s.messageOf(e, locale)
+					byLocale[locale] = msg
+				}
+				return msg
+			}
 			for _, c := range channels {
 				if wantsChannel(c, e) {
-					out = append(out, s.newDelivery(Notification{Channel: c.ID}, msg, e, c.Spec.QuietHours))
+					out = append(out, s.newDelivery(Notification{Channel: c.ID}, messageIn(c.Spec.Locale), e, c.Spec.QuietHours))
 				}
 			}
 			for id, p := range prefs {
@@ -256,7 +265,7 @@ func (s *Service) route(ctx context.Context) error {
 				if person == nil || person.Email == "" || !mayRead(ctx, s.opts.Authorizer, person, e) {
 					continue
 				}
-				out = append(out, s.newDelivery(Notification{Person: id}, msg, e, p.QuietHours))
+				out = append(out, s.newDelivery(Notification{Person: id}, messageIn(person.Locale), e, p.QuietHours))
 			}
 		}
 		if err := s.db.enqueue(ctx, out, batch[len(batch)-1].Seq); err != nil {
@@ -304,28 +313,30 @@ func (s *Service) newDelivery(to Notification, msg Message, e events.Event, quie
 	return &d
 }
 
-// messageOf is the message an event becomes.
-func (s *Service) messageOf(e events.Event) Message {
+// messageOf is the message an event becomes, with the panel's own words in
+// locale.
+func (s *Service) messageOf(e events.Event, locale string) Message {
 	title := strings.TrimSpace(e.Message)
 	if title == "" {
 		title = e.Type
 	}
 	var body strings.Builder
 	body.WriteString(e.Message)
-	fmt.Fprintf(&body, "\n\nEvent: %s\nWhen: %s", e.Type, e.Time.UTC().Format("2006-01-02 15:04:05 UTC"))
+	body.WriteString("\n\n" + words(locale, "notify.details.event", map[string]any{"type": e.Type}))
+	body.WriteString("\n" + words(locale, "notify.details.when", map[string]any{"time": e.Time.UTC()}))
 	if e.Subject != "" {
-		fmt.Fprintf(&body, "\nAbout: %s", e.Subject)
+		body.WriteString("\n" + words(locale, "notify.details.about", map[string]any{"subject": e.Subject}))
 	}
 	if e.Actor != nil && e.Actor.Name != "" {
-		fmt.Fprintf(&body, "\nBy: %s", e.Actor.Name)
+		body.WriteString("\n" + words(locale, "notify.details.by", map[string]any{"actor": e.Actor.Name}))
 	}
-	msg := Message{Title: truncate(title, 160), Body: strings.TrimSpace(body.String()), Severity: e.Severity}
+	msg := Message{Title: truncate(title, 160), Body: strings.TrimSpace(body.String()), Severity: e.Severity, Locale: locale}
 	if msg.Severity == "" {
 		msg.Severity = events.SeverityInfo
 	}
 	if s.opts.Link != nil {
 		if link := s.opts.Link(e); link != "" {
-			msg.URL, msg.ActionLabel = link, "Open in the panel"
+			msg.URL, msg.ActionLabel = link, words(locale, "notify.action.open", nil)
 		}
 	}
 	ev := e
@@ -533,14 +544,19 @@ func (s *Service) summary(group []*Notification, now time.Time) *Notification {
 	}
 	at := now.UTC()
 	first := group[0]
+	// The deliveries of a group go to one place, in its language.
+	locale := ""
+	if first.Message != nil {
+		locale = first.Message.Locale
+	}
 	d := &Notification{
 		ID: store.NewID(DeliveryPrefix), Channel: first.Channel, Person: first.Person, Address: first.Address,
-		Title: fmt.Sprintf("%d notifications from quiet hours", len(group)), Severity: sev,
+		Title: words(locale, "notify.digest.title", map[string]any{"count": len(group)}), Severity: sev,
 		State: DeliveryPending, CreatedAt: at, NextAttempt: &at,
 	}
 	d.Message = &Message{
-		ID: string(d.ID), Title: d.Title, Severity: sev,
-		Body:   fmt.Sprintf("These arrived while quiet hours held notifications back, from %s.", group[0].CreatedAt.UTC().Format("2006-01-02 15:04 UTC")),
+		ID: string(d.ID), Title: d.Title, Severity: sev, Locale: locale,
+		Body:   words(locale, "notify.digest.body", map[string]any{"time": first.CreatedAt.UTC()}),
 		Digest: digest,
 	}
 	return d
@@ -695,12 +711,21 @@ func (s *Service) Send(ctx context.Context, to Recipient, msg Message) (*Notific
 			return nil, err
 		}
 		d.Channel, quiet = c.ID, c.Spec.QuietHours
+		if msg.Locale == "" {
+			msg.Locale = c.Spec.Locale
+		}
 	case to.Person != "":
 		p, err := s.Preferences(ctx, to.Person)
 		if err != nil {
 			return nil, err
 		}
 		d.Person, quiet = to.Person, p.QuietHours
+		// The panel's words go to the person in the language they chose.
+		if msg.Locale == "" {
+			if person, err := s.person(ctx, map[store.ID]*Person{}, to.Person); err == nil && person != nil {
+				msg.Locale = person.Locale
+			}
+		}
 	case to.Email != "":
 		if err := (EmailSettings{To: []string{to.Email}}).check(); len(err) > 0 {
 			return nil, i18n.Invalid(i18n.Field("email", i18n.ErrBadValue, "reason", "not an email address"))
@@ -728,13 +753,14 @@ func (s *Service) Test(ctx context.Context, channel store.ID) (*Notification, er
 		return nil, err
 	}
 	now := s.opts.Now().UTC()
+	locale := c.Spec.Locale
 	d := &Notification{
-		ID: store.NewID(DeliveryPrefix), Channel: c.ID, Title: "Test notification", Severity: events.SeverityInfo,
+		ID: store.NewID(DeliveryPrefix), Channel: c.ID, Title: words(locale, "notify.test.title", nil), Severity: events.SeverityInfo,
 		State: DeliveryPending, Test: true, CreatedAt: now,
 	}
 	d.Message = &Message{
-		ID: string(d.ID), Title: d.Title, Severity: events.SeverityInfo,
-		Body: fmt.Sprintf("This is a test from %s. If it arrived, the %s channel works.", s.Env().brand(), c.Spec.Name),
+		ID: string(d.ID), Title: d.Title, Severity: events.SeverityInfo, Locale: locale,
+		Body: words(locale, "notify.test.body", map[string]any{"brand": s.Env().brand(), "channel": c.Spec.Name}),
 	}
 	if err := s.db.insert(ctx, d); err != nil {
 		return nil, err
@@ -742,11 +768,12 @@ func (s *Service) Test(ctx context.Context, channel store.ID) (*Notification, er
 	return s.attempt(ctx, d), nil
 }
 
-// TestRelay sends a test email through the relay at once.
-func (s *Service) TestRelay(ctx context.Context, to string) RelayTestOutput {
+// TestRelay sends a test email through the relay at once, with the
+// panel's words in locale.
+func (s *Service) TestRelay(ctx context.Context, to, locale string) RelayTestOutput {
 	msg := Message{
-		Title: "Test email", Severity: events.SeverityInfo,
-		Body: fmt.Sprintf("This is a test from %s. If it arrived, the mail relay works.", s.Env().brand()),
+		Title: words(locale, "notify.test_email.title", nil), Severity: events.SeverityInfo, Locale: locale,
+		Body: words(locale, "notify.test_email.body", map[string]any{"brand": s.Env().brand()}),
 	}
 	err := SendEmail(ctx, s.Env(), []string{to}, msg)
 	s.noteRelay(context.WithoutCancel(ctx), err)

@@ -131,10 +131,26 @@ func (c *Client) Provide(ctx context.Context, capability, method string, in, out
 	return c.do(ctx, http.MethodPost, "/provide/"+url.PathEscape(capability)+"/"+url.PathEscape(method), hooks.ProvideCall{Input: in}, out, nil)
 }
 
+// PlanKind asks the add-on for its plan of a resource of a kind it adds.
+func (c *Client) PlanKind(ctx context.Context, call hooks.KindCall) (hooks.KindPlan, error) {
+	var plan hooks.KindPlan
+	err := c.do(ctx, http.MethodPost, "/kinds/"+url.PathEscape(call.Resource.Kind)+"/plan", call, &plan, nil)
+	return plan, err
+}
+
+// ApplyKind has the add-on apply a resource of a kind it adds, once the
+// steps of its plan have run.
+func (c *Client) ApplyKind(ctx context.Context, call hooks.KindCall) (hooks.KindApplied, error) {
+	var applied hooks.KindApplied
+	err := c.do(ctx, http.MethodPost, "/kinds/"+url.PathEscape(call.Resource.Kind)+"/apply", call, &applied, nil)
+	return applied, err
+}
+
 // Proxy returns a handler that passes requests to the add-on under prefix,
-// such as /routes/ or /ui/, with what the add-on may know about who asks.
-// The panel's cookies and credentials never reach the add-on.
-func (c *Client) Proxy(prefix string, who func(r *http.Request) string) http.Handler {
+// such as /routes/ or /ui/, with the path value path, and with the headers
+// the panel tells it, such as who asks. The panel's cookies and
+// credentials never reach the add-on.
+func (c *Client) Proxy(prefix string, tell func(r *http.Request) http.Header) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.PathValue("path"), "/")
 		target := "http://addon" + prefix + rest
@@ -156,10 +172,18 @@ func (c *Client) Proxy(prefix string, who func(r *http.Request) string) http.Han
 			}
 		}
 		req.Header.Set("Racksail-Hook-API", hooks.APIVersion)
-		if who != nil {
-			req.Header.Set("Racksail-Actor", who(r))
+		if tell != nil {
+			for k, v := range tell(r) {
+				req.Header[http.CanonicalHeaderKey(k)] = v
+			}
 		}
-		if id := r.Header.Get("X-Request-Id"); id != "" {
+		// The panel answers with its ID for the request, which it makes up
+		// when the request brought none it takes.
+		id := w.Header().Get("X-Request-Id")
+		if id == "" {
+			id = r.Header.Get("X-Request-Id")
+		}
+		if id != "" {
 			req.Header.Set("Racksail-Request-Id", id)
 		}
 		resp, err := c.http.Do(req)

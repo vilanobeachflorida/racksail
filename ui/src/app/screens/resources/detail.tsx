@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Check, Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useIntl } from "react-intl";
+import { AddonFrame, addonEntryKey, useAddonEntries } from "@/app/addons";
 import { usePermission } from "@/app/modules";
 import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
@@ -193,6 +194,9 @@ export default function ResourceDetail() {
   const schemas = useKindSchemas(kind?.name);
   const changes = useResourceChanges();
   const data = resource.data;
+  // Add-ons' tabs on the kind's resources show their pages about the one
+  // on screen.
+  const addonTabs = useAddonEntries("ui.tab").filter((e) => kind && e.ui.kind === kind.name);
   // The command bar opens the screen with ?action= to run one of the
   // resource's actions, or delete it, through the same preview.
   const search = useSearch({ strict: false }) as { action?: unknown };
@@ -332,6 +336,11 @@ export default function ResourceDetail() {
           <TabsTrigger value="status">{intl.formatMessage(m.tabStatus)}</TabsTrigger>
           <TabsTrigger value="history">{intl.formatMessage(m.tabHistory)}</TabsTrigger>
           <TabsTrigger value="events">{intl.formatMessage(m.tabEvents)}</TabsTrigger>
+          {addonTabs.map((entry) => (
+            <TabsTrigger key={addonEntryKey(entry)} value={addonEntryKey(entry)}>
+              {entry.ui.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
         <TabsContent value="overview" className="flex flex-col gap-4">
           <Card aria-labelledby="settings-title">
@@ -414,6 +423,17 @@ export default function ResourceDetail() {
             </Link>
           </Button>
         </TabsContent>
+        {addonTabs.map((entry) => (
+          <TabsContent key={addonEntryKey(entry)} value={addonEntryKey(entry)}>
+            <AddonFrame
+              addon={entry.addon}
+              path={entry.ui.path ?? ""}
+              title={entry.ui.label}
+              params={{ resource: data.id }}
+              className="h-96"
+            />
+          </TabsContent>
+        ))}
       </Tabs>
       {changes.dialog}
     </div>

@@ -40,7 +40,7 @@ func TestUsersAsPeople(t *testing.T) {
 		t.Errorf("before the panel has users = %+v, %v", p, err)
 	}
 	dir = users{
-		"user_ada": {ID: "user_ada", Username: "ada", Name: "Ada Lovelace", Email: "ada@example.com", Grants: []auth.Grant{owner}},
+		"user_ada": {ID: "user_ada", Username: "ada", Name: "Ada Lovelace", Email: "ada@example.com", Grants: []auth.Grant{owner}, Locale: "pt-BR"},
 		"user_bob": {ID: "user_bob", Username: "bob", Email: "bob@example.com"},
 		"user_eve": {ID: "user_eve", Username: "eve", Email: "eve@example.com", Disabled: true},
 	}
@@ -48,7 +48,7 @@ func TestUsersAsPeople(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ada.ID != "user_ada" || ada.Name != "Ada Lovelace" || ada.Email != "ada@example.com" || ada.Actor == nil ||
+	if ada.ID != "user_ada" || ada.Name != "Ada Lovelace" || ada.Email != "ada@example.com" || ada.Locale != "pt-BR" || ada.Actor == nil ||
 		ada.Actor.Type != auth.ActorUser || ada.Actor.User != "user_ada" || len(ada.Actor.Grants) != 1 || ada.Actor.Grants[0].Role != auth.RoleOwner {
 		t.Errorf("ada = %+v, actor %+v", ada, ada.Actor)
 	}

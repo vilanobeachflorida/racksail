@@ -102,6 +102,9 @@ type DirectoryUser struct {
 	Email    string   `json:"email,omitempty"`
 	Disabled bool     `json:"disabled,omitempty"`
 	Grants   []Grant  `json:"grants"`
+	// Locale is the language the person chose for the panel, such as
+	// pt-BR; empty when they follow their browser.
+	Locale string `json:"locale,omitempty"`
 }
 
 // SSHKey is one of a user's SSH public keys.
@@ -113,6 +116,15 @@ type SSHKey struct {
 	Bits        int      `json:"bits,omitempty" doc:"The key's size, for RSA and ECDSA keys"`
 	Fingerprint string   `json:"fingerprint" doc:"The SHA256 fingerprint ssh-keygen -l shows"`
 	PublicKey   string   `json:"publicKey" doc:"The key as an authorized_keys line, without options"`
+}
+
+// SignInChecker says whether what an actor signed in with still works: the
+// session it came with, or the API token it is. What goes on acting for a
+// person after the request that signed them in, as the frames of add-ons'
+// screens do, asks it, so signing out, ending the session or revoking the
+// token ends that too. The panel's directory of users is one.
+type SignInChecker interface {
+	SignedIn(ctx context.Context, actor *Actor) bool
 }
 
 // Directory answers what modules need to know about the panel's users,

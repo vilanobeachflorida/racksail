@@ -44,8 +44,9 @@ func HookPoint(kind, operation string, stage Stage) string {
 
 // Source says who contributed part of a change set.
 type Source struct {
-	// Type is request, hook, rule, addon or module.
-	Type string `json:"type" enum:"request,hook,rule,addon,module" doc:"Who contributed it: the request itself, a hook, a rule, an add-on or a module"`
+	// Type is request, hook, rule, addon or module, or core for the
+	// panel's own hooks.
+	Type string `json:"type" enum:"request,hook,rule,addon,module,core" doc:"Who contributed it: the request itself, a hook, a rule, an add-on, a module or the panel itself"`
 	// Name identifies the contributor, such as an add-on id and version.
 	Name string `json:"name,omitempty" doc:"Which contributor it was, such as an add-on's id and version"`
 	// Hook is the hook point the contribution came through.

@@ -54,11 +54,17 @@ const (
 type Options struct {
 	Registry *hooks.Registry
 	Store    store.Store
-	Agent    agent.Client
-	Events   events.Bus
-	Audit    events.AuditLog
-	Tokens   Tokens
-	SafeMode *SafeMode
+	// Kinds are the kinds the panel knows, which the kinds add-ons add
+	// join; the process-wide registry when nil.
+	Kinds *store.KindRegistry
+	// Reconcilers are the panel's reconcilers, which those of the kinds
+	// add-ons add join.
+	Reconcilers *reconcile.Registry
+	Agent       agent.Client
+	Events      events.Bus
+	Audit       events.AuditLog
+	Tokens      Tokens
+	SafeMode    *SafeMode
 	// TokenDir is where tokens are written for systemd; SocketDir is where
 	// add-ons serve the panel.
 	TokenDir  string
@@ -74,8 +80,11 @@ type Options struct {
 	// Accounts returns where accounts' add-ons run, once the module that
 	// keeps accounts says; until it does, they don't run.
 	Accounts func() Accounts
-	Log      *slog.Logger
-	Now      func() time.Time
+	// Modules are the ids of the panel's modules. Each is the namespace of
+	// its module's kinds, on or off, so add-ons' kinds can't take it.
+	Modules []string
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 // Runtime runs installed add-ons: it reconciles their resources, attaches
@@ -88,6 +97,10 @@ type Runtime struct {
 	running map[string]*installed
 	// safe says the runtime has turned the add-ons off for safe mode.
 	safe bool
+	// added are the kinds add-ons add.
+	added addedKinds
+	// frames are the frames people opened add-ons' screens in.
+	frames frames
 }
 
 // installed is an add-on the runtime attached.
@@ -119,12 +132,19 @@ func NewRuntime(opts Options) *Runtime {
 	if opts.Tokens == nil {
 		opts.Tokens = NewMemoryTokens()
 	}
+	if opts.Kinds == nil {
+		opts.Kinds = store.Kinds()
+	}
 	if opts.Resolve == nil {
 		opts.Resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		}
 	}
-	return &Runtime{opts: opts, running: map[string]*installed{}}
+	return &Runtime{
+		opts: opts, running: map[string]*installed{},
+		added:  addedKinds{kinds: map[string]*Kind{}, reconciling: map[string]bool{}},
+		frames: frames{open: map[string]*frame{}, now: opts.Now},
+	}
 }
 
 var instanceSuffix = regexp.MustCompile(`[^a-z0-9]`)
@@ -145,6 +165,8 @@ func Instance(kind, id string, scope store.Scope) string {
 
 // SafeMode returns the runtime's safe mode.
 func (r *Runtime) SafeMode() *SafeMode { return r.opts.SafeMode }
+
+func (r *Runtime) kinds() *store.KindRegistry { return r.opts.Kinds }
 
 func (r *Runtime) safeModeOn() bool { return r.opts.SafeMode != nil && r.opts.SafeMode.Active() }
 
@@ -217,8 +239,17 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 	}
 	if obj.Deleted() {
 		r.detach(ctx, inst, true)
+		r.retireKinds(ctx, inst)
 		return st, nil
 	}
+	man, err := Check(obj.Spec, obj.Kind == AccountAddon.Name())
+	if err != nil {
+		st.State = StateFailed
+		return st, err
+	}
+	// The kinds it adds are there whether or not it runs, so their
+	// resources stay readable; they only change while it runs.
+	kindProblems := r.declareKinds(inst, obj.ID, man)
 	if !obj.Spec.Enabled || r.safeModeOn() {
 		r.detach(ctx, inst, true)
 		st.State, st.Health, st.Hooks = StateStopped, "", 0
@@ -229,14 +260,9 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 		}
 		return st, nil
 	}
-	man, err := Check(obj.Spec, obj.Kind == AccountAddon.Name())
-	if err != nil {
-		st.State = StateFailed
-		return st, err
-	}
 	in := &installed{
 		resource: obj.ID, kind: obj.Kind, instance: inst, manifest: man,
-		grants: NewGrants(obj.Spec.Approved, obj.Scope), client: NewClient(man.Name, path.Join(r.opts.SocketDir, inst+".sock")),
+		grants: NewGrants(obj.Spec.Approved, obj.Scope).WithKinds(r.opts.Kinds), client: NewClient(man.Name, path.Join(r.opts.SocketDir, inst+".sock")),
 		startedAt: now,
 	}
 	// The hosts it may reach are looked up now; their addresses go into its
@@ -289,6 +315,7 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 		in.restarts = us.Restarts
 	}
 	count, problems := r.attach(in)
+	problems = append(kindProblems, problems...)
 	st.Hooks, st.Version, st.State = count, man.Version, StateRunning
 	checked := now.UTC()
 	st.CheckedAt = &checked
@@ -464,7 +491,7 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 	}
 	if len(in.manifest.Routes) > 0 {
 		add("routes", hooks.Registration{Point: hooks.ExtendRoutes, Kind: hooks.Extend, Owner: owner, Label: label, Extension: &hooks.Extension{
-			Routes: in.manifest.Routes, Handler: in.client.Proxy("/routes/", actorHeader),
+			Routes: in.manifest.Routes, Handler: in.client.Proxy("/routes/", actorHeaders),
 		}})
 	}
 	r.mu.Lock()
@@ -473,15 +500,15 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 	return count, problems
 }
 
-// actorHeader tells an add-on who is asking, without anything that would
-// let it act as them.
-func actorHeader(req *http.Request) string {
-	a, ok := auth.ActorFrom(req.Context())
-	if !ok {
-		return "{}"
+// actorHeaders tell an add-on who is asking, or looking at one of its
+// screens, without anything that would let it act as them.
+func actorHeaders(req *http.Request) http.Header {
+	who := "{}"
+	if a, ok := auth.ActorFrom(req.Context()); ok {
+		raw, _ := json.Marshal(redactActor(a))
+		who = string(raw)
 	}
-	raw, _ := json.Marshal(redactActor(a))
-	return string(raw)
+	return http.Header{"Racksail-Actor": {who}}
 }
 
 // handlers fills in a registration's handler, which calls the add-on. An
@@ -541,7 +568,7 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 			if err != nil {
 				return err
 			}
-			return g.Merge(c.ChangeSet, reply.ChangeSet, mine)
+			return g.Merge(ctx, r.opts.Store, c.ChangeSet, reply.ChangeSet, mine)
 		}
 	case hooks.Observe:
 		h.OnObserve = func(ctx context.Context, c *hooks.Context) {
@@ -581,10 +608,11 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 	}
 }
 
-// detach takes an add-on's hooks out of the pipeline, and with forget its
-// token too.
+// detach takes an add-on's hooks out of the pipeline and closes the frames
+// of its screens, and with forget forgets its token too.
 func (r *Runtime) detach(ctx context.Context, inst string, forget bool) {
 	r.opts.Registry.Unregister(hooks.OwnerAddon + ":" + inst)
+	r.closeFrames(inst)
 	r.mu.Lock()
 	in := r.running[inst]
 	delete(r.running, inst)
@@ -835,10 +863,11 @@ func (r *Runtime) record(ctx context.Context, actor *auth.Actor, action, summary
 }
 
 // Hooks are the runtime's own hooks: an add-on that changes something
-// through the API may only change the fields its permissions allow; only a
-// server admin approves what only a server admin may grant; and an add-on
-// from a catalog, as every account's add-on is, must be what the catalog
-// offers.
+// through the API, or adds a change through its modify hook, may only make
+// the changes its permissions allow, the fields they name and deleting,
+// actions and labels only as far as they say; only a server admin approves
+// what only a server admin may grant; and an add-on from a catalog, as
+// every account's add-on is, must be what the catalog offers.
 func (r *Runtime) Hooks() []hooks.Registration {
 	const owner = hooks.OwnerCore + ":addons"
 	var out []hooks.Registration
@@ -855,10 +884,26 @@ func (r *Runtime) Hooks() []hooks.Registration {
 			})
 		}
 	}
+	out = append(out, r.kindHooks()...)
 	return append(out, hooks.Registration{
 		Point: "*.*.*.validate", Kind: hooks.Validate, Owner: owner, Security: true, Priority: -900,
 		OnValidate: func(ctx context.Context, c *hooks.Context) error {
-			if c.Actor == nil || c.Actor.Type != auth.ActorAddon || c.Change == nil {
+			if c.Change == nil {
+				return nil
+			}
+			// What a modify hook added is checked again as the pipeline
+			// planned it, with the resource's own scope and state, which
+			// the person's grants alone don't hold the add-on to.
+			if src := c.Change.Source; src.Type == hooks.OwnerAddon {
+				_, man, g, _, ok := r.Running(src.Name)
+				if !ok {
+					return ErrUnknown.New("addon", src.Name)
+				}
+				if err := g.CheckAdded(man.Name, *c.Change); err != nil {
+					return err
+				}
+			}
+			if c.Actor == nil || c.Actor.Type != auth.ActorAddon {
 				return nil
 			}
 			inst := r.instanceOf(c.Actor.ID)
@@ -866,13 +911,13 @@ func (r *Runtime) Hooks() []hooks.Registration {
 			if !ok {
 				return ErrUnknown.New("addon", c.Actor.Name)
 			}
-			if !g.InScope(c.Change.Scope) {
-				return ErrFieldDenied.New("addon", man.Name, "field", "anything", "kind", c.Change.Kind)
+			// What the add-on asked for, apart from what modify hooks, such
+			// as rules filling in defaults, contributed to it.
+			asked := *c.Change
+			if c.Requested != nil {
+				asked = *c.Requested
 			}
-			if field := g.CheckWrite(*c.Change); field != "" {
-				return ErrFieldDenied.New("addon", man.Name, "field", field, "kind", c.Change.Kind)
-			}
-			return nil
+			return g.CheckWrite(ctx, man.Name, asked)
 		},
 	})
 }

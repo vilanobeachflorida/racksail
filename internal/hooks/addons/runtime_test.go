@@ -49,6 +49,8 @@ type siteSpec struct {
 
 var siteKind = store.Define[siteSpec, store.Status](store.KindInfo{
 	Name: "web.site", Prefix: "site", Scope: store.ScopeAccount, Title: "Site", Plural: "sites", Description: "A site.",
+	Actions: []store.Action{{Name: "purge", Title: "Purge", Summary: "Empty the site's cache", Risk: store.RiskLow, Past: "purged"}},
+	Indexes: []store.Index{{Name: "domain", Path: "domains"}, {Name: "note", Path: "notes"}},
 })
 
 const guardManifest = `
@@ -85,6 +87,24 @@ type fakeAddon struct {
 	sent   []json.RawMessage
 	notes  bool
 	health string
+	// kindCalls are the plans and applies of its kinds it was asked for;
+	// with stray set, its plans write outside its directory, and with
+	// failDeletes, it can't undo what it did for a resource.
+	kindCalls   []kindCall
+	stray       bool
+	failDeletes bool
+	// adds are changes its modify hook's answers add, as JSON objects, so
+	// they say exactly what an add-on's process could; rewrite, when set,
+	// is what its modify hook does to the specs of the changes it's sent,
+	// in place of putting sites behind the CDN.
+	adds    []map[string]any
+	rewrite func(spec map[string]any)
+}
+
+// kindCall is one plan or apply the fake add-on was asked for.
+type kindCall struct {
+	what string
+	call hooks.KindCall
 }
 
 func (f *fakeAddon) serve(t *testing.T, socket string) {
@@ -111,7 +131,7 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 		}
 		f.mu.Lock()
 		f.calls = append(f.calls, call)
-		notes := f.notes
+		notes, adds, rewrite := f.notes, slices.Clone(f.adds), f.rewrite
 		f.mu.Unlock()
 		var reply hooks.HookReply
 		switch call.Kind {
@@ -128,13 +148,30 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 			for _, i := range call.Changes {
 				var spec map[string]any
 				json.Unmarshal(cs.Changes[i].After, &spec)
-				spec["cdn"] = "on"
-				if notes {
-					spec["notes"] = "the add-on was here"
+				switch {
+				case rewrite != nil:
+					rewrite(spec)
+				default:
+					spec["cdn"] = "on"
+					if notes {
+						spec["notes"] = "the add-on was here"
+					}
 				}
 				cs.Changes[i].After, _ = json.Marshal(spec)
 			}
 			reply.ChangeSet = cs
+			if len(adds) > 0 {
+				raw, _ := json.Marshal(cs)
+				var answer map[string]any
+				json.Unmarshal(raw, &answer)
+				changes, _ := answer["changes"].([]any)
+				for _, a := range adds {
+					changes = append(changes, a)
+				}
+				answer["changes"] = changes
+				json.NewEncoder(w).Encode(map[string]any{"changeSet": answer})
+				return
+			}
 		}
 		json.NewEncoder(w).Encode(reply)
 	})
@@ -145,9 +182,69 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 		f.mu.Unlock()
 		w.Write([]byte("{}"))
 	})
-	mux.HandleFunc("GET /routes/{path...}", func(w http.ResponseWriter, r *http.Request) {
+	// Its guard.rule resources are files of their pattern in its directory,
+	// and a purge reports what it purged.
+	mux.HandleFunc("POST /kinds/{kind}/{what}", func(w http.ResponseWriter, r *http.Request) {
+		var call hooks.KindCall
+		if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		f.mu.Lock()
+		f.kindCalls = append(f.kindCalls, kindCall{what: r.PathValue("what"), call: call})
+		stray, failDeletes := f.stray, f.failDeletes
+		f.mu.Unlock()
+		var spec struct {
+			Pattern string `json:"pattern"`
+		}
+		json.Unmarshal(call.Resource.Spec, &spec)
+		file := call.Dir + "/" + string(call.Resource.ID) + ".conf"
+		if stray {
+			file = "/etc/racksail/stolen.conf"
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"path": r.PathValue("path"), "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie")})
+		switch {
+		case r.PathValue("what") == "plan" && call.Action != nil:
+			json.NewEncoder(w).Encode(hooks.KindPlan{Effects: []system.Effect{{Type: system.EffectProcess, Action: "purge", Target: spec.Pattern}}})
+		case r.PathValue("what") == "plan" && call.Resource.Deleted:
+			json.NewEncoder(w).Encode(hooks.KindPlan{Steps: []agent.Step{agent.RemovePath.Step(agent.RemovePathInput{Path: file})}})
+		case r.PathValue("what") == "plan":
+			json.NewEncoder(w).Encode(hooks.KindPlan{
+				Steps: []agent.Step{
+					agent.EnsureDir.Step(agent.EnsureDirInput{Path: call.Dir, Mode: 0o755, Parents: true}),
+					agent.WriteFile.Step(agent.WriteFileInput{Path: file, Content: []byte(spec.Pattern + "\n"), Mode: 0o644}),
+				},
+				Effects: []system.Effect{{Type: system.EffectProcess, Action: "watch", Target: spec.Pattern}},
+			})
+		case call.Action != nil:
+			json.NewEncoder(w).Encode(hooks.KindApplied{Output: json.RawMessage(`{"purged":3}`)})
+		case call.Resource.Deleted && !failDeletes:
+			json.NewEncoder(w).Encode(hooks.KindApplied{})
+		case spec.Pattern == "fail" || call.Resource.Deleted:
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]any{"status": 502, "detail": "the outside service refused the rule"})
+		default:
+			json.NewEncoder(w).Encode(hooks.KindApplied{Status: map[string]any{"watching": spec.Pattern, "phase": "forged"}})
+		}
+	})
+	mux.HandleFunc("/routes/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"method": r.Method, "path": r.PathValue("path"), "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie"),
+			"body": string(body),
+		})
+	})
+	mux.HandleFunc("GET /ui/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// What it answers can't loosen the panel's policy for its frame.
+		w.Header().Set("Content-Security-Policy", "script-src *")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		json.NewEncoder(w).Encode(map[string]string{
+			"path": r.PathValue("path"), "query": r.URL.RawQuery, "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie"),
+			"request": r.Header.Get("Racksail-Request-Id"), "nonce": r.Header.Get("Racksail-Nonce"), "base": r.Header.Get("Racksail-Frame-Base"),
+		})
 	})
 	srv := &http.Server{Handler: mux}
 	go srv.Serve(ln)
@@ -182,6 +279,7 @@ func (a accounts) AddonPlacement(ctx context.Context, rd store.Reader, account s
 type env struct {
 	t        *testing.T
 	store    *store.Memory
+	kinds    *store.KindRegistry
 	engine   *changeset.Engine
 	queue    *jobs.Manager
 	registry *hooks.Registry
@@ -285,10 +383,10 @@ func newEnv(t *testing.T) *env {
 	ag := &restarting{Client: agent.NewLocal(m.Backend(), log)}
 	recs := reconcile.NewRegistry()
 	runner := &reconcile.Runner{Store: st, Agent: ag, Registry: recs, Events: bus, Log: log}
-	e := &env{t: t, store: st, places: accounts{}}
+	e := &env{t: t, store: st, kinds: kinds, places: accounts{}}
 	e.catalogs = recipes.NewCatalogs(recipes.CatalogOptions{Store: st, Cache: filepath.Join(dir, "catalogs"), Logger: log})
 	rt := NewRuntime(Options{
-		Registry: reg, Store: st, Agent: ag, Events: bus, Audit: bus, Tokens: NewMemoryTokens(),
+		Registry: reg, Store: st, Kinds: kinds, Reconcilers: recs, Agent: ag, Events: bus, Audit: bus, Tokens: NewMemoryTokens(),
 		SafeMode: OpenSafeMode(filepath.Join(dir, "state"), nil), TokenDir: filepath.Join(dir, "tokens"), SocketDir: dir,
 		Resolve: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			if host == "api.example.com" {
@@ -297,6 +395,8 @@ func newEnv(t *testing.T) *env {
 			return nil, errors.New("no such host")
 		},
 		Enqueue: runner.Enqueue, Catalogs: e.catalogs, Log: log,
+		// The panel's modules, of which only web has kinds here.
+		Modules: []string{"network", "web", "dns", "mail"},
 		Accounts: func() Accounts {
 			if len(e.places) == 0 {
 				return nil
@@ -580,6 +680,34 @@ func TestAddonsTakePartInChanges(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if !strings.Contains(rec.body.String(), `"path":"scans"`) || strings.Contains(rec.body.String(), "secret") || !strings.Contains(rec.body.String(), "admin") {
 		t.Errorf("route = %d %s", rec.status, rec.body.String())
+	}
+	// Its screens are told who is looking, the person the frame was opened
+	// for whoever the request is signed in as, with the query they were
+	// asked with and the panel's ID for the request, and nothing of their
+	// credentials either.
+	base, err := e.runtime.OpenFrame("site-guard", e.admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux = http.NewServeMux()
+	mux.Handle("/api/v1/addons/{addon}/frames/{token}/{path...}", e.runtime.Frames(nil))
+	req, _ = http.NewRequest("GET", base+"ui/tab?resource=site_1", nil)
+	req.Header.Set("Cookie", "racksail_session=secret")
+	req = req.WithContext(auth.WithActor(req.Context(), &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "someone else"}))
+	rec = newRecorder()
+	// The API's middleware answers with the request's ID before handlers run.
+	rec.Header().Set("X-Request-Id", "req_01jq0000000000000000000001")
+	mux.ServeHTTP(rec, req)
+	var screen map[string]string
+	if err := json.Unmarshal(rec.body.Bytes(), &screen); err != nil {
+		t.Fatalf("screen = %d %s", rec.status, rec.body.String())
+	}
+	var looking auth.Actor
+	if err := json.Unmarshal([]byte(screen["actor"]), &looking); err != nil || looking.ID != e.admin.ID {
+		t.Errorf("the screen was told %q is looking", screen["actor"])
+	}
+	if screen["path"] != "tab" || screen["query"] != "resource=site_1" || screen["cookie"] != "" || screen["request"] != "req_01jq0000000000000000000001" {
+		t.Errorf("screen = %+v", screen)
 	}
 
 	// Turned off, it is out of the pipeline and its token is gone.
@@ -964,6 +1092,162 @@ func TestOnlyServerAdminsApproveWhatOnlyTheyMayGrant(t *testing.T) {
 	widened.Approved.Secrets = true
 	if _, err := e.submit(collaborator, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: plain.ID, Revision: plain.Revision, Spec: spec(t, widened)}); !errors.Is(err, hooks.ErrDenied) || !strings.Contains(i18n.From(err).Message, "secrets.read") {
 		t.Errorf("a collaborator approving secrets.read: %v", err)
+	}
+}
+
+// What an add-on's modify hook adds is the add-on's doing, so it approves
+// nothing only a server admin may, even when a server admin makes the
+// change it joins.
+func TestModifyHooksApproveNothingOnlyAdminsMay(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	manifest := strings.Replace(guardManifest, "write: [{kind: web.site, fields: [cdn]}]", "write: [{kind: web.site, fields: [cdn]}, {kind: core.addon}]", 1)
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, withKinds(t, manifest))}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing the site guard: %v %+v", err, cs)
+	}
+	other := withKinds(t, strings.Replace(guardManifest, "id: site-guard", "id: plain", 1))
+	other.ID, other.Enabled = "plain", false
+	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, other)})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("another add-on: %v %+v", err, cs)
+	}
+	plain, _ := Addon.Get(ctx, e.store, cs.Changes[0].ID)
+	widened := plain.Spec
+	widened.Approved.Secrets = true
+	var after map[string]any
+	json.Unmarshal(spec(t, widened), &after)
+	e.fake.mu.Lock()
+	e.fake.adds = []map[string]any{{"op": "update", "kind": Addon.Name(), "id": string(plain.ID), "after": after}}
+	e.fake.mu.Unlock()
+	acct := e.newAccount(t)
+	_, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, Spec: spec(t, siteSpec{Domains: []string{"shop.example"}})})
+	if !errors.Is(err, hooks.ErrDenied) || !errors.Is(err, ErrHookApproval) || !strings.Contains(i18n.From(err).Message, "secrets.read") ||
+		!strings.Contains(i18n.From(err).Message, "Site guard 0.3.0 tried") {
+		t.Errorf("a modify hook approving secrets.read: %v", err)
+	}
+	if got, _ := Addon.Get(ctx, e.store, plain.ID); got.Spec.Approved.Secrets {
+		t.Error("the other add-on may read secrets now")
+	}
+}
+
+// approverManifest is an add-on allowed to change what other add-ons were
+// approved for, whose modify hook joins every change of an add-on.
+const approverManifest = `
+format: 1
+id: approver
+name: Approver
+version: 0.1.0
+license: Apache-2.0
+source: https://example.com/approver
+author: Example
+description: Approves what add-ons ask for.
+apiVersions: [v1]
+hooks:
+  - {point: core.addon.update.plan, kind: modify}
+permissions:
+  hooks: [modify]
+  read: [{kind: core.addon}]
+  write: [{kind: core.addon, fields: [approved, enabled]}]
+`
+
+// A modify hook that rewrites the very change a server admin asked for
+// approves nothing only an admin may in it, and gives an add-on that holds
+// such a permission no new program, whatever the add-on may write; what the
+// admin asked for stays theirs.
+func TestModifyHooksApproveNothingInTheChangesTheyRewrite(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	// The site guard is the admin's own, from no catalog that would pin its
+	// program.
+	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, withKinds(t, guardManifest))})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing the site guard: %v %+v", err, cs)
+	}
+	guardID := cs.Changes[0].ID
+	approver := withKinds(t, approverManifest)
+	approver.ID = "approver"
+	cs, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: Addon.Name(), Scope: store.ServerScope(), Spec: spec(t, approver)})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing the approver: %v %+v", err, cs)
+	}
+	fake := &fakeAddon{}
+	fake.serve(t, filepath.Join(e.dir, "approver.sock"))
+	if err := e.runner.Reconcile(ctx, cs.Changes[0].ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, ok := e.runtime.Running("approver"); !ok {
+		t.Fatal("the approver isn't running")
+	}
+	rewrite := func(fn func(spec map[string]any)) {
+		fake.mu.Lock()
+		fake.rewrite = fn
+		fake.mu.Unlock()
+	}
+	turnOff := func() (*changeset.ChangeSet, error) {
+		t.Helper()
+		obj, err := Addon.Get(ctx, e.store, guardID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		off := obj.Spec
+		off.Enabled = false
+		return e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: guardID, Revision: obj.Revision, Spec: spec(t, off)})
+	}
+
+	// The admin turns the site guard off, and the approver's answer gives
+	// it secrets.read and core.override.
+	rewrite(func(spec map[string]any) {
+		approved, _ := spec["approved"].(map[string]any)
+		approved["secrets"], approved["override"] = true, true
+	})
+	if _, err := turnOff(); !errors.Is(err, hooks.ErrDenied) || !errors.Is(err, ErrHookApproval) || !strings.Contains(i18n.From(err).Message, "Approver 0.1.0") {
+		t.Errorf("a modify hook approving what only admins may in the admin's change: %v", err)
+	}
+	if got, _ := Addon.Get(ctx, e.store, guardID); got.Spec.Approved.Secrets || got.Spec.Approved.Override || !got.Spec.Enabled {
+		t.Errorf("the site guard after the approver's answer = %+v", got.Spec)
+	}
+
+	// Someone who isn't an admin asking for it in a change the approver
+	// rewrites is refused as they would be anyway, for what they asked.
+	obj, _ := Addon.Get(ctx, e.store, guardID)
+	trusted := obj.Spec
+	trusted.Approved.Secrets = true
+	rewrite(func(spec map[string]any) { spec["enabled"] = false })
+	collaborator := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "collaborator", Source: auth.SourceAPI, Grants: []auth.Grant{{
+		Role: auth.RoleCollaborator, Scope: store.ServerScope(), Permissions: []auth.Permission{"core.addon.read", "core.addon.update"},
+	}}}
+	if _, err := e.submit(collaborator, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: guardID, Revision: obj.Revision, Spec: spec(t, trusted)}); !errors.Is(err, ErrAdminApproval) {
+		t.Errorf("a collaborator approving secrets.read in a change a hook rewrote: %v", err)
+	}
+
+	// An admin approves secrets.read for the site guard themselves, and the
+	// approver turns it off in the same change: the approval is the admin's.
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: guardID, Revision: obj.Revision, Spec: spec(t, trusted)}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("an admin's approval in a change a hook rewrote: %v %+v", err, cs)
+	}
+	if got, _ := Addon.Get(ctx, e.store, guardID); !got.Spec.Approved.Secrets || got.Spec.Enabled {
+		t.Errorf("the site guard after the admin's approval = %+v", got.Spec)
+	}
+
+	// Now that it holds secrets.read, nothing but an admin gives it another
+	// program, not even in a change of the admin's.
+	rewrite(func(spec map[string]any) {})
+	manifest := strings.Replace(approverManifest, "fields: [approved, enabled]", "fields: [approved, enabled, package]", 1)
+	wider := withKinds(t, manifest)
+	wider.ID = "approver"
+	obj, _ = Addon.Get(ctx, e.store, cs.Changes[0].ID)
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: Addon.Name(), ID: obj.ID, Revision: obj.Revision, Spec: spec(t, wider)}); err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("letting the approver change programs: %v %+v", err, cs)
+	}
+	rewrite(func(spec map[string]any) {
+		pkg, _ := spec["package"].(map[string]any)
+		pkg["sha256"] = strings.Repeat("ef", 32)
+	})
+	if _, err := turnOff(); !errors.Is(err, ErrHookApproval) || !strings.Contains(i18n.From(err).Message, "secrets.read") {
+		t.Errorf("a modify hook swapping the program of an add-on that reads secrets: %v", err)
+	}
+	if got, _ := Addon.Get(ctx, e.store, guardID); got.Spec.Package.SHA256 == strings.Repeat("ef", 32) {
+		t.Error("the site guard runs the approver's program now")
 	}
 }
 

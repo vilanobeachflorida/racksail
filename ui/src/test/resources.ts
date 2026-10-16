@@ -234,6 +234,35 @@ export const siteKind = kind({
   },
 });
 
+/**
+ * A kind an add-on adds, described by JSON Schema rather than generated
+ * with the API, so its resources are at the path every such kind shares.
+ */
+export const ruleKind = kind({
+  name: "guard.rule",
+  title: "Guard rule",
+  plural: "rules",
+  prefix: "grule",
+  scope: "server",
+  path: "/api/v1/kinds/guard.rule/resources",
+  description:
+    "A pattern the site guard watches for. Added by Site guard, which plans and applies it.",
+  risks: { create: "low", update: "low", delete: "high" },
+  ui: { icon: "puzzle" },
+  spec: {
+    type: "object",
+    additionalProperties: false,
+    required: ["pattern"],
+    properties: {
+      pattern: { type: "string", minLength: 2, description: "What to watch for" },
+    },
+  },
+  status: {
+    type: "object",
+    properties: { phase: { type: "string" }, watching: { type: "string" } },
+  },
+});
+
 /** A webhook resource, with what a test changes. */
 export function webhook(
   overrides: Partial<Resource> & { spec?: Record<string, unknown> } = {},

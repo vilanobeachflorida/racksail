@@ -292,9 +292,11 @@ func newServer(t *testing.T, g *github, version string, configure func(*Options)
 	if err := s.updater.Boot(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Their first reconcile writes the status, so tests wait for it rather
+	// than have it land on top of what they check.
 	waitFor(t, "the settings exist", func() bool {
 		set, _ := s.updater.Settings(ctx)
-		return set != nil
+		return set != nil && set.Status.ObservedGeneration == set.Generation
 	})
 	return s
 }
@@ -784,6 +786,11 @@ func TestUpgradeDebian(t *testing.T) {
 	if err := files.WriteFile(ctx, debianPrefFile, []byte(pref), 0o644, system.Owner{}); err != nil {
 		t.Fatal(err)
 	}
+	// The release brings a kernel of its own, which wants a reboot too.
+	files.Mkdir(ctx, "/boot", 0o755, system.Owner{})
+	if err := files.WriteFile(ctx, "/boot/vmlinuz-99.1.0+deb14-amd64", []byte("kernel"), 0o644, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
 	// A module that isn't ready refuses, and the upgrade doesn't start.
 	err := s.hooks.Register(hooks.Registration{Point: hooks.OSUpgradeCheck, Kind: hooks.Validate, Owner: "module:databases", OnValidate: func(ctx context.Context, c *hooks.Context) error {
 		if c.Data.(OSUpgradeData).To == "forky" {
@@ -832,6 +839,15 @@ func TestUpgradeDebian(t *testing.T) {
 	json.Unmarshal(cs.Changes[0].Output, &out)
 	if !out.RebootRequired || out.From != "trixie" || out.To != "forky" {
 		t.Errorf("output = %+v", out)
+	}
+	// The reboot is for the release, and for what the agent found besides.
+	want := []string{"Debian forky is installed", "kernel 99.1.0+deb14-amd64 is installed"}
+	if !slices.Equal(out.RebootReasons, want) {
+		t.Errorf("reboot reasons = %q, want %q", out.RebootReasons, want)
+	}
+	if settings, err := s.updater.Settings(ctx); err != nil || settings.Status.OS == nil || !settings.Status.OS.RebootRequired ||
+		settings.Status.OS.Codename != "forky" || !slices.Equal(settings.Status.OS.RebootReasons, want) {
+		t.Errorf("the status after the upgrade = %+v, %v", settings, err)
 	}
 	for _, p := range []hooks.Point{hooks.OSUpgradeBefore, hooks.OSUpgradeAfter} {
 		select {

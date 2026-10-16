@@ -151,20 +151,22 @@ func (u *Updater) UpgradeOS(ctx context.Context, settings store.ID, to string) (
 	for _, s := range res.Snapshots {
 		out.Snapshots = append(out.Snapshots, s.Path)
 	}
+	// A new release always wants its kernel and init booted. The agent says
+	// what else wants a reboot, such as the kernel the release brought, and
+	// whether one is scheduled already.
+	next, _ := NextDebian(data.To)
+	upgraded := &OSStatus{Codename: data.To, Version: data.ToVersion, Next: next, RebootRequired: true, RebootReasons: []string{"Debian " + data.To + " is installed"}}
 	if reboot, err := agent.RebootStatus.Call(ctx, u.opts.Agent, agent.Empty{}, agent.CallOptions{}); err == nil {
-		out.RebootRequired = reboot.Required
+		upgraded.RebootReasons = append(upgraded.RebootReasons, reboot.Reasons...)
+		upgraded.RebootAt = reboot.Scheduled
 	}
-	// A new release always wants its kernel and init booted.
-	out.RebootRequired = true
+	out.RebootRequired, out.RebootReasons = true, upgraded.RebootReasons
 	data.Outcome = "upgraded"
 	if u.opts.Hooks != nil {
 		u.opts.Hooks.Notify(ctx, hooks.OSUpgradeAfter, actor, data)
 	}
 	u.publish(ctx, settings, EventOSUpgraded, "Debian was upgraded from "+data.From+" to "+data.To+". Reboot the server to finish.", out)
-	next, _ := NextDebian(data.To)
-	u.setStatus(ctx, func(st *SettingsStatus) {
-		st.OS = &OSStatus{Codename: data.To, Version: data.ToVersion, Next: next, RebootRequired: true}
-	})
+	u.setStatus(ctx, func(st *SettingsStatus) { st.OS = upgraded })
 	return out, nil
 }
 

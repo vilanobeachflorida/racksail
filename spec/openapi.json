@@ -1155,6 +1155,12 @@
               "null"
             ]
           },
+          "locale": {
+            "description": "The language of the panel's own words in the channel's messages, such as de or pt-BR; English when empty",
+            "maxLength": 35,
+            "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
+            "type": "string"
+          },
           "minSeverity": {
             "description": "Only send events at least this urgent",
             "enum": [
@@ -4627,8 +4633,22 @@
       "DataScope": {
         "additionalProperties": false,
         "properties": {
+          "actions": {
+            "description": "For changing: the actions of the kind the add-on may run, such as purge",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "delete": {
+            "description": "For changing: the add-on may delete resources of the kind",
+            "type": "boolean"
+          },
           "fields": {
-            "description": "The spec fields it reaches, as dotted paths; every one when empty",
+            "description": "The fields of the spec, as dotted paths such as cdn or tls.mode",
             "items": {
               "type": "string"
             },
@@ -4640,6 +4660,10 @@
           "kind": {
             "description": "The kind, such as web.site",
             "type": "string"
+          },
+          "labels": {
+            "description": "The resources' labels, which the add-on may see, or change when the scope is for changing",
+            "type": "boolean"
           }
         },
         "required": [
@@ -6254,7 +6278,7 @@
             "type": "boolean"
           },
           "catalog": {
-            "description": "The catalog the item is from",
+            "description": "The catalog the item is from, by its ID or its name, such as official",
             "type": "string"
           },
           "inputs": {
@@ -7621,6 +7645,10 @@
           },
           "id": {
             "description": "The same on every attempt to deliver the message",
+            "type": "string"
+          },
+          "locale": {
+            "description": "The language of the panel's own words in the message, such as de or pt-BR; English when empty",
             "type": "string"
           },
           "severity": {
@@ -9690,6 +9718,12 @@
       "RelayTestInput": {
         "additionalProperties": false,
         "properties": {
+          "locale": {
+            "description": "The language of the panel's own words in the test email, such as de; English when empty",
+            "maxLength": 35,
+            "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
+            "type": "string"
+          },
           "to": {
             "description": "Who gets the test email",
             "examples": [
@@ -11413,13 +11447,14 @@
             "type": "string"
           },
           "type": {
-            "description": "Who contributed it: the request itself, a hook, a rule, an add-on or a module",
+            "description": "Who contributed it: the request itself, a hook, a rule, an add-on, a module or the panel itself",
             "enum": [
               "request",
               "hook",
               "rule",
               "addon",
-              "module"
+              "module",
+              "core"
             ],
             "type": "string"
           }
@@ -12199,6 +12234,16 @@
           "from": {
             "description": "The Debian release before the upgrade, such as trixie",
             "type": "string"
+          },
+          "rebootReasons": {
+            "description": "Why the server needs a reboot: the new release, and whatever else wants one, such as its kernel",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "rebootRequired": {
             "description": "Whether the server needs a reboot to finish",
@@ -14351,12 +14396,12 @@
         "operationId": "getCatalogItem",
         "parameters": [
           {
-            "description": "The catalog's ID",
+            "description": "The catalog's ID, or its name, such as official",
             "in": "path",
             "name": "catalog",
             "required": true,
             "schema": {
-              "description": "The catalog's ID",
+              "description": "The catalog's ID, or its name, such as official",
               "type": "string"
             }
           },
@@ -14410,16 +14455,16 @@
     },
     "/api/v1/catalog/items/{catalog}/{item}/icon": {
       "get": {
-        "description": "Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.",
+        "description": "Returns the item's icon, a PNG or an SVG checked against the catalog's signed index, served so that it can't run or load anything. It is fetched from the catalog the first time, while the marketplace module is on, and kept after that.",
         "operationId": "getCatalogItemIcon",
         "parameters": [
           {
-            "description": "The catalog's ID",
+            "description": "The catalog's ID, or its name, such as official",
             "in": "path",
             "name": "catalog",
             "required": true,
             "schema": {
-              "description": "The catalog's ID",
+              "description": "The catalog's ID, or its name, such as official",
               "type": "string"
             }
           },
@@ -28177,6 +28222,765 @@
         "x-racksail-risk": "read"
       }
     },
+    "/api/v1/kinds/{name}/resources": {
+      "get": {
+        "description": "Lists the resources you can see of a kind an add-on adds, described by JSON Schema rather than generated with the API, oldest first unless sort says otherwise, a page at a time. Its read permission, \u003ckind\u003e.read, decides what you see.",
+        "operationId": "listSchemaKindResources",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID contains this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation or phase, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "description": "The resources on this page",
+                      "items": {
+                        "$ref": "#/components/schemas/Resource"
+                      },
+                      "type": "array"
+                    },
+                    "next": {
+                      "description": "The cursor of the next page; empty on the last one",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of resources"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List resources of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-operation": "list",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "Creates a resource of a kind an add-on adds, as a change like any other: the add-on plans it, so with dryRun=true the answer is the change set with what it would do; otherwise the change set is applied, and its job runs the plan and has the add-on apply it.",
+        "operationId": "createSchemaKindResource",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A new resource",
+                "properties": {
+                  "id": {
+                    "description": "An ID chosen up front, starting with the kind's prefix; one is made when left out",
+                    "type": "string"
+                  },
+                  "labels": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Labels for grouping and filtering",
+                    "type": "object"
+                  },
+                  "scope": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/Scope"
+                      }
+                    ],
+                    "description": "Who it belongs to, at the level the kind says; the server when left out for kinds of the server"
+                  },
+                  "secrets": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Values for secret fields, by field path",
+                    "type": "object"
+                  },
+                  "server": {
+                    "description": "The cluster server to place it on; the panel's own server when left out",
+                    "type": "string"
+                  },
+                  "spec": {
+                    "additionalProperties": true,
+                    "description": "Settings as the kind's JSON Schema, from GET /api/v1/kinds/{name}, describes them",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "spec"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a resource of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-operation": "create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/kinds/{name}/resources/{id}": {
+      "delete": {
+        "description": "Deletes the resource, previewed and applied like any change: the add-on plans removing what it set up for it, and undoes the rest.",
+        "operationId": "deleteSchemaKindResource",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The resource's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the resource since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the resource"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a resource of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-operation": "delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high"
+      },
+      "get": {
+        "description": "Returns one resource of a kind an add-on adds: its settings, and the status the add-on last reported with the phase and conditions the panel keeps.",
+        "operationId": "getSchemaKindResource",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The resource's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Resource"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a resource of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-operation": "get",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the resource's settings, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateSchemaKindResource",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The resource's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "New settings",
+                "properties": {
+                  "labels": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Labels for grouping and filtering",
+                    "type": "object"
+                  },
+                  "revision": {
+                    "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "secrets": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Values for secret fields, by field path",
+                    "type": "object"
+                  },
+                  "spec": {
+                    "additionalProperties": true,
+                    "description": "Settings as the kind's JSON Schema, from GET /api/v1/kinds/{name}, describes them",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "spec"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a resource of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-operation": "update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/kinds/{name}/resources/{id}/actions/{action}": {
+      "post": {
+        "description": "Runs one of the actions the kind declares, which the add-on plans and carries out, as a change like any other. Its input, when it takes one, is checked against the action's JSON Schema from GET /api/v1/kinds/{name}. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "runSchemaKindAction",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The resource's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The action, as the kind declares it",
+            "in": "path",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "The action's input, as its JSON Schema describes it",
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Run an action of a resource of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-operation": "action",
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/kinds/{name}/resources/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the resource's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getSchemaKindResourceHistory",
+        "parameters": [
+          {
+            "description": "The kind, such as guard.rule; GET /api/v1/kinds lists them with their paths",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The resource's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show the history of a resource of an add-on's kind",
+        "tags": [
+          "Add-on kinds"
+        ],
+        "x-racksail-operation": "history",
+        "x-racksail-risk": "read"
+      }
+    },
     "/api/v1/me": {
       "get": {
         "description": "Returns your user: your details, your roles, and how you sign in.",
@@ -30098,7 +30902,7 @@
     },
     "/api/v1/modules/{id}": {
       "get": {
-        "description": "Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.",
+        "description": "Returns a module with its manifest and state: whether it is on, what it needs and costs, the modules it needs and those that need it, what uses it, why it can't run here when it can't, and the ID of the core.module resource whose actions turn it on, off and remove it.",
         "operationId": "getModule",
         "parameters": [
           {
@@ -30812,7 +31616,7 @@
     },
     "/api/v1/notifications/{id}": {
       "get": {
-        "description": "Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.",
+        "description": "Returns one notification with the message it carries: where it goes, how its attempts went and why the last one failed, and when it is sent or tried again. You see your own; those sent through channels, and to other people, are for those who may see the channels.",
         "operationId": "getNotification",
         "parameters": [
           {
@@ -31241,7 +32045,7 @@
         "x-racksail-risk": "high"
       },
       "get": {
-        "description": "Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.",
+        "description": "Says whether safe mode is on and what turned it on: the boot option, the console, the panel, or an add-on that crashed as it started, with when and why. While it is on no add-on runs, so a broken one can't keep the panel from working.",
         "operationId": "getSafeMode",
         "responses": {
           "200": {

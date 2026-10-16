@@ -93,5 +93,5 @@ func (r relayReconciler) ApplyAction(ctx context.Context, req reconcile.ActionRe
 	if err := json.Unmarshal(req.Input, &in); err != nil {
 		return nil, err
 	}
-	return r.s.TestRelay(ctx, in.To), nil
+	return r.s.TestRelay(ctx, in.To, in.Locale), nil
 }

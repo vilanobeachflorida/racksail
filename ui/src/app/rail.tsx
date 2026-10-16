@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Building2, House, type LucideIcon, ScrollText, Settings, Users } from "lucide-react";
 import { useIntl } from "react-intl";
 import { cn } from "@/lib/utils";
+import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "./addons";
 import { messages } from "./messages";
 import { navEntries, useActiveModules, usePermission } from "./modules";
 
@@ -50,13 +51,15 @@ const panelEntries = [
 
 /**
  * The navigation: Home, every module's entries the person may see, the
- * accounts, users and audit log, and Settings. It is the icon rail on wide screens and the menu sheet on
+ * accounts, users and audit log, the entries of the add-ons they may use,
+ * and Settings. It is the icon rail on wide screens and the menu sheet on
  * phones, where wide lays the entries out in rows.
  */
 export function NavLinks({ wide, onNavigate }: { wide?: boolean; onNavigate?: () => void }) {
   const intl = useIntl();
   const modules = useActiveModules();
   const allowed = usePermission();
+  const addonNav = useAddonEntries("ui.nav");
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1">
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
@@ -94,6 +97,17 @@ export function NavLinks({ wide, onNavigate }: { wide?: boolean; onNavigate?: ()
               />
             </li>
           ))}
+        {addonNav.map((entry) => (
+          <li key={addonEntryKey(entry)}>
+            <RailLink
+              to={addonScreenPath(entry)}
+              icon={addonIcon(entry.ui.icon)}
+              label={entry.ui.label}
+              onNavigate={onNavigate}
+              wide={wide}
+            />
+          </li>
+        ))}
       </ul>
       <div className="border-border border-t pt-1">
         <RailLink

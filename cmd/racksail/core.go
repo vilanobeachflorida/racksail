@@ -233,6 +233,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			return nil, err
 		}
 	}
+	// The kinds installed add-ons add are there before anything reads or
+	// reconciles their resources.
+	addonRuntime.LoadKinds(ctx)
 	pipeline, err := changeset.NewEngine(changeset.Options{
 		Store: st, Kinds: kinds, Runner: runner, Jobs: queue, Events: timeline, Audit: timeline,
 		Hooks: hookRunner, Authorizer: authorizer, Secrets: vault, Storage: changeSets,

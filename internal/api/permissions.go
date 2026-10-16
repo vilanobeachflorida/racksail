@@ -111,6 +111,16 @@ var SignedInOperations = map[string]string{
 	"uninstallInstallation":      "authorizes deleting the installation before reading anything, and the change pipeline every change",
 	"getNotificationPreferences": "the caller's own notification preferences",
 	"sendTestNotification":       "emails the caller's own address",
+
+	// The kinds add-ons add come and go, so their operations authorize
+	// with the permissions of the kind each request names.
+	"listSchemaKindResources":      "authorizes the kind's own read permission",
+	"getSchemaKindResource":        "authorizes the kind's own read permission",
+	"getSchemaKindResourceHistory": "authorizes the kind's own read permission",
+	"createSchemaKindResource":     "the change pipeline authorizes the kind's own create permission",
+	"updateSchemaKindResource":     "the change pipeline authorizes the kind's own update permission",
+	"deleteSchemaKindResource":     "the change pipeline authorizes the kind's own delete permission",
+	"runSchemaKindAction":          "the change pipeline authorizes the permission of the kind's action",
 }
 
 func init() {

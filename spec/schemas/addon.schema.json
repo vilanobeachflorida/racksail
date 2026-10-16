@@ -63,7 +63,27 @@
           "title": { "type": "string" },
           "plural": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
           "description": { "type": "string" },
-          "schema": { "description": "JSON Schema of the spec.", "type": "object" }
+          "schema": { "description": "JSON Schema of the spec.", "type": "object" },
+          "status": { "description": "JSON Schema of the status fields the add-on reports.", "type": "object" },
+          "actions": {
+            "description": "Actions beyond creating, changing and deleting, which the add-on plans and applies.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "summary", "risk"],
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+                "title": { "type": "string" },
+                "summary": { "type": "string", "minLength": 1 },
+                "description": { "type": "string" },
+                "risk": { "enum": ["low", "medium", "high", "critical"] },
+                "destructive": { "type": "boolean" },
+                "reversible": { "type": "boolean" },
+                "input": { "description": "JSON Schema of the action's input.", "type": "object" }
+              }
+            }
+          }
         }
       }
     }
@@ -86,7 +106,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["kind"],
-      "properties": { "kind": { "type": "string" }, "fields": { "type": "array", "items": { "type": "string" } } }
+      "properties": {
+        "kind": { "type": "string" },
+        "fields": { "type": "array", "items": { "type": "string" } },
+        "labels": { "description": "The resources' labels, which a scope that names anything but the kind covers only when it says so.", "type": "boolean" },
+        "delete": { "description": "For write: deleting resources, which a scope that names anything but the kind allows only when it says so.", "type": "boolean" },
+        "actions": {
+          "description": "For write: the actions a scope that names anything but the kind allows.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        }
+      }
     },
     "permissions": {
       "type": "object",
@@ -125,7 +156,7 @@
         "label": { "type": "string" },
         "icon": { "type": "string" },
         "kind": { "description": "Kind for tabs and columns.", "type": "string" },
-        "path": { "description": "Page served by the add-on in a sandboxed frame.", "type": "string" }
+        "path": { "description": "Page served by the add-on in a sandboxed frame; for a column, the add-on's GET route that answers its values.", "type": "string" }
       }
     }
   }

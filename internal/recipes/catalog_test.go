@@ -26,6 +26,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
@@ -72,6 +73,8 @@ type catalogServer struct {
 	built time.Time
 	items []IndexItem
 	down  bool
+	// requests counts what was asked of the catalog.
+	requests int
 }
 
 func newCatalogServer(t *testing.T) *catalogServer {
@@ -80,6 +83,7 @@ func newCatalogServer(t *testing.T) *catalogServer {
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
+		c.requests++
 		if c.down {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
@@ -315,6 +319,13 @@ func TestCatalogSync(t *testing.T) {
 	if err != nil || r.Name != "WordPress" || it.CatalogName != "test" {
 		t.Fatalf("recipe = %+v, %v", r, err)
 	}
+	// A catalog can be named by its name too.
+	if byName, err := p.catalogs.Item(ctx, "test", "wordpress"); err != nil || byName.Catalog != id {
+		t.Errorf("by its name = %+v, %v", byName, err)
+	}
+	if _, err := p.catalogs.Item(ctx, "nope", "wordpress"); !i18n.ErrUnknownName.Is(err) {
+		t.Errorf("a catalog that isn't there: %v", err)
+	}
 	// A file that doesn't match the index is refused, however it is
 	// served.
 	c.mu.Lock()
@@ -371,9 +382,33 @@ func TestCatalogMirrorsAndMarketplace(t *testing.T) {
 	if _, err := p.catalogs.Sync(ctx, id); err != nil {
 		t.Fatalf("through the mirror: %v", err)
 	}
-	off := NewCatalogs(CatalogOptions{Store: p.store, Active: func() bool { return false }})
+	off := NewCatalogs(CatalogOptions{Store: p.store, Cache: p.cache, Active: func() bool { return false }})
 	if _, err := off.Sync(ctx, id); !errors.Is(err, ErrMarketplaceOn) {
 		t.Errorf("with the marketplace off, nothing is fetched: %v", err)
+	}
+	// Nor are an item's files, which the item's screen, its icon and the
+	// add-on runtime ask for; what was fetched before is still there.
+	c.mu.Lock()
+	asked := c.requests
+	c.mu.Unlock()
+	for _, file := range []string{"apps/wordpress/recipe.yaml", "apps/wordpress/icon.svg"} {
+		if _, err := off.File(ctx, id, "wordpress", file); !errors.Is(err, ErrMarketplaceOn) {
+			t.Errorf("%s with the marketplace off: %v", file, err)
+		}
+	}
+	if _, _, _, err := off.Recipe(ctx, id, "wordpress"); !errors.Is(err, ErrMarketplaceOn) {
+		t.Errorf("a recipe with the marketplace off: %v", err)
+	}
+	c.mu.Lock()
+	if c.requests != asked {
+		t.Errorf("the catalog was asked %d more times with the marketplace off", c.requests-asked)
+	}
+	c.mu.Unlock()
+	if _, err := p.catalogs.File(ctx, id, "wordpress", "apps/wordpress/icon.svg"); err != nil {
+		t.Fatal(err)
+	}
+	if icon, err := off.File(ctx, id, "wordpress", "apps/wordpress/icon.svg"); err != nil || !strings.Contains(string(icon), "svg") {
+		t.Errorf("a file fetched while the marketplace was on = %q, %v", icon, err)
 	}
 	bad, _ := json.Marshal(CatalogSpec{Name: "bad", Title: "Bad", URL: "ftp://example.com", Keys: []string{"not a key"}})
 	if _, err := p.engine.Submit(ctx, changeset.Request{Actor: p.admin, Changes: []changeset.Change{{Op: changeset.OpCreate, Kind: CatalogKind.Name(), Scope: store.ServerScope(), Spec: bad}}}); err == nil {
@@ -398,10 +433,20 @@ func TestOfficialCatalog(t *testing.T) {
 	if len(list) != 1 || list[0].Spec.URL != OfficialURL || !cats.official(list[0].Spec) {
 		t.Fatalf("catalogs = %+v", list)
 	}
-	// No key, no official catalog.
-	none := NewCatalogs(CatalogOptions{Store: store.NewMemory(testKinds(t)), Official: []ed25519.PublicKey{}})
+	// No key, no official catalog, and asking for it says why.
+	bare := store.NewKindRegistry()
+	if err := bare.Register(CatalogKind); err != nil {
+		t.Fatal(err)
+	}
+	none := NewCatalogs(CatalogOptions{Store: store.NewMemory(bare), Official: []ed25519.PublicKey{}, Logger: slog.New(slog.DiscardHandler)})
 	if err := none.Boot(context.Background(), submit); err != nil {
 		t.Error(err)
+	}
+	if _, err := none.Item(context.Background(), "official", "wordpress"); !ErrNoOfficialKey.Is(err) {
+		t.Errorf("the official catalog of a build without its key: %v", err)
+	}
+	if _, err := cats.Item(context.Background(), "official", "wordpress"); !ErrNotSynced.Is(err) {
+		t.Errorf("the official catalog of a build with its key, not fetched yet: %v", err)
 	}
 	if k, err := ParseKey(base64.StdEncoding.EncodeToString(pub)); err != nil || !k.Equal(pub) {
 		t.Errorf("a bare key line parses: %v", err)

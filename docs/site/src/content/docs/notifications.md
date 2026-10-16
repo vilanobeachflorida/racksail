@@ -30,6 +30,7 @@ Each channel chooses what it sends:
 - **At least**: only events at least this urgent, from info, notice and warning to error and critical.
 - **Owner**: only events about one reseller's or account's resources, for a channel that belongs to a customer.
 - **Quiet hours**, below.
+- **Language**: the language of the words the panel adds to its messages, such as how urgent one is, the lines saying when it happened and what it's about and the link back to the panel, as `locale`, such as `de` or `pt-BR`, with dates and numbers written as that language does. English unless set, and wherever a translation leaves something out.
 
 Tokens, passwords, signing secrets and webhook URLs are kept in the secret store, never in the channel's settings or the audit log. **Send a test** sends a test notification at once and says what the other side answered. Adding or changing a channel is a change you preview first.
 
@@ -58,7 +59,7 @@ Under **Your notifications**, everyone with a sign-in chooses:
 - events never to send, whatever the patterns say;
 - quiet hours of their own.
 
-People only hear about what they may see: a customer gets the events of their own account, never the server's. Email goes to the address on their user, which they change under **Settings → Profile**; a user without one, or turned off, gets none. **Email me a test** checks that email reaches them.
+People only hear about what they may see: a customer gets the events of their own account, never the server's. Email goes to the address on their user, which they change under **Settings → Profile**; a user without one, or turned off, gets none. The panel's own words in it are in the language they chose for the panel there. **Email me a test** checks that email reaches them.
 
 Each person's choices are a resource of their own, `core.notification_preferences`, that only they change. **Save** previews the change before it is made, like every change, and the audit log records it.
 

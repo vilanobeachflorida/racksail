@@ -573,6 +573,143 @@
         },
         "type": "object"
       },
+      "KindAction": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Its input, checked against the action's JSON Schema"
+          },
+          "name": {
+            "description": "The action, as the kind declares it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "KindApplied": {
+        "additionalProperties": false,
+        "properties": {
+          "output": {
+            "description": "Actions: what the action returned"
+          },
+          "status": {
+            "additionalProperties": {},
+            "description": "The kind's own status fields, as its status schema describes them",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "KindCall": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/KindAction",
+            "description": "Set to plan or apply an action of the resource rather than its settings"
+          },
+          "dir": {
+            "description": "The only directory the plan's steps may touch, which the add-on can read",
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/KindResource"
+          },
+          "results": {
+            "description": "Apply: what each step of the plan returned",
+            "items": {
+              "$ref": "#/components/schemas/StepResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "resource",
+          "dir"
+        ],
+        "type": "object"
+      },
+      "KindPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "effects": {
+            "description": "What applying does beyond the steps, such as records it makes with an outside service, for the preview",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "spec": {
+            "description": "Actions: the resource's new settings, when the action changes them"
+          },
+          "steps": {
+            "description": "Agent operations to run on the server: WriteFile, EnsureDir, RemovePath, ReadFile, StatPath and ListDir, of paths in dir",
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "KindResource": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "description": "Set while it is deleted: the plan removes what earlier plans wrote, and applying undoes what the add-on did for it",
+            "type": "boolean"
+          },
+          "generation": {
+            "description": "Its generation, which goes up whenever its settings change",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The resource's ID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Its kind, one the add-on adds",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Its labels",
+            "type": "object"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who it belongs to"
+          },
+          "spec": {
+            "description": "Its settings, as the kind's JSON Schema describes them"
+          },
+          "status": {
+            "description": "Its status: what the add-on last reported, with the phase and conditions the panel keeps"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "spec"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "properties": {
@@ -762,6 +899,29 @@
         ],
         "type": "object"
       },
+      "Result": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "type": "object"
+      },
       "Scope": {
         "additionalProperties": false,
         "properties": {
@@ -814,13 +974,14 @@
             "type": "string"
           },
           "type": {
-            "description": "Who contributed it: the request itself, a hook, a rule, an add-on or a module",
+            "description": "Who contributed it: the request itself, a hook, a rule, an add-on, a module or the panel itself",
             "enum": [
               "request",
               "hook",
               "rule",
               "addon",
-              "module"
+              "module",
+              "core"
             ],
             "type": "string"
           }
@@ -850,11 +1011,27 @@
           "input"
         ],
         "type": "object"
+      },
+      "StepResult": {
+        "additionalProperties": false,
+        "properties": {
+          "output": {},
+          "result": {
+            "$ref": "#/components/schemas/Result"
+          },
+          "step": {
+            "$ref": "#/components/schemas/Step"
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "type": "object"
       }
     }
   },
   "info": {
-    "description": "What an add-on serves on its Unix socket for the panel: its health, and its hooks. Hooks answer within their deadline; an error or a timeout counts as a failure, which blocks the change only for hooks whose failure mode is block. The panel never sends data the add-on's permissions don't grant.",
+    "description": "What an add-on serves on its Unix socket for the panel: its health, its hooks, the capabilities it provides, the plans and applies of the kinds it adds, and its routes and screens. Hooks answer within their deadline; an error or a timeout counts as a failure, which blocks the change only for hooks whose failure mode is block. The panel never sends data the add-on's permissions don't grant.",
     "title": "Racksail add-on protocol",
     "version": "v1"
   },
@@ -931,6 +1108,114 @@
           }
         },
         "summary": "Run one of the add-on's hooks",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    },
+    "/kinds/{kind}/apply": {
+      "post": {
+        "description": "The panel calls it once the plan's steps have run, with what they returned. The add-on does what the plan said it would besides, and answers with the resource's status, or with a problem, which fails the change. For a resource being deleted, it undoes what it did for it.",
+        "operationId": "applyKind",
+        "parameters": [
+          {
+            "description": "The kind, one the add-on's manifest adds, such as guard.rule",
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KindCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KindApplied"
+                }
+              }
+            },
+            "description": "The resource's status, and an action's output"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The hook failed"
+          }
+        },
+        "summary": "Apply a resource of a kind the add-on adds",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    },
+    "/kinds/{kind}/plan": {
+      "post": {
+        "description": "The panel calls it as it plans a change of the resource, or one of its actions, for the preview and again to apply it, and when it puts back what drifted. The plan is the steps the agent runs, only of files in dir, and what applying does beyond them. Planning changes nothing, and the same call always gets the same plan.",
+        "operationId": "planKind",
+        "parameters": [
+          {
+            "description": "The kind, one the add-on's manifest adds, such as guard.rule",
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KindCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KindPlan"
+                }
+              }
+            },
+            "description": "The plan"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The hook failed"
+          }
+        },
+        "summary": "Plan a resource of a kind the add-on adds",
         "tags": [
           "Add-on"
         ]
@@ -1202,7 +1487,7 @@
     },
     "/ui/{path}": {
       "get": {
-        "description": "Pages of the add-on's UI extensions that need more than the panel's declarative entries. The panel shows them in a sandboxed frame of an origin of their own, so they can never read the panel's session.",
+        "description": "Pages of the add-on's UI extensions that need more than the panel's declarative entries, and what they load: scripts, style sheets, images and fonts. The panel shows them in a sandboxed frame of an origin of their own, so they can never read the panel's session; the frame's address signs in what its page loads and asks for under it, as the person who opened it.",
         "operationId": "screen",
         "parameters": [
           {
@@ -1229,6 +1514,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "The address of the frame the panel shows the screen in, ending in a slash: the add-on's screens are at \u003cbase\u003eui/\u003cpath\u003e and its routes at \u003cbase\u003eroutes/\u003cpath\u003e, which the page's own scripts may call",
+            "in": "header",
+            "name": "Racksail-Frame-Base",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The nonce of the page's inline scripts, which run only with nonce=\"\u003cthis value\u003e\"; a new one comes with every request",
+            "in": "header",
+            "name": "Racksail-Nonce",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1240,7 +1541,7 @@
                 }
               }
             },
-            "description": "The page"
+            "description": "The page, or what it loads"
           }
         },
         "summary": "Serve one of the add-on's screens",

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"sync"
 
@@ -40,6 +41,9 @@ type Message struct {
 	Event *events.Event `json:"event,omitempty" doc:"The event the message is about, when there is one"`
 	// Digest holds the messages a summary of quiet hours stands for.
 	Digest []Message `json:"digest,omitempty" doc:"The messages a summary of quiet hours stands for"`
+	// Locale is the language of the words the panel adds to the message,
+	// such as its severity and the link back to the panel.
+	Locale string `json:"locale,omitempty" doc:"The language of the panel's own words in the message, such as de or pt-BR; English when empty"`
 }
 
 // Channel delivers messages to one destination.
@@ -131,11 +135,13 @@ func LookupType(name string) (Type, bool) {
 	return t, ok
 }
 
-// Err reports problems found while channel types were registered.
+// Err reports problems found while channel types were registered, and in
+// the catalogs of the words messages add.
 func Err() error {
+	Messages()
 	types.RLock()
 	defer types.RUnlock()
-	return errors.Join(types.errs...)
+	return errors.Join(append(slices.Clone(types.errs), messagesErr)...)
 }
 
 // New builds a channel of a registered type.

@@ -182,6 +182,10 @@ type Context struct {
 	ChangeSet *changeset.ChangeSet
 	// Change is the change a validate hook decides on, in ChangeSet.
 	Change *changeset.ResourceChange
+	// Requested is Change as it was asked for, when validate hooks decide
+	// on it again after a modify hook rewrote its spec: what Change says
+	// then is partly the hooks', not the actor's. It is nil otherwise.
+	Requested *changeset.ResourceChange
 	// Changes are the indexes in ChangeSet.Changes of the changes a modify
 	// or observe hook's point is about. Other changes of the same change set
 	// can be read but belong to other points.
@@ -350,6 +354,19 @@ func (r *Registry) DeclareKind(k store.Kind) {
 	for _, p := range KindPoints(k) {
 		_, op, stage, _ := ParseKindPoint(p)
 		r.points[p] = describeKindPoint(k.Info().Title, op, stage)
+	}
+}
+
+// UndeclareKind removes the hook points of a kind that is gone, as when the
+// add-on that added it was removed. A kind declared again, as when it comes
+// back with the add-on, gets them back.
+func (r *Registry) UndeclareKind(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for p := range r.points {
+		if kind, _, _, ok := ParseKindPoint(p); ok && kind == name {
+			delete(r.points, p)
+		}
 	}
 }
 
@@ -766,6 +783,7 @@ func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.Chang
 			at = i
 		}
 	}
+	asked, rewritten := changeset.Requested(ctx)
 	return r.validate(ctx, Point(point), func() *Context {
 		c := &Context{Point: Point(point), ChangeSet: cs.Clone(), Actor: cs.Actor.Clone()}
 		switch {
@@ -774,6 +792,10 @@ func (r *Runner) Validate(ctx context.Context, point string, cs *changeset.Chang
 		case change != nil:
 			copied := change.Clone()
 			c.Change = &copied
+		}
+		if rewritten && c.Change != nil && asked.ID == c.Change.ID && asked.Kind == c.Change.Kind {
+			copied := asked.Clone()
+			c.Requested = &copied
 		}
 		return c
 	})

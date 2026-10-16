@@ -3,7 +3,9 @@ package hooks
 import (
 	"bytes"
 	"fmt"
+	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -73,10 +75,26 @@ type Permissions struct {
 	Override bool `yaml:"override,omitempty" json:"override,omitempty" doc:"core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve"`
 }
 
-// DataScope grants access to a kind, optionally to some fields only.
+// DataScope grants access to a kind, optionally to some of it only. A
+// scope that names nothing but the kind covers all of it: every field and
+// label, and for changing, deleting resources and every action too. A scope
+// that names fields, labels, deleting or actions covers those and nothing
+// more, so an add-on allowed one field can't delete a resource, run an
+// action or relabel it unless its scope says so.
 type DataScope struct {
 	Kind   string   `yaml:"kind" json:"kind" doc:"The kind, such as web.site"`
-	Fields []string `yaml:"fields,omitempty" json:"fields,omitempty" doc:"The spec fields it reaches, as dotted paths; every one when empty"`
+	Fields []string `yaml:"fields,omitempty" json:"fields,omitempty" doc:"The fields of the spec, as dotted paths such as cdn or tls.mode"`
+	// Labels, Delete and Actions are what a scope with limits allows
+	// beyond its fields. Reading only knows labels.
+	Labels  bool     `yaml:"labels,omitempty" json:"labels,omitempty" doc:"The resources' labels, which the add-on may see, or change when the scope is for changing"`
+	Delete  bool     `yaml:"delete,omitempty" json:"delete,omitempty" doc:"For changing: the add-on may delete resources of the kind"`
+	Actions []string `yaml:"actions,omitempty" json:"actions,omitempty" doc:"For changing: the actions of the kind the add-on may run, such as purge"`
+}
+
+// Whole reports whether a scope covers all of its kind: it names no
+// fields, labels, deleting or actions to limit it to.
+func (s DataScope) Whole() bool {
+	return len(s.Fields) == 0 && !s.Labels && !s.Delete && len(s.Actions) == 0
 }
 
 // Resources caps the add-on's process.
@@ -101,15 +119,80 @@ type AddonRoute struct {
 	Summary string `yaml:"summary" json:"summary"`
 }
 
-// AddonKind is a kind an add-on adds, described by JSON Schema.
+// Matches reports whether a request of method for path, under the
+// add-on's own, is the route's, where {name} in the route stands for one
+// segment.
+func (rt AddonRoute) Matches(method, path string) bool {
+	if !strings.EqualFold(rt.Method, method) {
+		return false
+	}
+	ps, xs := strings.Split(strings.Trim(rt.Path, "/"), "/"), strings.Split(strings.Trim(path, "/"), "/")
+	if len(ps) != len(xs) {
+		return false
+	}
+	for i := range ps {
+		if strings.HasPrefix(ps[i], "{") && strings.HasSuffix(ps[i], "}") && xs[i] != "" {
+			continue
+		}
+		if ps[i] != xs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// screenAreas are the first segments of the paths under an add-on's own
+// where the panel serves its screens and the frames it shows them in, so
+// no route of its own may start with them.
+var screenAreas = []string{"ui", "frames"}
+
+// AddonKind is a kind an add-on adds, described by JSON Schema. Its
+// resources go through the change pipeline like any other, with hook points
+// and API operations of their own, and the add-on plans and applies them
+// over the add-on protocol, as a reconciler does.
 type AddonKind struct {
-	Name        string         `yaml:"name" json:"name"`
-	Prefix      string         `yaml:"prefix" json:"prefix"`
-	Scope       string         `yaml:"scope" json:"scope"`
-	Title       string         `yaml:"title" json:"title"`
-	Plural      string         `yaml:"plural" json:"plural"`
-	Description string         `yaml:"description" json:"description"`
-	Schema      map[string]any `yaml:"schema" json:"schema"`
+	Name        string `yaml:"name" json:"name" doc:"<namespace>.<name>, such as guard.rule; every kind of an add-on shares its namespace"`
+	Prefix      string `yaml:"prefix" json:"prefix" doc:"What the IDs of its resources start with, before the underscore"`
+	Scope       string `yaml:"scope" json:"scope" doc:"Who its resources belong to: the server, a reseller or an account"`
+	Title       string `yaml:"title" json:"title" doc:"Its name for people, such as Guard rule"`
+	Plural      string `yaml:"plural" json:"plural" doc:"Its plural, in lowercase words joined by hyphens, such as rules"`
+	Description string `yaml:"description" json:"description" doc:"What its resources are, for the API reference, CLI help and forms"`
+	// Schema and Status are JSON Schema documents.
+	Schema  map[string]any `yaml:"schema" json:"schema" doc:"The JSON Schema of its resources' settings"`
+	Status  map[string]any `yaml:"status,omitempty" json:"status,omitempty" doc:"The JSON Schema of the status fields the add-on reports for its resources"`
+	Actions []AddonAction  `yaml:"actions,omitempty" json:"actions,omitempty" doc:"Its actions beyond creating, changing and deleting"`
+}
+
+// AddonAction is an action of a kind an add-on adds.
+type AddonAction struct {
+	Name        string         `yaml:"name" json:"name" doc:"Lowercase words joined by underscores, such as purge"`
+	Title       string         `yaml:"title,omitempty" json:"title,omitempty" doc:"The label of its button"`
+	Summary     string         `yaml:"summary" json:"summary" doc:"What it does, in one line"`
+	Description string         `yaml:"description,omitempty" json:"description,omitempty" doc:"What it does and when to use it"`
+	Risk        string         `yaml:"risk" json:"risk" doc:"How much harm it can do: low, medium, high or critical"`
+	Destructive bool           `yaml:"destructive,omitempty" json:"destructive,omitempty" doc:"Whether it removes data, so people type a confirmation first"`
+	Reversible  bool           `yaml:"reversible,omitempty" json:"reversible,omitempty" doc:"Whether it can be undone"`
+	Input       map[string]any `yaml:"input,omitempty" json:"input,omitempty" doc:"The JSON Schema of its input; it takes none when empty"`
+}
+
+// Namespace is the part of the kind's name before the dot.
+func (k AddonKind) Namespace() string {
+	ns, _, _ := strings.Cut(k.Name, ".")
+	return ns
+}
+
+// ReservedNamespaces are the names the panel keeps for itself, which no
+// add-on's kinds may take as their namespace: core, the first parts of the
+// paths of its own screens, where a kind's screens would go, and those of
+// its own API operations. Modules' ids are reserved too, as their kinds'
+// namespaces, which the add-on runtime checks against the modules there are.
+var ReservedNamespaces = []string{
+	"core",
+	// The panel's own screens: /<namespace>/<plural> is where a kind's are.
+	"settings", "jobs", "changes", "events", "search", "resources", "addons", "users", "accounts", "roles", "audit",
+	// The first parts of the paths of the API's own operations.
+	"health", "version", "operations", "kinds", "changesets", "stream", "metrics", "inbox",
+	"notifications", "catalog", "hooks", "rules", "modules", "auth", "me", "session",
 }
 
 // ParseAddonManifest reads and checks an addon.yaml: against the schema,
@@ -136,7 +219,84 @@ func ParseAddonManifest(data []byte) (*AddonManifest, error) {
 			return nil, err
 		}
 	}
+	for _, s := range m.Permissions.Read {
+		if s.Delete || len(s.Actions) > 0 {
+			return nil, fmt.Errorf("add-on %s asks to delete or run actions on %s with a permission to read it; that takes a permission to write it", m.ID, s.Kind)
+		}
+	}
+	if err := m.checkKinds(); err != nil {
+		return nil, err
+	}
+	if err := m.checkUI(); err != nil {
+		return nil, err
+	}
 	return &m, nil
+}
+
+// checkUI checks the entries a manifest adds to the panel. Tabs and columns
+// go on a kind's screens, so they name the kind, and the panel asks one of
+// the add-on's own GET routes for a column's values. Routes stay out of
+// where the panel serves the add-on's screens.
+func (m *AddonManifest) checkUI() error {
+	for _, r := range m.Routes {
+		first, _, _ := strings.Cut(strings.Trim(r.Path, "/"), "/")
+		if slices.Contains(screenAreas, first) {
+			return fmt.Errorf("add-on %s: the route %s %s is under /%s/, where the panel serves the add-on's screens", m.ID, r.Method, r.Path, first)
+		}
+	}
+	for _, e := range m.UI {
+		if (e.Type == "tab" || e.Type == "column") && strings.TrimSpace(e.Kind) == "" {
+			return fmt.Errorf("add-on %s: the %s %q needs the kind whose screens it goes on", m.ID, e.Type, e.Label)
+		}
+		if e.Type != "column" {
+			continue
+		}
+		path := strings.Trim(e.Path, "/")
+		if path == "" || !slices.ContainsFunc(m.Routes, func(r AddonRoute) bool {
+			return r.Method == http.MethodGet && strings.Trim(r.Path, "/") == path
+		}) {
+			return fmt.Errorf("add-on %s: the column %q needs the path of one of its GET routes, which answers its values", m.ID, e.Label)
+		}
+	}
+	return nil
+}
+
+// checkKinds checks the kinds a manifest adds against each other. Adding
+// kinds with reconcilers of their own is what system hooks do, so it takes
+// that level; the kinds share one namespace, which isn't one the panel keeps
+// for itself.
+func (m *AddonManifest) checkKinds() error {
+	if len(m.Kinds) == 0 {
+		return nil
+	}
+	if !slices.Contains(m.Permissions.Hooks, System) {
+		return fmt.Errorf("add-on %s adds kinds, which takes the system hook level", m.ID)
+	}
+	names, prefixes, plurals := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	ns := m.Kinds[0].Namespace()
+	for _, k := range m.Kinds {
+		switch {
+		case k.Namespace() != ns:
+			return fmt.Errorf("add-on %s adds %s and %s; its kinds share the part of their names before the dot", m.ID, m.Kinds[0].Name, k.Name)
+		case ns == "core":
+			return fmt.Errorf("add-on %s adds %s, but core kinds are the panel's own", m.ID, k.Name)
+		case slices.Contains(ReservedNamespaces, ns):
+			return fmt.Errorf("add-on %s adds %s, but the panel keeps %s for its own screens and operations", m.ID, k.Name, ns)
+		case names[k.Name] || prefixes[k.Prefix] || plurals[k.Plural]:
+			return fmt.Errorf("add-on %s adds %s with a name, prefix or plural another of its kinds has", m.ID, k.Name)
+		case strings.TrimSpace(k.Title) == "" || strings.TrimSpace(k.Description) == "":
+			return fmt.Errorf("add-on %s adds %s without a title or a description", m.ID, k.Name)
+		}
+		names[k.Name], prefixes[k.Prefix], plurals[k.Plural] = true, true, true
+		for _, a := range k.Actions {
+			switch a.Risk {
+			case "low", "medium", "high", "critical":
+			default:
+				return fmt.Errorf("add-on %s: the %s action of %s needs a risk of low, medium, high or critical", m.ID, a.Name, k.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // AccountInstalled reports whether the manifest can be installed by an
@@ -154,6 +314,9 @@ func (m *AddonManifest) AccountInstalled() error {
 	}
 	if len(m.Provides) > 0 {
 		return fmt.Errorf("add-on %s provides %s, and what add-ons provide serves the whole server, so only a server admin can install it", m.ID, m.Provides[0])
+	}
+	if len(m.Kinds) > 0 {
+		return fmt.Errorf("add-on %s adds %s, and the kinds add-ons add serve the whole server, so only a server admin can install it", m.ID, m.Kinds[0].Name)
 	}
 	for _, h := range m.Hooks {
 		if !AccountPoint(Point(h.Point)) {

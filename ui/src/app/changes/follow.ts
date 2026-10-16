@@ -1,7 +1,9 @@
+import type { QueryKey } from "@tanstack/react-query";
 import { toast } from "@/design/components/ui/toaster";
 import { streams } from "@/lib/api/operations";
 import { type ChangeSet, type Job, jobDone, needsConfirmation } from "@/lib/changes";
 import { errorMessage } from "@/lib/errors";
+import { addonEntriesKey } from "../addons";
 import { messages } from "../messages";
 import {
   applyPreview,
@@ -22,7 +24,25 @@ import { mayUndo, type TrackerHost, type TrackOptions } from "./tracker";
  * keys. Jobs, events and the inbox follow their own streams, so they're
  * current already.
  */
-export const changedQueries = [["resources"], ["changesets"]];
+export const changedQueries: readonly QueryKey[] = [["resources"], ["changesets"]];
+
+/**
+ * The queries a change set that ended makes out of date: those of every
+ * change, and for one that installs, changes or removes an add-on, the
+ * kinds it adds and what it adds to the panel, its rail entries, cards,
+ * commands, settings pages, tabs and columns.
+ */
+export function queriesChangedBy(cs: Pick<ChangeSet, "changes">): QueryKey[] {
+  const keys: QueryKey[] = [...changedQueries];
+  const changes = cs.changes ?? [];
+  if (changes.some((c) => c.kind === "core.addon")) {
+    keys.push(["kinds"]);
+  }
+  if (changes.some((c) => c.kind === "core.addon" || c.kind === "core.account_addon")) {
+    keys.push(addonEntriesKey);
+  }
+  return keys;
+}
 
 /** Says how far a change has got, in the toast that stays until it ends. */
 function announce(host: TrackerHost, cs: ChangeSet, progress?: Job["progress"]) {
@@ -63,7 +83,7 @@ async function finish(host: TrackerHost, cs: ChangeSet) {
   }
   entry.done = true;
   entry.stop?.();
-  for (const queryKey of changedQueries) {
+  for (const queryKey of queriesChangedBy(cs)) {
     void host.queryClient.invalidateQueries({ queryKey });
   }
   let final = cs;

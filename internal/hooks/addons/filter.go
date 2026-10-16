@@ -2,10 +2,14 @@ package addons
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
@@ -22,6 +26,9 @@ type Grants struct {
 	// Scope is the account an account add-on belongs to; server add-ons
 	// have the server's scope.
 	Scope store.Scope
+	// kinds are the kinds the grants name, for their actions and indexes;
+	// the process-wide registry when nil.
+	kinds *store.KindRegistry
 }
 
 // NewGrants returns the grants of approved permissions for an add-on owned
@@ -30,39 +37,105 @@ func NewGrants(approved hooks.Permissions, scope store.Scope) Grants {
 	return Grants{perms: approved, Scope: scope}
 }
 
-// fieldsOf returns whether a kind is in scopes and the fields they allow,
-// nil meaning all of them.
-func fieldsOf(scopes []hooks.DataScope, kind string) ([]string, bool) {
-	var fields []string
-	found := false
+// WithKinds returns the grants reading the kinds they name from r.
+func (g Grants) WithKinds(r *store.KindRegistry) Grants {
+	g.kinds = r
+	return g
+}
+
+func (g Grants) kind(name string) (store.Kind, bool) {
+	if g.kinds == nil {
+		return store.Kinds().Get(name)
+	}
+	return g.kinds.Get(name)
+}
+
+// Access is what an add-on's data scopes allow it with one kind, for
+// reading or for changing.
+type Access struct {
+	// Granted says a scope names the kind at all.
+	Granted bool
+	// Whole says a scope covers all of the kind: every field and label, and
+	// for changing, deleting resources and every action.
+	Whole bool
+	// Fields are the spec fields allowed when not Whole, as dotted paths.
+	Fields []string
+	// Labels, Delete and Actions are what scopes with limits allow beyond
+	// their fields.
+	Labels  bool
+	Delete  bool
+	Actions []string
+}
+
+// accessOf adds up what the scopes naming a kind allow.
+func accessOf(scopes []hooks.DataScope, kind string) Access {
+	var a Access
 	for _, s := range scopes {
 		if s.Kind != kind {
 			continue
 		}
-		if len(s.Fields) == 0 {
-			return nil, true
+		a.Granted = true
+		if s.Whole() {
+			a.Whole = true
+			continue
 		}
-		found = true
-		fields = append(fields, s.Fields...)
+		a.Fields = append(a.Fields, s.Fields...)
+		a.Labels = a.Labels || s.Labels
+		a.Delete = a.Delete || s.Delete
+		for _, act := range s.Actions {
+			if !slices.Contains(a.Actions, act) {
+				a.Actions = append(a.Actions, act)
+			}
+		}
 	}
-	return fields, found
+	return a
 }
+
+// fields returns the fields an access allows, nil meaning every one and an
+// empty list none.
+func (a Access) fields() []string {
+	if a.Whole {
+		return nil
+	}
+	return append([]string{}, a.Fields...)
+}
+
+// Action reports whether the access allows running an action.
+func (a Access) Action(name string) bool { return a.Whole || slices.Contains(a.Actions, name) }
+
+// Deleting reports whether the access allows deleting resources.
+func (a Access) Deleting() bool { return a.Whole || a.Delete }
+
+// Relabeling reports whether the access covers labels.
+func (a Access) Relabeling() bool { return a.Whole || a.Labels }
+
+// Writes returns what the add-on may change of a kind.
+func (g Grants) Writes(kind string) Access { return accessOf(g.perms.Write, kind) }
 
 // CanRead and CanWrite report whether the add-on may see, or change,
-// resources of a kind, and which of their fields: nil means every one.
+// resources of a kind, and which of their spec fields: nil means every one,
+// and an empty list none, as for a scope that only allows an action.
 func (g Grants) CanRead(kind string) ([]string, bool) {
-	if fields, ok := fieldsOf(g.perms.Write, kind); ok && fields == nil {
+	write := accessOf(g.perms.Write, kind)
+	read := accessOf(g.perms.Read, kind)
+	if write.Whole || read.Whole {
 		return nil, true
 	}
-	read, okR := fieldsOf(g.perms.Read, kind)
-	write, okW := fieldsOf(g.perms.Write, kind)
-	if okR && read == nil {
-		return nil, true
-	}
-	return append(read, write...), okR || okW
+	return append(read.fields(), write.Fields...), read.Granted || write.Granted
 }
 
-func (g Grants) CanWrite(kind string) ([]string, bool) { return fieldsOf(g.perms.Write, kind) }
+func (g Grants) CanWrite(kind string) ([]string, bool) {
+	a := g.Writes(kind)
+	return a.fields(), a.Granted
+}
+
+// CanReadLabels reports whether the add-on may see the labels of resources
+// of a kind: with a scope that covers the whole kind, or labels.
+func (g Grants) CanReadLabels(kind string) bool {
+	write := accessOf(g.perms.Write, kind)
+	read := accessOf(g.perms.Read, kind)
+	return write.Relabeling() || read.Relabeling()
+}
 
 // InScope reports whether a resource of scope belongs to what the add-on
 // may see: anything for server add-ons, its own account for account ones.
@@ -76,7 +149,10 @@ func (g Grants) Account() bool { return g.Scope.Level == store.ScopeAccount }
 
 // Actor is who the add-on acts as when it calls the panel's API: an
 // add-on with grants on exactly the kinds and operations its permissions
-// allow, at its own scope.
+// allow, at its own scope. Only a scope that covers a whole kind gives
+// deleting and every action; one limited to fields gives creating and
+// changing, which the runtime's own validate hook holds to those fields,
+// and deleting, actions and labels only as far as it names them.
 func (g Grants) Actor(id store.ID, name string) *auth.Actor {
 	var perms []auth.Permission
 	add := func(p auth.Permission) {
@@ -89,13 +165,26 @@ func (g Grants) Actor(id store.ID, name string) *auth.Actor {
 	}
 	for _, s := range g.perms.Write {
 		add(auth.KindPermission(s.Kind, "read"))
-		for _, op := range []string{"create", "update", "delete"} {
-			add(auth.KindPermission(s.Kind, op))
+		a := g.Writes(s.Kind)
+		if len(a.Fields) > 0 || a.Whole {
+			add(auth.KindPermission(s.Kind, "create"))
+			add(auth.KindPermission(s.Kind, "update"))
 		}
-		if k, ok := store.Kinds().Get(s.Kind); ok {
-			for _, a := range k.Info().Actions {
-				add(auth.KindPermission(s.Kind, a.Name))
+		if a.Labels {
+			add(auth.KindPermission(s.Kind, "update"))
+		}
+		if a.Deleting() {
+			add(auth.KindPermission(s.Kind, "delete"))
+		}
+		if a.Whole {
+			if k, ok := g.kind(s.Kind); ok {
+				for _, act := range k.Info().Actions {
+					add(auth.KindPermission(s.Kind, act.Name))
+				}
 			}
+		}
+		for _, act := range a.Actions {
+			add(auth.KindPermission(s.Kind, act))
 		}
 	}
 	if g.perms.Secrets {
@@ -190,29 +279,39 @@ func (g Grants) FilterChangeSet(cs *changeset.ChangeSet) *changeset.ChangeSet {
 		g.keepOwn(c)
 	}
 	for i := range c.Changes {
-		ch := &c.Changes[i]
-		fields, ok := g.CanRead(ch.Kind)
-		switch {
-		case !g.InScope(ch.Scope):
-			*ch = changeset.ResourceChange{Op: ch.Op, Source: ch.Source}
-		case !ok:
-			redact(ch)
-		default:
-			ch.Before, ch.After = project(ch.Before, fields), project(ch.After, fields)
-			ch.Input, ch.Output = nil, nil
-			if fields != nil {
-				var kept []changeset.FieldDiff
-				for _, d := range ch.Diff {
-					if pathAllowed(d.Path, fields) {
-						kept = append(kept, d)
-					}
-				}
-				ch.Diff = kept
-			}
-			ch.Steps, ch.Checks = nil, nil
-		}
+		g.filterChange(&c.Changes[i])
 	}
 	return c
+}
+
+// filterChange leaves one change what the add-on may see of it: of a kind
+// it may read, the fields it may read and the labels when it may see them;
+// of any other kind, only what happens to which resource; and outside an
+// account add-on's account, nothing but what the change does.
+func (g Grants) filterChange(ch *changeset.ResourceChange) {
+	fields, ok := g.CanRead(ch.Kind)
+	switch {
+	case !g.InScope(ch.Scope):
+		*ch = changeset.ResourceChange{Op: ch.Op, Source: ch.Source}
+	case !ok:
+		redact(ch)
+	default:
+		ch.Before, ch.After = project(ch.Before, fields), project(ch.After, fields)
+		ch.Input, ch.Output = nil, nil
+		if fields != nil {
+			var kept []changeset.FieldDiff
+			for _, d := range ch.Diff {
+				if pathAllowed(d.Path, fields) {
+					kept = append(kept, d)
+				}
+			}
+			ch.Diff = kept
+		}
+		if !g.CanReadLabels(ch.Kind) {
+			ch.Labels, ch.LabelsBefore = nil, nil
+		}
+		ch.Steps, ch.Checks = nil, nil
+	}
 }
 
 // keepOwn leaves a change set that reaches beyond an account add-on's
@@ -253,13 +352,18 @@ func redactActor(a *auth.Actor) *auth.Actor {
 // the change set: new specs for the changes the point is about, in the
 // fields the add-on may change, and the changes and effects it added, of
 // kinds it may change. The add-on only saw part of each spec, so only the
-// fields it may write are taken from what it returns.
-func (g Grants) Merge(work *changeset.ChangeSet, reply *changeset.ChangeSet, mine []int) error {
+// fields it may write are taken from what it returns. An update or delete
+// it added is about a resource as the change set leaves it, which rd, the
+// store, and the changes before it say: that resource's scope decides
+// whether the add-on may touch it at all, whatever the answer claims, and
+// its spec and labels are what the answer is taken into.
+func (g Grants) Merge(ctx context.Context, rd store.Reader, work *changeset.ChangeSet, reply *changeset.ChangeSet, mine []int) error {
 	if reply == nil {
 		return nil
 	}
-	if len(reply.Changes) < len(work.Changes) {
-		return fmt.Errorf("the add-on's answer has %d changes, fewer than the %d it was sent", len(reply.Changes), len(work.Changes))
+	sent := len(work.Changes)
+	if len(reply.Changes) < sent {
+		return fmt.Errorf("the add-on's answer has %d changes, fewer than the %d it was sent", len(reply.Changes), sent)
 	}
 	for _, i := range mine {
 		ch := &work.Changes[i]
@@ -268,12 +372,17 @@ func (g Grants) Merge(work *changeset.ChangeSet, reply *changeset.ChangeSet, min
 			continue
 		}
 		readable, _ := g.CanRead(ch.Kind)
-		sent := project(ch.After, readable)
+		seen := project(ch.After, readable)
 		returned := reply.Changes[i].After
-		if bytes.Equal(normalizeJSON(sent), normalizeJSON(returned)) {
+		if bytes.Equal(normalizeJSON(seen), normalizeJSON(returned)) {
 			continue
 		}
-		diffs, err := changeset.Diff(sent, returned)
+		if ch.Op == changeset.OpDelete {
+			// A resource being deleted gets no new spec, which the pipeline
+			// would take for tampering with the whole change set.
+			return fmt.Errorf("the add-on changed the spec of %s, which is being deleted", ch.ID)
+		}
+		diffs, err := changeset.Diff(seen, returned)
 		if err != nil {
 			return err
 		}
@@ -283,24 +392,9 @@ func (g Grants) Merge(work *changeset.ChangeSet, reply *changeset.ChangeSet, min
 		}
 		ch.After = merged
 	}
-	for _, added := range reply.Changes[len(work.Changes):] {
-		if _, ok := g.CanWrite(added.Kind); !ok {
-			return fmt.Errorf("the add-on added a change to a %s, which it may not change", added.Kind)
-		}
-		if !g.InScope(added.Scope) {
-			return fmt.Errorf("the add-on added a change outside its account")
-		}
-		fields, _ := g.CanWrite(added.Kind)
-		if fields != nil && added.After != nil {
-			diffs, err := changeset.Diff(nil, added.After)
-			if err != nil {
-				return err
-			}
-			for _, d := range diffs {
-				if !pathAllowed(d.Path, fields) {
-					return fmt.Errorf("the add-on set %s of a new %s, which it may not change", d.Path, added.Kind)
-				}
-			}
+	for _, added := range reply.Changes[sent:] {
+		if err := g.takeAdded(ctx, rd, work.Changes, sent, &added); err != nil {
+			return err
 		}
 		work.Changes = append(work.Changes, added)
 	}
@@ -403,20 +497,286 @@ func writePath(doc map[string]any, path string, value any, present bool) error {
 	return nil
 }
 
-// CheckWrite reports the first field of a change an add-on may not
-// change, or "" when it may make the change.
-func (g Grants) CheckWrite(c changeset.ResourceChange) string {
-	fields, ok := g.CanWrite(c.Kind)
-	if !ok {
-		return "anything"
+// relabels reports whether a change sets labels the resource didn't have.
+func relabels(c changeset.ResourceChange) bool {
+	switch c.Op {
+	case changeset.OpCreate:
+		return len(c.Labels) > 0
+	case changeset.OpUpdate, changeset.OpAction:
+		return !maps.Equal(c.Labels, c.LabelsBefore)
 	}
-	if fields == nil {
-		return ""
+	return false
+}
+
+// CheckWrite returns why an add-on, called name in the error, may not make
+// a change it asked for through the API, or nil when its permissions allow
+// all of it. A scope that covers the whole kind allows anything. A scope
+// with limits allows creating and changing its fields, and deleting,
+// running actions and changing labels only as far as it names them, since
+// a delete, an action or new labels carry no change of a field to check. A
+// new resource may have more than those fields where the kind fills them
+// in by itself: what counts is what differs from the kind's defaults for
+// the fields the add-on may set.
+func (g Grants) CheckWrite(ctx context.Context, name string, c changeset.ResourceChange) error {
+	a := g.Writes(c.Kind)
+	if !a.Granted || !g.InScope(c.Scope) {
+		return ErrFieldDenied.New("addon", name, "field", "anything", "kind", c.Kind)
 	}
-	for _, d := range c.Diff {
-		if !pathAllowed(d.Path, fields) {
-			return d.Path
+	if a.Whole {
+		return nil
+	}
+	switch c.Op {
+	case changeset.OpDelete:
+		if !a.Delete {
+			return ErrDeleteDenied.New("addon", name, "kind", c.Kind)
+		}
+		return nil
+	case changeset.OpAction:
+		// What an action does is its kind's to say, so allowing it allows
+		// whatever it changes.
+		if !a.Action(c.Action) {
+			return ErrActionDenied.New("addon", name, "action", c.Action, "kind", c.Kind)
+		}
+		return nil
+	}
+	if relabels(c) && !a.Labels {
+		return ErrLabelsDenied.New("addon", name, "kind", c.Kind)
+	}
+	fields := a.fields()
+	diffs := c.Diff
+	if c.Op == changeset.OpCreate {
+		var err error
+		if diffs, err = g.beyondDefaults(ctx, c, fields); err != nil {
+			return ErrFieldDenied.New("addon", name, "field", "its settings", "kind", c.Kind)
 		}
 	}
-	return ""
+	for _, d := range diffs {
+		if !pathAllowed(d.Path, fields) {
+			return ErrFieldDenied.New("addon", name, "field", d.Path, "kind", c.Kind)
+		}
+	}
+	return nil
+}
+
+// beyondDefaults returns how a new resource's spec differs from what its
+// kind fills in for the fields given alone: the fields whoever creates it
+// chose themselves, apart from those.
+func (g Grants) beyondDefaults(ctx context.Context, c changeset.ResourceChange, fields []string) ([]changeset.FieldDiff, error) {
+	k, ok := g.kind(c.Kind)
+	if !ok {
+		return c.Diff, nil
+	}
+	base := &store.Resource{Meta: store.Meta{ID: c.ID, Kind: c.Kind, Scope: c.Scope, Server: c.Server}, Spec: project(c.After, fields)}
+	if len(base.Spec) == 0 {
+		base.Spec = json.RawMessage("{}")
+	}
+	if err := k.Default(ctx, base); err != nil {
+		return nil, err
+	}
+	return changeset.Diff(base.Spec, c.After)
+}
+
+// CheckAdded returns why an add-on, called name in the error, may not make
+// a change its modify hook added, as the change pipeline planned it: at the
+// resource's own scope, against the spec and labels it had. Merge already
+// holds the add-on's answer to its permissions; this refuses whatever got
+// past it, with the same rules as CheckWrite, from a diff of its own rather
+// than the one the change carries, which the hook wrote. A new resource's
+// spec is the one Merge checked, with the kind's defaults filled in, which
+// aren't the add-on's to answer for.
+func (g Grants) CheckAdded(name string, c changeset.ResourceChange) error {
+	a := g.Writes(c.Kind)
+	if !a.Granted || !g.InScope(c.Scope) {
+		return ErrFieldDenied.New("addon", name, "field", "anything", "kind", c.Kind)
+	}
+	if a.Whole {
+		return nil
+	}
+	switch c.Op {
+	case changeset.OpDelete:
+		if !a.Delete {
+			return ErrDeleteDenied.New("addon", name, "kind", c.Kind)
+		}
+		return nil
+	case changeset.OpAction:
+		if !a.Action(c.Action) {
+			return ErrActionDenied.New("addon", name, "action", c.Action, "kind", c.Kind)
+		}
+		return nil
+	case changeset.OpCreate:
+		if len(c.Labels) > 0 && !a.Labels {
+			return ErrLabelsDenied.New("addon", name, "kind", c.Kind)
+		}
+		return nil
+	}
+	if !maps.Equal(c.Labels, c.LabelsBefore) && !a.Labels {
+		return ErrLabelsDenied.New("addon", name, "kind", c.Kind)
+	}
+	diffs, err := changeset.Diff(c.Before, c.After)
+	if err != nil {
+		return ErrFieldDenied.New("addon", name, "field", "its settings", "kind", c.Kind)
+	}
+	fields := a.fields()
+	for _, d := range diffs {
+		if !pathAllowed(d.Path, fields) {
+			return ErrFieldDenied.New("addon", name, "field", d.Path, "kind", c.Kind)
+		}
+	}
+	return nil
+}
+
+// errOutside refuses what an account's add-on added outside its account,
+// without saying whether what it named exists.
+var errOutside = errors.New("the add-on added a change outside its account")
+
+// takeAdded checks a change a modify hook's answer added against the
+// add-on's permissions, as CheckWrite does for its own requests, and keeps
+// what they allow of it. A create is checked as it is. An update or delete
+// is checked against the resource it names as the change set leaves it,
+// never the scope the answer claims, and an update's spec is read as the
+// add-on sees that resource, as its answer is for the changes it was sent:
+// only the fields it may write change, and those it can't read stay as
+// they are, which the pipeline couldn't tell from a spec it replaces whole.
+func (g Grants) takeAdded(ctx context.Context, rd store.Reader, before []changeset.ResourceChange, sent int, added *changeset.ResourceChange) error {
+	a := g.Writes(added.Kind)
+	if !a.Granted {
+		return fmt.Errorf("the add-on added a change to a %s, which it may not change", added.Kind)
+	}
+	switch added.Op {
+	case changeset.OpCreate:
+		return g.takeCreate(ctx, rd, before, sent, a, added)
+	case changeset.OpUpdate, changeset.OpDelete:
+	default:
+		if !a.Action(added.Action) {
+			return fmt.Errorf("the add-on added the %s action of a %s, which it may not run", added.Action, added.Kind)
+		}
+		// The pipeline refuses the actions hooks add, whatever they may run.
+		return nil
+	}
+	current, err := plannedState(ctx, rd, before, sent, added.ID)
+	if err != nil && !store.ErrNotFound.Is(err) {
+		return err
+	}
+	if err != nil || current.Kind != added.Kind || current.Deleted() || !g.InScope(current.Scope) {
+		if g.Account() {
+			return errOutside
+		}
+		return fmt.Errorf("the add-on added a change to %s, which isn't a %s it can change", added.ID, added.Kind)
+	}
+	added.Scope = current.Scope
+	if a.Whole {
+		return nil
+	}
+	if added.Op == changeset.OpDelete {
+		if !a.Delete {
+			return fmt.Errorf("the add-on added a delete of a %s, which it may not delete", added.Kind)
+		}
+		return nil
+	}
+	if added.Labels != nil && !maps.Equal(added.Labels, current.Labels) && !a.Labels {
+		return fmt.Errorf("the add-on set the labels of a %s, which it may not change", added.Kind)
+	}
+	if added.After == nil {
+		return nil
+	}
+	readable, _ := g.CanRead(added.Kind)
+	diffs, err := changeset.Diff(project(current.Spec, readable), added.After)
+	if err != nil {
+		return err
+	}
+	merged, err := applyDiffs(current.Spec, added.After, diffs, a.fields())
+	if err != nil {
+		return err
+	}
+	added.After = merged
+	return nil
+}
+
+// takeCreate checks a resource a modify hook's answer creates: in the
+// add-on's account, with an ID nothing has yet, and with labels and fields
+// it may set.
+func (g Grants) takeCreate(ctx context.Context, rd store.Reader, before []changeset.ResourceChange, sent int, a Access, added *changeset.ResourceChange) error {
+	if !g.InScope(added.Scope) {
+		return errOutside
+	}
+	if added.ID != "" {
+		if _, err := plannedState(ctx, rd, before, sent, added.ID); err == nil {
+			return fmt.Errorf("the add-on added a create of %s, which exists already", added.ID)
+		} else if !store.ErrNotFound.Is(err) {
+			return err
+		}
+	}
+	if a.Whole {
+		return nil
+	}
+	if len(added.Labels) > 0 && !a.Labels {
+		return fmt.Errorf("the add-on set the labels of a %s, which it may not change", added.Kind)
+	}
+	diffs, err := changeset.Diff(nil, added.After)
+	if err != nil {
+		return err
+	}
+	fields := a.fields()
+	for _, d := range diffs {
+		if !pathAllowed(d.Path, fields) {
+			return fmt.Errorf("the add-on set %s of a %s, which it may not change", d.Path, added.Kind)
+		}
+	}
+	return nil
+}
+
+// plannedState returns a resource as the change set leaves it before what
+// a hook's answer adds: as rd holds it, then as each change before plans
+// it. The pipeline's own changes, among the first sent, carry the whole
+// state it planned; for those hooks added, it takes their specs and labels
+// and keeps the resource's scope, as this does.
+func plannedState(ctx context.Context, rd store.Reader, changes []changeset.ResourceChange, sent int, id store.ID) (*store.Resource, error) {
+	var r *store.Resource
+	stored := func() error {
+		if r != nil {
+			return nil
+		}
+		got, err := rd.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		r = got.Clone()
+		return nil
+	}
+	gone := time.Time{}
+	for i, c := range changes {
+		if c.ID != id {
+			continue
+		}
+		requested := i < sent && c.Source == changeset.RequestSource
+		switch {
+		case requested || c.Op == changeset.OpCreate:
+			r = &store.Resource{
+				Meta: store.Meta{ID: id, Kind: c.Kind, Scope: c.Scope, Server: c.Server, Labels: maps.Clone(c.Labels)},
+				Spec: bytes.Clone(c.After),
+			}
+			if c.Op == changeset.OpDelete {
+				r.DeletedAt = &gone
+			}
+		case c.Op == changeset.OpUpdate:
+			if err := stored(); err != nil {
+				return nil, err
+			}
+			if c.After != nil {
+				r.Spec = bytes.Clone(c.After)
+			}
+			if c.Labels != nil {
+				r.Labels = maps.Clone(c.Labels)
+			}
+		case c.Op == changeset.OpDelete:
+			if err := stored(); err != nil {
+				return nil, err
+			}
+			r.DeletedAt = &gone
+		}
+	}
+	if err := stored(); err != nil {
+		return nil, err
+	}
+	return r, nil
 }

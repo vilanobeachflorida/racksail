@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -320,6 +321,74 @@ func TestModifyHooksCantChangeWhatIsAuthorized(t *testing.T) {
 	}
 }
 
+// Validate hooks decide again on a change a modify hook rewrote, and are
+// told what was asked for then, so what the hook contributed can't pass for
+// the actor's.
+func TestValidateHooksSeeWhatWasAsked(t *testing.T) {
+	ctx := context.Background()
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(siteKind); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewMemory(kinds)
+	acct := store.NewID("acct")
+	site := &store.Resource{Meta: store.Meta{Kind: "web.site", Scope: store.AccountScope(acct)}, Spec: json.RawMessage(`{"domains":["a.test"]}`)}
+	if err := st.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, site) }); err != nil {
+		t.Fatal(err)
+	}
+	r := newRegistry()
+	if err := r.Register(Registration{Point: "web.site.update.plan", Kind: Modify, Owner: "addon:rewriter",
+		OnModify: func(ctx context.Context, c *Context) error {
+			c.ChangeSet.Changes[0].After = json.RawMessage(`{"domains":["a.test","rewritten.test"]}`)
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	type seen struct{ change, asked string }
+	var calls []seen
+	if err := r.Register(Registration{Point: "web.site.update.validate", Kind: Validate, Owner: "module:watcher",
+		OnValidate: func(ctx context.Context, c *Context) error {
+			s := seen{change: string(c.Change.After)}
+			if c.Requested != nil {
+				s.asked = string(c.Requested.After)
+			}
+			calls = append(calls, s)
+			return nil
+		}}); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := changeset.NewEngine(changeset.Options{Store: st, Kinds: kinds, Jobs: jobs.NewMemory(ctx, jobs.MemoryOptions{}), Hooks: &Runner{Registry: r}, Authorizer: auth.NewRoleAuthorizer(nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	asked := `{"domains":["a.test","b.test"]}`
+	if _, err := engine.Submit(ctx, changeset.Request{Actor: admin, DryRun: true, Changes: []changeset.Change{{
+		Op: changeset.OpUpdate, Kind: "web.site", ID: site.ID, Spec: json.RawMessage(asked),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []seen{{change: asked}, {change: `{"domains":["a.test","rewritten.test"]}`, asked: asked}}
+	if len(calls) != len(want) {
+		t.Fatalf("the validate hook decided %d times: %+v", len(calls), calls)
+	}
+	for i, w := range want {
+		var got, exp any
+		json.Unmarshal([]byte(calls[i].change), &got)
+		json.Unmarshal([]byte(w.change), &exp)
+		if fmt.Sprint(got) != fmt.Sprint(exp) || (calls[i].asked == "") != (w.asked == "") {
+			t.Errorf("decision %d saw %+v, want %+v", i, calls[i], w)
+		}
+		if w.asked != "" {
+			json.Unmarshal([]byte(calls[i].asked), &got)
+			json.Unmarshal([]byte(w.asked), &exp)
+			if fmt.Sprint(got) != fmt.Sprint(exp) {
+				t.Errorf("decision %d was told %s was asked for, want %s", i, calls[i].asked, w.asked)
+			}
+		}
+	}
+}
+
 func TestValidateHooksGetCopies(t *testing.T) {
 	ctx := context.Background()
 	r := newRegistry()
@@ -593,6 +662,64 @@ permissions:
 	m.Permissions.Hooks = append(m.Permissions.Hooks, System)
 	if err := m.AccountInstalled(); err == nil {
 		t.Error("account add-ons can't hold system hooks")
+	}
+}
+
+// Tabs and columns only show on the screens of the kind they name, and the
+// panel asks a column's values of the add-on's own route; an entry that
+// can't show is refused when the add-on is installed, not left out quietly.
+func TestAddonManifestUIEntries(t *testing.T) {
+	base := `
+format: 1
+id: site-guard
+name: Site guard
+version: 0.3.0
+license: Apache-2.0
+source: https://example.com/site-guard
+author: Example
+description: Blocks deploys that contain known web shells.
+apiVersions: [v1]
+permissions:
+  read: [{kind: web.site, fields: [domains]}]
+routes:
+  - {method: GET, path: /blocked, summary: Visitors blocked per site}
+  - {method: POST, path: /unblock, summary: Let a visitor in again}
+`
+	for _, tc := range []struct {
+		name, ui string
+		refused  string
+	}{
+		{"pages", "  - {type: nav, label: Guard, path: /overview}\n  - {type: card, label: Blocked, path: card}", ""},
+		{"a tab of a kind", "  - {type: tab, label: Guard, kind: web.site, path: /tab}", ""},
+		{"a tab of no kind", "  - {type: tab, label: Guard, path: /tab}", `the tab "Guard" needs the kind`},
+		{"a column from a GET route", "  - {type: column, label: Blocked, kind: web.site, path: blocked}", ""},
+		{"a column of no kind", "  - {type: column, label: Blocked, path: /blocked}", `the column "Blocked" needs the kind`},
+		{"a column without a route", "  - {type: column, label: Blocked, kind: web.site, path: /elsewhere}", `the column "Blocked" needs the path`},
+		{"a column from a POST route", "  - {type: column, label: Unblock, kind: web.site, path: /unblock}", `the column "Unblock" needs the path`},
+		{"a column without a path", "  - {type: column, label: Blocked, kind: web.site}", `the column "Blocked" needs the path`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := ParseAddonManifest([]byte(base + "ui:\n" + tc.ui + "\n"))
+			switch {
+			case tc.refused == "" && err != nil:
+				t.Fatal(err)
+			case tc.refused != "" && err == nil:
+				t.Fatalf("accepted %+v", m.UI)
+			case tc.refused != "" && !strings.Contains(err.Error(), tc.refused):
+				t.Fatalf("refused with %q, want %q", err, tc.refused)
+			}
+		})
+	}
+	// The panel serves the add-on's screens, and the frames it shows them
+	// in, under its paths' /ui/ and /frames/, so routes stay out of them.
+	for _, path := range []string{"/ui/report", "'/frames/{token}'", "/ui"} {
+		manifest := strings.Replace(base, "path: /unblock", "path: "+path, 1)
+		if _, err := ParseAddonManifest([]byte(manifest)); err == nil || !strings.Contains(err.Error(), "where the panel serves the add-on's screens") {
+			t.Errorf("a route at %s: %v", path, err)
+		}
+	}
+	if _, err := ParseAddonManifest([]byte(strings.Replace(base, "path: /unblock", "path: /uis/report", 1))); err != nil {
+		t.Errorf("a route whose path only starts like one of them: %v", err)
 	}
 }
 

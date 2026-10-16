@@ -60,6 +60,43 @@ func (r *KindRegistry) Register(k Kind) error {
 	return nil
 }
 
+// Replace swaps a registered kind for a new definition of it with the same
+// name and prefix, as when the add-on that adds it is upgraded. Code that
+// holds the old definition keeps a consistent one.
+func (r *KindRegistry) Replace(k Kind) error {
+	if err := k.Err(); err != nil {
+		return err
+	}
+	info := k.Info()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	old, ok := r.byName[info.Name]
+	if !ok {
+		return fmt.Errorf("kind %q isn't registered", info.Name)
+	}
+	if old.Info().Prefix != info.Prefix {
+		return fmt.Errorf("kind %q: its prefix %q can't become %q", info.Name, old.Info().Prefix, info.Prefix)
+	}
+	r.byName[info.Name] = k
+	return nil
+}
+
+// Unregister removes a kind registered while the panel runs, such as one an
+// add-on added, once nothing of it is left, and frees its prefix. Kinds
+// registered as the binary starts are never removed.
+func (r *KindRegistry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k, ok := r.byName[name]
+	if !ok {
+		return
+	}
+	delete(r.byName, name)
+	if r.byPrefix[k.Info().Prefix] == name {
+		delete(r.byPrefix, k.Info().Prefix)
+	}
+}
+
 // Reserve claims a TypeID prefix for IDs that aren't resources, such as
 // change sets or jobs, so no kind can take it.
 func (r *KindRegistry) Reserve(prefix, purpose string) error {

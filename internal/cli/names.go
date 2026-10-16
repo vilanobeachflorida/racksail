@@ -43,6 +43,15 @@ var coreCommands = map[string]string{
 	"streamResources": "resource watch",
 	"searchResources": "resource search",
 
+	// The kinds add-ons add, which the API serves at paths naming them.
+	"listSchemaKindResources":      "kind resources",
+	"getSchemaKindResource":        "kind resource",
+	"createSchemaKindResource":     "kind create",
+	"updateSchemaKindResource":     "kind update",
+	"deleteSchemaKindResource":     "kind delete",
+	"getSchemaKindResourceHistory": "kind history",
+	"runSchemaKindAction":          "kind action",
+
 	"listInbox":        "inbox list",
 	"streamInbox":      "inbox watch",
 	"dismissInboxItem": "inbox dismiss",
@@ -116,7 +125,7 @@ var groupTitles = map[string]string{
 	"event":        "Read and follow the event timeline",
 	"audit":        "Read and export the audit log",
 	"operation":    "List what the API can do",
-	"kind":         "Describe the kinds of resources",
+	"kind":         "Describe the kinds of resources, and manage those of the kinds add-ons add",
 	"resource":     "Get any resource by its ID, and follow changes",
 	"user":         "Manage users, their grants and their access",
 	"role":         "List roles and the permission matrix",

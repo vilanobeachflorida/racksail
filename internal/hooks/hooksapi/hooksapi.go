@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
@@ -26,12 +27,24 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
+// framePattern is where the frames of add-ons' screens are, whose token
+// signs their requests in.
+const framePattern = api.Prefix + "/addons/{addon}/frames/{token}/{path...}"
+
 func init() {
 	api.RegisterExtension(api.Extension{
 		Name: "hooks", Operations: register, Reserved: []string{"hooks", "rules", "safe-mode", "addons"},
 		Routes: map[string]func(svc *modules.Services) http.Handler{
 			api.Prefix + "/addons/{addon}/{path...}":             addonRoutes,
 			"GET " + api.Prefix + "/addons/{addon}/ui/{path...}": addonScreens,
+			framePattern: addonFrames,
+		},
+		PathCredentials: []string{framePattern},
+		PathActor: func(svc *modules.Services, token string) *auth.Actor {
+			if svc == nil || svc.Addons == nil {
+				return nil
+			}
+			return svc.Addons.FrameOf(token)
 		},
 	})
 }
@@ -236,8 +249,9 @@ func register(a huma.API, svc *modules.Services) {
 	}
 	op = huma.Operation{
 		OperationID: "getSafeMode", Method: http.MethodGet, Path: api.Prefix + "/safe-mode", Tags: tags, Security: api.Protected,
-		Summary:     "Say whether safe mode is on",
-		Description: "Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.",
+		Summary: "Say whether safe mode is on",
+		Description: "Says whether safe mode is on and what turned it on: the boot option, the console, the panel, " +
+			"or an add-on that crashed as it started, with when and why. While it is on no add-on runs, so a broken one can't keep the panel from working.",
 	}
 	api.Describe(&op, api.Info{Permission: string(PermSafeModeRead), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *struct{}) (*safeModeOutput, error) {
@@ -392,9 +406,7 @@ func addonRoutes(svc *modules.Services) http.Handler {
 			}
 		}
 		path := "/" + r.PathValue("path")
-		declared := ext != nil && slices.ContainsFunc(ext.Routes, func(rt hooks.AddonRoute) bool {
-			return strings.EqualFold(rt.Method, r.Method) && routeMatches(rt.Path, path)
-		})
+		declared := ext != nil && slices.ContainsFunc(ext.Routes, func(rt hooks.AddonRoute) bool { return rt.Matches(r.Method, path) })
 		if !declared {
 			problem(w, i18n.ErrNotFound.New("what", r.Method+" "+path))
 			return
@@ -403,31 +415,9 @@ func addonRoutes(svc *modules.Services) http.Handler {
 	})
 }
 
-// routeMatches matches a path against a declared route, where {name}
-// stands for one segment.
-func routeMatches(pattern, path string) bool {
-	ps, xs := strings.Split(strings.Trim(pattern, "/"), "/"), strings.Split(strings.Trim(path, "/"), "/")
-	if len(ps) != len(xs) {
-		return false
-	}
-	for i := range ps {
-		if strings.HasPrefix(ps[i], "{") && strings.HasSuffix(ps[i], "}") && xs[i] != "" {
-			continue
-		}
-		if ps[i] != xs[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// screenPolicy is what an add-on's screen may do in the frame the panel
-// shows it in: run its own scripts and reach its own routes, and nothing
-// of the panel's.
-const screenPolicy = "sandbox allow-scripts allow-forms; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'self'; base-uri 'none'"
-
-// addonScreens serves the screens an add-on declares, in a sandbox.
+// addonScreens opens the screens an add-on declares: a signed-in person
+// who may use the add-on is sent on to a frame of their own, whose address
+// signs in what the screen's page loads and asks for there.
 func addonScreens(svc *modules.Services) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		inst, err := addon(r, svc)
@@ -435,15 +425,62 @@ func addonScreens(svc *modules.Services) http.Handler {
 			problem(w, err)
 			return
 		}
-		_, _, _, client, ok := svc.Addons.Running(inst)
-		if !ok {
+		actor, _ := auth.ActorFrom(r.Context())
+		base, err := svc.Addons.OpenFrame(inst, actor)
+		if err != nil {
 			problem(w, i18n.ErrNotFound.New("what", "Add-on "+inst))
 			return
 		}
-		w.Header().Set("Content-Security-Policy", screenPolicy)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
-		client.Proxy("/ui/", nil).ServeHTTP(w, r)
+		segments := strings.Split(r.PathValue("path"), "/")
+		for i, seg := range segments {
+			segments[i] = url.PathEscape(seg)
+		}
+		target := base + "ui/" + strings.Join(segments, "/")
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	})
+}
+
+// addonFrames serves the frames of add-ons' screens, which their tokens
+// sign in, whatever session the request carries, for as long as the person
+// each was opened for may still use its add-on.
+func addonFrames(svc *modules.Services) http.Handler {
+	if svc == nil || svc.Addons == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			problem(w, addons.ErrFrameGone.New("addon", r.PathValue("addon")))
+		})
+	}
+	return svc.Addons.Frames(func(ctx context.Context, actor *auth.Actor, inst string) bool {
+		now := current(ctx, svc, actor)
+		return now != nil && mayUse(ctx, svc, now, inst)
+	})
+}
+
+// current is a person as they are now: signed out, turned off or gone,
+// nobody, and otherwise with the grants they have now. Signed out means the
+// session they opened the frame with ended, or the API token they opened it
+// with was revoked or expired. Without the directory of users, they are as
+// they were.
+func current(ctx context.Context, svc *modules.Services, actor *auth.Actor) *auth.Actor {
+	person := actor.User
+	if actor.Type == auth.ActorUser {
+		person = actor.ID
+	}
+	if svc.Identity == nil || person == "" {
+		return actor
+	}
+	if signIns, ok := svc.Identity.(auth.SignInChecker); ok && !signIns.SignedIn(ctx, actor) {
+		return nil
+	}
+	u, err := svc.Identity.User(ctx, person)
+	if err != nil || u.Disabled {
+		return nil
+	}
+	now := actor.Clone()
+	if actor.Type == auth.ActorUser {
+		now.Grants = u.Grants
+	}
+	return now
 }

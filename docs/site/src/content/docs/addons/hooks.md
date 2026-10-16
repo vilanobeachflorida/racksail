@@ -38,7 +38,7 @@ Other points:
 | observe | React after something happened; it can't block | in the background | post to a chat channel when a deploy fails |
 | validate | Allow or refuse, with a reason shown to the person making the change | in line, with a deadline | refuse deploys that contain known web shells |
 | modify | Add to or change the change set before it is previewed | in line, with a deadline | send every backup to a second destination |
-| system | Patch a service's generated configuration | while the change is planned | add a CDN directive to every site |
+| system | Patch a service's generated configuration, or add new kinds with their own reconcilers | while the change is planned | add a CDN directive to every site |
 | provide | Implement a capability behind a standard interface | when asked | Cloudflare DNS, LDAP sign-in |
 | extend | Add API routes under `/api/v1/addons/<id>/`, screens, tabs, cards and settings | when asked | a "Security" tab on every site |
 
@@ -63,6 +63,57 @@ System hooks patch a copy of a service's configuration. The patched configuratio
 Some settings can't be loosened by any hook: authentication, authorization checks, the audit log, the minimum sandbox of services and the agent's allowlist of operations. Hooks can always make them stricter. Loosening one needs the `core.override` permission, which only a server admin can grant; every time it is used, the panel logs it and records it in the audit log. Rules never hold it. **Settings → Rules** marks the hooks that hold it in red.
 
 Only a server admin approves `core.override`, `secrets.read` and system hooks for an add-on, whoever else may install or change add-ons: someone with a narrower grant on add-ons, a token, or an add-on allowed to change add-ons is refused with `addons.admin_approval`. The same goes for giving an add-on that holds one of them another program, since it would run with what was approved for the first. Changing anything else of such an add-on, such as turning it off, needs no admin.
+
+No hook is a server admin either. What a modify hook adds to an admin's change, or changes in it, approves nothing of the kind and gives no such add-on another program, whatever fields the hook may change: the change is refused with `addons.hook_approval`, which names the hook. In a change a hook rewrote, the admin still approves what they asked for themselves.
+
+## Kinds an add-on adds
+
+An add-on with the `system` hook level can add kinds of its own, under `kinds` in its `addon.yaml`. Each is described by JSON Schema, and its resources are planned and applied by the add-on, as a module's reconciler would:
+
+```yaml
+kinds:
+  - name: guard.rule
+    prefix: grule
+    scope: server
+    title: Guard rule
+    plural: rules
+    description: A pattern the site guard watches for.
+    schema:
+      type: object
+      required: [pattern]
+      properties:
+        pattern: {type: string, minLength: 2}
+    status:
+      type: object
+      properties:
+        watching: {type: string}
+    actions:
+      - name: purge
+        summary: Forget what the rule caught
+        risk: low
+        input: {type: object, properties: {older: {type: string}}}
+```
+
+- Once the add-on is installed, the kind is a kind like any other: its changes go through the change pipeline with a preview, undo, history and audit; it has hook points, `guard.rule.create.validate` and the rest, for other hooks and rules; and settings that don't match its schema are refused. `GET /api/v1/kinds` lists it, and its operations are at `/api/v1/kinds/guard.rule/resources`: list, create, get, change, delete, history and `/{id}/actions/<action>`, authorized with the kind's own permissions, `guard.rule.read`, `guard.rule.create` and so on. The panel's screens show it as they show every kind.
+- To plan a change, the panel calls the add-on's `POST /kinds/guard.rule/plan`, for the preview and again to apply it. The plan is the steps the agent runs and what applying does besides, which the preview shows as the add-on's. Its steps may only be `WriteFile`, `EnsureDir`, `RemovePath`, `ReadFile`, `StatPath` and `ListDir`, of files under `/opt/racksail/modules/addons/<id>/kinds`, the add-on's own directory, which its process can read; a plan that reaches anywhere else is refused. Planning must not change anything.
+- Once the steps have run, the panel calls `POST /kinds/guard.rule/apply` with what they returned. The add-on does the rest, such as calls to an outside service, and answers with the resource's status fields, which must match the kind's status schema; an error answer fails the change. Deleting a resource is planned and applied the same way, so the add-on can undo what it did.
+- Resources of the kind change only while the add-on runs; while it is off or in safe mode, they stay readable and changes are refused with `addons.kind_off`.
+- The kinds of an add-on share one namespace, `guard` here, which no other add-on may use, nor a module: every module's id is its kinds' namespace, whether the module is on or has kinds yet. Nor may it be one of the names the panel keeps for itself, `core` and the first parts of the paths of its own screens and operations, such as `settings`, `addons` and `resources`, where the kind's screens and those of the panel would meet.
+- While the add-on runs, it can't be removed while resources of its kinds exist, those still being deleted included, `addons.kind_remove`: delete them first, in the same change set ahead of the add-on if you like, so the add-on undoes what it did for them. It can't be changed to a version that drops a kind or changes its prefix while they exist either, `addons.kind_in_use`.
+- An add-on that doesn't run, because it's off, in safe mode or kept crashing, can still be removed, and its kinds' resources go with it: the removal deletes them in the same change set, those already being deleted included, without the add-on, which can't undo what it did for them. The preview lists them, and says that whatever the add-on made for them outside the panel stays.
+- Only a server admin installs add-ons that add kinds, since the `system` level is for them alone.
+
+## What an add-on may read and change
+
+An add-on's `permissions` name the kinds it may read and change, each as a data scope:
+
+```yaml
+permissions:
+  read: [{kind: web.site, fields: [domains]}]
+  write: [{kind: web.site, fields: [cdn], actions: [purge]}]
+```
+
+A scope that names only its kind covers all of it. One that names fields covers those fields and nothing else, unless it adds the labels, deleting or the actions it lists: here the add-on may change a site's `cdn` and purge it, but not delete sites or change their labels. The panel holds the add-on to its scopes in what hooks are sent, in what a modify hook's answer may add and in its calls to the API; [Permissions and sandboxing](../permissions/) has the rules.
 
 ## Add-ons of an account
 

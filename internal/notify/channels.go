@@ -607,8 +607,13 @@ func (c *discordChannel) Send(ctx context.Context, msg Message) error {
 		return errors.New("the webhook URL isn't an http or https URL")
 	}
 	embed := map[string]any{
-		"title": truncate(Subject(msg), 256), "description": truncate(Text(msg), 4000), "color": color(msg.Severity),
+		"title": truncate(Subject(msg), 256), "description": truncate(Text(msg), 4000),
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	// The embed's bar takes the theme's color for how urgent the message
+	// is; a theme that can't be read only costs the color.
+	if rgb, err := statusColor(ctx, c.env, msg.Severity); err == nil {
+		embed["color"] = rgb
 	}
 	if msg.URL != "" {
 		embed["url"] = msg.URL
