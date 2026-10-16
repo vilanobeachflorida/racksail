@@ -490,19 +490,31 @@
             "type": "string"
           },
           "actor": {
-            "$ref": "#/components/schemas/Actor"
+            "$ref": "#/components/schemas/Actor",
+            "description": "Who acted, and for whom"
           },
           "changeSet": {
+            "description": "The change set the action belongs to",
             "type": "string"
           },
-          "details": {},
+          "details": {
+            "description": "What changed, with secrets left out"
+          },
           "id": {
+            "description": "The record's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The kind of the resource acted on",
+            "type": "string"
+          },
+          "lastTime": {
+            "description": "When the last of the repeats happened",
+            "format": "date-time",
             "type": "string"
           },
           "outcome": {
+            "description": "Whether it went through: denied when it was refused, failed when it was allowed but didn't work",
             "enum": [
               "success",
               "denied",
@@ -511,22 +523,32 @@
             "type": "string"
           },
           "reason": {
+            "description": "Why it was refused or failed",
             "type": "string"
           },
+          "repeats": {
+            "description": "How many more times the same refusal happened within the hour, counted here instead of on records of their own; on a core.refusals record, how many more of the actor's refusals there were beyond the ones recorded one by one",
+            "format": "int64",
+            "type": "integer"
+          },
           "requestId": {
+            "description": "The API request it came through, to match with the access log",
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the action was for"
           },
           "subject": {
             "description": "The resource acted on",
             "type": "string"
           },
           "summary": {
+            "description": "What was done, in words",
             "type": "string"
           },
           "time": {
+            "description": "When it happened; for a refusal that repeated, when it first did",
             "format": "date-time",
             "type": "string"
           }

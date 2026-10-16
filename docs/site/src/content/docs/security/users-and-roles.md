@@ -109,3 +109,5 @@ curl -H "Authorization: Bearer $RACKSAIL_TOKEN" \
   "https://panel.example.com/api/v1/audit/export?format=csv&outcome=denied&since=2026-10-01T00:00:00Z" \
   -o refused.csv
 ```
+
+A refusal that keeps happening is counted on its first record rather than listed again: the export's last two columns, like `repeats` and `lastTime` in the API, say how many more times it happened within the hour and when it last did. Past a hundred different refusals of one person or token in an hour, the rest are counted together on one record of `core.refusals`, so someone who keeps trying can't crowd everyone else out of the log.

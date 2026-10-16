@@ -4075,20 +4075,45 @@ export interface components {
         AuditRecord: {
             /** @description What was done, named like the permission it needs, such as web.site.update */
             action: string;
+            /** @description Who acted, and for whom */
             actor: components["schemas"]["Actor"];
+            /** @description The change set the action belongs to */
             changeSet?: string;
+            /** @description What changed, with secrets left out */
             details?: unknown;
+            /** @description The record's ID */
             id: string;
+            /** @description The kind of the resource acted on */
             kind?: string;
-            /** @enum {string} */
+            /**
+             * Format: date-time
+             * @description When the last of the repeats happened
+             */
+            lastTime?: string;
+            /**
+             * @description Whether it went through: denied when it was refused, failed when it was allowed but didn't work
+             * @enum {string}
+             */
             outcome: "success" | "denied" | "failed";
+            /** @description Why it was refused or failed */
             reason?: string;
+            /**
+             * Format: int64
+             * @description How many more times the same refusal happened within the hour, counted here instead of on records of their own; on a core.refusals record, how many more of the actor's refusals there were beyond the ones recorded one by one
+             */
+            repeats?: number;
+            /** @description The API request it came through, to match with the access log */
             requestId?: string;
+            /** @description The owner the action was for */
             scope: components["schemas"]["Scope"];
             /** @description The resource acted on */
             subject?: string;
+            /** @description What was done, in words */
             summary: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it happened; for a refusal that repeated, when it first did
+             */
             time: string;
         };
         Available: {

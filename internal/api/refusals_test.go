@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -104,6 +106,34 @@ func TestRefusalsAreAudited(t *testing.T) {
 	}
 	if after := len(s.refusals("owner")); after != before {
 		t.Errorf("lists recorded %d refusals", after-before)
+	}
+}
+
+// A refusal that keeps happening counts on its first record, which the list
+// and the export of the audit log show with the number of repeats.
+func TestRepeatedRefusalsCountOnce(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	site := s.createSite("owner", "again.test")
+	for range 5 {
+		if resp := s.call("stranger", "GET", "/api/v1/test/sites/"+string(site), nil, nil); resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("read = %d", resp.StatusCode)
+		}
+	}
+	var audit struct {
+		Records []events.AuditRecord `json:"records"`
+	}
+	s.call("admin", "GET", "/api/v1/audit?outcome=denied&subject="+string(site), nil, &audit)
+	if len(audit.Records) != 1 || audit.Records[0].Repeats != 4 || audit.Records[0].LastTime == nil {
+		t.Fatalf("refused reads = %+v", audit.Records)
+	}
+	resp := s.call("admin", "GET", "/api/v1/audit/export?outcome=denied&subject="+string(site), nil, nil)
+	rows, err := csv.NewReader(strings.NewReader(bodyOf(resp))).ReadAll()
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("export = %v, %v", rows, err)
+	}
+	repeats, last := slices.Index(rows[0], "repeats"), slices.Index(rows[0], "last time")
+	if repeats < 0 || last < 0 || rows[1][repeats] != "4" || rows[1][last] == "" {
+		t.Errorf("export = %v", rows)
 	}
 }
 

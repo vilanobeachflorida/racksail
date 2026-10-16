@@ -189,24 +189,30 @@ const (
 
 // AuditRecord records one action and who took it.
 type AuditRecord struct {
-	ID    store.ID   `json:"id"`
-	Time  time.Time  `json:"time"`
-	Actor auth.Actor `json:"actor"`
+	ID    store.ID   `json:"id" doc:"The record's ID"`
+	Time  time.Time  `json:"time" doc:"When it happened; for a refusal that repeated, when it first did"`
+	Actor auth.Actor `json:"actor" doc:"Who acted, and for whom"`
 	// Action is a permission name such as web.site.update or auth.login.
 	Action    string      `json:"action" doc:"What was done, named like the permission it needs, such as web.site.update"`
-	Kind      string      `json:"kind,omitempty"`
+	Kind      string      `json:"kind,omitempty" doc:"The kind of the resource acted on"`
 	Subject   store.ID    `json:"subject,omitempty" doc:"The resource acted on"`
-	Scope     store.Scope `json:"scope"`
-	ChangeSet store.ID    `json:"changeSet,omitempty"`
-	Outcome   Outcome     `json:"outcome" enum:"success,denied,failed"`
+	Scope     store.Scope `json:"scope" doc:"The owner the action was for"`
+	ChangeSet store.ID    `json:"changeSet,omitempty" doc:"The change set the action belongs to"`
+	Outcome   Outcome     `json:"outcome" enum:"success,denied,failed" doc:"Whether it went through: denied when it was refused, failed when it was allowed but didn't work"`
 	// Reason explains a denial or failure.
-	Reason  string `json:"reason,omitempty"`
-	Summary string `json:"summary"`
+	Reason  string `json:"reason,omitempty" doc:"Why it was refused or failed"`
+	Summary string `json:"summary" doc:"What was done, in words"`
 	// Details holds a redacted summary of what changed.
-	Details json.RawMessage `json:"details,omitempty"`
+	Details json.RawMessage `json:"details,omitempty" doc:"What changed, with secrets left out"`
 	// RequestID is the API request the action came through, when it came
 	// through one, so the record can be matched with the access log.
-	RequestID string `json:"requestId,omitempty"`
+	RequestID string `json:"requestId,omitempty" doc:"The API request it came through, to match with the access log"`
+	// Repeats counts the refusals that were the same as this one, within
+	// the window of the actor's refusals it was recorded in; they add to
+	// this record rather than getting their own (see Denials). LastTime is
+	// when the last of them happened.
+	Repeats  int        `json:"repeats,omitempty" doc:"How many more times the same refusal happened within the hour, counted here instead of on records of their own; on a core.refusals record, how many more of the actor's refusals there were beyond the ones recorded one by one"`
+	LastTime *time.Time `json:"lastTime,omitempty" doc:"When the last of the repeats happened"`
 }
 
 // AuditLog stores audit records. Hooks can't turn it off.

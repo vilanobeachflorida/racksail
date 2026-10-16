@@ -77,11 +77,26 @@ func (s *sqlStorage) appendAudit(ctx context.Context, r *AuditRecord) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(ctx, `INSERT INTO audit (id, time, actor, actor_id, actor_user, action, kind, subject, scope_level, scope_id, change_set, outcome, reason, summary, details, request_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	var last any
+	if r.LastTime != nil {
+		last = store.FormatTime(*r.LastTime)
+	}
+	_, err = s.db.Exec(ctx, `INSERT INTO audit (id, time, actor, actor_id, actor_user, action, kind, subject, scope_level, scope_id, change_set, outcome, reason, summary, details, request_id, repeats, last_time)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, store.FormatTime(r.Time), string(actor), r.Actor.ID, r.Actor.User, r.Action, r.Kind, r.Subject, r.Scope.Level, r.Scope.ID,
-		r.ChangeSet, r.Outcome, r.Reason, r.Summary, nullText(string(r.Details)), r.RequestID)
+		r.ChangeSet, r.Outcome, r.Reason, r.Summary, nullText(string(r.Details)), r.RequestID, r.Repeats, last)
 	return err
+}
+
+// repeatAudit keeps the latest time of the repeats, which may commit out of
+// order.
+func (s *sqlStorage) repeatAudit(ctx context.Context, id store.ID, n int, last time.Time) (bool, error) {
+	res, err := s.db.Exec(ctx, `UPDATE audit SET repeats = repeats + ?, last_time = max(coalesce(last_time, ''), ?) WHERE id = ?`, n, store.FormatTime(last), id)
+	if err != nil {
+		return false, fmt.Errorf("events: counting a repeated refusal: %w", err)
+	}
+	changed, err := res.RowsAffected()
+	return changed > 0, err
 }
 
 // where builds the conditions shared by event and audit queries.
@@ -215,7 +230,7 @@ func (s *sqlStorage) queryAudit(ctx context.Context, q Query) ([]AuditRecord, st
 		w.add("outcome = ?", q.Outcome)
 	}
 	limit := q.limit()
-	rows, err := s.db.Reader().QueryContext(ctx, `SELECT seq, id, time, actor, action, kind, subject, scope_level, scope_id, change_set, outcome, reason, summary, details, request_id
+	rows, err := s.db.Reader().QueryContext(ctx, `SELECT seq, id, time, actor, action, kind, subject, scope_level, scope_id, change_set, outcome, reason, summary, details, request_id, repeats, last_time
 		FROM audit`+w.sql()+` ORDER BY seq DESC LIMIT ?`, append(w.args, limit+1)...)
 	if err != nil {
 		return nil, "", fmt.Errorf("events: querying the audit log: %w", err)
@@ -227,9 +242,16 @@ func (s *sqlStorage) queryAudit(ctx context.Context, q Query) ([]AuditRecord, st
 		var r AuditRecord
 		var seq int64
 		var when, actor, level string
-		var details sql.NullString
-		if err := rows.Scan(&seq, &r.ID, &when, &actor, &r.Action, &r.Kind, &r.Subject, &level, &r.Scope.ID, &r.ChangeSet, &r.Outcome, &r.Reason, &r.Summary, &details, &r.RequestID); err != nil {
+		var details, last sql.NullString
+		if err := rows.Scan(&seq, &r.ID, &when, &actor, &r.Action, &r.Kind, &r.Subject, &level, &r.Scope.ID, &r.ChangeSet, &r.Outcome, &r.Reason, &r.Summary, &details, &r.RequestID, &r.Repeats, &last); err != nil {
 			return nil, "", err
+		}
+		if last.Valid {
+			t, err := store.ParseTime(last.String)
+			if err != nil {
+				return nil, "", err
+			}
+			r.LastTime = &t
 		}
 		r.Scope.Level = store.ScopeLevel(level)
 		if r.Time, err = store.ParseTime(when); err != nil {
