@@ -524,13 +524,17 @@ func (c *Catalogs) Items(ctx context.Context, f ItemFilter) ([]ListedItem, error
 	return out, nil
 }
 
-// Item returns one item of a catalog.
+// Item returns one item of a catalog, named by the catalog's ID or name.
 func (c *Catalogs) Item(ctx context.Context, catalog store.ID, item string) (*ListedItem, error) {
-	obj, err := CatalogKind.Get(ctx, c.opts.Store, catalog)
+	id, err := c.lookup(ctx, string(catalog))
 	if err != nil {
 		return nil, err
 	}
-	idx, err := c.Index(ctx, catalog)
+	obj, err := CatalogKind.Get(ctx, c.opts.Store, id)
+	if err != nil {
+		return nil, err
+	}
+	idx, err := c.Index(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -550,6 +554,7 @@ func (c *Catalogs) File(ctx context.Context, catalog store.ID, item, file string
 	if err != nil {
 		return nil, err
 	}
+	catalog = it.Catalog
 	want := IndexFile{}
 	for _, f := range it.Files {
 		if f.Path == file {
@@ -678,15 +683,29 @@ func (c *Catalogs) lookup(ctx context.Context, catalog string) (store.ID, error)
 		return "", err
 	}
 	if len(list) == 0 || list[0].Deleted() {
+		// Without a key for it, the panel never adds the official catalog,
+		// which says more than that it isn't there.
+		if catalog == officialName && len(c.opts.Official) == 0 {
+			return "", ErrNoOfficialKey.New()
+		}
 		return "", i18n.ErrUnknownName.New("what", "catalog", "name", catalog)
 	}
 	return list[0].ID, nil
 }
 
+// officialName is the name the official catalog is added under.
+const officialName = "official"
+
+// ErrNoOfficialKey answers for the official catalog in a build that has no
+// key to trust it with, which therefore never added it.
+var ErrNoOfficialKey = i18n.Define("recipes.no_official_key", http.StatusConflict,
+	"This build of Racksail has no key for the official catalog, so it doesn't offer the catalog's items. Release builds have one; until then, add a catalog of your own.")
+
 // Boot adds the official catalog the first time the panel starts, when the
-// panel has keys for it.
+// panel has keys for it; a build without them says so in the log.
 func (c *Catalogs) Boot(ctx context.Context, submit func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error)) error {
 	if len(c.opts.Official) == 0 {
+		c.opts.Logger.Warn("this build has no key for the official catalog, so the panel doesn't add it; catalogs added by URL still work")
 		return nil
 	}
 	list, _, err := CatalogKind.List(ctx, c.opts.Store, store.Query{Limit: store.MaxLimit})
@@ -694,7 +713,7 @@ func (c *Catalogs) Boot(ctx context.Context, submit func(ctx context.Context, re
 		return err
 	}
 	for _, cat := range list {
-		if cat.Spec.Name == "official" {
+		if cat.Spec.Name == officialName {
 			return nil
 		}
 	}
@@ -702,7 +721,7 @@ func (c *Catalogs) Boot(ctx context.Context, submit func(ctx context.Context, re
 	for _, k := range c.opts.Official {
 		keys = append(keys, base64.StdEncoding.EncodeToString(k))
 	}
-	spec, err := json.Marshal(CatalogSpec{Name: "official", Title: "Racksail catalog", URL: OfficialURL, Keys: keys})
+	spec, err := json.Marshal(CatalogSpec{Name: officialName, Title: "Racksail catalog", URL: OfficialURL, Keys: keys})
 	if err != nil {
 		return err
 	}

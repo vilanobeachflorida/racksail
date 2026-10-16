@@ -25,6 +25,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
@@ -302,6 +303,13 @@ func TestCatalogSync(t *testing.T) {
 	if err != nil || r.Name != "WordPress" || it.CatalogName != "test" {
 		t.Fatalf("recipe = %+v, %v", r, err)
 	}
+	// A catalog can be named by its name too.
+	if byName, err := p.catalogs.Item(ctx, "test", "wordpress"); err != nil || byName.Catalog != id {
+		t.Errorf("by its name = %+v, %v", byName, err)
+	}
+	if _, err := p.catalogs.Item(ctx, "nope", "wordpress"); !i18n.ErrUnknownName.Is(err) {
+		t.Errorf("a catalog that isn't there: %v", err)
+	}
 	// A file that doesn't match the index is refused, however it is
 	// served.
 	c.mu.Lock()
@@ -409,10 +417,20 @@ func TestOfficialCatalog(t *testing.T) {
 	if len(list) != 1 || list[0].Spec.URL != OfficialURL || !cats.official(list[0].Spec) {
 		t.Fatalf("catalogs = %+v", list)
 	}
-	// No key, no official catalog.
-	none := NewCatalogs(CatalogOptions{Store: store.NewMemory(testKinds(t)), Official: []ed25519.PublicKey{}})
+	// No key, no official catalog, and asking for it says why.
+	bare := store.NewKindRegistry()
+	if err := bare.Register(CatalogKind); err != nil {
+		t.Fatal(err)
+	}
+	none := NewCatalogs(CatalogOptions{Store: store.NewMemory(bare), Official: []ed25519.PublicKey{}, Logger: slog.New(slog.DiscardHandler)})
 	if err := none.Boot(context.Background(), submit); err != nil {
 		t.Error(err)
+	}
+	if _, err := none.Item(context.Background(), "official", "wordpress"); !ErrNoOfficialKey.Is(err) {
+		t.Errorf("the official catalog of a build without its key: %v", err)
+	}
+	if _, err := cats.Item(context.Background(), "official", "wordpress"); !ErrNotSynced.Is(err) {
+		t.Errorf("the official catalog of a build with its key, not fetched yet: %v", err)
 	}
 	if k, err := ParseKey(base64.StdEncoding.EncodeToString(pub)); err != nil || !k.Equal(pub) {
 		t.Errorf("a bare key line parses: %v", err)

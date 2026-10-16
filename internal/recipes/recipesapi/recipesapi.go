@@ -49,7 +49,7 @@ type itemList struct {
 }
 
 type itemInput struct {
-	Catalog store.ID `path:"catalog" doc:"The catalog's ID"`
+	Catalog store.ID `path:"catalog" doc:"The catalog's ID, or its name, such as official"`
 	Item    string   `path:"item" doc:"The item's id"`
 }
 

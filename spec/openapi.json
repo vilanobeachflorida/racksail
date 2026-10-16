@@ -5894,7 +5894,7 @@
             "type": "boolean"
           },
           "catalog": {
-            "description": "The catalog the item is from",
+            "description": "The catalog the item is from, by its ID or its name, such as official",
             "type": "string"
           },
           "inputs": {
@@ -13573,12 +13573,12 @@
         "operationId": "getCatalogItem",
         "parameters": [
           {
-            "description": "The catalog's ID",
+            "description": "The catalog's ID, or its name, such as official",
             "in": "path",
             "name": "catalog",
             "required": true,
             "schema": {
-              "description": "The catalog's ID",
+              "description": "The catalog's ID, or its name, such as official",
               "type": "string"
             }
           },
@@ -13636,12 +13636,12 @@
         "operationId": "getCatalogItemIcon",
         "parameters": [
           {
-            "description": "The catalog's ID",
+            "description": "The catalog's ID, or its name, such as official",
             "in": "path",
             "name": "catalog",
             "required": true,
             "schema": {
-              "description": "The catalog's ID",
+              "description": "The catalog's ID, or its name, such as official",
               "type": "string"
             }
           },

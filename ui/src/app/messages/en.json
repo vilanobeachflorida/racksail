@@ -485,6 +485,7 @@
   "error.recipes.missing_input": "The recipe needs a value for {input}.",
   "error.recipes.module_off": "{name} needs the {module} module. Turn it on first.",
   "error.recipes.no_item": "The {catalog} catalog has no item {item}.",
+  "error.recipes.no_official_key": "This build of Racksail has no key for the official catalog, so it doesn't offer the catalog's items. Release builds have one; until then, add a catalog of your own.",
   "error.recipes.no_source": "Name a catalog or a module to install from.",
   "error.recipes.no_upgrade": "{name} {version} is the newest version its catalog offers.",
   "error.recipes.not_addon": "{item} in the {catalog} catalog isn't an add-on.",

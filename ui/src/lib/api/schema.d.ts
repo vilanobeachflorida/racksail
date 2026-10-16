@@ -6321,7 +6321,7 @@ export interface components {
         InstallInput: {
             /** @description Accept the license of software that isn't open source */
             acceptLicense?: boolean;
-            /** @description The catalog the item is from */
+            /** @description The catalog the item is from, by its ID or its name, such as official */
             catalog?: string;
             /** @description Values for the recipe's inputs */
             inputs?: {
@@ -9247,7 +9247,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The catalog's ID */
+                /** @description The catalog's ID, or its name, such as official */
                 catalog: string;
                 /** @description The item's id */
                 item: string;
@@ -9281,7 +9281,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The catalog's ID */
+                /** @description The catalog's ID, or its name, such as official */
                 catalog: string;
                 /** @description The item's id */
                 item: string;

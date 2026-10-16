@@ -222,7 +222,7 @@ func NewEngine(opts EngineOptions) *Engine {
 
 // Source names where a recipe comes from.
 type Source struct {
-	Catalog store.ID `json:"catalog,omitempty" doc:"The catalog the item is from"`
+	Catalog store.ID `json:"catalog,omitempty" doc:"The catalog the item is from, by its ID or its name, such as official"`
 	Module  string   `json:"module,omitempty" doc:"Or the module that ships its recipe"`
 	Item    string   `json:"item" doc:"The item's id"`
 }
@@ -245,12 +245,12 @@ func (e *Engine) Recipe(ctx context.Context, src Source) (*Recipe, *provenance, 
 		if err != nil {
 			return nil, nil, err
 		}
-		cat, err := CatalogKind.Get(ctx, e.opts.Store, src.Catalog)
+		cat, err := CatalogKind.Get(ctx, e.opts.Store, it.Catalog)
 		if err != nil {
 			return nil, nil, err
 		}
 		p := &provenance{item: it, spec: InstallationSpec{
-			Source: SourceCatalog, Catalog: src.Catalog, CatalogName: it.CatalogName, Official: it.Official,
+			Source: SourceCatalog, Catalog: it.Catalog, CatalogName: it.CatalogName, Official: it.Official,
 			RecipeSHA256: hashOf(data), IndexSHA256: cat.Status.IndexSHA256, Recipe: string(data),
 		}}
 		return r, p, nil
