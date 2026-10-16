@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -33,6 +34,83 @@ type Env struct {
 	// Owner is the resource the call is made for.
 	Owner store.ID
 	Log   *slog.Logger
+	// Runtime holds the agent's state across operations; nil when an
+	// operation is run on its own, as previews do.
+	Runtime *Runtime
+	// Caller is who asked, for the audit trail: "local", or the identity
+	// of a remote panel.
+	Caller string
+}
+
+// remember records what an operation put on the machine for its owner, so
+// drift can be reported. Operations call it after a change succeeded.
+func (env *Env) remember(ctx context.Context, kind, target string, content []byte) {
+	if env.Runtime == nil || env.Check {
+		return
+	}
+	if err := env.Runtime.remember(ctx, kind, target, env.Owner, content); err != nil && env.Log != nil {
+		env.Log.Warn("recording what the agent wrote", "target", target, "error", err)
+	}
+}
+
+// forget drops removed targets from the drift ledger.
+func (env *Env) forget(ctx context.Context, targets ...string) {
+	if env.Runtime == nil || env.Check {
+		return
+	}
+	if err := env.Runtime.forget(ctx, targets...); err != nil && env.Log != nil {
+		env.Log.Warn("updating what the agent wrote", "error", err)
+	}
+}
+
+// audit records one operation. Every operation is recorded, including
+// reads and refusals; the input is kept as a hash only.
+func (env *Env) audit(op string, in any, raw []byte, out any, err error, start time.Time) {
+	if env.Runtime == nil {
+		return
+	}
+	r := AuditRecord{
+		Time: start.UTC(), Op: op, Caller: env.Caller, Owner: env.Owner, Check: env.Check,
+		Targets: auditTargets(in), Changed: resultChanged(out), Duration: time.Since(start),
+	}
+	// A hash of a secret would let anyone holding the trail test guesses
+	// of it.
+	if e, ok := Lookup(op); !ok || !e.sensitive() {
+		if raw == nil {
+			raw, _ = json.Marshal(in)
+		}
+		r.InputSHA256 = inputHash(raw)
+	}
+	r.Code, r.Error = auditError(err)
+	if aerr := env.Runtime.audit.Record(r); aerr != nil && env.Log != nil {
+		env.Log.Error("writing the audit record", "op", op, "error", aerr)
+	}
+	if env.Log != nil {
+		level := slog.LevelDebug
+		if r.Changed || r.Failed() {
+			level = slog.LevelInfo
+		}
+		env.Log.Log(context.Background(), level, "agent operation", "op", op, "caller", r.Caller, "owner", r.Owner,
+			"check", r.Check, "targets", r.Targets, "changed", r.Changed, "code", r.Code, "duration", r.Duration)
+	}
+}
+
+// resultChanged reports whether an operation's output says it changed
+// something, for outputs that are or embed a Result.
+func resultChanged(out any) bool {
+	switch r := out.(type) {
+	case Result:
+		return r.Changed
+	case *Result:
+		return r != nil && r.Changed
+	}
+	v := reflect.Indirect(reflect.ValueOf(out))
+	if v.Kind() == reflect.Struct {
+		if f := v.FieldByName("Changed"); f.IsValid() && f.Kind() == reflect.Bool {
+			return f.Bool()
+		}
+	}
+	return false
 }
 
 // Result is the output of operations that change the machine.
@@ -58,6 +136,9 @@ type Def[In Input, Out any] struct {
 	Description string
 	// ReadOnly operations never change the machine.
 	ReadOnly bool
+	// Sensitive operations take or return secrets, so the audit trail keeps
+	// no hash of their input.
+	Sensitive bool
 	// Effects describes what a step would do, without asking the machine.
 	// Previews use it when check mode isn't available.
 	Effects func(in In) []system.Effect
@@ -90,6 +171,7 @@ type Entry interface {
 	// Invoke decodes and validates the input, then runs the operation.
 	Invoke(ctx context.Context, env *Env, input json.RawMessage) (json.RawMessage, error)
 	register(api huma.API, srv *Server)
+	sensitive() bool
 }
 
 var registry = struct {
@@ -165,6 +247,8 @@ func (o *Op[In, Out]) Description() string { return o.def.Description }
 // ReadOnly reports whether the operation never changes the machine.
 func (o *Op[In, Out]) ReadOnly() bool { return o.def.ReadOnly }
 
+func (o *Op[In, Out]) sensitive() bool { return o.def.Sensitive }
+
 // InputType returns the Go type of the input.
 func (o *Op[In, Out]) InputType() reflect.Type { return reflect.TypeFor[In]() }
 
@@ -226,26 +310,27 @@ func (o *Op[In, Out]) Effects(input json.RawMessage) ([]system.Effect, error) {
 
 // Invoke implements Entry.
 func (o *Op[In, Out]) Invoke(ctx context.Context, env *Env, input json.RawMessage) (json.RawMessage, error) {
+	start := time.Now()
 	in, err := o.decode(input)
 	if err != nil {
+		env.audit(o.def.Name, in, input, nil, err, start)
 		return nil, err
 	}
-	out, err := o.run(ctx, env, in)
+	out, err := o.run(ctx, env, in, input)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(out)
 }
 
-func (o *Op[In, Out]) run(ctx context.Context, env *Env, in In) (Out, error) {
-	if env.Log != nil {
-		env.Log.Debug("agent operation", "op", o.def.Name, "check", env.Check, "owner", env.Owner)
-	}
+func (o *Op[In, Out]) run(ctx context.Context, env *Env, in In, raw []byte) (Out, error) {
+	start := time.Now()
 	out, err := o.def.Run(ctx, env, in)
 	if err != nil {
-		return out, failed(o.def.Name, err)
+		err = failed(o.def.Name, err)
 	}
-	return out, nil
+	env.audit(o.def.Name, in, raw, out, err, start)
+	return out, err
 }
 
 // opRequest and opResponse are the HTTP shapes of an operation call.
@@ -276,11 +361,14 @@ func (o *Op[In, Out]) register(api huma.API, srv *Server) {
 		MaxBodyBytes:    maxBody,
 		BodyReadTimeout: bodyReadTimeout,
 	}, func(ctx context.Context, req *opRequest[In]) (*opResponse[Out], error) {
+		env := srv.env(ctx, req.Check && !o.def.ReadOnly, store.ID(req.Owner))
+		markAudited(ctx)
 		if err := req.Body.Validate(); err != nil {
-			return nil, ErrInvalidInput.Wrap(err, "op", o.def.Name, "reason", err.Error())
+			err = ErrInvalidInput.Wrap(err, "op", o.def.Name, "reason", err.Error())
+			env.audit(o.def.Name, req.Body, nil, nil, err, time.Now())
+			return nil, err
 		}
-		env := srv.env(req.Check, store.ID(req.Owner))
-		out, err := o.run(ctx, env, req.Body)
+		out, err := o.run(ctx, env, req.Body, nil)
 		if err != nil {
 			return nil, err
 		}

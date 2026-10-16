@@ -47,8 +47,8 @@ func ConvertSteps(a *Answers, binary string) ([]Step, error) {
 	if a.Mode != ModeConvert {
 		return nil, fmt.Errorf("ConvertSteps plans the convert mode, not %s", a.Mode)
 	}
-	units, err := Units(binary)
-	if err != nil {
+	// The agent renders the units itself; this only checks the path early.
+	if _, err := Units(binary); err != nil {
 		return nil, err
 	}
 	var steps []Step
@@ -65,11 +65,9 @@ func ConvertSteps(a *Answers, binary string) ([]Step, error) {
 		short, _, _ := strings.Cut(a.Hostname, ".")
 		steps = append(steps, Step{Title: "Set the hostname", Ops: []agent.Step{agent.SetHostname.Step(agent.HostnameInput{Name: short})}})
 	}
-	var unitOps []agent.Step
-	for _, name := range UnitNames() {
-		unitOps = append(unitOps, agent.EnsureUnit.Step(agent.EnsureUnitInput{Name: name, Content: units[name]}))
-	}
-	steps = append(steps, Step{Title: "Install Racksail's services", Ops: unitOps})
+	steps = append(steps, Step{Title: "Install Racksail's services", Ops: []agent.Step{
+		agent.InstallPlatformUnits.Step(agent.PlatformUnitsInput{Binary: binary}),
+	}})
 	steps = append(steps, Step{Title: "Start the agent, the panel and the edge's socket", Ops: []agent.Step{
 		agent.EnableUnits.Step(agent.UnitsInput{Names: []string{AgentUnit, PanelUnit, EdgeSocket}}),
 		agent.StartUnit.Step(agent.UnitInput{Name: AgentUnit}),

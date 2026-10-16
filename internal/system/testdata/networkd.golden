@@ -1,0 +1,117 @@
+### 50-racksail-bond0.netdev
+# Managed by Racksail. Changes made here are overwritten.
+
+[NetDev]
+Name=bond0
+Kind=bond
+MTUBytes=9000
+
+[Bond]
+Mode=802.3ad
+MIIMonitorSec=100ms
+TransmitHashPolicy=layer3+4
+LACPTransmitRate=fast
+
+### 50-racksail-bond0.network
+# Managed by Racksail. Changes made here are overwritten.
+
+[Match]
+Name=bond0
+
+[Network]
+IPv6AcceptRA=no
+Address=203.0.113.10/24
+Address=2001:db8::10/64
+Gateway=203.0.113.1
+Gateway=fe80::1
+DNS=9.9.9.9
+DNS=2620:fe::fe
+Domains=example.com
+VLAN=vlan100
+
+[Route]
+Destination=198.51.100.0/24
+Gateway=203.0.113.254
+Metric=50
+
+[Route]
+Destination=0.0.0.0/0
+Gateway=172.31.1.1
+GatewayOnLink=yes
+PreferredSource=203.0.113.11
+Table=100
+
+[RoutingPolicyRule]
+From=203.0.113.11/32
+Table=100
+Priority=1000
+
+[RoutingPolicyRule]
+FirewallMark=20001
+Table=100
+
+### 50-racksail-br0.netdev
+# Managed by Racksail. Changes made here are overwritten.
+
+[NetDev]
+Name=br0
+Kind=bridge
+
+[Bridge]
+STP=no
+
+### 50-racksail-br0.network
+# Managed by Racksail. Changes made here are overwritten.
+
+[Match]
+Name=br0
+
+[Link]
+MTUBytes=1500
+
+[Network]
+DHCP=ipv4
+
+### 50-racksail-enp1s0.network
+# Managed by Racksail. Changes made here are overwritten.
+
+[Match]
+Name=enp1s0
+
+[Link]
+RequiredForOnline=no
+
+[Network]
+Bond=bond0
+
+### 50-racksail-enp2s0.network
+# Managed by Racksail. Changes made here are overwritten.
+
+[Match]
+MACAddress=52:54:00:12:34:57
+
+[Link]
+RequiredForOnline=no
+
+[Network]
+Bond=bond0
+
+### 50-racksail-vlan100.netdev
+# Managed by Racksail. Changes made here are overwritten.
+
+[NetDev]
+Name=vlan100
+Kind=vlan
+
+[VLAN]
+Id=100
+
+### 50-racksail-vlan100.network
+# Managed by Racksail. Changes made here are overwritten.
+
+[Match]
+Name=vlan100
+
+[Network]
+Bridge=br0
+

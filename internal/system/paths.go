@@ -9,6 +9,23 @@ const (
 	GeneratedDir = "/etc/racksail/generated"
 	CertsDir     = "/etc/racksail/certs"
 	StateDir     = "/var/lib/racksail"
+	// AgentStateDir is the agent's own state: what it applied, what it is
+	// about to roll back and the certificate it joined a cluster with. Only
+	// root reads it.
+	AgentStateDir = "/var/lib/racksail-agent"
+	// AgentClusterFile holds the hub and certificate of a joined server.
+	AgentClusterFile = "/var/lib/racksail-agent/cluster.json"
+	// AgentLogDir holds the agent's audit trail. Only root reads it, and no
+	// operation reaches it, so the panel can't change the record of what it
+	// asked for.
+	AgentLogDir = "/var/log/racksail-agent"
+	// AgentAuditLog is the agent's audit trail, rotated to .1 when large.
+	AgentAuditLog = "/var/log/racksail-agent/audit.jsonl"
+	// EdgeStateDir holds the edge's certificates and ACME accounts.
+	EdgeStateDir = "/var/lib/racksail-edge"
+	// CredstoreDir is where systemd looks for encrypted credentials that
+	// services import.
+	CredstoreDir = "/etc/credstore.encrypted"
 	AccountsDir  = "/srv/racksail/accounts"
 	RuntimesDir  = "/opt/racksail/runtimes"
 	ModulesDir   = "/opt/racksail/modules"
@@ -38,7 +55,9 @@ const (
 )
 
 // AccountSlice returns the slice of the account with the given slug.
-func AccountSlice(slug string) string { return "racksail-acct-" + slug + ".slice" }
+// systemd places a slice under the slice its name extends, so the name puts
+// every account inside racksail-accounts.slice.
+func AccountSlice(slug string) string { return "racksail-accounts-" + slug + ".slice" }
 
 // AccountDir returns the data directory of the account with the given slug.
 func AccountDir(slug string) string { return path.Join(AccountsDir, slug) }

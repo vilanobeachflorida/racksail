@@ -85,7 +85,7 @@ func TestConvertOnTheSimulatedServer(t *testing.T) {
 	ctx := context.Background()
 	m := sim.New(sim.Options{Hostname: "old"})
 	client := agent.NewLocal(m.Backend(), nil)
-	steps, err := ConvertSteps(&Answers{Format: 1, Mode: ModeConvert, Hostname: "web1.example.test"}, "/usr/local/bin/racksail")
+	steps, err := ConvertSteps(&Answers{Format: 1, Mode: ModeConvert, Hostname: "web1.example.test"}, "/usr/bin/racksail")
 	if err != nil {
 		t.Fatal(err)
 	}

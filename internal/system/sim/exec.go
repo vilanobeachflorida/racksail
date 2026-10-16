@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
@@ -91,6 +92,20 @@ func (f simFacts) Facts(ctx context.Context) (system.MachineFacts, error) {
 	}
 	defer m.mu.Unlock()
 	facts := m.facts
+	facts.CPU.Flags = slices.Clone(m.facts.CPU.Flags)
+	facts.Hostname = m.hostname
+	for _, d := range m.disks {
+		facts.Disks = append(facts.Disks, system.DiskFact{
+			Name: d.Name, Model: d.Model, Serial: d.Serial, SizeBytes: d.SizeBytes,
+			Rotational: d.Rotational, Removable: d.Removable, Transport: d.Transport,
+		})
+	}
+	for _, ifc := range m.ifaces {
+		if ifc.Type != "ether" {
+			continue
+		}
+		facts.NICs = append(facts.NICs, system.NICFact{Name: ifc.Name, MAC: ifc.MAC, Driver: "virtio_net", SpeedMbps: ifc.SpeedMbps, Up: ifc.Up})
+	}
 	facts.CollectedAt = m.now()
 	return facts, nil
 }

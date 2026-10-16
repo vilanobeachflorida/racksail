@@ -55,6 +55,7 @@ func (f simFirewall) Check(ctx context.Context, ruleset []byte) error {
 
 func (f simFirewall) Apply(ctx context.Context, ruleset []byte) error {
 	m := f.m
+	m.delay(ctx, opFirewall, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -87,16 +88,23 @@ func (f simFirewall) Ruleset(ctx context.Context) ([]byte, error) {
 
 func setKey(s system.SetRef) string { return s.Family + " " + s.Table + " " + s.Set }
 
-// rulesetHasSet reports whether the applied ruleset declares the set. The
-// caller holds m.mu.
+// rulesetHasSet reports whether the applied ruleset declares the set in
+// its table. The caller holds m.mu.
 func (m *Machine) rulesetHasSet(key string) bool {
 	parts := strings.Fields(key)
 	if len(parts) != 3 {
 		return false
 	}
-	table := regexp.MustCompile(`table\s+` + regexp.QuoteMeta(parts[0]) + `\s+` + regexp.QuoteMeta(parts[1]) + `\b`)
-	set := regexp.MustCompile(`\bset\s+` + regexp.QuoteMeta(parts[2]) + `\s*\{`)
-	return table.Match(m.ruleset) && set.Match(m.ruleset)
+	tables, err := system.CheckRuleset(m.ruleset)
+	if err != nil {
+		return false
+	}
+	for _, t := range tables {
+		if t.Family == parts[0] && t.Name == parts[1] && slices.Contains(t.Sets, parts[2]) {
+			return true
+		}
+	}
+	return false
 }
 
 func validElement(v string) bool {
@@ -213,6 +221,7 @@ func (n simNetwork) Routes(ctx context.Context) ([]system.Route, error) {
 var networkdFilePattern = regexp.MustCompile(`^50-racksail[A-Za-z0-9._-]*\.(network|netdev|link)$`)
 
 func (n simNetwork) ApplyConfig(ctx context.Context, files map[string][]byte) error {
+	n.m.delay(ctx, opNetwork, 0)
 	for name := range files {
 		if !networkdFilePattern.MatchString(name) {
 			return invalid("networkd file name %q must start with 50-racksail", name)

@@ -22,8 +22,13 @@ type Btrfs interface {
 	// Send writes a send stream of snapshot to w, incremental from parent
 	// when parent isn't empty.
 	Send(ctx context.Context, snapshot, parent string, w io.Writer) error
-	// Receive reads a send stream from r into the directory dir.
-	Receive(ctx context.Context, dir string, r io.Reader) error
+	// Receive reads a send stream from r into the directory dir. Set-user-ID
+	// and set-group-ID bits, device nodes, file capabilities and security
+	// labels in the stream never arrive. Every other subvolume the stream
+	// takes data from, such as the parent of an incremental stream, is
+	// passed to allow by UUID first, and the stream is refused unless allow
+	// accepts it.
+	Receive(ctx context.Context, dir string, r io.Reader, allow func(uuid string) error) error
 	AddDevice(ctx context.Context, mount, device string) error
 	RemoveDevice(ctx context.Context, mount, device string) error
 	// Balance converts the filesystem to new data and metadata profiles.
@@ -37,12 +42,15 @@ type Btrfs interface {
 
 // Subvolume is a Btrfs subvolume or snapshot.
 type Subvolume struct {
-	ID         uint64    `json:"id"`
-	Path       string    `json:"path"`
-	UUID       string    `json:"uuid,omitempty"`
-	ParentUUID string    `json:"parentUuid,omitempty"`
-	ReadOnly   bool      `json:"readOnly"`
-	CreatedAt  time.Time `json:"createdAt,omitzero"`
+	ID         uint64 `json:"id"`
+	Path       string `json:"path"`
+	UUID       string `json:"uuid,omitempty"`
+	ParentUUID string `json:"parentUuid,omitempty"`
+	// ReceivedUUID is the UUID the subvolume had where it was sent from,
+	// for a subvolume that arrived by Btrfs receive.
+	ReceivedUUID string    `json:"receivedUuid,omitempty" doc:"The UUID it had where it was sent from, when it was received"`
+	ReadOnly     bool      `json:"readOnly"`
+	CreatedAt    time.Time `json:"createdAt,omitzero"`
 }
 
 // QuotaUsage is the space a subvolume uses and its limit.
@@ -125,6 +133,9 @@ type Disk struct {
 	UUID        string      `json:"uuid,omitempty"`
 	MountPoints []string    `json:"mountPoints,omitempty"`
 	Partitions  []Partition `json:"partitions,omitempty"`
+	// Holders are devices built on the whole disk, such as a RAID array or
+	// an LVM volume, which keep it in use.
+	Holders []string `json:"holders,omitempty" doc:"Devices built on the disk, such as RAID arrays, LVM volumes or encrypted volumes"`
 	// System is true for the disk the running system lives on.
 	System bool `json:"system"`
 }
@@ -140,15 +151,48 @@ type Partition struct {
 	UUID        string   `json:"uuid,omitempty"`
 	PartUUID    string   `json:"partUuid,omitempty"`
 	MountPoints []string `json:"mountPoints,omitempty"`
+	// Holders are devices built on the partition, which keep it in use.
+	Holders []string `json:"holders,omitempty" doc:"Devices built on the partition, such as RAID arrays, LVM volumes or encrypted volumes"`
 }
 
-// SMARTReport is the health of a disk.
+// SMARTReport is the health of a disk, as smartctl reports it.
 type SMARTReport struct {
-	Supported    bool             `json:"supported"`
-	Healthy      bool             `json:"healthy"`
-	TemperatureC int              `json:"temperatureC,omitempty"`
-	PowerOnHours int              `json:"powerOnHours,omitempty"`
-	Attributes   []SMARTAttribute `json:"attributes,omitempty"`
+	Supported bool `json:"supported"`
+	Healthy   bool `json:"healthy"`
+	// Protocol is ATA, NVMe or SCSI.
+	Protocol     string `json:"protocol,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Serial       string `json:"serial,omitempty"`
+	Firmware     string `json:"firmware,omitempty"`
+	TemperatureC int    `json:"temperatureC,omitempty"`
+	PowerOnHours int    `json:"powerOnHours,omitempty"`
+	PowerCycles  int    `json:"powerCycles,omitempty"`
+	// ReallocatedSectors and PendingSectors are the ATA attributes that
+	// most often warn of a failing disk.
+	ReallocatedSectors int64 `json:"reallocatedSectors,omitempty"`
+	PendingSectors     int64 `json:"pendingSectors,omitempty"`
+	// NVMe health: wear in percent of the rated endurance, spare capacity
+	// left, and error counts.
+	PercentageUsed   int              `json:"percentageUsed,omitempty"`
+	AvailableSpare   int              `json:"availableSpare,omitempty"`
+	MediaErrors      int64            `json:"mediaErrors,omitempty"`
+	UnsafeShutdowns  int64            `json:"unsafeShutdowns,omitempty"`
+	CriticalWarning  int              `json:"criticalWarning,omitempty"`
+	DataReadBytes    int64            `json:"dataReadBytes,omitempty"`
+	DataWrittenBytes int64            `json:"dataWrittenBytes,omitempty"`
+	SelfTest         *SMARTSelfTest   `json:"selfTest,omitempty"`
+	Attributes       []SMARTAttribute `json:"attributes,omitempty"`
+}
+
+// SMARTSelfTest is the state of the latest self-test.
+type SMARTSelfTest struct {
+	// Status is running, passed, failed or aborted.
+	Status string `json:"status" enum:"running,passed,failed,aborted"`
+	// Type is short or long.
+	Type             string `json:"type,omitempty"`
+	RemainingPercent int    `json:"remainingPercent,omitempty"`
+	// LifetimeHours is the disk's power-on hours when the test ran.
+	LifetimeHours int `json:"lifetimeHours,omitempty"`
 }
 
 // SMARTAttribute is one SMART attribute.

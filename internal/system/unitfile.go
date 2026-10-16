@@ -83,6 +83,14 @@ func (u *UnitFile) Render() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+var (
+	// bindRulePattern is systemd's SocketBindAllow syntax: an optional
+	// address family and protocol, then a port, a port range or "any". It
+	// only covers IP sockets; Unix sockets are guarded by file permissions.
+	bindRulePattern = regexp.MustCompile(`^((ipv4|ipv6):)?((tcp|udp):)?(any|[0-9]{1,5}(-[0-9]{1,5})?)$`)
+	ipDenyPattern   = regexp.MustCompile(`^(any|localhost|link-local|multicast|[0-9a-fA-F.:]+(/[0-9]{1,3})?)$`)
+)
+
 // Sandbox describes the confinement of an account workload such as a site or
 // a worker. Its entries always include the minimum settings required by the
 // security rules; nothing here can turn them off.
@@ -96,7 +104,15 @@ type Sandbox struct {
 	// SocketBindAllow lists what the workload may bind, in systemd's syntax
 	// ("tcp:8080"). Everything else is denied.
 	SocketBindAllow []string
-	// IPAddressDeny blocks addresses the workload must not reach.
+	// IPAddressDeny blocks addresses the workload must not reach, such as a
+	// cloud's metadata service. Nothing is denied by default. The agent's
+	// socket and the edge's admin socket are Unix sockets in /run/racksail,
+	// which InaccessiblePaths hides whatever the addresses. The panel's
+	// ports answer only those who sign in, as they do for anyone on the
+	// internet, and denying the server's own addresses would also cut a site
+	// off from its database on the same server, since systemd can't deny
+	// by port. A panel kept on a management address of its own is the case
+	// for this: callers deny that address.
 	IPAddressDeny []string
 	// AllowWriteExecute turns off MemoryDenyWriteExecute for runtimes with a
 	// JIT compiler. It has no effect with Legacy.
@@ -115,9 +131,14 @@ func (s Sandbox) Entries() ([]UnitEntry, error) {
 			return nil, fmt.Errorf("sandbox path %q: %w", p, ErrInvalid)
 		}
 	}
-	for _, v := range append(append([]string{}, s.SocketBindAllow...), s.IPAddressDeny...) {
-		if v == "" || strings.ContainsAny(v, " \t\r\n") {
-			return nil, fmt.Errorf("sandbox value %q: %w", v, ErrInvalid)
+	for _, v := range s.SocketBindAllow {
+		if !bindRulePattern.MatchString(v) {
+			return nil, fmt.Errorf("socket bind rule %q: %w", v, ErrInvalid)
+		}
+	}
+	for _, v := range s.IPAddressDeny {
+		if !ipDenyPattern.MatchString(v) {
+			return nil, fmt.Errorf("denied address %q: %w", v, ErrInvalid)
 		}
 	}
 	e := []UnitEntry{{"User", s.User}}
@@ -143,7 +164,7 @@ func (s Sandbox) Entries() ([]UnitEntry, error) {
 		UnitEntry{"CapabilityBoundingSet", ""},
 		UnitEntry{"SystemCallArchitectures", "native"},
 		UnitEntry{"SystemCallFilter", "@system-service"},
-		// The agent and panel sockets live here.
+		// The agent's socket and the edge's admin socket live here.
 		UnitEntry{"InaccessiblePaths", "-" + RunDir},
 	)
 	if !s.AllowWriteExecute || s.Legacy {

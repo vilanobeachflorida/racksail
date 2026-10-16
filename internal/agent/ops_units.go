@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -19,21 +18,40 @@ type EnsureUnitInput struct {
 }
 
 // Validate implements Input.
-func (in EnsureUnitInput) Validate() error { return checkUnitFile(in.Name, in.Content) }
+func (in EnsureUnitInput) Validate() error {
+	_, err := checkUnitFile(in.Name, in.Content)
+	return err
+}
 
 // EnsureUnit installs or updates a unit file and reloads systemd when it
 // changed. It doesn't start or enable the unit.
 var EnsureUnit = Register(Def[EnsureUnitInput, Result]{
-	Name:        "EnsureUnit",
-	Summary:     "Install a systemd unit",
-	Description: "Writes a racksail-* unit file and reloads systemd when the file changed. Services must run as a user other than root.",
+	Name:    "EnsureUnit",
+	Summary: "Install a systemd unit",
+	Description: "Writes a racksail-* unit file and reloads systemd when the file changed. The file may only use the sections and " +
+		"directives Racksail renders; services run as an account, in the sandbox accounts get, or one of Racksail's service users, " +
+		"never as root, and nothing else runs commands. Mount units mount data disks only, as EnsureMounted does. " +
+		"Racksail's own units are installed with InstallPlatformUnits.",
 	Effects: func(in EnsureUnitInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectFile, Action: "write", Target: system.UnitDir + "/" + in.Name, DiskBytes: int64(len(in.Content))}}
 	},
 	Run: func(ctx context.Context, env *Env, in EnsureUnitInput) (Result, error) {
+		unit, err := checkUnitFile(in.Name, in.Content)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := checkServiceUser(ctx, env.System.Users, unit.UnitIdentity, env.Check); err != nil {
+			return Result{}, fmt.Errorf("service %s: %w: %w", in.Name, err, system.ErrInvalid)
+		}
+		if unit.Mount != nil {
+			if _, err := checkDataDevice(ctx, env.System, *unit.Mount, env.Check); err != nil {
+				return Result{}, fmt.Errorf("mount %s: %w", in.Name, err)
+			}
+		}
 		units := env.System.Units
 		current, err := units.ReadUnit(ctx, in.Name)
 		if err == nil && bytes.Equal(current, in.Content) {
+			env.remember(ctx, ledgerUnit, in.Name, in.Content)
 			return Unchanged(), nil
 		}
 		if err != nil && !errors.Is(err, system.ErrNotFound) {
@@ -46,6 +64,7 @@ var EnsureUnit = Register(Def[EnsureUnitInput, Result]{
 		if err := units.WriteUnit(ctx, in.Name, in.Content); err != nil {
 			return Result{}, err
 		}
+		env.remember(ctx, ledgerUnit, in.Name, in.Content)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })
@@ -69,8 +88,12 @@ var RemoveUnit = Register(Def[UnitInput, Result]{
 		if err := checkOwnedUnit(in.Name); err != nil {
 			return Result{}, err
 		}
+		if system.IsPlatformUnit(in.Name) {
+			return Result{}, ErrNotAllowed.New("op", "RemoveUnit", "target", in.Name)
+		}
 		units := env.System.Units
 		if _, err := units.ReadUnit(ctx, in.Name); errors.Is(err, system.ErrNotFound) {
+			env.forget(ctx, in.Name)
 			return Unchanged(), nil
 		} else if err != nil {
 			return Result{}, err
@@ -96,6 +119,7 @@ var RemoveUnit = Register(Def[UnitInput, Result]{
 		if err := units.RemoveUnit(ctx, in.Name); err != nil {
 			return Result{}, err
 		}
+		env.forget(ctx, in.Name)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })
@@ -109,27 +133,23 @@ type DropInInput struct {
 	Content []byte `json:"content,omitempty" doc:"The drop-in file; ignored when removing"`
 }
 
-// Validate implements Input.
+// Validate implements Input. Drop-ins tune resources, restarts and
+// dependencies; they never change what a unit runs, as whom or with which
+// environment. The agent's own unit takes none.
 func (in DropInInput) Validate() error {
 	if err := checkUnit(in.Unit); err != nil {
 		return err
 	}
+	if in.Unit == system.AgentUnit {
+		return fmt.Errorf("the agent's unit takes no drop-ins")
+	}
 	if !dropInNamePattern.MatchString(in.Name) {
 		return fmt.Errorf("drop-in name %q must start with racksail", in.Name)
 	}
-	if len(in.Content) > 64<<10 || slices.Contains(in.Content, 0) {
-		return fmt.Errorf("drop-in is too large or not text")
+	if len(in.Content) > 64<<10 {
+		return fmt.Errorf("drop-in is larger than 64 KiB")
 	}
-	for _, line := range strings.Split(string(in.Content), "\n") {
-		key, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		switch key {
-		case "ExecStart", "ExecStartPre", "ExecStartPost", "ExecStop", "ExecStopPost", "ExecReload", "ExecCondition", "User", "Group":
-			// Drop-ins tune resources and settings; they never change what runs
-			// or as whom.
-			return fmt.Errorf("drop-ins can't set %s", key)
-		}
-	}
-	return nil
+	return system.CheckDropIn(in.Unit, in.Content, unitRules())
 }
 
 // EnsureDropIn installs a drop-in that adjusts a unit, such as resource
@@ -144,6 +164,7 @@ var EnsureDropIn = Register(Def[DropInInput, Result]{
 		units := env.System.Units
 		target := system.UnitDir + "/" + in.Unit + ".d/" + in.Name + ".conf"
 		if current, err := env.System.Files.ReadFile(ctx, target, 64<<10); err == nil && bytes.Equal(current, in.Content) {
+			env.remember(ctx, ledgerDropIn, target, in.Content)
 			return Unchanged(), nil
 		}
 		effect := system.Effect{Type: system.EffectFile, Action: "write", Target: target}
@@ -153,6 +174,7 @@ var EnsureDropIn = Register(Def[DropInInput, Result]{
 		if err := units.WriteDropIn(ctx, in.Unit, in.Name, in.Content); err != nil {
 			return Result{}, err
 		}
+		env.remember(ctx, ledgerDropIn, target, in.Content)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })
@@ -168,6 +190,7 @@ var RemoveDropIn = Register(Def[DropInInput, Result]{
 		units := env.System.Units
 		target := system.UnitDir + "/" + in.Unit + ".d/" + in.Name + ".conf"
 		if _, err := env.System.Files.Stat(ctx, target); errors.Is(err, system.ErrNotFound) {
+			env.forget(ctx, target)
 			return Unchanged(), nil
 		}
 		effect := system.Effect{Type: system.EffectFile, Action: "delete", Target: target}
@@ -177,6 +200,7 @@ var RemoveDropIn = Register(Def[DropInInput, Result]{
 		if err := units.RemoveDropIn(ctx, in.Unit, in.Name); err != nil {
 			return Result{}, err
 		}
+		env.forget(ctx, target)
 		return Changed(effect), units.DaemonReload(ctx)
 	},
 })

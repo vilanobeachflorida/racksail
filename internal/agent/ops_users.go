@@ -116,8 +116,14 @@ func (in EnsureUserInput) Validate() error {
 	default:
 		return fmt.Errorf("uid %d is outside the system (100-999) and account (%d-%d) ranges", in.UID, system.AccountUIDMin, system.AccountUIDMax)
 	}
-	if in.GID < 0 || in.GID > system.AccountUIDMax {
-		return fmt.Errorf("gid %d is out of range", in.GID)
+	// A primary group is the user's own: never one of the system's, such as
+	// disk, which a fixed ID could otherwise name.
+	switch {
+	case in.GID == 0:
+	case in.System && in.GID >= 100 && in.GID <= 999:
+	case !in.System && in.GID >= system.AccountUIDMin && in.GID <= system.AccountUIDMax:
+	default:
+		return fmt.Errorf("gid %d is outside the system (100-999) and account (%d-%d) ranges", in.GID, system.AccountUIDMin, system.AccountUIDMax)
 	}
 	for _, g := range in.Groups {
 		if err := checkAccountName("group", g); err != nil {
@@ -167,10 +173,21 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		cur, err := u.LookupUser(ctx, in.Name)
 		if errors.Is(err, system.ErrNotFound) {
 			effect := system.Effect{Type: system.EffectUser, Action: "create", Target: in.Name}
+			if in.GID != 0 {
+				if err := checkPrimaryGroup(ctx, u, in.GID); err != nil {
+					return Result{}, err
+				}
+			}
 			if env.Check {
 				return Changed(effect), nil
 			}
-			return Changed(effect), u.CreateUser(ctx, want)
+			if err := u.CreateUser(ctx, want); err != nil {
+				return Result{}, err
+			}
+			if env.Runtime != nil && in.UID != 0 {
+				env.Runtime.release(ctx, in.UID)
+			}
+			return Changed(effect), nil
 		}
 		if err != nil {
 			return Result{}, err
@@ -190,6 +207,20 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		return Changed(effect), u.UpdateUser(ctx, want)
 	},
 })
+
+// checkPrimaryGroup refuses a fixed primary group that is privileged.
+func checkPrimaryGroup(ctx context.Context, u system.Users, gid int) error {
+	groups, err := u.ListGroups(ctx)
+	if err != nil {
+		return err
+	}
+	for _, g := range groups {
+		if g.GID == gid && slices.Contains(privilegedGroups, g.Name) {
+			return fmt.Errorf("gid %d is the privileged group %s: %w", gid, g.Name, system.ErrInvalid)
+		}
+	}
+	return nil
+}
 
 func sameRange(a, b *system.IDRange) bool {
 	if a == nil || b == nil {
@@ -294,5 +325,52 @@ var LookupUser = Register(Def[NameInput, UserLookup]{
 			return UserLookup{}, nil
 		}
 		return UserLookup{Exists: err == nil, User: u}, err
+	},
+})
+
+// AllocateAccountIDInput asks for a free account ID.
+type AllocateAccountIDInput struct {
+	// Exclude lists IDs the panel has given to accounts elsewhere, such as
+	// on other servers of a cluster, so an account keeps its ID when it
+	// moves.
+	Exclude []int `json:"exclude,omitempty" doc:"IDs already given to accounts elsewhere"`
+}
+
+// Validate implements Input.
+func (in AllocateAccountIDInput) Validate() error {
+	if len(in.Exclude) > system.AccountUIDMax-system.AccountUIDMin+1 {
+		return fmt.Errorf("too many excluded ids")
+	}
+	for _, id := range in.Exclude {
+		if id < system.AccountUIDMin || id > system.AccountUIDMax {
+			return fmt.Errorf("id %d is outside the account range", id)
+		}
+	}
+	return nil
+}
+
+// AccountID is an allocated account ID with its subordinate ID range.
+type AccountID struct {
+	UID    int            `json:"uid" doc:"User and group ID for the account"`
+	SubIDs system.IDRange `json:"subIds" doc:"Subordinate IDs for the account's rootless containers"`
+}
+
+// AllocateAccountID picks the lowest account ID no user or group has, and
+// holds it for ten minutes so the next allocation doesn't pick it too.
+// EnsureUser with that UID uses it up.
+var AllocateAccountID = Register(Def[AllocateAccountIDInput, AccountID]{
+	Name:        "AllocateAccountID",
+	Summary:     "Pick a free account ID",
+	Description: "Returns the lowest ID in the account range that no user or group on this server has and the panel didn't exclude, with its subordinate ID range. The ID is held for ten minutes so concurrent allocations don't collide.",
+	ReadOnly:    true,
+	Run: func(ctx context.Context, env *Env, in AllocateAccountIDInput) (AccountID, error) {
+		if env.Runtime == nil {
+			return AccountID{}, errNoRuntime
+		}
+		uid, err := env.Runtime.reserve(ctx, in.Exclude)
+		if err != nil {
+			return AccountID{}, err
+		}
+		return AccountID{UID: uid, SubIDs: system.AccountSubIDs(uid)}, nil
 	},
 })

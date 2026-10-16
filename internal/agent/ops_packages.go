@@ -308,13 +308,24 @@ type PackageList struct {
 	Packages []system.Package `json:"packages"`
 }
 
+// UpgradableInput says which kind of upgrade to list.
+type UpgradableInput struct {
+	// Full lists what a full upgrade installs, such as a new kernel, besides
+	// what a plain upgrade does.
+	Full bool `json:"full,omitempty" doc:"List what a full upgrade installs, which may add or remove packages"`
+}
+
+// Validate implements Input.
+func (UpgradableInput) Validate() error { return nil }
+
 // UpgradablePackages lists installed packages with newer versions.
-var UpgradablePackages = Register(Def[Empty, PackageList]{
-	Name:     "UpgradablePackages",
-	Summary:  "List packages with updates",
-	ReadOnly: true,
-	Run: func(ctx context.Context, env *Env, _ Empty) (PackageList, error) {
-		pkgs, err := env.System.Packages.Upgradable(ctx)
+var UpgradablePackages = Register(Def[UpgradableInput, PackageList]{
+	Name:        "UpgradablePackages",
+	Summary:     "List packages with updates",
+	Description: "Lists the upgrades a plain upgrade installs, or with full those of a full upgrade, which may add or remove packages.",
+	ReadOnly:    true,
+	Run: func(ctx context.Context, env *Env, in UpgradableInput) (PackageList, error) {
+		pkgs, err := env.System.Packages.Upgradable(ctx, in.Full)
 		if pkgs == nil {
 			pkgs = []system.Package{}
 		}
@@ -335,26 +346,46 @@ func (in InstallArchiveInput) Validate() error {
 	if !under(in.Archive.Dest, []string{system.RuntimesDir, system.ModulesDir}) || in.Archive.Dest == system.RuntimesDir || in.Archive.Dest == system.ModulesDir {
 		return fmt.Errorf("archives unpack into a versioned directory under %s or %s", system.RuntimesDir, system.ModulesDir)
 	}
+	if s := in.Archive.Signature; s != nil {
+		if _, ok := signingKey(s.Key); !ok {
+			return fmt.Errorf("signing key %s isn't one Racksail knows", s.Key)
+		}
+	}
 	return nil
 }
 
-// InstallArchive downloads a vendor archive, checks its checksum and unpacks
-// it into a new versioned directory. Existing directories are never touched.
+// InstallArchive downloads a vendor archive, checks its checksum or the
+// vendor's signature and unpacks it into a new versioned directory.
+// Existing directories are never touched.
 var InstallArchive = Register(Def[InstallArchiveInput, Result]{
 	Name:    "InstallArchive",
 	Summary: "Install a vendor archive",
+	Description: "Downloads an archive over https, checks it against its SHA-256 or a detached signature by a vendor key built into Racksail, " +
+		"directly or through a signed checksums list, and unpacks it into a new versioned directory under /opt/racksail.",
 	Effects: func(in InstallArchiveInput) []system.Effect {
 		return archiveEffects(in.Archive)
 	},
 	Run: func(ctx context.Context, env *Env, in InstallArchiveInput) (Result, error) {
-		if _, err := env.System.Files.Stat(ctx, in.Archive.Dest); err == nil {
+		files, err := beneath(env, in.Archive.Dest, false)
+		if err != nil {
+			return Result{}, err
+		}
+		if _, err := files.Stat(ctx, in.Archive.Dest); err == nil {
 			return Unchanged(), nil
+		} else if !errors.Is(err, system.ErrNotFound) {
+			return Result{}, err
 		}
 		effects := archiveEffects(in.Archive)
 		if env.Check {
 			return Changed(effects...), nil
 		}
-		return Changed(effects...), env.System.Packages.InstallArchive(ctx, in.Archive)
+		archive := in.Archive
+		if s := archive.Signature; s != nil {
+			resolved := *s
+			resolved.PublicKey, _ = signingKey(s.Key)
+			archive.Signature = &resolved
+		}
+		return Changed(effects...), env.System.Packages.InstallArchive(ctx, archive)
 	},
 })
 

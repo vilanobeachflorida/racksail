@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +16,9 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api"
+	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 func newPanelCommand() *cobra.Command {
@@ -33,7 +36,10 @@ func newPanelCommand() *cobra.Command {
 			}
 			log := newLogger(os.Stderr, cfg.Log)
 			ctx := cmd.Context()
-			c, err := newCore(ctx, cfg, log, agent.DialUnix(cfg.Agent.Socket), edge.DialAdmin(cfg.Edge.Socket))
+			agentClient := agent.DialUnix(cfg.Agent.Socket)
+			link := edgeLink(ctx, cfg, agentClient, log)
+			defer link.Close()
+			c, err := newCore(ctx, cfg, log, agentClient, link)
 			if err != nil {
 				return err
 			}
@@ -62,6 +68,39 @@ func newPanelCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &configPath)
 	return cmd
+}
+
+// edgeLink is how the panel reaches the edge, which systemd starts on the
+// first request to its socket: only once modules route something through
+// it. The panel then answers the edge's questions, such as which names may
+// have on-demand certificates, is served under its own hostname on 443, and
+// has the edge start at boot.
+func edgeLink(ctx context.Context, cfg config.Config, agentClient agent.Client, log *slog.Logger) *edge.Link {
+	opts := edge.LinkOptions{
+		Client: edge.DialAdmin(cfg.Edge.Socket), Responder: edge.DefaultAnswers, Log: log,
+		Running: func(ctx context.Context) (bool, error) {
+			st, err := agent.UnitStatus.Call(ctx, agentClient, agent.UnitStatusInput{Name: system.EdgeUnit}, agent.CallOptions{})
+			return st.Active() || st.ActiveState == "activating", err
+		},
+		Boot: func(ctx context.Context, start bool) error {
+			in := agent.UnitsInput{Names: []string{system.EdgeUnit}}
+			op := agent.DisableUnits
+			if start {
+				op = agent.EnableUnits
+			}
+			_, err := op.Call(ctx, agentClient, in, agent.CallOptions{})
+			return err
+		},
+	}
+	if hostname := cfg.Panel.Hostname; hostname != "" && hostname != "localhost" {
+		route, err := edge.PanelRoute(hostname, cfg.Panel.Listen, !cfg.Panel.Insecure)
+		if err != nil {
+			log.Warn("the edge won't serve the panel under its hostname", "hostname", hostname, "error", err)
+		} else {
+			opts.Panel = &route
+		}
+	}
+	return edge.NewLink(ctx, opts)
 }
 
 // panelCertificate loads the configured certificate, or the panel's own

@@ -62,12 +62,6 @@ type Store interface {
 	List(ctx context.Context, owner store.ID) ([]Ref, error)
 }
 
-// Sealer protects the Box key at rest. On a server it is systemd-creds.
-type Sealer interface {
-	Seal(ctx context.Context, plaintext []byte) ([]byte, error)
-	Unseal(ctx context.Context, sealed []byte) ([]byte, error)
-}
-
 // Box encrypts secret values.
 type Box struct {
 	aead cipher.AEAD

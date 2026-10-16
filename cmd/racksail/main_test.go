@@ -98,9 +98,13 @@ func TestInstallDryRun(t *testing.T) {
 	if !strings.Contains(out, "Install Racksail's services") || !strings.Contains(out, "racksail-panel.service") {
 		t.Errorf("plan = %s", out)
 	}
-	out, err = run(t, "install", "--answers", answers, "--sim", "--binary", "/usr/local/bin/racksail")
+	// The simulated server has Racksail where its package puts it.
+	out, err = run(t, "install", "--answers", answers, "--sim")
 	if err != nil || !strings.Contains(out, "[5/5] Start the agent, the panel and the edge's socket") {
 		t.Errorf("simulated conversion = %s, %v", out, err)
+	}
+	if _, err := run(t, "install", "--answers", answers, "--sim", "--binary", "/srv/racksail/racksail"); err == nil {
+		t.Error("the services can't run an executable the panel could replace")
 	}
 	wipe := filepath.Join(dir, "wipe.yaml")
 	os.WriteFile(wipe, []byte("format: 1\nmode: install\nnetwork: {mode: dhcp}\ndisks: {layout: single, devices: [/dev/sda], confirmWipe: true}\naccount: {username: admin, githubKeys: someone}\n"), 0o644)

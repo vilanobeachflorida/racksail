@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "AccountID": {
+        "additionalProperties": false,
+        "properties": {
+          "subIds": {
+            "$ref": "#/components/schemas/IDRange",
+            "description": "Subordinate IDs for the account's rootless containers"
+          },
+          "uid": {
+            "description": "User and group ID for the account",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "uid",
+          "subIds"
+        ],
+        "type": "object"
+      },
       "Address": {
         "additionalProperties": false,
         "properties": {
@@ -19,6 +38,23 @@
         "required": [
           "cidr"
         ],
+        "type": "object"
+      },
+      "AllocateAccountIDInput": {
+        "additionalProperties": false,
+        "properties": {
+          "exclude": {
+            "description": "IDs already given to accounts elsewhere",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ApplyFirewallInput": {
@@ -46,6 +82,9 @@
           "sha256": {
             "type": "string"
           },
+          "signature": {
+            "$ref": "#/components/schemas/ArchiveSignature"
+          },
           "size": {
             "format": "int64",
             "type": "integer"
@@ -60,10 +99,200 @@
         },
         "required": [
           "url",
-          "sha256",
           "size",
           "format",
           "dest"
+        ],
+        "type": "object"
+      },
+      "ArchiveResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "stats": {
+            "$ref": "#/components/schemas/ArchiveStats"
+          }
+        },
+        "required": [
+          "stats",
+          "changed"
+        ],
+        "type": "object"
+      },
+      "ArchiveSignature": {
+        "additionalProperties": false,
+        "properties": {
+          "checksums": {
+            "description": "Signed list of SHA-256 checksums that includes the archive",
+            "type": "string"
+          },
+          "key": {
+            "description": "Name of a vendor signing key built into Racksail",
+            "type": "string"
+          },
+          "name": {
+            "description": "The archive's name in the checksums list",
+            "type": "string"
+          },
+          "url": {
+            "description": "Detached OpenPGP signature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "url"
+        ],
+        "type": "object"
+      },
+      "ArchiveStats": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "description": "Bytes of file contents",
+            "format": "int64",
+            "type": "integer"
+          },
+          "dirs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "files": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "links": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "skipped": {
+            "description": "Entries left out: devices, sockets and pipes",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files",
+          "dirs",
+          "links",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "AuditFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "description": "Only failed operations",
+            "type": "boolean"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "op": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AuditRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "caller": {
+            "description": "Who asked: local, or the remote panel's identity",
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "check": {
+            "description": "Only reported what would change",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "Error code when the operation failed",
+            "type": "string"
+          },
+          "duration": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "inputSha256": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string"
+          },
+          "owner": {
+            "description": "The resource the call was made for",
+            "type": "string"
+          },
+          "remote": {
+            "description": "Where a refused caller connected from",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "op",
+          "inputSha256",
+          "changed",
+          "duration"
+        ],
+        "type": "object"
+      },
+      "AuditTrail": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/AuditRecord"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "records"
         ],
         "type": "object"
       },
@@ -122,15 +351,37 @@
             "format": "int64",
             "type": "integer"
           },
+          "flags": {
+            "description": "Feature flags such as vmx, svm, aes or avx2",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "model": {
             "type": "string"
+          },
+          "sockets": {
+            "format": "int64",
+            "type": "integer"
           },
           "threads": {
             "format": "int64",
             "type": "integer"
           },
+          "vendor": {
+            "description": "GenuineIntel, AuthenticAMD or the arm64 implementer",
+            "type": "string"
+          },
           "virtualization": {
             "type": "boolean"
+          },
+          "virtualizationType": {
+            "description": "vmx (Intel VT-x), svm (AMD-V) or arm64",
+            "type": "string"
           }
         },
         "required": [
@@ -138,6 +389,54 @@
           "cores",
           "threads",
           "virtualization"
+        ],
+        "type": "object"
+      },
+      "CPUTimes": {
+        "additionalProperties": false,
+        "properties": {
+          "idle": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ioWait": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "irq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nice": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "softIrq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "steal": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "system": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "user": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user",
+          "nice",
+          "system",
+          "idle",
+          "ioWait",
+          "irq",
+          "softIrq",
+          "steal"
         ],
         "type": "object"
       },
@@ -257,6 +556,113 @@
         ],
         "type": "object"
       },
+      "ConfigureUpdatesInput": {
+        "additionalProperties": false,
+        "properties": {
+          "updates": {
+            "$ref": "#/components/schemas/UnattendedUpgrades"
+          }
+        },
+        "required": [
+          "updates"
+        ],
+        "type": "object"
+      },
+      "ConfirmNetworkInput": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "description": "The token ApplyNetworkConfig returned",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "CreateArchiveInput": {
+        "additionalProperties": false,
+        "properties": {
+          "dest": {
+            "description": "Archive to write, relative to root",
+            "type": "string"
+          },
+          "exclude": {
+            "description": "Glob patterns of paths to leave out, such as .git",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "format": {
+            "enum": [
+              "tar",
+              "tar.gz",
+              "tar.zst",
+              "zip"
+            ],
+            "type": "string"
+          },
+          "maxBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mode": {
+            "description": "Permission bits of the archive",
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/Owner",
+            "description": "Owner of the archive"
+          },
+          "root": {
+            "description": "Directory the source and the archive are in",
+            "type": "string"
+          },
+          "source": {
+            "description": "Directory to pack, relative to root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root",
+          "source",
+          "dest",
+          "format",
+          "mode"
+        ],
+        "type": "object"
+      },
+      "CredentialInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Credential name, starting with racksail-",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "CredentialValue": {
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "contentEncoding": "base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "type": "object"
+      },
       "DeleteUserInput": {
         "additionalProperties": false,
         "properties": {
@@ -313,6 +719,16 @@
           },
           "fsType": {
             "type": "string"
+          },
+          "holders": {
+            "description": "Devices built on the disk, such as RAID arrays, LVM volumes or encrypted volumes",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "label": {
             "type": "string"
@@ -381,6 +797,80 @@
         ],
         "type": "object"
       },
+      "DiskFact": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Kernel name, such as sda or nvme0n1",
+            "type": "string"
+          },
+          "removable": {
+            "type": "boolean"
+          },
+          "rotational": {
+            "type": "boolean"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "transport": {
+            "description": "sata, nvme, usb, sas, virtio or scsi",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "sizeBytes",
+          "rotational",
+          "removable"
+        ],
+        "type": "object"
+      },
+      "DiskIO": {
+        "additionalProperties": false,
+        "properties": {
+          "busyTime": {
+            "description": "Time the device had I/O in flight",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "readBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "readOps": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "writeBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "writeOps": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "readBytes",
+          "writeBytes",
+          "readOps",
+          "writeOps",
+          "busyTime"
+        ],
+        "type": "object"
+      },
       "DiskInput": {
         "additionalProperties": false,
         "properties": {
@@ -409,6 +899,71 @@
         },
         "required": [
           "disks"
+        ],
+        "type": "object"
+      },
+      "DownloadInput": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "Drift": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "file",
+              "unit",
+              "dropin"
+            ],
+            "type": "string"
+          },
+          "owner": {
+            "description": "The resource it was written for",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "changed",
+              "missing",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "The path or unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "target",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "DriftReport": {
+        "additionalProperties": false,
+        "properties": {
+          "drift": {
+            "items": {
+              "$ref": "#/components/schemas/Drift"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "drift"
         ],
         "type": "object"
       },
@@ -640,6 +1195,130 @@
         ],
         "type": "object"
       },
+      "Event": {
+        "additionalProperties": false,
+        "properties": {
+          "drift": {
+            "$ref": "#/components/schemas/Drift"
+          },
+          "message": {
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "time"
+        ],
+        "type": "object"
+      },
+      "ExtractArchiveInput": {
+        "additionalProperties": false,
+        "properties": {
+          "archive": {
+            "description": "Archive to unpack, relative to root",
+            "type": "string"
+          },
+          "dest": {
+            "description": "Directory to unpack into, relative to root; created when missing",
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "tar",
+              "tar.gz",
+              "tar.zst",
+              "zip"
+            ],
+            "type": "string"
+          },
+          "maxBytes": {
+            "description": "Most bytes the archive may unpack to; 64 GiB by default",
+            "format": "int64",
+            "type": "integer"
+          },
+          "maxEntries": {
+            "description": "Most entries the archive may have; a million by default",
+            "format": "int64",
+            "type": "integer"
+          },
+          "merge": {
+            "description": "Unpack into a directory that isn't empty",
+            "type": "boolean"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/Owner",
+            "description": "Owner of everything unpacked"
+          },
+          "root": {
+            "description": "Directory the archive and the destination are in",
+            "type": "string"
+          },
+          "stripComponents": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "root",
+          "archive",
+          "dest",
+          "format"
+        ],
+        "type": "object"
+      },
+      "FSUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "freeBytes": {
+            "description": "Space available to unprivileged users",
+            "format": "int64",
+            "type": "integer"
+          },
+          "fsType": {
+            "type": "string"
+          },
+          "inodesFree": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "inodesTotal": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mount": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "usedBytes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mount",
+          "device",
+          "fsType",
+          "sizeBytes",
+          "usedBytes",
+          "freeBytes",
+          "inodesTotal",
+          "inodesFree"
+        ],
+        "type": "object"
+      },
       "FieldProblem": {
         "additionalProperties": false,
         "properties": {
@@ -858,6 +1537,30 @@
         ],
         "type": "object"
       },
+      "HoldInput": {
+        "additionalProperties": false,
+        "properties": {
+          "hold": {
+            "description": "Hold the packages; false releases them",
+            "type": "boolean"
+          },
+          "names": {
+            "description": "Package names",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "names",
+          "hold"
+        ],
+        "type": "object"
+      },
       "HostnameInput": {
         "additionalProperties": false,
         "properties": {
@@ -974,6 +1677,139 @@
         ],
         "type": "object"
       },
+      "JournalEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "identifier": {
+            "description": "The program that logged, SYSLOG_IDENTIFIER",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "pid": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "priority",
+          "message",
+          "cursor"
+        ],
+        "type": "object"
+      },
+      "JournalPage": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/JournalEntry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "JournalQuery": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Cursor to continue after",
+            "type": "string"
+          },
+          "grep": {
+            "description": "Text the message must contain, ignoring case",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Most entries to return",
+            "format": "int64",
+            "type": "integer"
+          },
+          "namespace": {
+            "description": "Journal namespace, such as an account's",
+            "type": "string"
+          },
+          "newest": {
+            "description": "Return the newest entries first",
+            "type": "boolean"
+          },
+          "priority": {
+            "description": "Most verbose priority to include, from 0 (emergency) to 7 (debug)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "since": {
+            "description": "Entries at or after this time",
+            "format": "date-time",
+            "type": "string"
+          },
+          "units": {
+            "description": "Units whose entries to return",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "until": {
+            "description": "Entries before this time",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "KernelDefaultsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Kernel parameters to set differently",
+            "type": "object"
+          },
+          "zram": {
+            "description": "Use compressed swap in memory",
+            "type": "boolean"
+          },
+          "zramConfig": {
+            "$ref": "#/components/schemas/ZramConfig"
+          }
+        },
+        "required": [
+          "zram"
+        ],
+        "type": "object"
+      },
       "KillUnitInput": {
         "additionalProperties": false,
         "properties": {
@@ -1019,6 +1855,29 @@
         ],
         "type": "object"
       },
+      "LoadAverage": {
+        "additionalProperties": false,
+        "properties": {
+          "fifteen": {
+            "format": "double",
+            "type": "number"
+          },
+          "five": {
+            "format": "double",
+            "type": "number"
+          },
+          "one": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "one",
+          "five",
+          "fifteen"
+        ],
+        "type": "object"
+      },
       "MachineFacts": {
         "additionalProperties": false,
         "properties": {
@@ -1038,6 +1897,16 @@
           },
           "cpu": {
             "$ref": "#/components/schemas/CPUInfo"
+          },
+          "disks": {
+            "description": "Physical disks",
+            "items": {
+              "$ref": "#/components/schemas/DiskFact"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "firmware": {
             "$ref": "#/components/schemas/Firmware"
@@ -1065,6 +1934,16 @@
             "format": "int64",
             "type": "integer"
           },
+          "nics": {
+            "description": "Network interfaces backed by a device",
+            "items": {
+              "$ref": "#/components/schemas/NICFact"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "os": {
             "$ref": "#/components/schemas/OSRelease"
           },
@@ -1078,6 +1957,10 @@
           "tpm": {
             "description": "A TPM 2.0 device is present",
             "type": "boolean"
+          },
+          "tpmVersion": {
+            "description": "Major version of the TPM, such as 2",
+            "type": "string"
           },
           "virtualization": {
             "type": "string"
@@ -1099,6 +1982,87 @@
           "bootTime",
           "collectedAt"
         ],
+        "type": "object"
+      },
+      "MachineMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "system": {
+            "$ref": "#/components/schemas/SystemMetrics"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/UnitMetrics"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "system",
+          "units"
+        ],
+        "type": "object"
+      },
+      "MemoryStats": {
+        "additionalProperties": false,
+        "properties": {
+          "availableBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "buffersBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "cachedBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "freeBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "swapFreeBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "swapTotalBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "totalBytes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "totalBytes",
+          "availableBytes",
+          "freeBytes",
+          "buffersBytes",
+          "cachedBytes",
+          "swapTotalBytes",
+          "swapFreeBytes"
+        ],
+        "type": "object"
+      },
+      "MetricsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "units": {
+            "description": "Units and slices to measure, such as an account's slice",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "Mount": {
@@ -1173,6 +2137,32 @@
         ],
         "type": "object"
       },
+      "NICFact": {
+        "additionalProperties": false,
+        "properties": {
+          "driver": {
+            "type": "string"
+          },
+          "mac": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "speedMbps": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "up": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "up"
+        ],
+        "type": "object"
+      },
       "NameInput": {
         "additionalProperties": false,
         "properties": {
@@ -1186,14 +2176,116 @@
         ],
         "type": "object"
       },
+      "NetIO": {
+        "additionalProperties": false,
+        "properties": {
+          "interface": {
+            "type": "string"
+          },
+          "rxBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rxDropped": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rxErrors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rxPackets": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "txBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "txDropped": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "txErrors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "txPackets": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "interface",
+          "rxBytes",
+          "txBytes",
+          "rxPackets",
+          "txPackets",
+          "rxErrors",
+          "txErrors",
+          "rxDropped",
+          "txDropped"
+        ],
+        "type": "object"
+      },
+      "NetworkApplyResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "pending": {
+            "$ref": "#/components/schemas/NetworkChange"
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "type": "object"
+      },
+      "NetworkChange": {
+        "additionalProperties": false,
+        "properties": {
+          "deadline": {
+            "description": "When the change is rolled back unless confirmed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "token": {
+            "description": "Pass to ConfirmNetworkConfig to keep the change",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "deadline"
+        ],
+        "type": "object"
+      },
       "NetworkConfigInput": {
         "additionalProperties": false,
         "properties": {
+          "confirmWithin": {
+            "description": "Seconds to wait for confirmation before rolling back; zero keeps the change without asking",
+            "format": "int64",
+            "type": "integer"
+          },
           "files": {
             "additionalProperties": {
               "type": "string"
             },
-            "description": "File name to contents; names start with 50-racksail",
+            "description": "File name to contents, as NetworkConfig renders them: 50-racksail-\u003cname\u003e.network and .netdev files",
             "type": "object"
           }
         },
@@ -1232,6 +2324,15 @@
           "interfaces",
           "routes"
         ],
+        "type": "object"
+      },
+      "NetworkStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "pending": {
+            "$ref": "#/components/schemas/NetworkChange"
+          }
+        },
         "type": "object"
       },
       "OSRelease": {
@@ -1365,6 +2466,16 @@
           "fsType": {
             "type": "string"
           },
+          "holders": {
+            "description": "Devices built on the partition, such as RAID arrays, LVM volumes or encrypted volumes",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "label": {
             "type": "string"
           },
@@ -1482,6 +2593,77 @@
         ],
         "type": "object"
       },
+      "PlatformUnitsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "binary": {
+            "description": "Path of the racksail executable, such as /usr/bin/racksail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "binary"
+        ],
+        "type": "object"
+      },
+      "Pressure": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/PressureStats"
+          },
+          "io": {
+            "$ref": "#/components/schemas/PressureStats"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/PressureStats"
+          }
+        },
+        "required": [
+          "cpu",
+          "memory",
+          "io"
+        ],
+        "type": "object"
+      },
+      "PressureStats": {
+        "additionalProperties": false,
+        "properties": {
+          "full10": {
+            "format": "double",
+            "type": "number"
+          },
+          "full300": {
+            "format": "double",
+            "type": "number"
+          },
+          "full60": {
+            "format": "double",
+            "type": "number"
+          },
+          "some10": {
+            "format": "double",
+            "type": "number"
+          },
+          "some300": {
+            "format": "double",
+            "type": "number"
+          },
+          "some60": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "some10",
+          "some60",
+          "some300",
+          "full10",
+          "full60",
+          "full300"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "properties": {
@@ -1543,6 +2725,27 @@
         },
         "required": [
           "code"
+        ],
+        "type": "object"
+      },
+      "ProblemDoc": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "status": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "status",
+          "detail"
         ],
         "type": "object"
       },
@@ -1684,6 +2887,15 @@
         ],
         "type": "object"
       },
+      "ReadAuditInput": {
+        "additionalProperties": false,
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/AuditFilter"
+          }
+        },
+        "type": "object"
+      },
       "ReadFileInput": {
         "additionalProperties": false,
         "properties": {
@@ -1699,6 +2911,51 @@
         },
         "required": [
           "path"
+        ],
+        "type": "object"
+      },
+      "ReadJournalInput": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/JournalQuery"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "RebootInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "newest": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "string"
+          },
+          "scheduled": {
+            "description": "When the scheduled reboot happens",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "required",
+          "running"
         ],
         "type": "object"
       },
@@ -1739,6 +2996,24 @@
         },
         "required": [
           "path"
+        ],
+        "type": "object"
+      },
+      "RestoreSnapshotInput": {
+        "additionalProperties": false,
+        "properties": {
+          "dir": {
+            "description": "Directory on Btrfs to receive the snapshot into",
+            "type": "string"
+          },
+          "file": {
+            "description": "A file SaveSnapshot wrote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "dir"
         ],
         "type": "object"
       },
@@ -1845,12 +3120,63 @@
               "null"
             ]
           },
+          "availableSpare": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "criticalWarning": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dataReadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dataWrittenBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "firmware": {
+            "type": "string"
+          },
           "healthy": {
             "type": "boolean"
+          },
+          "mediaErrors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "pendingSectors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "percentageUsed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "powerCycles": {
+            "format": "int64",
+            "type": "integer"
           },
           "powerOnHours": {
             "format": "int64",
             "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "reallocatedSectors": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "selfTest": {
+            "$ref": "#/components/schemas/SMARTSelfTest"
+          },
+          "serial": {
+            "type": "string"
           },
           "supported": {
             "type": "boolean"
@@ -1858,11 +3184,80 @@
           "temperatureC": {
             "format": "int64",
             "type": "integer"
+          },
+          "unsafeShutdowns": {
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
           "supported",
           "healthy"
+        ],
+        "type": "object"
+      },
+      "SMARTSelfTest": {
+        "additionalProperties": false,
+        "properties": {
+          "lifetimeHours": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "remainingPercent": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "passed",
+              "failed",
+              "aborted"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "SaveSnapshotInput": {
+        "additionalProperties": false,
+        "properties": {
+          "dest": {
+            "description": "File to write the send stream to",
+            "type": "string"
+          },
+          "parent": {
+            "description": "An earlier snapshot whose file the restore will have first",
+            "type": "string"
+          },
+          "snapshot": {
+            "description": "A read-only snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot",
+          "dest"
+        ],
+        "type": "object"
+      },
+      "ScheduleRebootInput": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "When to reboot",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at"
         ],
         "type": "object"
       },
@@ -1894,6 +3289,56 @@
           "bytesScrubbed",
           "errors",
           "corrected"
+        ],
+        "type": "object"
+      },
+      "SealCredentialInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Credential name, starting with racksail-",
+            "type": "string"
+          },
+          "value": {
+            "contentEncoding": "base64",
+            "description": "The value to seal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SealResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "protection": {
+            "description": "What the credential is sealed with",
+            "enum": [
+              "tpm2+host",
+              "host"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "changed"
         ],
         "type": "object"
       },
@@ -2074,6 +3519,35 @@
         ],
         "type": "object"
       },
+      "SnapshotFileResult": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "description": "Size of the send stream",
+            "format": "int64",
+            "type": "integer"
+          },
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bytes",
+          "changed"
+        ],
+        "type": "object"
+      },
       "SnapshotInput": {
         "additionalProperties": false,
         "properties": {
@@ -2164,6 +3638,23 @@
         ],
         "type": "object"
       },
+      "SnapshotStreamInput": {
+        "additionalProperties": false,
+        "properties": {
+          "parent": {
+            "description": "An earlier snapshot the receiver already has",
+            "type": "string"
+          },
+          "snapshot": {
+            "description": "A read-only snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot"
+        ],
+        "type": "object"
+      },
       "SourceInput": {
         "additionalProperties": false,
         "properties": {
@@ -2197,6 +3688,10 @@
           },
           "readOnly": {
             "type": "boolean"
+          },
+          "receivedUuid": {
+            "description": "The UUID it had where it was sent from, when it was received",
+            "type": "string"
           },
           "uuid": {
             "type": "string"
@@ -2261,6 +3756,181 @@
         ],
         "type": "object"
       },
+      "SysctlKeysInput": {
+        "additionalProperties": false,
+        "properties": {
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
+      "SysctlValues": {
+        "additionalProperties": false,
+        "properties": {
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "values"
+        ],
+        "type": "object"
+      },
+      "SystemMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "collectedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cpu": {
+            "$ref": "#/components/schemas/CPUTimes",
+            "description": "CPU time spent since boot, across all CPUs"
+          },
+          "cpus": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "disks": {
+            "items": {
+              "$ref": "#/components/schemas/DiskIO"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "filesystems": {
+            "items": {
+              "$ref": "#/components/schemas/FSUsage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "load": {
+            "$ref": "#/components/schemas/LoadAverage"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryStats"
+          },
+          "networks": {
+            "items": {
+              "$ref": "#/components/schemas/NetIO"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "pressure": {
+            "$ref": "#/components/schemas/Pressure",
+            "description": "Pressure stall information"
+          },
+          "uptime": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "collectedAt",
+          "uptime",
+          "cpus",
+          "load",
+          "cpu",
+          "memory",
+          "pressure"
+        ],
+        "type": "object"
+      },
+      "TimeSync": {
+        "additionalProperties": false,
+        "properties": {
+          "fallback": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "servers": {
+            "description": "NTP servers; Debian's pool when empty",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TimeSyncInput": {
+        "additionalProperties": false,
+        "properties": {
+          "sync": {
+            "$ref": "#/components/schemas/TimeSync"
+          }
+        },
+        "type": "object"
+      },
+      "UnattendedUpgrades": {
+        "additionalProperties": false,
+        "properties": {
+          "autoReboot": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hold": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "includeStable": {
+            "type": "boolean"
+          },
+          "origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "rebootTime": {
+            "description": "Time of day for automatic reboots, such as 04:00",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
       "UnitInput": {
         "additionalProperties": false,
         "properties": {
@@ -2289,6 +3959,56 @@
         },
         "required": [
           "units"
+        ],
+        "type": "object"
+      },
+      "UnitMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuUsage": {
+            "description": "CPU time used since the control group was created",
+            "format": "int64",
+            "type": "integer"
+          },
+          "ioReadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ioWriteBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "memoryBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "memoryPeakBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pressure": {
+            "$ref": "#/components/schemas/Pressure"
+          },
+          "swapBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tasks": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "cpuUsage",
+          "memoryBytes",
+          "ioReadBytes",
+          "ioWriteBytes",
+          "tasks",
+          "pressure"
         ],
         "type": "object"
       },
@@ -2410,6 +4130,72 @@
         ],
         "type": "object"
       },
+      "UpgradableInput": {
+        "additionalProperties": false,
+        "properties": {
+          "full": {
+            "description": "List what a full upgrade installs, which may add or remove packages",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "UpgradeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "full": {
+            "description": "Also take upgrades that add or remove packages, such as a new kernel",
+            "type": "boolean"
+          },
+          "snapshot": {
+            "description": "Take read-only snapshots of the system first, under this label",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpgradeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed, or in check mode would change",
+            "type": "boolean"
+          },
+          "effects": {
+            "description": "What changed, or would change",
+            "items": {
+              "$ref": "#/components/schemas/Effect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "snapshots": {
+            "description": "Snapshots taken first",
+            "items": {
+              "$ref": "#/components/schemas/Snapshot"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "unprotected": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "type": "object"
+      },
       "User": {
         "additionalProperties": false,
         "properties": {
@@ -2505,16 +4291,64 @@
           "mode"
         ],
         "type": "object"
+      },
+      "ZramConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm": {
+            "enum": [
+              "zstd",
+              "lz4",
+              "lzo-rle"
+            ],
+            "type": "string"
+          },
+          "maxMiB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sizePercent": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
       }
     }
   },
   "info": {
-    "description": "The typed operations the panel can ask the agent to run. Every operation validates its input and is idempotent; with check=true it reports what it would change without changing anything.",
+    "description": "The typed operations the panel can ask the agent to run. Every operation validates its input and is idempotent; with check=true it reports what it would change without changing anything. Every call is recorded in the agent's audit trail. Streams move data too large for JSON, such as Btrfs send streams.",
     "title": "Racksail agent protocol",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/events": {
+      "get": {
+        "description": "Streams what the agent notices on its own, one JSON object per line: drift from what Racksail put on the machine, once per change, starting with the drift the last check found, and network changes confirmed or rolled back.",
+        "operationId": "events",
+        "responses": {
+          "200": {
+            "content": {
+              "application/jsonl": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            },
+            "description": "Events as JSON lines"
+          }
+        },
+        "summary": "Stream events",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "health",
@@ -2770,6 +4604,119 @@
         ]
       }
     },
+    "/v1/ops/AllocateAccountID": {
+      "post": {
+        "description": "Returns the lowest ID in the account range that no user or group on this server has and the panel didn't exclude, with its subordinate ID range. The ID is held for ten minutes so concurrent allocations don't collide.",
+        "operationId": "AllocateAccountID",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllocateAccountIDInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountID"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Pick a free account ID",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/ops/ApplyFirewall": {
       "post": {
         "description": "Checks the ruleset with nftables and then replaces every racksail* table in one transaction.",
@@ -2883,8 +4830,122 @@
         ]
       }
     },
+    "/v1/ops/ApplyKernelDefaults": {
+      "post": {
+        "description": "Sets BBR congestion control with the fq scheduler, larger accept queues and buffers, a connection tracking table sized to the memory, hardened routing defaults and more inotify watches, now and at boot, and sets up compressed swap in memory with zram when asked.",
+        "operationId": "ApplyKernelDefaults",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KernelDefaultsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Apply kernel and network defaults",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/ops/ApplyNetworkConfig": {
       "post": {
+        "description": "Replaces the systemd-networkd files Racksail manages and reloads networkd. With confirmWithin, the previous files come back automatically unless ConfirmNetworkConfig is called in time, so a change that cuts the server off undoes itself.",
         "operationId": "ApplyNetworkConfig",
         "parameters": [
           {
@@ -2922,7 +4983,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/NetworkApplyResult"
                 }
               }
             },
@@ -3102,6 +5163,683 @@
           }
         },
         "summary": "Convert a Btrfs pool's profiles",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/CancelReboot": {
+      "post": {
+        "operationId": "CancelReboot",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Cancel a scheduled reboot",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/CheckDrift": {
+      "post": {
+        "description": "Lists files, units and drop-ins written for resources that were changed or removed since, and Racksail units that failed. The panel reconciles the resources named.",
+        "operationId": "CheckDrift",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriftReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Find what changed behind Racksail's back",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/ConfigureTimeSync": {
+      "post": {
+        "description": "Sets the time zone to UTC, configures systemd-timesyncd with the given NTP servers or Debian's pool, and keeps it running.",
+        "operationId": "ConfigureTimeSync",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeSyncInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Synchronize the clock on UTC",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/ConfigureUpdates": {
+      "post": {
+        "description": "Installs unattended-upgrades when it's needed and writes its settings: which origins are upgraded automatically, which packages never are, and whether and when the server may reboot for an update.",
+        "operationId": "ConfigureUpdates",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureUpdatesInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Configure automatic security updates",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/ConfirmNetworkConfig": {
+      "post": {
+        "description": "Confirms a network change applied with confirmWithin, so it isn't rolled back. The browser confirms through the panel once it can still reach it. Confirming the same change again changes nothing; a change that was already rolled back, or a token when no change is waiting, is a conflict.",
+        "operationId": "ConfirmNetworkConfig",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmNetworkInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Keep a network change",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/CreateArchive": {
+      "post": {
+        "description": "Packs a directory into a tar, tar.gz, tar.zst or zip archive inside the same root. Links are packed as links and never followed; the archive replaces any file of the same name atomically.",
+        "operationId": "CreateArchive",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArchiveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Pack a directory into an archive",
         "tags": [
           "core"
         ]
@@ -3445,6 +6183,7 @@
     },
     "/v1/ops/DeleteSubvolume": {
       "post": {
+        "description": "Deletes a subvolume in a location Racksail manages, or a snapshot of the system that SnapshotPaths took, with everything in it.",
         "operationId": "DeleteSubvolume",
         "parameters": [
           {
@@ -4455,6 +7194,7 @@
     },
     "/v1/ops/EnsureMounted": {
       "post": {
+        "description": "Mounts a data disk at /mnt/racksail/\u003cname\u003e or over the accounts' area, always with nosuid and nodev, so nothing on it runs with privileges it brought along. The disk is named by its link under /dev/disk; the system disk, a disk with RAID or LVM on it and a filesystem mounted anywhere else are refused, as is a mount point that is a symbolic link.",
         "operationId": "EnsureMounted",
         "parameters": [
           {
@@ -4792,7 +7532,7 @@
     },
     "/v1/ops/EnsureUnit": {
       "post": {
-        "description": "Writes a racksail-* unit file and reloads systemd when the file changed. Services must run as a user other than root.",
+        "description": "Writes a racksail-* unit file and reloads systemd when the file changed. The file may only use the sections and directives Racksail renders; services run as an account, in the sandbox accounts get, or one of Racksail's service users, never as root, and nothing else runs commands. Mount units mount data disks only, as EnsureMounted does. Racksail's own units are installed with InstallPlatformUnits.",
         "operationId": "EnsureUnit",
         "parameters": [
           {
@@ -5011,6 +7751,119 @@
           }
         },
         "summary": "Create a user",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/ExtractArchive": {
+      "post": {
+        "description": "Unpacks a tar, tar.gz, tar.zst or zip archive into a directory inside the same root, owned by the given user. Entries with absolute names or names that climb out, and links that lead out of the destination, are refused, and sizes are bounded.",
+        "operationId": "ExtractArchive",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractArchiveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Unpack an archive",
         "tags": [
           "core"
         ]
@@ -5352,6 +8205,231 @@
         ]
       }
     },
+    "/v1/ops/GetMetrics": {
+      "post": {
+        "description": "Samples the machine's CPU, memory, pressure, disks, network and filesystems, and the control groups of the units asked for.",
+        "operationId": "GetMetrics",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineMetrics"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Measure resource use",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/GetNetworkChange": {
+      "post": {
+        "operationId": "GetNetworkChange",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Report a network change waiting for confirmation",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/ops/GetNetworkState": {
       "post": {
         "operationId": "GetNetworkState",
@@ -5464,8 +8542,233 @@
         ]
       }
     },
+    "/v1/ops/GetSysctl": {
+      "post": {
+        "operationId": "GetSysctl",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SysctlKeysInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SysctlValues"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Read kernel parameters",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/HoldPackages": {
+      "post": {
+        "operationId": "HoldPackages",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Hold packages at their versions",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/ops/InstallArchive": {
       "post": {
+        "description": "Downloads an archive over https, checks it against its SHA-256 or a detached signature by a vendor key built into Racksail, directly or through a signed checksums list, and unpacks it into a new versioned directory under /opt/racksail.",
         "operationId": "InstallArchive",
         "parameters": [
           {
@@ -5795,6 +9098,119 @@
           }
         },
         "summary": "Install packages",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/InstallPlatformUnits": {
+      "post": {
+        "description": "Renders racksail.slice, racksail-accounts.slice and the agent, panel and edge units for the given racksail executable, which only root may be able to change, and writes the ones that differ.",
+        "operationId": "InstallPlatformUnits",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformUnitsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Install Racksail's own services",
         "tags": [
           "core"
         ]
@@ -7144,6 +10560,119 @@
         ]
       }
     },
+    "/v1/ops/ReadAudit": {
+      "post": {
+        "description": "Returns the agent's record of the operations it ran or refused, newest first: who asked, for which resource, what it touched and how it ended. Inputs are kept as hashes only.",
+        "operationId": "ReadAudit",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadAuditInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditTrail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Read the agent's audit trail",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/ops/ReadFile": {
       "post": {
         "operationId": "ReadFile",
@@ -7251,6 +10780,231 @@
           }
         },
         "summary": "Read a file",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/ReadJournal": {
+      "post": {
+        "description": "Returns journal entries matching the query, oldest first or newest first, with a cursor to continue from.",
+        "operationId": "ReadJournal",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadJournalInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Read the journal",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/RebootStatus": {
+      "post": {
+        "operationId": "RebootStatus",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebootInfo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Report whether the server needs a reboot",
         "tags": [
           "core"
         ]
@@ -7699,6 +11453,118 @@
           }
         },
         "summary": "Remove a certificate",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/RemoveCredential": {
+      "post": {
+        "operationId": "RemoveCredential",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Remove a sealed credential",
         "tags": [
           "core"
         ]
@@ -8265,6 +12131,344 @@
         ]
       }
     },
+    "/v1/ops/RestoreSnapshot": {
+      "post": {
+        "description": "Receives a send stream saved by SaveSnapshot into a directory on Btrfs. The file must be the one the agent saved: owned by root, readable by root only and unchanged since. An incremental stream needs its parent snapshot received first.",
+        "operationId": "RestoreSnapshot",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreSnapshotInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Restore a Btrfs snapshot from a file",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/SaveSnapshot": {
+      "post": {
+        "description": "Writes the send stream of a read-only snapshot, incremental from parent when it's given, to a file that only root can read, and remembers what it wrote, so RestoreSnapshot only ever reads streams the agent saved. A file it saved before is kept.",
+        "operationId": "SaveSnapshot",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSnapshotInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotFileResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Save a Btrfs snapshot to a file",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/ScheduleReboot": {
+      "post": {
+        "operationId": "ScheduleReboot",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleRebootInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Schedule a reboot",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/ops/ScrubStatus": {
       "post": {
         "operationId": "ScrubStatus",
@@ -8372,6 +12576,119 @@
           }
         },
         "summary": "Report scrub progress",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/SealCredential": {
+      "post": {
+        "description": "Encrypts a value with systemd-creds, bound to the machine's TPM2 chip when it has one and to the host key always, and keeps it in /etc/credstore.encrypted for services that import it. Sealing the same value again changes nothing; a credential that holds another value is refused.",
+        "operationId": "SealCredential",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SealCredentialInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SealResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Seal a credential with systemd-creds",
         "tags": [
           "core"
         ]
@@ -8939,7 +13256,7 @@
     },
     "/v1/ops/SnapshotPaths": {
       "post": {
-        "description": "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected.",
+        "description": "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected. Snapshots of the system's own subvolumes, such as the root filesystem, go where only the agent reaches them.",
         "operationId": "SnapshotPaths",
         "parameters": [
           {
@@ -9724,6 +14041,7 @@
     },
     "/v1/ops/Unmount": {
       "post": {
+        "description": "Unmounts a data disk mounted at /mnt/racksail/\u003cname\u003e or over the accounts' area. Filesystems of the system disk stay where they are.",
         "operationId": "Unmount",
         "parameters": [
           {
@@ -9829,6 +14147,118 @@
           }
         },
         "summary": "Unmount a filesystem",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/UnsealCredential": {
+      "post": {
+        "operationId": "UnsealCredential",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialValue"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Open a sealed credential",
         "tags": [
           "core"
         ]
@@ -9948,6 +14378,7 @@
     },
     "/v1/ops/UpgradablePackages": {
       "post": {
+        "description": "Lists the upgrades a plain upgrade installs, or with full those of a full upgrade, which may add or remove packages.",
         "operationId": "UpgradablePackages",
         "parameters": [
           {
@@ -9974,7 +14405,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Empty"
+                "$ref": "#/components/schemas/UpgradableInput"
               }
             }
           },
@@ -10053,6 +14484,119 @@
           }
         },
         "summary": "List packages with updates",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/UpgradePackages": {
+      "post": {
+        "description": "Installs every available update that isn't held, after read-only snapshots of the system when a label is given. In check mode it lists the updates with their versions and download sizes.",
+        "operationId": "UpgradePackages",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Upgrade packages",
         "tags": [
           "core"
         ]
@@ -10280,6 +14824,215 @@
         "summary": "Write a file",
         "tags": [
           "core"
+        ]
+      }
+    },
+    "/v1/streams/Download": {
+      "post": {
+        "description": "Answers with the contents of a file inside a location Racksail reads.",
+        "operationId": "streamDownload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "contentMediaType": "application/octet-stream",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The data"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDoc"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Download a file",
+        "tags": [
+          "streams"
+        ]
+      }
+    },
+    "/v1/streams/ReceiveSnapshot": {
+      "post": {
+        "description": "Receives the send stream in the request body into a directory on Btrfs.",
+        "operationId": "streamReceiveSnapshot",
+        "parameters": [
+          {
+            "description": "Directory the snapshot is received into",
+            "in": "query",
+            "name": "dir",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDoc"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Receive a Btrfs snapshot",
+        "tags": [
+          "streams"
+        ]
+      }
+    },
+    "/v1/streams/SendSnapshot": {
+      "post": {
+        "description": "Answers with the Btrfs send stream of a read-only snapshot, incremental from parent when it's given.",
+        "operationId": "streamSendSnapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotStreamInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "contentMediaType": "application/octet-stream",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The data"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDoc"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Stream a Btrfs snapshot",
+        "tags": [
+          "streams"
+        ]
+      }
+    },
+    "/v1/streams/Upload": {
+      "post": {
+        "description": "Replaces a file inside a location Racksail manages with the request body, atomically.",
+        "operationId": "streamUpload",
+        "parameters": [
+          {
+            "description": "Absolute path of the file",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Permission bits in octal, such as 0644",
+            "in": "query",
+            "name": "mode",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Owner; root when empty",
+            "in": "query",
+            "name": "user",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Group; the owner's when empty",
+            "in": "query",
+            "name": "group",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Done"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDoc"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Upload a file",
+        "tags": [
+          "streams"
         ]
       }
     }

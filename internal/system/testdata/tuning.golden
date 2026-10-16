@@ -1,0 +1,85 @@
+### /etc/apt/apt.conf.d/20auto-upgrades
+// Managed by Racksail. Changes made here are overwritten.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+
+### /etc/apt/apt.conf.d/52racksail-unattended-upgrades
+// Managed by Racksail. Changes made here are overwritten.
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+	"origin=Debian,codename=${distro_codename},label=Debian-Security";
+	"origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+	"origin=Racksail,label=Racksail";
+};
+#clear Unattended-Upgrade::Package-Blacklist;
+Unattended-Upgrade::Package-Blacklist {
+	"mariadb-server";
+};
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+Unattended-Upgrade::SyslogEnable "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "03:15";
+
+### /etc/modules-load.d/racksail.conf
+# Managed by Racksail. Changes made here are overwritten.
+tcp_bbr
+nf_conntrack
+
+### /etc/sysctl.d/90-racksail-kernel.conf
+# Managed by Racksail. Changes made here are overwritten.
+fs.inotify.max_user_instances = 1024
+fs.inotify.max_user_watches = 524288
+kernel.pid_max = 4194304
+net.core.default_qdisc = fq
+net.core.netdev_max_backlog = 16384
+net.core.rmem_max = 16777216
+net.core.somaxconn = 16384
+net.core.wmem_max = 16777216
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.ip_local_port_range = 10000 65535
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_max_syn_backlog = 16384
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_notsent_lowat = 131072
+net.ipv4.tcp_rfc1337 = 1
+net.ipv4.tcp_rmem = 4096 131072 16777216
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.netfilter.nf_conntrack_max = 262144
+net.netfilter.nf_conntrack_tcp_timeout_established = 86400
+vm.max_map_count = 262144
+vm.page-cluster = 0
+vm.swappiness = 180
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+
+### /etc/systemd/timesyncd.conf.d/racksail.conf
+# Managed by Racksail. Changes made here are overwritten.
+
+[Time]
+NTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org 2.debian.pool.ntp.org 3.debian.pool.ntp.org
+FallbackNTP=time.cloudflare.com
+
+### /etc/systemd/zram-generator.conf
+# Managed by Racksail. Changes made here are overwritten.
+[zram0]
+zram-size = min(ram * 50 / 100, 8192)
+compression-algorithm = zstd
+swap-priority = 100
+fs-type = swap
+

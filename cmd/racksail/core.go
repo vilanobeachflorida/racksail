@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -128,16 +130,10 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	facts := func(ctx context.Context) (system.MachineFacts, error) {
 		return agent.GetFacts.Call(ctx, agentClient, agent.Empty{}, agent.CallOptions{})
 	}
-	key, err := secrets.NewKey()
+	vault, err := openSecrets(ctx, cfg, log, agentClient)
 	if err != nil {
 		return nil, err
 	}
-	box, err := secrets.NewBox(key)
-	if err != nil {
-		return nil, err
-	}
-	vault := secrets.NewMemory(box)
-	log.Warn("this build keeps secret values in memory, so settings that hold secrets need them entered again after a restart")
 	dispatcher, err := webhook.NewSQL(ctx, db, webhook.Options{
 		Store: st, Log: timeline, Secrets: vault, Version: updates.Build().Version, AllowNetworks: hooksAllowed,
 		Retention: time.Duration(keep.Deliveries), Logger: log,
@@ -229,7 +225,31 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}); err != nil {
 		log.Warn("recording that the panel started", "error", err)
 	}
+	// Drift the agent reports is put back as soon as it is found, rather
+	// than at the next resync.
+	if src, ok := agentClient.(agent.EventSource); ok {
+		c.work.Go(func() { followAgent(ctx, src, st, runner, timeline, log) })
+	}
 	return c, nil
+}
+
+// openSecrets opens the secrets kept in the panel's state. Their key is
+// sealed with systemd-creds through the agent, which on a server systemd
+// hands the panel at start; see internal/secrets.
+func openSecrets(ctx context.Context, cfg config.Config, log *slog.Logger, agentClient agent.Client) (*secrets.FileStore, error) {
+	vault, err := secrets.Open(ctx, secrets.Options{
+		Dir:            filepath.Join(cfg.Paths.State, "secrets"),
+		CredentialsDir: os.Getenv("CREDENTIALS_DIRECTORY"),
+		Sealer:         agent.KeySealer{Client: agentClient, Name: secrets.CredentialName},
+		KeyFile:        filepath.Join(cfg.Paths.State, "secrets.key"),
+		Log:            log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	info := vault.Info()
+	log.Info("secrets ready", "key", info.Source, "protection", info.Protection, "new", info.Created)
+	return vault, nil
 }
 
 // moduleHealthChecks returns the health checks modules declare, named

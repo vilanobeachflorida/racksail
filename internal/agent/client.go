@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/store"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
+
+// CallerLocal is the caller of operations that arrive in-process or on the
+// agent's Unix socket.
+const CallerLocal = "local"
 
 // Client calls agent operations.
 type Client interface {
@@ -29,27 +34,77 @@ type CallOptions struct {
 type Local struct {
 	backend *system.Backend
 	log     *slog.Logger
+	runtime *Runtime
 }
 
-// NewLocal returns a client that runs operations against backend.
+// NewLocal returns a client that runs operations against backend, with a
+// runtime of its own.
 func NewLocal(backend *system.Backend, log *slog.Logger) *Local {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Local{backend: backend, log: log}
+	return NewLocalRuntime(NewRuntime(backend, RuntimeOptions{Log: log}))
 }
+
+// NewLocalRuntime returns a client that shares a runtime, such as the one
+// of the server answering on the agent's socket in development mode.
+func NewLocalRuntime(rt *Runtime) *Local {
+	return &Local{backend: rt.backend, log: rt.log, runtime: rt}
+}
+
+// Runtime returns the client's runtime.
+func (l *Local) Runtime() *Runtime { return l.runtime }
 
 // Call implements Client. The input goes through the same decoding and
 // validation as calls that arrive over the socket.
 func (l *Local) Call(ctx context.Context, op string, input json.RawMessage, opts CallOptions) (json.RawMessage, error) {
+	env := &Env{System: l.backend, Check: opts.Check, Owner: opts.Owner, Log: l.log, Runtime: l.runtime, Caller: CallerLocal}
 	e, ok := Lookup(op)
 	if !ok {
-		return nil, ErrUnknownOperation.New("op", op)
+		err := ErrUnknownOperation.New("op", op)
+		env.audit(op, nil, input, nil, err, time.Now())
+		return nil, err
 	}
-	if opts.Check && e.ReadOnly() {
-		opts.Check = false
+	if e.ReadOnly() {
+		env.Check = false
 	}
-	return e.Invoke(ctx, &Env{System: l.backend, Check: opts.Check, Owner: opts.Owner, Log: l.log}, input)
+	return e.Invoke(ctx, env, input)
+}
+
+// EventSource streams what an agent notices on its own. The clients of the
+// local agent and of agents on other servers implement it.
+type EventSource interface {
+	// Events calls fn with each event until ctx is done or the stream ends.
+	Events(ctx context.Context, fn func(Event)) error
+}
+
+// Events implements EventSource.
+func (l *Local) Events(ctx context.Context, fn func(Event)) error { return l.runtime.Events(ctx, fn) }
+
+// FollowEvents calls fn with an agent's events until ctx is done, connecting
+// again whenever the stream ends, such as when the agent restarts.
+func FollowEvents(ctx context.Context, src EventSource, fn func(Event), log *slog.Logger) {
+	if log == nil {
+		log = slog.Default()
+	}
+	backoff := time.Second
+	for ctx.Err() == nil {
+		started := time.Now()
+		err := src.Events(ctx, fn)
+		if ctx.Err() != nil {
+			return
+		}
+		if time.Since(started) > time.Minute {
+			backoff = time.Second
+		}
+		log.Debug("the agent's event stream ended", "error", err, "retry", backoff)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, 30*time.Second)
+	}
 }
 
 // StepResult is the outcome of one step of a plan.

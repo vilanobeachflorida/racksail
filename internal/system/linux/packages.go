@@ -1,25 +1,15 @@
 package linux
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -194,14 +184,64 @@ func (p *packages) Remove(ctx context.Context, purge bool, names ...string) erro
 	return nil
 }
 
-func (p *packages) Upgradable(ctx context.Context) ([]system.Package, error) {
-	out, err := p.apt(ctx, "upgrade", "--simulate", "-q")
+func (p *packages) Upgradable(ctx context.Context, full bool) ([]system.Package, error) {
+	// A plain upgrade keeps back what would add or remove packages; its
+	// simulation lists only what it would install.
+	verb := "upgrade"
+	if full {
+		verb = "full-upgrade"
+	}
+	out, err := p.apt(ctx, verb, "--simulate", "-q")
 	if err != nil {
 		return nil, fmt.Errorf("listing upgrades: %w", err)
 	}
 	pkgs := parseInst(out)
 	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
 	return pkgs, nil
+}
+
+func (p *packages) Upgrade(ctx context.Context, full bool) error {
+	verb := "upgrade"
+	if full {
+		verb = "full-upgrade"
+	}
+	args := []string{verb, "-y", "-q", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold"}
+	if _, err := p.h.run.Run(ctx, system.Command{Path: progAptGet, Args: args, Timeout: 2 * time.Hour}); err != nil {
+		return fmt.Errorf("upgrading packages: %w", err)
+	}
+	return nil
+}
+
+func (p *packages) SetHold(ctx context.Context, hold bool, names ...string) error {
+	if err := checkPackages(names); err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	verb := "unhold"
+	if hold {
+		verb = "hold"
+	}
+	if _, err := p.h.exec(ctx, progAptMark, append([]string{verb, "--"}, names...)...); err != nil {
+		return fmt.Errorf("%s packages: %w", verb, err)
+	}
+	return nil
+}
+
+func (p *packages) Held(ctx context.Context) ([]string, error) {
+	out, err := p.h.exec(ctx, progAptMark, "showhold")
+	if err != nil {
+		return nil, fmt.Errorf("listing held packages: %w", err)
+	}
+	var names []string
+	eachLine(out, func(line string) {
+		if packageNamePattern.MatchString(line) {
+			names = append(names, line)
+		}
+	})
+	sort.Strings(names)
+	return names, nil
 }
 
 func (p *packages) AddSource(ctx context.Context, src system.AptSource) error {
@@ -261,207 +301,4 @@ func (p *packages) Sources(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
-}
-
-func (p *packages) InstallArchive(ctx context.Context, a system.Archive) error {
-	if err := a.Validate(); err != nil {
-		return err
-	}
-	dest := p.h.path(a.Dest)
-	if _, err := os.Lstat(dest); err == nil {
-		return nil
-	}
-	parent := filepath.Dir(dest)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return mapErr("install archive", a.Dest, err)
-	}
-	download, err := os.CreateTemp(parent, ".racksail-download-*")
-	if err != nil {
-		return mapErr("install archive", a.Dest, err)
-	}
-	defer os.Remove(download.Name())
-	defer download.Close()
-	if err := p.fetch(ctx, a, download); err != nil {
-		return err
-	}
-	staging, err := os.MkdirTemp(parent, ".racksail-unpack-*")
-	if err != nil {
-		return mapErr("install archive", a.Dest, err)
-	}
-	defer os.RemoveAll(staging)
-	switch a.Format {
-	case "tar.gz":
-		err = extractTarGz(download, staging, a.StripComponents)
-	case "zip":
-		err = extractZip(download, a.Size, staging, a.StripComponents)
-	case "tar.xz":
-		_, err = p.h.exec(ctx, progTar, "--extract", "--xz", "--file", download.Name(), "--directory", staging,
-			"--strip-components="+strconv.Itoa(a.StripComponents), "--no-same-owner", "--no-same-permissions")
-	}
-	if err != nil {
-		return fmt.Errorf("unpacking %s: %w", a.URL, err)
-	}
-	if err := os.Chmod(staging, 0o755); err != nil {
-		return err
-	}
-	return mapErr("install archive", a.Dest, os.Rename(staging, dest))
-}
-
-// fetch downloads the archive into w, refusing anything bigger than
-// expected and anything whose checksum doesn't match.
-func (p *packages) fetch(ctx context.Context, a system.Archive, w io.WriteSeeker) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := p.h.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("downloading %s: %w", a.URL, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("downloading %s: %s", a.URL, resp.Status)
-	}
-	sum := sha256.New()
-	n, err := io.Copy(io.MultiWriter(w, sum), io.LimitReader(resp.Body, a.Size+1))
-	if err != nil {
-		return fmt.Errorf("downloading %s: %w", a.URL, err)
-	}
-	if n > a.Size {
-		return fmt.Errorf("%s is larger than the expected %d bytes: %w", a.URL, a.Size, system.ErrTooLarge)
-	}
-	if got := hex.EncodeToString(sum.Sum(nil)); got != a.SHA256 {
-		return fmt.Errorf("%s has checksum %s, expected %s: %w", a.URL, got, a.SHA256, system.ErrInvalid)
-	}
-	_, err = w.Seek(0, io.SeekStart)
-	return err
-}
-
-// archivePath maps an archive member to a path inside dir, or "" when the
-// member is stripped away. Absolute names and names with ".." are refused
-// rather than cleaned up: a vendor archive never needs them.
-func archivePath(dir, name string, strip int) (string, error) {
-	name = strings.ReplaceAll(name, `\`, "/")
-	if path.IsAbs(name) || slices.Contains(strings.Split(name, "/"), "..") {
-		return "", fmt.Errorf("archive member %q points outside the destination: %w", name, system.ErrInvalid)
-	}
-	name = strings.TrimPrefix(path.Clean("/"+name), "/")
-	parts := strings.Split(name, "/")
-	if name == "" || len(parts) <= strip {
-		return "", nil
-	}
-	target := filepath.Join(dir, filepath.FromSlash(path.Join(parts[strip:]...)))
-	if !strings.HasPrefix(target, dir+string(filepath.Separator)) {
-		return "", fmt.Errorf("archive member %q points outside the destination: %w", name, system.ErrInvalid)
-	}
-	return target, nil
-}
-
-func checkLink(dir, target, link string) error {
-	if path.IsAbs(link) {
-		return fmt.Errorf("archive link to %q is absolute: %w", link, system.ErrInvalid)
-	}
-	resolved := filepath.Join(filepath.Dir(target), filepath.FromSlash(link))
-	if resolved != dir && !strings.HasPrefix(resolved, dir+string(filepath.Separator)) {
-		return fmt.Errorf("archive link to %q escapes the destination: %w", link, system.ErrInvalid)
-	}
-	return nil
-}
-
-func extractTarGz(r io.Reader, dir string, strip int) error {
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		target, err := archivePath(dir, hdr.Name, strip)
-		if err != nil || target == "" {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		mode := fs.FileMode(hdr.Mode).Perm()
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := writeMember(target, tr, mode); err != nil {
-				return err
-			}
-		case tar.TypeSymlink:
-			if err := checkLink(dir, target, hdr.Linkname); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("archive member %q has an unsupported type: %w", hdr.Name, system.ErrInvalid)
-		}
-	}
-}
-
-func extractZip(r io.ReaderAt, size int64, dir string, strip int) error {
-	zr, err := zip.NewReader(r, size)
-	if err != nil {
-		return err
-	}
-	for _, f := range zr.File {
-		target, err := archivePath(dir, f.Name, strip)
-		if err != nil {
-			return err
-		}
-		if target == "" {
-			continue
-		}
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if !f.Mode().IsRegular() {
-			return fmt.Errorf("archive member %q has an unsupported type: %w", f.Name, system.ErrInvalid)
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		err = writeMember(target, rc, f.Mode().Perm())
-		rc.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeMember(target string, r io.Reader, mode fs.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode|0o400)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
 }

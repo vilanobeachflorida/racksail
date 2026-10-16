@@ -43,7 +43,7 @@ func newRootCommand() *cobra.Command {
 		&cobra.Group{ID: groupClient, Title: "Manage a server:"},
 		&cobra.Group{ID: groupTools, Title: "Tools:"},
 	)
-	for _, cmd := range []*cobra.Command{newPanelCommand(), newAgentCommand(), newEdgeCommand(), newDevCommand(), newInstallCommand()} {
+	for _, cmd := range []*cobra.Command{newPanelCommand(), newAgentCommand(), newEdgeCommand(), newWakeProxyCommand(), newDevCommand(), newInstallCommand()} {
 		cmd.GroupID = groupServer
 		root.AddCommand(cmd)
 	}
@@ -89,6 +89,9 @@ func newLogger(w io.Writer, c config.Log) *slog.Logger {
 	}
 	return slog.New(slog.NewTextHandler(w, opts))
 }
+
+// defaultLog is how roles that read no configuration log.
+func defaultLog() config.Log { return config.Default().Log }
 
 // loadConfig reads the configuration file named by the --config flag.
 func loadConfig(path string) (config.Config, error) {

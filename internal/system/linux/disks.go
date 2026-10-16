@@ -99,11 +99,14 @@ func parseLsblk(data []byte, byID map[string]string) ([]system.Disk, error) {
 			SizeBytes: flexInt(d.Size), Rotational: flexBool(d.Rota), Transport: deref(d.Tran), Removable: flexBool(d.RM),
 			FSType: deref(d.FSType), Label: deref(d.Label), UUID: deref(d.UUID), MountPoints: mountPoints(d.MountPoints),
 		}
-		if slices.Contains(disk.MountPoints, "/") {
-			disk.System = true
-		}
+		onSystem := slices.ContainsFunc(disk.MountPoints, isSystemMount)
 		for _, c := range d.Children {
 			if c.Type != "part" {
+				// A RAID array, LVM volume or encrypted volume on the whole
+				// disk.
+				holders, mounts := holdersOf([]lsblkDevice{c})
+				disk.Holders = append(disk.Holders, holders...)
+				onSystem = onSystem || slices.ContainsFunc(mounts, isSystemMount)
 				continue
 			}
 			p := system.Partition{
@@ -111,14 +114,34 @@ func parseLsblk(data []byte, byID map[string]string) ([]system.Disk, error) {
 				FSType: deref(c.FSType), Label: deref(c.Label), UUID: deref(c.UUID), PartUUID: deref(c.PartUUID),
 				MountPoints: mountPoints(c.MountPoints),
 			}
-			if slices.Contains(p.MountPoints, "/") || slices.Contains(p.MountPoints, "/boot/efi") {
-				disk.System = true
-			}
+			holders, mounts := holdersOf(c.Children)
+			p.Holders = holders
+			onSystem = onSystem || slices.ContainsFunc(p.MountPoints, isSystemMount) || slices.ContainsFunc(mounts, isSystemMount)
 			disk.Partitions = append(disk.Partitions, p)
 		}
+		disk.System = onSystem
 		out = append(out, disk)
 	}
 	return out, nil
+}
+
+// isSystemMount reports whether a filesystem mounted at p belongs to the
+// running system.
+func isSystemMount(p string) bool { return system.IsSystemMountPoint(p) }
+
+// holdersOf names the devices built on a disk or partition, such as an md
+// array and the LVM volumes on it, and where any of them are mounted, so a
+// disk whose root filesystem sits on RAID, LVM or an encrypted volume is
+// still known as the system's.
+func holdersOf(children []lsblkDevice) (names, mounts []string) {
+	for _, c := range children {
+		names = append(names, c.Name)
+		mounts = append(mounts, mountPoints(c.MountPoints)...)
+		n, m := holdersOf(c.Children)
+		names = append(names, n...)
+		mounts = append(mounts, m...)
+	}
+	return names, mounts
 }
 
 // diskIDs maps kernel device names to their preferred by-id link, favouring
@@ -182,52 +205,177 @@ func (d *disks) SMART(ctx context.Context, name string) (system.SMARTReport, err
 	return parseSmartctl(out)
 }
 
-func parseSmartctl(data []byte) (system.SMARTReport, error) {
-	var doc struct {
-		SmartSupport *struct {
-			Available bool `json:"available"`
-			Enabled   bool `json:"enabled"`
-		} `json:"smart_support"`
-		SmartStatus *struct {
-			Passed bool `json:"passed"`
-		} `json:"smart_status"`
-		Temperature struct {
-			Current int `json:"current"`
-		} `json:"temperature"`
-		PowerOnTime struct {
-			Hours int `json:"hours"`
-		} `json:"power_on_time"`
-		ATA struct {
+// smartctlJSON is the part of smartctl's JSON output Racksail reads.
+type smartctlJSON struct {
+	Device struct {
+		Protocol string `json:"protocol"`
+	} `json:"device"`
+	ModelName       string `json:"model_name"`
+	SerialNumber    string `json:"serial_number"`
+	FirmwareVersion string `json:"firmware_version"`
+	SmartSupport    *struct {
+		Available bool `json:"available"`
+		Enabled   bool `json:"enabled"`
+	} `json:"smart_support"`
+	SmartStatus *struct {
+		Passed bool `json:"passed"`
+	} `json:"smart_status"`
+	Temperature struct {
+		Current int `json:"current"`
+	} `json:"temperature"`
+	PowerOnTime struct {
+		Hours int `json:"hours"`
+	} `json:"power_on_time"`
+	PowerCycleCount int `json:"power_cycle_count"`
+	ATA             struct {
+		Table []struct {
+			ID         int    `json:"id"`
+			Name       string `json:"name"`
+			Value      int    `json:"value"`
+			Worst      int    `json:"worst"`
+			Thresh     int    `json:"thresh"`
+			WhenFailed string `json:"when_failed"`
+			Raw        struct {
+				Value int64 `json:"value"`
+			} `json:"raw"`
+		} `json:"table"`
+	} `json:"ata_smart_attributes"`
+	ATAData struct {
+		SelfTest *struct {
+			Status struct {
+				Value            int   `json:"value"`
+				Passed           *bool `json:"passed"`
+				RemainingPercent int   `json:"remaining_percent"`
+			} `json:"status"`
+		} `json:"self_test"`
+	} `json:"ata_smart_data"`
+	ATASelfTestLog struct {
+		Standard struct {
 			Table []struct {
-				ID         int    `json:"id"`
-				Name       string `json:"name"`
-				Value      int    `json:"value"`
-				Worst      int    `json:"worst"`
-				Thresh     int    `json:"thresh"`
-				WhenFailed string `json:"when_failed"`
-				Raw        struct {
-					Value int64 `json:"value"`
-				} `json:"raw"`
+				Type struct {
+					String string `json:"string"`
+				} `json:"type"`
+				Status struct {
+					Passed bool   `json:"passed"`
+					String string `json:"string"`
+				} `json:"status"`
+				LifetimeHours int `json:"lifetime_hours"`
 			} `json:"table"`
-		} `json:"ata_smart_attributes"`
-		NVMe *json.RawMessage `json:"nvme_smart_health_information_log"`
-	}
+		} `json:"standard"`
+	} `json:"ata_smart_self_test_log"`
+	NVMe *struct {
+		CriticalWarning  int   `json:"critical_warning"`
+		AvailableSpare   int   `json:"available_spare"`
+		PercentageUsed   int   `json:"percentage_used"`
+		DataUnitsRead    int64 `json:"data_units_read"`
+		DataUnitsWritten int64 `json:"data_units_written"`
+		UnsafeShutdowns  int64 `json:"unsafe_shutdowns"`
+		MediaErrors      int64 `json:"media_errors"`
+	} `json:"nvme_smart_health_information_log"`
+	NVMeSelfTest *struct {
+		Current struct {
+			Value int `json:"value"`
+		} `json:"current_self_test_operation"`
+		CompletionPercent int `json:"current_self_test_completion_percent"`
+		Table             []struct {
+			Code struct {
+				String string `json:"string"`
+			} `json:"self_test_code"`
+			Result struct {
+				Value  int    `json:"value"`
+				String string `json:"string"`
+			} `json:"self_test_result"`
+			PowerOnHours int `json:"power_on_hours"`
+		} `json:"table"`
+	} `json:"nvme_self_test_log"`
+}
+
+// nvmeDataUnit is the size of the data units NVMe counters use.
+const nvmeDataUnit = 512 * 1000
+
+func parseSmartctl(data []byte) (system.SMARTReport, error) {
+	var doc smartctlJSON
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return system.SMARTReport{}, fmt.Errorf("reading smartctl output: %w", err)
 	}
 	r := system.SMARTReport{
 		Supported:    doc.NVMe != nil || (doc.SmartSupport != nil && doc.SmartSupport.Available && doc.SmartSupport.Enabled),
 		Healthy:      doc.SmartStatus != nil && doc.SmartStatus.Passed,
+		Protocol:     doc.Device.Protocol,
+		Model:        strings.TrimSpace(doc.ModelName),
+		Serial:       strings.TrimSpace(doc.SerialNumber),
+		Firmware:     strings.TrimSpace(doc.FirmwareVersion),
 		TemperatureC: doc.Temperature.Current,
 		PowerOnHours: doc.PowerOnTime.Hours,
+		PowerCycles:  doc.PowerCycleCount,
 	}
 	for _, a := range doc.ATA.Table {
-		r.Attributes = append(r.Attributes, system.SMARTAttribute{
+		attr := system.SMARTAttribute{
 			ID: a.ID, Name: a.Name, Value: a.Value, Worst: a.Worst, Threshold: a.Thresh, Raw: a.Raw.Value,
 			Failing: a.WhenFailed != "" && a.WhenFailed != "-",
-		})
+		}
+		r.Attributes = append(r.Attributes, attr)
+		switch a.ID {
+		case 5:
+			r.ReallocatedSectors = a.Raw.Value
+		case 197:
+			r.PendingSectors = a.Raw.Value
+		}
 	}
+	if n := doc.NVMe; n != nil {
+		r.CriticalWarning, r.AvailableSpare, r.PercentageUsed = n.CriticalWarning, n.AvailableSpare, n.PercentageUsed
+		r.MediaErrors, r.UnsafeShutdowns = n.MediaErrors, n.UnsafeShutdowns
+		r.DataReadBytes, r.DataWrittenBytes = n.DataUnitsRead*nvmeDataUnit, n.DataUnitsWritten*nvmeDataUnit
+	}
+	r.SelfTest = parseSelfTest(doc)
 	return r, nil
+}
+
+// parseSelfTest reports a running self-test, or else the latest result.
+func parseSelfTest(doc smartctlJSON) *system.SMARTSelfTest {
+	testType := func(s string) string {
+		s = strings.ToLower(s)
+		if strings.Contains(s, "extended") || strings.Contains(s, "long") {
+			return "long"
+		}
+		return "short"
+	}
+	if st := doc.ATAData.SelfTest; st != nil && st.Status.Value>>4 == 0xf {
+		return &system.SMARTSelfTest{Status: "running", RemainingPercent: st.Status.RemainingPercent}
+	}
+	if t := doc.ATASelfTestLog.Standard.Table; len(t) > 0 {
+		latest := t[0]
+		status := "failed"
+		switch {
+		case latest.Status.Passed:
+			status = "passed"
+		case strings.Contains(strings.ToLower(latest.Status.String), "abort") || strings.Contains(strings.ToLower(latest.Status.String), "interrupt"):
+			status = "aborted"
+		}
+		return &system.SMARTSelfTest{Status: status, Type: testType(latest.Type.String), LifetimeHours: latest.LifetimeHours}
+	}
+	if nv := doc.NVMeSelfTest; nv != nil {
+		if nv.Current.Value != 0 {
+			kind := "short"
+			if nv.Current.Value == 2 {
+				kind = "long"
+			}
+			return &system.SMARTSelfTest{Status: "running", Type: kind, RemainingPercent: 100 - nv.CompletionPercent}
+		}
+		if len(nv.Table) > 0 {
+			latest := nv.Table[0]
+			// Results 1 to 4 and 8 are aborts; 5 to 7 are failures.
+			status := "failed"
+			switch latest.Result.Value {
+			case 0:
+				status = "passed"
+			case 1, 2, 3, 4, 8:
+				status = "aborted"
+			}
+			return &system.SMARTSelfTest{Status: status, Type: testType(latest.Code.String), LifetimeHours: latest.PowerOnHours}
+		}
+	}
+	return nil
 }
 
 func (d *disks) SelfTest(ctx context.Context, name string, long bool) error {

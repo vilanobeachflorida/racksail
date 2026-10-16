@@ -45,6 +45,10 @@ func newInstallCommand() *cobra.Command {
 			if a.Mode != installer.ModeConvert {
 				return fmt.Errorf("the %s mode erases disks, so it runs from the Racksail installer image, not on a running system; to set up this server as it is, use mode: convert", a.Mode)
 			}
+			if binary == "" && simulated {
+				// The simulated server has Racksail where its package puts it.
+				binary = "/usr/bin/racksail"
+			}
 			if binary == "" {
 				if binary, err = os.Executable(); err != nil {
 					return err

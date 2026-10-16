@@ -28,7 +28,7 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 		// process.
 		os.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
 		root := newRootCommand()
-		root.SetArgs([]string{"edge", "--config", config})
+		root.SetArgs([]string{"edge", "--config", config, "--state", filepath.Join(filepath.Dir(config), "state")})
 		if err := root.Execute(); err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := exec.Command(os.Args[0], "-test.run=^TestEdgeTakesTheSocketSystemdPasses$")
-	child.Env = append(os.Environ(), "RACKSAIL_TEST_EDGE_CONFIG="+config, "LISTEN_FDS=1")
+	child.Env = append(os.Environ(), "RACKSAIL_TEST_EDGE_CONFIG="+config, "LISTEN_FDS=1", "XDG_DATA_HOME="+dir)
 	child.ExtraFiles = []*os.File{file}
 	var output bytes.Buffer
 	child.Stdout, child.Stderr = &output, &output
@@ -100,11 +100,14 @@ func TestEdgeTakesTheSocketSystemdPasses(t *testing.T) {
 
 func TestEdgeCreatesItsOwnSocketWithoutSystemd(t *testing.T) {
 	path := filepath.Join(shortTemp(t), "run", "edge.sock")
-	ln, err := adminListener(path, slog.New(slog.DiscardHandler))
+	ln, activated, err := adminListener(path, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ln.Close()
+	if activated {
+		t.Error("a socket the edge made isn't one systemd passed in")
+	}
 	if fi, err := os.Stat(path); err != nil || fi.Mode()&fs.ModeSocket == 0 || fi.Mode().Perm() != 0o600 {
 		t.Errorf("the socket = %v, %v", fi, err)
 	}

@@ -27,44 +27,59 @@ type Options struct {
 	// NoVirtualization simulates hardware without VT-x/AMD-V, where the VMs
 	// module can't be turned on.
 	NoVirtualization bool
+	// Realistic makes operations take about as long as they would on a
+	// real server: package downloads, service starts, formatting disks.
+	// Development mode turns it on; tests leave it off.
+	Realistic bool
 	// Clock returns the current time; it defaults to time.Now.
 	Clock func() time.Time
 }
 
 // Machine is a simulated server. All methods are safe for concurrent use.
 type Machine struct {
-	mu    sync.Mutex
-	clock func() time.Time
-	facts system.MachineFacts
+	mu        sync.Mutex
+	clock     func() time.Time
+	realistic bool
+	facts     system.MachineFacts
 
-	files    map[string]*node
-	users    map[string]*system.User
-	groups   map[string]*system.Group
-	units    map[string]*unitRuntime
-	enabled  map[string]bool
-	builtin  map[string]bool
-	reloads  int
-	packages map[string]system.Package
-	offers   map[string]string
-	sources  map[string]system.AptSource
-	archives map[string]system.Archive
-	subvols  map[string]*system.Subvolume
-	quotas   map[string]int64
-	nextSub  uint64
-	btrfsFS  map[string]*btrfsFS
-	mounts   []system.Mount
-	disks    []*system.Disk
-	ruleset  []byte
-	sets     map[string]map[string]time.Time
-	ifaces   []system.Interface
-	routes   []system.Route
-	hostname string
-	sysctl   map[string]string
-	procs    map[int]*system.Process
-	nextPID  int
-	programs map[string]Program
-	calls    []Call
-	failures map[string][]error
+	files     map[string]*node
+	users     map[string]*system.User
+	groups    map[string]*system.Group
+	units     map[string]*unitRuntime
+	enabled   map[string]bool
+	builtin   map[string]bool
+	reloads   int
+	packages  map[string]system.Package
+	offers    map[string]string
+	sources   map[string]system.AptSource
+	archives  map[string]system.Archive
+	subvols   map[string]*system.Subvolume
+	quotas    map[string]int64
+	nextSub   uint64
+	btrfsFS   map[string]*btrfsFS
+	mounts    []system.Mount
+	disks     []*system.Disk
+	ruleset   []byte
+	sets      map[string]map[string]time.Time
+	ifaces    []system.Interface
+	routes    []system.Route
+	hostname  string
+	sysctl    map[string]string
+	procs     map[int]*system.Process
+	nextPID   int
+	holds     map[string]bool
+	smart     map[string]*diskHealth
+	journal   []logEntry
+	nextLog   uint64
+	activity  map[string]time.Time
+	stats     *statsState
+	downloads map[string][]byte
+	programs  map[string]Program
+	calls     []Call
+	failures  map[string][]error
+	// store keeps the machine on disk when it was opened from a
+	// directory; nil for machines that live in memory only.
+	store *store
 }
 
 // Call records one adapter call, for test assertions.
@@ -94,28 +109,32 @@ func New(opts Options) *Machine {
 		opts.Clock = time.Now
 	}
 	m := &Machine{
-		clock:    opts.Clock,
-		files:    map[string]*node{},
-		users:    map[string]*system.User{},
-		groups:   map[string]*system.Group{},
-		units:    map[string]*unitRuntime{},
-		enabled:  map[string]bool{},
-		builtin:  map[string]bool{},
-		packages: map[string]system.Package{},
-		offers:   map[string]string{},
-		sources:  map[string]system.AptSource{},
-		archives: map[string]system.Archive{},
-		subvols:  map[string]*system.Subvolume{},
-		quotas:   map[string]int64{},
-		nextSub:  256,
-		btrfsFS:  map[string]*btrfsFS{},
-		sets:     map[string]map[string]time.Time{},
-		sysctl:   map[string]string{},
-		procs:    map[int]*system.Process{},
-		nextPID:  1000,
-		programs: map[string]Program{},
-		failures: map[string][]error{},
-		hostname: opts.Hostname,
+		clock:     opts.Clock,
+		realistic: opts.Realistic,
+		files:     map[string]*node{},
+		users:     map[string]*system.User{},
+		groups:    map[string]*system.Group{},
+		units:     map[string]*unitRuntime{},
+		enabled:   map[string]bool{},
+		builtin:   map[string]bool{},
+		packages:  map[string]system.Package{},
+		offers:    map[string]string{},
+		sources:   map[string]system.AptSource{},
+		archives:  map[string]system.Archive{},
+		subvols:   map[string]*system.Subvolume{},
+		quotas:    map[string]int64{},
+		nextSub:   256,
+		btrfsFS:   map[string]*btrfsFS{},
+		sets:      map[string]map[string]time.Time{},
+		sysctl:    map[string]string{},
+		procs:     map[int]*system.Process{},
+		nextPID:   1000,
+		holds:     map[string]bool{},
+		smart:     map[string]*diskHealth{},
+		activity:  map[string]time.Time{},
+		programs:  map[string]Program{},
+		failures:  map[string][]error{},
+		hostname:  opts.Hostname,
 	}
 	m.seed(opts)
 	return m
@@ -138,11 +157,17 @@ func (m *Machine) Backend() *system.Backend {
 		Sysctl:    simSysctl{m},
 		Processes: simProcesses{m},
 		Certs:     system.NewCertStore(simFiles{m}, system.CertsDir),
+		Journal:   simJournal{m},
+		Metrics:   simMetrics{m},
 		Exec:      simExec{m},
 	}
 }
 
-// Calls returns the adapter calls made so far.
+// maxCalls is how many of the latest adapter calls a machine keeps, so a
+// long racksail dev session doesn't grow without end.
+const maxCalls = 10000
+
+// Calls returns the latest adapter calls, up to maxCalls of them.
 func (m *Machine) Calls() []Call {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -166,16 +191,29 @@ func (m *Machine) FailNext(op, target string, err error) {
 	m.failures[key] = append(m.failures[key], err)
 }
 
-// record notes a call and returns an injected failure, if any. The caller
-// must hold m.mu.
+// record notes a call and returns an injected failure, if any. Every call
+// that changes the machine is recorded, so it is also when a machine kept
+// on disk is saved. The caller must hold m.mu.
 func (m *Machine) record(area, op, target string) error {
 	m.calls = append(m.calls, Call{Area: area, Op: op, Target: target})
+	if len(m.calls) > maxCalls+maxCalls/10 {
+		m.calls = slices.Clone(m.calls[len(m.calls)-maxCalls:])
+	}
+	m.changed()
 	key := area + "." + op + " " + target
 	if errs := m.failures[key]; len(errs) > 0 {
 		m.failures[key] = errs[1:]
 		return errs[0]
 	}
 	return nil
+}
+
+// changed schedules a save of a machine kept on disk. The caller holds
+// m.mu.
+func (m *Machine) changed() {
+	if m.store != nil {
+		m.store.schedule()
+	}
 }
 
 func (m *Machine) now() time.Time { return m.clock().UTC() }
@@ -205,23 +243,19 @@ func hash(s string) uint64 {
 func (m *Machine) seed(opts Options) {
 	now := m.now()
 	m.facts = system.MachineFacts{
-		Hostname:  opts.Hostname,
-		FQDN:      opts.Hostname + ".racksail.test",
-		MachineID: fmt.Sprintf("%016x%016x", hash(opts.Hostname), hash(opts.Hostname+"machine")),
-		BootID:    fmt.Sprintf("%016x%016x", hash(opts.Hostname+"boot"), hash(now.String())),
-		OS:        system.OSRelease{ID: "debian", VersionID: "13", VersionCodename: "trixie", PrettyName: "Debian GNU/Linux 13 (trixie)"},
-		Kernel:    "6.12.48+deb13-" + opts.Arch,
-		Arch:      opts.Arch,
-		CPU: system.CPUInfo{
-			Model:          "Simulated CPU",
-			Cores:          opts.CPUs,
-			Threads:        opts.CPUs * 2,
-			Virtualization: !opts.NoVirtualization,
-		},
+		Hostname:       opts.Hostname,
+		FQDN:           opts.Hostname + ".racksail.test",
+		MachineID:      fmt.Sprintf("%016x%016x", hash(opts.Hostname), hash(opts.Hostname+"machine")),
+		BootID:         fmt.Sprintf("%016x%016x", hash(opts.Hostname+"boot"), hash(now.String())),
+		OS:             system.OSRelease{ID: "debian", VersionID: "13", VersionCodename: "trixie", PrettyName: "Debian GNU/Linux 13 (trixie)"},
+		Kernel:         "6.12.48+deb13-" + opts.Arch,
+		Arch:           opts.Arch,
+		CPU:            simCPU(opts),
 		MemoryBytes:    opts.MemoryBytes,
 		SwapBytes:      opts.MemoryBytes / 2,
 		Firmware:       system.Firmware{UEFI: true, SecureBoot: true},
 		TPM:            true,
+		TPMVersion:     "2",
 		KVM:            !opts.NoVirtualization,
 		IOMMU:          !opts.NoVirtualization,
 		Timezone:       "UTC",
@@ -279,6 +313,8 @@ func (m *Machine) seed(opts Options) {
 		"PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\nVERSION=\"13 (trixie)\"\nVERSION_CODENAME=trixie\nID=debian\n")}
 	m.files["/etc/hostname"] = &node{mode: 0o644, modTime: now, data: []byte(opts.Hostname + "\n")}
 	m.files["/etc/machine-id"] = &node{mode: 0o444, modTime: now, data: []byte(m.facts.MachineID + "\n")}
+	// The server runs Racksail, installed where its package puts it.
+	m.files["/usr/bin/racksail"] = &node{mode: 0o755, modTime: now, data: []byte("simulated racksail executable\n")}
 
 	m.seedStorage(now)
 	m.seedNetwork()
@@ -294,6 +330,39 @@ func (m *Machine) seed(opts Options) {
 		"vm.swappiness":                   "60",
 		"fs.inotify.max_user_watches":     "65536",
 	}
+}
+
+// CPU flags of the simulated processors: what a current server CPU reports,
+// with the virtualization flag left out when the hardware lacks it.
+var (
+	amd64Flags = []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca",
+		"cmov", "pat", "pse36", "clflush", "mmx", "fxsr", "sse", "sse2", "ht", "syscall", "nx", "pdpe1gb", "rdtscp", "lm",
+		"constant_tsc", "rep_good", "nopl", "xtopology", "nonstop_tsc", "cpuid", "pni", "pclmulqdq", "vmx", "ssse3", "fma",
+		"cx16", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm",
+		"abm", "3dnowprefetch", "fsgsbase", "bmi1", "avx2", "smep", "bmi2", "erms", "invpcid", "rdseed", "adx", "smap",
+		"clflushopt", "clwb", "sha_ni", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "avx512f", "avx512dq", "avx512cd",
+		"avx512bw", "avx512vl", "vaes", "vpclmulqdq", "rdpid"}
+	arm64Flags = []string{"fp", "asimd", "evtstrm", "aes", "pmull", "sha1", "sha2", "crc32", "atomics", "fphp", "asimdhp",
+		"cpuid", "asimdrdm", "jscvt", "fcma", "lrcpc", "dcpop", "sha3", "asimddp", "sha512", "asimdfhm", "dit", "uscat",
+		"ilrcpc", "flagm", "ssbs", "sb", "paca", "pacg", "dcpodp", "flagm2", "frint"}
+)
+
+func simCPU(opts Options) system.CPUInfo {
+	c := system.CPUInfo{Sockets: 1, Cores: opts.CPUs, Threads: opts.CPUs * 2}
+	if opts.Arch == "arm64" {
+		c.Model, c.Vendor, c.Threads = "Neoverse-N1", "Ampere", opts.CPUs
+		c.Flags = slices.Clone(arm64Flags)
+		if !opts.NoVirtualization {
+			c.Virtualization, c.VirtualizationType = true, "arm64"
+		}
+		return c
+	}
+	c.Model, c.Vendor = "Simulated Xeon CPU @ 2.80GHz", "GenuineIntel"
+	c.Flags = slices.DeleteFunc(slices.Clone(amd64Flags), func(f string) bool { return f == "vmx" && opts.NoVirtualization })
+	if !opts.NoVirtualization {
+		c.Virtualization, c.VirtualizationType = true, "vmx"
+	}
+	return c
 }
 
 // pathOwner resolves an Owner to numeric IDs. The caller holds m.mu.

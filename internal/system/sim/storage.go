@@ -31,9 +31,10 @@ func (m *Machine) seedStorage(now time.Time) {
 			Name: "nvme0n1", Path: "/dev/nvme0n1", ByID: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001",
 			Model: "SIM SSD 512GB", Serial: "S0001", SizeBytes: 512 * 1000 * 1000 * 1000, Transport: "nvme", System: true,
 			Partitions: []system.Partition{
-				{Name: "nvme0n1p1", Path: "/dev/nvme0n1p1", Number: 1, SizeBytes: gib, FSType: "vfat", Label: "EFI", UUID: "1A2B-3C4D", MountPoints: []string{"/boot/efi"}},
+				{Name: "nvme0n1p1", Path: "/dev/nvme0n1p1", Number: 1, SizeBytes: gib, FSType: "vfat", Label: "EFI", UUID: "1A2B-3C4D",
+					PartUUID: "9e2b7c41-0000-4000-8000-000000000001", MountPoints: []string{"/boot/efi"}},
 				{Name: "nvme0n1p2", Path: "/dev/nvme0n1p2", Number: 2, SizeBytes: 512*1000*1000*1000 - gib, FSType: "btrfs", Label: "racksail", UUID: "6f1c2d3e-0000-4000-8000-000000000001",
-					MountPoints: []string{"/", "/.snapshots", "/srv/racksail", "/var/lib/racksail", "/var/lib/racksail-db", "/var/log"}},
+					PartUUID: "9e2b7c41-0000-4000-8000-000000000002", MountPoints: []string{"/", "/.snapshots", "/srv/racksail", "/var/lib/racksail", "/var/lib/racksail-db", "/var/log"}},
 			},
 		},
 		{Name: "nvme1n1", Path: "/dev/nvme1n1", ByID: "/dev/disk/by-id/nvme-SIM_SSD_1TB_S0002", Model: "SIM SSD 1TB", Serial: "S0002", SizeBytes: 1000 * 1000 * 1000 * 1000, Transport: "nvme"},
@@ -69,17 +70,35 @@ func (m *Machine) mountOf(p string) (system.Mount, bool) {
 	return best, found
 }
 
-// btrfsOf returns the Btrfs filesystem holding p. The caller holds m.mu.
+// btrfsOf returns the Btrfs filesystem holding p and the device that names
+// it, whichever of its devices it was mounted from. The caller holds m.mu.
 func (m *Machine) btrfsOf(p string) (*btrfsFS, string, error) {
 	mt, ok := m.mountOf(p)
 	if !ok || mt.FSType != "btrfs" {
 		return nil, "", invalid("%s is not on a Btrfs filesystem", p)
 	}
-	fsys, ok := m.btrfsFS[mt.Source]
-	if !ok {
-		return nil, "", invalid("%s is not on a Btrfs filesystem", p)
+	if fsys, ok := m.btrfsFS[mt.Source]; ok {
+		return fsys, mt.Source, nil
 	}
-	return fsys, mt.Source, nil
+	for dev, fsys := range m.btrfsFS {
+		if slices.Contains(fsys.devices, mt.Source) {
+			return fsys, dev, nil
+		}
+	}
+	return nil, "", invalid("%s is not on a Btrfs filesystem", p)
+}
+
+// kernelPath returns the kernel's path of the device dev names. The caller
+// holds m.mu.
+func (m *Machine) kernelPath(dev string) (string, string, bool) {
+	d, p := m.findDevice(dev)
+	switch {
+	case p != nil:
+		return p.Path, p.UUID, true
+	case d != nil:
+		return d.Path, d.UUID, true
+	}
+	return "", "", false
 }
 
 // subvolumeFS reports which filesystem a subvolume lives on. The caller
@@ -140,6 +159,7 @@ func (b simBtrfs) Subvolumes(ctx context.Context, mount string) ([]system.Subvol
 }
 
 func (b simBtrfs) CreateSubvolume(ctx context.Context, p string) error {
+	b.m.delay(ctx, opSubvolume, 0)
 	p, err := cleanAbs(p)
 	if err != nil {
 		return err
@@ -205,6 +225,7 @@ func (b simBtrfs) DeleteSubvolume(ctx context.Context, p string) error {
 }
 
 func (b simBtrfs) Snapshot(ctx context.Context, source, dest string, readOnly bool) error {
+	b.m.delay(ctx, opSnapshot, 0)
 	source, err := cleanAbs(source)
 	if err != nil {
 		return err
@@ -335,16 +356,21 @@ func (b simBtrfs) Usage(ctx context.Context, mount string) (system.FilesystemUsa
 	return system.FilesystemUsage{SizeBytes: size, UsedBytes: used, FreeBytes: size - used, BtrfsProfiles: fsys.profiles, Devices: slices.Clone(fsys.devices)}, nil
 }
 
+// sendEntry is a line of a simulated send stream: the header, naming the
+// snapshot and the parent an incremental stream builds on by UUID as Btrfs
+// does, then one entry per file.
 type sendEntry struct {
-	Format string      `json:"format,omitempty"`
-	Name   string      `json:"name,omitempty"`
-	Parent string      `json:"parent,omitempty"`
-	Path   string      `json:"path,omitempty"`
-	Mode   fs.FileMode `json:"mode,omitempty"`
-	UID    int         `json:"uid,omitempty"`
-	GID    int         `json:"gid,omitempty"`
-	Data   string      `json:"data,omitempty"`
-	Target string      `json:"target,omitempty"`
+	Format     string      `json:"format,omitempty"`
+	Name       string      `json:"name,omitempty"`
+	UUID       string      `json:"uuid,omitempty"`
+	Parent     string      `json:"parent,omitempty"`
+	ParentUUID string      `json:"parentUuid,omitempty"`
+	Path       string      `json:"path,omitempty"`
+	Mode       fs.FileMode `json:"mode,omitempty"`
+	UID        int         `json:"uid,omitempty"`
+	GID        int         `json:"gid,omitempty"`
+	Data       string      `json:"data,omitempty"`
+	Target     string      `json:"target,omitempty"`
 }
 
 const sendFormat = "racksail-sim-send/1"
@@ -367,17 +393,20 @@ func (b simBtrfs) Send(ctx context.Context, snapshot, parent string, w io.Writer
 		m.mu.Unlock()
 		return invalid("only read-only snapshots can be sent")
 	}
+	header := sendEntry{Format: sendFormat, Name: path.Base(snapshot), UUID: sv.UUID}
 	if parent != "" {
-		if _, ok := m.subvols[parent]; !ok {
+		p, ok := m.subvols[parent]
+		if !ok {
 			m.mu.Unlock()
 			return notFound("parent subvolume " + parent)
 		}
+		header.Parent, header.ParentUUID = path.Base(parent), p.UUID
 	}
 	if err := m.record("btrfs", "send", snapshot); err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	entries := []sendEntry{{Format: sendFormat, Name: path.Base(snapshot), Parent: path.Base(parent)}}
+	entries := []sendEntry{header}
 	var paths []string
 	for fp := range m.files {
 		if isUnder(fp, snapshot) && fp != snapshot && !m.inNestedSubvolume(fp, snapshot) {
@@ -402,7 +431,7 @@ func (b simBtrfs) Send(ctx context.Context, snapshot, parent string, w io.Writer
 	return nil
 }
 
-func (b simBtrfs) Receive(ctx context.Context, dir string, r io.Reader) error {
+func (b simBtrfs) Receive(ctx context.Context, dir string, r io.Reader, allow func(uuid string) error) error {
 	dir, err := cleanAbs(dir)
 	if err != nil {
 		return err
@@ -425,10 +454,24 @@ func (b simBtrfs) Receive(ctx context.Context, dir string, r io.Reader) error {
 	if err := sc.Err(); err != nil {
 		return err
 	}
-	if header.Format != sendFormat || header.Name == "" || strings.ContainsAny(header.Name, "/\x00") {
+	if header.Format != sendFormat || header.Name == "" || strings.ContainsAny(header.Name, "/\x00") || header.Name == "." || header.Name == ".." {
 		return invalid("not a send stream")
 	}
 	m := b.m
+	// The caller's decision about the parent looks at the machine too, so
+	// it is asked before the machine is locked.
+	parent, err := m.receiveParentUUID(ctx, dir, header)
+	if err != nil {
+		return err
+	}
+	if parent != "" {
+		if allow == nil {
+			return invalid("send stream: the stream builds on subvolume %s", parent)
+		}
+		if err := allow(parent); err != nil {
+			return fmt.Errorf("send stream: the parent is subvolume %s: %w", parent, err)
+		}
+	}
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -436,31 +479,70 @@ func (b simBtrfs) Receive(ctx context.Context, dir string, r io.Reader) error {
 	if err := m.record("btrfs", "receive", dir); err != nil {
 		return err
 	}
-	if _, _, err := m.btrfsOf(dir); err != nil {
+	_, fsDev, err := m.btrfsOf(dir)
+	if err != nil {
 		return err
 	}
-	if header.Parent != "" && header.Parent != "." {
-		if _, ok := m.subvols[path.Join(dir, header.Parent)]; !ok {
-			return notFound("parent snapshot " + path.Join(dir, header.Parent))
-		}
+	if parent != "" && !m.hasParent(fsDev, parent) {
+		return notFound("the parent snapshot, subvolume " + parent)
 	}
 	dest := path.Join(dir, header.Name)
-	if err := m.mkdir(dest, 0o755, system.Owner{}); err != nil {
-		return err
-	}
+	files := map[string]*node{}
 	for _, e := range entries {
 		p := path.Join(dest, e.Path)
 		if !isUnder(p, dest) || p == dest {
 			return invalid("send stream entry %q escapes the snapshot", e.Path)
 		}
+		if e.Mode&fs.ModeDevice != 0 {
+			return invalid("send stream: device nodes aren't received")
+		}
 		data, err := base64.StdEncoding.DecodeString(e.Data)
 		if err != nil {
 			return invalid("send stream entry %q: %v", e.Path, err)
 		}
-		m.files[p] = &node{mode: e.Mode, uid: e.UID, gid: e.GID, data: data, target: e.Target, modTime: m.now()}
+		// As with every other way files arrive, set-ID bits don't.
+		mode := e.Mode &^ (fs.ModeSetuid | fs.ModeSetgid)
+		files[p] = &node{mode: mode, uid: e.UID, gid: e.GID, data: data, target: e.Target, modTime: m.now()}
 	}
-	m.addSubvolume(dest, true, "")
+	if err := m.mkdir(dest, 0o755, system.Owner{}); err != nil {
+		return err
+	}
+	for p, n := range files {
+		m.files[p] = n
+	}
+	sv := m.addSubvolume(dest, true, "")
+	sv.ReceivedUUID = header.UUID
 	return nil
+}
+
+// receiveParentUUID returns the UUID of the subvolume an incremental stream
+// builds on, empty for a full stream.
+func (m *Machine) receiveParentUUID(ctx context.Context, dir string, header sendEntry) (string, error) {
+	if header.ParentUUID != "" || header.Parent == "" || header.Parent == "." {
+		return header.ParentUUID, nil
+	}
+	// Streams from before parents were named by UUID name one in dir.
+	if err := m.lock(ctx); err != nil {
+		return "", err
+	}
+	defer m.mu.Unlock()
+	p, ok := m.subvols[path.Join(dir, header.Parent)]
+	if !ok {
+		return "", notFound("parent snapshot " + path.Join(dir, header.Parent))
+	}
+	return p.UUID, nil
+}
+
+// hasParent reports whether the filesystem has the subvolume an
+// incremental stream builds on, found as btrfs receive finds it: one
+// received from it first, then the subvolume itself. The caller holds m.mu.
+func (m *Machine) hasParent(fsDev, uuid string) bool {
+	for p, sv := range m.subvols {
+		if m.subvolumeFS(p) == fsDev && (sv.ReceivedUUID == uuid || sv.UUID == uuid) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b simBtrfs) AddDevice(ctx context.Context, mount, device string) error {
@@ -479,8 +561,13 @@ func (b simBtrfs) AddDevice(ctx context.Context, mount, device string) error {
 	if err := m.deviceFree(device); err != nil {
 		return err
 	}
-	fsys.devices = append(fsys.devices, device)
-	m.setDeviceFS(device, "btrfs", "")
+	dev, _, ok := m.kernelPath(device)
+	if !ok {
+		return notFound("device " + device)
+	}
+	_, uuid, _ := m.kernelPath(fsys.devices[0])
+	fsys.devices = append(fsys.devices, dev)
+	m.setDeviceFS(dev, "btrfs", "", uuid)
 	return nil
 }
 
@@ -497,6 +584,9 @@ func (b simBtrfs) RemoveDevice(ctx context.Context, mount, device string) error 
 	if err != nil {
 		return err
 	}
+	if dev, _, ok := m.kernelPath(device); ok {
+		device = dev
+	}
 	i := slices.Index(fsys.devices, device)
 	if i < 0 {
 		return notFound("device " + device + " in " + mount)
@@ -508,7 +598,7 @@ func (b simBtrfs) RemoveDevice(ctx context.Context, mount, device string) error 
 		return invalid("%s is the device the filesystem is mounted from", device)
 	}
 	fsys.devices = slices.Delete(fsys.devices, i, i+1)
-	m.setDeviceFS(device, "", "")
+	m.setDeviceFS(device, "", "", "")
 	return nil
 }
 
@@ -668,13 +758,20 @@ func (s simMounts) Mount(ctx context.Context, mt system.Mount) error {
 		}
 	}
 	if strings.HasPrefix(mt.Source, "/dev/") {
-		fstype, ok := m.deviceFS(mt.Source)
-		if !ok {
+		d, p := m.findDevice(mt.Source)
+		if d == nil {
 			return notFound("device " + mt.Source)
+		}
+		fstype, kernelPath := d.FSType, d.Path
+		if p != nil {
+			fstype, kernelPath = p.FSType, p.Path
 		}
 		if fstype != mt.FSType {
 			return invalid("%s holds %q, not %s", mt.Source, fstype, mt.FSType)
 		}
+		// Like the kernel, the mount table names the device itself, not
+		// the link it was reached through.
+		mt.Source = kernelPath
 	}
 	mt.Options = slices.Clone(mt.Options)
 	m.mounts = append(m.mounts, mt)
@@ -704,8 +801,9 @@ func (s simMounts) Unmount(ctx context.Context, target string) error {
 
 type simDisks struct{ m *Machine }
 
-// findDevice returns the disk and, for partitions, the partition. The
-// caller holds m.mu.
+// findDevice returns the disk and, for partitions, the partition that dev
+// names: a kernel name or path, or one of the links udev keeps under
+// /dev/disk. The caller holds m.mu.
 func (m *Machine) findDevice(dev string) (*system.Disk, *system.Partition) {
 	name := strings.TrimPrefix(dev, "/dev/")
 	for _, d := range m.disks {
@@ -718,7 +816,15 @@ func (m *Machine) findDevice(dev string) (*system.Disk, *system.Partition) {
 			}
 		}
 	}
-	return nil, nil
+	inventory := make([]system.Disk, len(m.disks))
+	for i, d := range m.disks {
+		inventory[i] = *d
+	}
+	found, ok := system.FindDevice(inventory, dev)
+	if !ok {
+		return nil, nil
+	}
+	return m.findDevice(found.Path())
 }
 
 func (m *Machine) deviceSize(dev string) int64 {
@@ -732,22 +838,17 @@ func (m *Machine) deviceSize(dev string) int64 {
 	return 0
 }
 
-func (m *Machine) deviceFS(dev string) (string, bool) {
-	d, p := m.findDevice(dev)
-	switch {
-	case p != nil:
-		return p.FSType, true
-	case d != nil:
-		return d.FSType, true
-	}
-	return "", false
+// fsUUID makes up the UUID of a new filesystem on dev.
+func (m *Machine) fsUUID(dev, fstype, label string) string {
+	return fmt.Sprintf("%08x-%04x-4%03x-8%03x-%012x", hash(dev)>>32, hash(dev)&0xffff, hash(fstype)&0xfff, hash(label)&0xfff, hash(dev+m.now().String())&0xffffffffffff)
 }
 
-func (m *Machine) setDeviceFS(dev, fstype, label string) {
+// setDeviceFS records a filesystem on dev; uuid is shared by every device
+// of a multi-device filesystem.
+func (m *Machine) setDeviceFS(dev, fstype, label, uuid string) {
 	d, p := m.findDevice(dev)
-	uuid := ""
-	if fstype != "" {
-		uuid = fmt.Sprintf("%08x-%04x-4%03x-8%03x-%012x", hash(dev)>>32, hash(dev)&0xffff, hash(fstype)&0xfff, hash(label)&0xfff, hash(dev+m.now().String())&0xffffffffffff)
+	if fstype == "" {
+		uuid = ""
 	}
 	switch {
 	case p != nil:
@@ -766,13 +867,18 @@ func (m *Machine) deviceFree(dev string) error {
 	if d.System {
 		return invalid("%s holds the running system", d.Path)
 	}
-	path := d.Path
+	path, uuid := d.Path, d.UUID
 	if p != nil {
-		path = p.Path
+		path, uuid = p.Path, p.UUID
 	}
 	for _, mt := range m.mounts {
 		if mt.Source == path {
 			return invalid("%s is mounted at %s", path, mt.Target)
+		}
+		if uuid != "" {
+			if other, op := m.findDevice(mt.Source); other != nil && ((op != nil && op.UUID == uuid) || (op == nil && other.UUID == uuid)) {
+				return invalid("%s belongs to the filesystem mounted at %s", path, mt.Target)
+			}
 		}
 	}
 	for _, fsys := range m.btrfsFS {
@@ -793,63 +899,31 @@ func (s simDisks) List(ctx context.Context) ([]system.Disk, error) {
 	for i, d := range m.disks {
 		c := *d
 		c.Partitions = slices.Clone(d.Partitions)
-		c.MountPoints = nil
-		for _, mt := range m.mounts {
-			if mt.Source == d.Path {
-				c.MountPoints = append(c.MountPoints, mt.Target)
-			}
+		c.MountPoints = m.mountPointsOf(d.Path)
+		for j := range c.Partitions {
+			c.Partitions[j].MountPoints = m.mountPointsOf(c.Partitions[j].Path)
 		}
 		out[i] = c
 	}
 	return out, nil
 }
 
-func (s simDisks) SMART(ctx context.Context, name string) (system.SMARTReport, error) {
-	m := s.m
-	if err := m.lock(ctx); err != nil {
-		return system.SMARTReport{}, err
+// mountPointsOf lists where a device is mounted, sorted as lsblk sorts
+// them. The caller holds m.mu.
+func (m *Machine) mountPointsOf(dev string) []string {
+	var out []string
+	for _, mt := range m.mounts {
+		if mt.Source == dev {
+			out = append(out, mt.Target)
+		}
 	}
-	defer m.mu.Unlock()
-	d, p := m.findDevice(name)
-	if d == nil || p != nil {
-		return system.SMARTReport{}, notFound("disk " + name)
-	}
-	h := hash(d.Serial)
-	temp := 30 + int(h%15)
-	hours := int(h % 30000)
-	return system.SMARTReport{
-		Supported: true, Healthy: true, TemperatureC: temp, PowerOnHours: hours,
-		Attributes: []system.SMARTAttribute{
-			{ID: 5, Name: "Reallocated_Sector_Ct", Value: 100, Worst: 100, Threshold: 10},
-			{ID: 9, Name: "Power_On_Hours", Value: 99, Worst: 99, Raw: int64(hours)},
-			{ID: 194, Name: "Temperature_Celsius", Value: 100 - temp, Worst: 60, Raw: int64(temp)},
-			{ID: 197, Name: "Current_Pending_Sector", Value: 100, Worst: 100},
-			{ID: 198, Name: "Offline_Uncorrectable", Value: 100, Worst: 100},
-		},
-	}, nil
-}
-
-func (s simDisks) SelfTest(ctx context.Context, name string, long bool) error {
-	m := s.m
-	if err := m.lock(ctx); err != nil {
-		return err
-	}
-	defer m.mu.Unlock()
-	kind := "short"
-	if long {
-		kind = "long"
-	}
-	if err := m.record("disks", "self_test", name+" "+kind); err != nil {
-		return err
-	}
-	if d, p := m.findDevice(name); d == nil || p != nil {
-		return notFound("disk " + name)
-	}
-	return nil
+	sort.Strings(out)
+	return out
 }
 
 func (s simDisks) Wipe(ctx context.Context, device string) error {
 	m := s.m
+	m.delay(ctx, opWipe, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -876,6 +950,7 @@ func (s simDisks) Wipe(ctx context.Context, device string) error {
 
 func (s simDisks) Partition(ctx context.Context, disk string, parts []system.PartitionSpec) error {
 	m := s.m
+	m.delay(ctx, opPartition, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -922,7 +997,8 @@ func (s simDisks) Partition(ctx context.Context, disk string, parts []system.Par
 		if strings.HasPrefix(d.Name, "nvme") {
 			name = fmt.Sprintf("%sp%d", d.Name, ps.Number)
 		}
-		out = append(out, system.Partition{Name: name, Path: "/dev/" + name, Number: ps.Number, SizeBytes: size, Label: ps.Name})
+		partUUID := fmt.Sprintf("%08x-%04x-4%03x-8%03x-%012x", hash(name)>>32, hash(d.Name)&0xffff, ps.Number&0xfff, hash(ps.Type)&0xfff, hash(name+m.now().String())&0xffffffffffff)
+		out = append(out, system.Partition{Name: name, Path: "/dev/" + name, Number: ps.Number, SizeBytes: size, Label: ps.Name, PartUUID: partUUID})
 	}
 	d.Partitions = out
 	d.FSType, d.Label, d.UUID = "", "", ""
@@ -931,6 +1007,7 @@ func (s simDisks) Partition(ctx context.Context, disk string, parts []system.Par
 
 func (s simDisks) Format(ctx context.Context, spec system.FormatSpec) error {
 	m := s.m
+	m.delay(ctx, opFormat, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -981,8 +1058,10 @@ func (s simDisks) Format(ctx context.Context, spec system.FormatSpec) error {
 		}
 		m.btrfsFS[paths[0]] = &btrfsFS{devices: paths, profiles: profiles}
 	}
+	// Every device of a multi-device Btrfs filesystem carries its UUID.
+	uuid := m.fsUUID(spec.Devices[0], spec.Type, spec.Label)
 	for _, dev := range spec.Devices {
-		m.setDeviceFS(dev, spec.Type, spec.Label)
+		m.setDeviceFS(dev, spec.Type, spec.Label, uuid)
 	}
 	return nil
 }

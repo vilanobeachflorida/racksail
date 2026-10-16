@@ -192,6 +192,7 @@ func (u simUnits) RemoveDropIn(ctx context.Context, unit, name string) error {
 
 func (u simUnits) DaemonReload(ctx context.Context) error {
 	m := u.m
+	m.delay(ctx, opDaemon, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -205,6 +206,7 @@ func (u simUnits) DaemonReload(ctx context.Context) error {
 
 func (u simUnits) Start(ctx context.Context, name string) error {
 	m := u.m
+	m.delay(ctx, opStart, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -229,26 +231,34 @@ func (m *Machine) startUnit(name string) error {
 		return nil
 	}
 	rt.active, rt.since = "active", m.now()
+	desc := m.describe(name)
 	switch path.Ext(name) {
 	case ".service":
 		content, _ := m.unitFile(name)
+		m.logSystemd(name, system.PriorityInfo, "Starting %s...", desc)
 		if unitDirective(content, "Type") == "oneshot" {
 			rt.sub, rt.pid = "exited", 0
 			if unitDirective(content, "RemainAfterExit") != "yes" {
 				rt.active, rt.sub = "inactive", "dead"
 			}
+			m.logSystemd(name, system.PriorityInfo, "Finished %s.", desc)
 			return nil
 		}
 		rt.sub = "running"
 		rt.pid = m.spawn(name, content)
+		m.logSystemd(name, system.PriorityInfo, "Started %s.", desc)
 	case ".socket":
 		rt.sub = "listening"
+		m.logSystemd(name, system.PriorityInfo, "Listening on %s.", desc)
 	case ".timer", ".path":
 		rt.sub = "waiting"
+		m.logSystemd(name, system.PriorityInfo, "Started %s.", desc)
 	case ".mount":
 		rt.sub = "mounted"
+		m.logSystemd(name, system.PriorityInfo, "Mounted %s.", desc)
 	default:
 		rt.sub = "active"
+		m.logSystemd(name, system.PriorityInfo, "Reached %s.", desc)
 	}
 	return nil
 }
@@ -285,14 +295,22 @@ func (m *Machine) stopUnit(name string) {
 	if !ok {
 		return
 	}
+	wasActive := rt.active == "active"
+	if wasActive {
+		m.logSystemd(name, system.PriorityInfo, "Stopping %s...", m.describe(name))
+	}
 	if rt.pid != 0 {
 		delete(m.procs, rt.pid)
 	}
 	rt.active, rt.sub, rt.pid = "inactive", "dead", 0
+	if wasActive {
+		m.logSystemd(name, system.PriorityInfo, "Stopped %s.", m.describe(name))
+	}
 }
 
 func (u simUnits) Stop(ctx context.Context, name string) error {
 	m := u.m
+	m.delay(ctx, opStop, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -309,6 +327,7 @@ func (u simUnits) Stop(ctx context.Context, name string) error {
 
 func (u simUnits) Restart(ctx context.Context, name string) error {
 	m := u.m
+	m.delay(ctx, opRestart, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -325,6 +344,7 @@ func (u simUnits) Restart(ctx context.Context, name string) error {
 
 func (u simUnits) Reload(ctx context.Context, name string) error {
 	m := u.m
+	m.delay(ctx, opReload, 0)
 	if err := m.lock(ctx); err != nil {
 		return err
 	}
@@ -336,6 +356,8 @@ func (u simUnits) Reload(ctx context.Context, name string) error {
 	if !ok || rt.active != "active" {
 		return invalid("unit %s is not active, so it can't be reloaded", name)
 	}
+	m.logSystemd(name, system.PriorityInfo, "Reloading %s...", m.describe(name))
+	m.logSystemd(name, system.PriorityInfo, "Reloaded %s.", m.describe(name))
 	return nil
 }
 
@@ -548,8 +570,11 @@ func (m *Machine) signal(pid int, sig system.Signal) {
 			rt.pid = 0
 			if sig == system.SIGKILL {
 				rt.active, rt.sub = "failed", "failed"
+				m.logSystemd(p.Unit, system.PriorityNotice, "%s: Main process exited, code=killed, status=9/KILL", p.Unit)
+				m.logSystemd(p.Unit, system.PriorityWarning, "%s: Failed with result 'signal'.", p.Unit)
 			} else {
 				rt.active, rt.sub = "inactive", "dead"
+				m.logSystemd(p.Unit, system.PriorityInfo, "Stopped %s.", m.describe(p.Unit))
 			}
 		}
 	}
@@ -562,30 +587,34 @@ func (m *Machine) CrashUnit(name string) {
 	defer m.mu.Unlock()
 	if rt, ok := m.units[name]; ok && rt.pid != 0 {
 		m.signal(rt.pid, system.SIGKILL)
+		m.changed()
 	}
 }
 
 func (m *Machine) seedUnitsAndPackages(now time.Time) {
-	for _, name := range []string{"base-files", "systemd", "systemd-sysv", "openssh-server", "openssh-client", "btrfs-progs", "ca-certificates", "sudo", "cron"} {
+	for _, name := range []string{"base-files", "systemd", "systemd-sysv", "systemd-timesyncd", "openssh-server", "openssh-client",
+		"btrfs-progs", "ca-certificates", "sudo", "cron", kernelPackage[m.facts.Arch]} {
 		e := catalogEntry(name)
 		m.packages[name] = e.pkg(name, m.facts.Arch)
 	}
+	release := kernelRelease(catalogEntry(kernelPackage[m.facts.Arch]).version, m.facts.Arch)
+	m.files["/boot/vmlinuz-"+release] = &node{mode: 0o644, modTime: now.Add(-72 * time.Hour), data: []byte("simulated kernel " + release)}
 	for _, name := range []string{
 		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-agent.service",
-		"racksail-edge.service", "systemd-networkd.service", "systemd-journald.service",
+		"racksail-edge.service", "racksail-edge.socket", "systemd-networkd.service", "systemd-journald.service",
 		"systemd-timesyncd.service", "ssh.service", "cron.service", "multi-user.target",
 	} {
 		m.builtin[name] = true
 	}
 	for _, name := range []string{
 		"racksail.slice", "racksail-accounts.slice", "racksail-panel.service", "racksail-agent.service",
-		"systemd-networkd.service", "systemd-journald.service", "systemd-timesyncd.service", "ssh.service", "cron.service",
+		"racksail-edge.socket", "systemd-networkd.service", "systemd-journald.service", "systemd-timesyncd.service",
+		"ssh.service", "cron.service",
 	} {
-		if err := m.startUnit(name); err == nil && path.Ext(name) == ".service" {
+		if err := m.startUnit(name); err == nil && path.Ext(name) != ".slice" {
 			m.enabled[name] = true
 		}
 	}
-	m.enabled["racksail-edge.service"] = true
 	if p, ok := m.procs[m.units["racksail-panel.service"].pid]; ok {
 		p.User, p.UID = "racksail", 990
 		p.Command, p.Args = "racksail", []string{"/usr/bin/racksail", "panel"}
