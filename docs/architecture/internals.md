@@ -52,9 +52,10 @@ Each part that keeps state brings its own tables as embedded migrations named `N
 | `core.jobs` | Jobs, their logs and the idempotency keys of retries (`jobs.NewSQL`) | `retention.jobs`, 30 days once finished; keys for a day |
 | `core.changesets` | Change sets, previews and idempotency keys (`changeset.NewSQLStorage`) | `retention.change_sets`, 30 days once finished; previews for an hour |
 | `core.webhooks` | Webhook deliveries and their attempts (`webhook.NewSQL`) | `retention.deliveries`, 30 days |
+| `core.inbox` | Who dismissed or snoozed which items of their attention inbox (`inbox.NewSQL`) | Until the snooze ends; otherwise 180 days |
 | `<module id>` | A module's own tables, from `MigrationProvider` | As the module decides |
 
-Each also caps how many it keeps. A migration that has run must never change: `Migrate` refuses to go on when one did, and when the database has migrations the binary doesn't know, as after going back to an older release. Add a new migration instead, as `0002_record_history_scope.sql` added owners to the history. When existing rows need values only Go can work out, the part fills them in when it opens, as `store.NewSQLite` does for the sort keys `0003_index_sort_keys.sql` added. Every durable implementation has an in-memory twin (`store.NewMemory`, `events.NewMemory`, `jobs.NewMemory`, `changeset.NewMemoryStorage`, `webhook.NewMemory`) that passes the same tests, for tests and tools.
+Each also caps how many it keeps, apart from the inbox's dismissals, one per person and item. A migration that has run must never change: `Migrate` refuses to go on when one did, and when the database has migrations the binary doesn't know, as after going back to an older release. Add a new migration instead, as `0002_record_history_scope.sql` added owners to the history. When existing rows need values only Go can work out, the part fills them in when it opens, as `store.NewSQLite` does for the sort keys `0003_index_sort_keys.sql` added. Every durable implementation has an in-memory twin (`store.NewMemory`, `events.NewMemory`, `jobs.NewMemory`, `changeset.NewMemoryStorage`, `webhook.NewMemory`) that passes the same tests, for tests and tools.
 
 Writes of different parts can commit together. `DB.Atomic` runs a function in one transaction, and every write made with the context it passes, through `DB.Write` and `DB.Exec`, joins that transaction as a savepoint, so a write that fails is undone on its own and its caller decides whether to go on. Work that others must only see once it is committed waits for the commit with `DB.AfterCommit`: the store tells watchers about writes that way, and the job queue starts jobs queued in a transaction once it commits. The change pipeline applies a change set this way. The transaction holds the only writing connection, so everything inside it must write with its context, and nothing inside it may publish events.
 
@@ -68,7 +69,7 @@ Secrets are kept on disk as well, each in a file of its own rather than in the d
 - **Manage a server:** commands that call a panel's API. They're built from `clientCommands` in `client.go`, a list of builder functions that get the shared flags (`--server`, `--ca-file`, `--output`). Commands that change something are wrapped in `mutating(cmd)`, which also gives them `--dry-run`. `status` is the only client command so far; the commands generated from the OpenAPI document are to append their builders to the list from `init` functions, wrapping every operation that isn't a GET in `mutating`.
 - **Tools:** `openapi`, `version` and `theme`.
 
-`core.go` wires the panel. It opens the panel database and brings every part's tables up to date, modules' included, then builds the store, the timeline and audit log, the job queue, the change set storage, the secrets store, the webhook dispatcher, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager. It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on and notifies `core.boot`. Then it starts the job queue, which picks up the jobs a previous run left behind, the reconcile queue (`reconcile.Runner.Run`), webhook deliveries and the timeline's pruning, publishes `core.panel.started`, and follows what the agent reports on its own (see [Agent operations](#agent-operations)). Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on, and a `database` check.
+`core.go` wires the panel. It opens the panel database and brings every part's tables up to date, modules' included, then builds the store, the timeline and audit log, the job queue, the change set storage, the secrets store, the webhook dispatcher, the hook registry and runner, the reconciler registry and runner and the change pipeline, which modules reach through `modules.Services`, plus the module manager and the attention inbox (`newInbox` in `inbox.go`). It hands the authorizer what the module that keeps resellers says about which accounts are whose (`OwnershipProvider`), starts the modules that are on and notifies `core.boot`. Then it starts the job queue, which picks up the jobs a previous run left behind, the reconcile queue (`reconcile.Runner.Run`), webhook deliveries, the timeline's pruning and the inbox's checks, publishes `core.panel.started`, and follows what the agent reports on its own (see [Agent operations](#agent-operations)). Modules that didn't start are reported through the `modules` health check rather than keeping the panel down, so they can still be turned off, and the health report also runs the checks modules declare (`HealthProvider`) while they're on, and a `database` check.
 
 Stopping goes the other way round (`core.stop`): the HTTP server's `Shutdown` first calls `api.Server.Close`, registered with `RegisterOnShutdown`, which ends live streams and waits for actions, so clients that stay connected don't hold it up. Then the background work stops and is waited for, the job queue with it (`jobs.Manager.Stop`, which leaves the jobs it stops for the next start), the modules stop, and only then does the database close. The health report has `jobs`, `reconcile` and `webhooks` checks for that background work, and `core.metrics` gives `GET /api/v1/metrics` its numbers.
 
@@ -98,6 +99,7 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/auth` | Actors, grants, roles and the central authorizer |
 | `internal/events` | The event bus, the timeline and the audit log, with followers for live streams, and the catalog of event types |
 | `internal/events/webhook` | Outgoing webhooks: the `core.webhook` kind, signing, the delivery queue with its retries, and the delivery log |
+| `internal/inbox` | The attention inbox: its sources (failed jobs, resources that fail, alerts, updates, certificates, module suggestions), the service that keeps what the slower ones found, and dismissals |
 | `internal/jobs` | The job queue with progress, logs, cancel, retry and history |
 | `internal/i18n` | Error codes and their English messages |
 | `internal/edge` | The routing table and the embedded Caddy that serves it, certificates, the edge's admin API and the wake proxy |
@@ -308,6 +310,22 @@ A job moves from one state to the next only if it is still in the state it was r
 
 Webhooks are resources of the core kind `core.webhook`. The dispatcher in `internal/events/webhook` follows the timeline, turns each event into a delivery for every webhook that wants it, signs it the way Standard Webhooks does, and retries failures on `webhook.Schedule`, recording every attempt. An attempt is recorded even when its context ends during it, so no delivery stays pending with nothing to send it again, and deliveries of a webhook that was turned off are given up rather than sent. Deliveries only connect to public addresses, checked once the receiver's name is resolved, plus the networks `webhooks.allow_networks` in `racksail.toml` lists (`Options.AllowNetworks`); the webhook's reconciler refuses a URL written with an address that isn't allowed, so the preview says so. `webhook.Verify` checks a signature the way receivers do, for tests and add-ons.
 
+## The attention inbox
+
+The home screen starts with what needs the person's attention, which `GET /api/v1/inbox` answers from the sources in `internal/inbox`: jobs that failed in the last week and weren't run again or undone, resources whose status says they fail or work only in part, alerts (events of warning or worse from the last three days, one item per type and subject, leaving out what the other sources show), the server's package updates, a new kernel and a restart that would finish installing them, certificates of the edge or installed for other services that couldn't be obtained, expired or expire within two weeks, and modules that are off but would help, such as backups once something worth keeping exists. Sources that find the same for everyone and take a while, the updates and certificates, set `Registration.Keep`: the service checks them when the panel starts and again in the background once what they found is that old, so nobody waits for apt. Every item carries an `Access` (a resource, a job, or a permission on a scope) that the API checks before showing it, the way reads of what it is about are checked, so an account's owner only sees their own.
+
+A module adds items with `InboxProvider`, read while the module is on:
+
+```go
+func (m *Module) InboxSources(svc *modules.Services) []inbox.Registration {
+	return []inbox.Registration{{Name: "backups", Source: inbox.SourceFunc(func(ctx context.Context, q inbox.Query) ([]inbox.Item, error) {
+		return failedRuns(ctx, svc, q)
+	})}}
+}
+```
+
+Items have a `Code` the UI translates as `inbox.<code>` with the item's `Params`, and English `Title` and `Message` it falls back on. People dismiss items, or snooze them, with `POST /api/v1/inbox/{id}/dismiss`; a dismissal holds while the item's `Version` stays the same, so the same failure happening again shows again. Dismissals are what one person sees, not what Racksail manages, so they don't go through the change pipeline. `GET /api/v1/inbox/stream` says when to read the inbox again: when an event it shows arrives, a resource starts or stops failing, a check finds something new, or the person dismissed something elsewhere.
+
 ## Agent operations
 
 The agent runs as root and only runs operations from its allowlist. Each is registered in a package variable:
@@ -406,6 +424,7 @@ func init() {
 | `HealthProvider` | `HealthChecks() []HealthCheck` | Health checks for what the module runs, in the panel's health report while the module is on |
 | `OwnershipProvider` | `Ownership(svc *Services) auth.Ownership` | Which reseller each account belongs to, so reseller grants cover their customers. Only the module that keeps resellers implements it |
 | `HintProvider` | `Hints() []Hint` | Descriptions and examples that help the assistant |
+| `InboxProvider` | `InboxSources(svc *Services) []inbox.Registration` | What the module finds needs attention, such as failed backups, in the attention inbox while the module is on |
 | `Starter`, `Stopper` | `Start`, `Stop` | Work to start when the module is turned on and to stop when it's turned off |
 
 A few rules that aren't obvious from the types:
@@ -554,6 +573,8 @@ The core's own operations sit next to them:
 | `/resources/{id}`, `/resources/stream` | Any resource by its ID, and live notices of changes to resources |
 | `/core/webhooks/{id}/deliveries` | A webhook's delivery log |
 | `/kinds`, `/operations` | The kinds and the operations catalog |
+| `/search` | Resources of every kind whose ID, title, subtitle or indexed fields contain some text, a few of each kind |
+| `/inbox`, `/inbox/stream`, `/inbox/{id}/dismiss` | The attention inbox, live, and dismissing or snoozing its items |
 
 Live streams are Server-Sent Events with IDs a client sends back as `Last-Event-ID` to resume, and a comment every 20 seconds to keep proxies from closing them. `Server.Close` ends them all, and so does the client going away; a stream never writes after its handler has returned. Every one of these operations authorizes what it returns, as below. Lists of jobs and change sets ask their storage for what the actor may see (`jobs.Filter.Visible`, `changeset.ListQuery.Visible`) and check each item again, reading on until a page is full. Anyone signed in may read and act on the jobs and change sets they started, so the catalog lists no permission for those operations; `core.job.read`, `core.job.cancel`, `core.job.retry` and `core.changeset.read` reach other people's.
 

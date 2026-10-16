@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
+	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -88,5 +90,24 @@ func TestPanelAgentAndEdgeInOneProcess(t *testing.T) {
 	// The panel's own route waits passively for sites; with one, it serves.
 	if routes, _ := d.core.services.Edge.Routes(ctx); len(routes) != 2 {
 		t.Errorf("routes = %+v", routes)
+	}
+
+	// The attention inbox asks the edge in the same process about its
+	// certificates, and suggests Storage for the simulated server's empty
+	// disks.
+	lister, ok := d.core.services.Edge.(certificateLister)
+	if !ok {
+		t.Fatal("the dev edge router lists no certificates")
+	}
+	certs, err := lister.Certificates(ctx)
+	if err != nil || !slices.ContainsFunc(certs, func(c edge.Certificate) bool { return c.Subject == "demo.localhost" }) {
+		t.Errorf("certificates = %+v, %v", certs, err)
+	}
+	res, err := d.core.inbox.List(ctx, inbox.Query{All: true}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(res.Items, func(it inbox.Item) bool { return it.ID == "suggestion:storage" }) {
+		t.Errorf("inbox = %+v", res)
 	}
 }

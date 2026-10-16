@@ -76,6 +76,9 @@ func TestLinkReachesTheEdgeOnlyWhenItIsNeeded(t *testing.T) {
 	if routes, err := link.Routes(ctx); err != nil || len(routes) != 0 {
 		t.Errorf("routes of a stopped edge = %+v, %v", routes, err)
 	}
+	if certs, err := link.Certificates(ctx); err != nil || len(certs) != 0 {
+		t.Errorf("certificates of a stopped edge = %+v, %v", certs, err)
+	}
 	if err := link.SetRoutes(ctx, site, []Route{{ID: "bad", Hosts: []string{"bad host"}}}); err == nil {
 		t.Error("a bad route is refused before it waits")
 	}
@@ -89,6 +92,10 @@ func TestLinkReachesTheEdgeOnlyWhenItIsNeeded(t *testing.T) {
 	}
 	if !link.Active() || !link.Answering() || requests.Load() == 0 {
 		t.Fatal("the first route should reach the edge and start answering")
+	}
+	asked := requests.Load()
+	if _, err := link.Certificates(ctx); err != nil || requests.Load() == asked {
+		t.Errorf("certificates of a running edge = %v, after %d requests", err, requests.Load()-asked)
 	}
 	served, _ := e.table.Routes(ctx)
 	owners := map[store.ID]bool{}

@@ -14,6 +14,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
@@ -141,6 +142,14 @@ type Hint struct {
 // HintProvider declares assistant hints.
 type HintProvider interface {
 	Hints() []Hint
+}
+
+// InboxProvider adds what a module finds needs attention to the attention
+// inbox on the home screen, such as backups that failed or what a scan
+// found. The panel reads its sources while the module is on or active, and
+// labels their items with the module's id.
+type InboxProvider interface {
+	InboxSources(svc *Services) []inbox.Registration
 }
 
 // Starter is implemented by modules with work to start: Start runs when the

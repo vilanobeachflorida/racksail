@@ -25,6 +25,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -95,7 +96,9 @@ type Options struct {
 	Timeline *events.Log
 	// Webhooks serves the delivery logs of webhooks.
 	Webhooks *webhook.Dispatcher
-	Health   []HealthCheck
+	// Inbox serves the attention inbox.
+	Inbox  *inbox.Service
+	Health []HealthCheck
 	// AllowFrom limits who may reach the panel to these networks when it
 	// isn't empty: panel.allow_from in racksail.toml. Requests from anywhere
 	// else are refused before anything else happens.
@@ -199,6 +202,8 @@ func New(opts Options) *Server {
 	s.registerChangeSets()
 	s.registerJobs()
 	s.registerTimeline()
+	s.registerSearch()
+	s.registerInbox()
 	s.registerMetrics()
 	if opts.Modules != nil {
 		for _, m := range opts.Modules.All() {

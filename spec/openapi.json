@@ -899,6 +899,17 @@
         ],
         "type": "object"
       },
+      "DismissBody": {
+        "additionalProperties": false,
+        "properties": {
+          "until": {
+            "description": "Show the item again at this time, even if it hasn't changed, within a year; without it the item comes back once it changes",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Effect": {
         "additionalProperties": false,
         "properties": {
@@ -1312,6 +1323,253 @@
         },
         "required": [
           "versions"
+        ],
+        "type": "object"
+      },
+      "InboxAction": {
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "description": "What the action works on: a resource, job or change set ID, an event type pattern, or a page of the documentation",
+            "type": "string"
+          },
+          "title": {
+            "description": "The button's label, in English",
+            "type": "string"
+          },
+          "type": {
+            "description": "What the action does",
+            "enum": [
+              "open_resource",
+              "open_job",
+              "open_changeset",
+              "retry_job",
+              "undo_changeset",
+              "open_events",
+              "docs"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title"
+        ],
+        "type": "object"
+      },
+      "InboxChange": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "What changed: a check of updates, certificates or modules finished, something happened, a resource's state changed, or an item was dismissed or brought back",
+            "enum": [
+              "checked",
+              "event",
+              "resource",
+              "dismissal"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "InboxDismissal": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "When the item was dismissed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "until": {
+            "description": "When a snoozed item comes back; a dismissed one without it comes back when it changes",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "type": "object"
+      },
+      "InboxItem": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/InboxAction"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "category": {
+            "description": "What the item is about",
+            "enum": [
+              "job",
+              "resource",
+              "alert",
+              "update",
+              "certificate",
+              "suggestion"
+            ],
+            "type": "string"
+          },
+          "changeSet": {
+            "type": "string"
+          },
+          "code": {
+            "description": "Names the message the panel shows in the person's language, inbox.\u003ccode\u003e, filled in from params; title and message are the English text",
+            "type": "string"
+          },
+          "count": {
+            "description": "How often it happened, for alerts that repeat",
+            "format": "int64",
+            "type": "integer"
+          },
+          "dismissal": {
+            "$ref": "#/components/schemas/InboxDismissal",
+            "description": "Set on items you dismissed, when those are asked for"
+          },
+          "event": {
+            "$ref": "#/components/schemas/Event",
+            "description": "The latest event, for alerts"
+          },
+          "id": {
+            "description": "Names the item while it lasts, such as job:job_01...",
+            "type": "string"
+          },
+          "job": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "The subject's kind",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "source": {
+            "description": "What found the item: core, or the id of the module that did",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The resource the item is about",
+            "type": "string"
+          },
+          "time": {
+            "description": "When it started needing attention, or last happened",
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "description": "Changes when the item does; a dismissal holds until it changes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "severity",
+          "code",
+          "title",
+          "time",
+          "scope",
+          "actions",
+          "source",
+          "version"
+        ],
+        "type": "object"
+      },
+      "InboxOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "checking": {
+            "description": "Parts of the inbox being checked for the first time; the stream says when to read it again",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "dismissed": {
+            "description": "How many items you dismissed or snoozed that would show otherwise",
+            "format": "int64",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InboxItem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "unavailable": {
+            "description": "Parts of the inbox that couldn't be read, and why",
+            "items": {
+              "$ref": "#/components/schemas/InboxProblem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "dismissed"
+        ],
+        "type": "object"
+      },
+      "InboxProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "The error's code, for the panel to translate",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "source": {
+            "description": "What couldn't be read, such as updates",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -2092,6 +2350,81 @@
         },
         "required": [
           "level"
+        ],
+        "type": "object"
+      },
+      "SearchOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "more": {
+            "description": "Kinds with more results than the limit; search one of them alone, with a higher limit, for the rest",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "type": "object"
+      },
+      "SearchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "The resource's kind, such as web.site",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "subtitle": {
+            "description": "The value of the kind's subtitle field",
+            "type": "string"
+          },
+          "title": {
+            "description": "The value of the kind's title field, or the ID when the kind has none",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "scope",
+          "title",
+          "phase",
+          "updatedAt"
         ],
         "type": "object"
       },
@@ -4433,6 +4766,234 @@
         "x-racksail-risk": "read"
       }
     },
+    "/api/v1/inbox": {
+      "get": {
+        "description": "Lists what needs your attention, most urgent first: work that failed, resources that aren't working, alerts, updates waiting to be installed, certificates that expire soon or couldn't be renewed, and modules that would help. Each item says what happened and offers what to do about it. You see the items about what you may read, and not the ones you dismissed, unless dismissed=true.",
+        "operationId": "listInbox",
+        "parameters": [
+          {
+            "description": "Also list the items you dismissed or snoozed, marked as such",
+            "explode": false,
+            "in": "query",
+            "name": "dismissed",
+            "schema": {
+              "description": "Also list the items you dismissed or snoozed, marked as such",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List what needs your attention",
+        "tags": [
+          "Inbox"
+        ],
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/inbox/stream": {
+      "get": {
+        "description": "Streams a changed event, as Server-Sent Events, whenever what your inbox shows may have changed: something you can see failed or recovered, an alert came in, a check of updates, certificates or modules finished, or you dismissed an item elsewhere. Read the inbox again when one arrives.",
+        "operationId": "streamInbox",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "Each item is one possible event of the stream.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/InboxChange"
+                          },
+                          "event": {
+                            "const": "changed",
+                            "description": "The event's name",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "Send it back as Last-Event-ID to resume after this event",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "event",
+                          "data"
+                        ],
+                        "title": "Event changed",
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "title": "Server-Sent Events",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "A stream of Server-Sent Events, one JSON document per event"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Follow changes to your inbox",
+        "tags": [
+          "Inbox"
+        ],
+        "x-racksail-risk": "read",
+        "x-racksail-stream": true
+      }
+    },
+    "/api/v1/inbox/{id}/dismiss": {
+      "delete": {
+        "description": "Shows an item you dismissed or snoozed in your inbox again.",
+        "operationId": "restoreInboxItem",
+        "parameters": [
+          {
+            "description": "The item's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The item's ID",
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Bring back a dismissed inbox item",
+        "tags": [
+          "Inbox"
+        ],
+        "x-racksail-operation": "restore",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      },
+      "post": {
+        "description": "Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. It only changes what you see: others still see the item, and nothing on the server changes.",
+        "operationId": "dismissInboxItem",
+        "parameters": [
+          {
+            "description": "The item's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The item's ID",
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DismissBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Dismiss an inbox item",
+        "tags": [
+          "Inbox"
+        ],
+        "x-racksail-operation": "dismiss",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
     "/api/v1/jobs": {
       "get": {
         "description": "Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why. You see the jobs you started, and those of the owners you hold core.job.read on.",
@@ -5292,6 +5853,92 @@
         "tags": [
           "System"
         ],
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "description": "Finds the resources you can see, of every kind or of the kinds you name, whose ID, title, subtitle or indexed fields contain the text. Results come a few of each kind, best first: the resource the text names exactly, then those whose title starts with it. The panel's command bar searches with it.",
+        "operationId": "searchResources",
+        "parameters": [
+          {
+            "description": "The text to look for in IDs, titles, subtitles and indexed fields, in any case",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "The text to look for in IDs, titles, subtitles and indexed fields, in any case",
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only resources of these kinds; repeat it for several",
+            "explode": false,
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "description": "Only resources of these kinds; repeat it for several",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "How many results of each kind; 5 when left out",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "How many results of each kind; 5 when left out",
+              "format": "int64",
+              "maximum": 50,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Search resources of every kind",
+        "tags": [
+          "System"
+        ],
+        "x-racksail-operation": "search",
         "x-racksail-risk": "read"
       }
     },

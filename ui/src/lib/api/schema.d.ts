@@ -360,6 +360,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List what needs your attention
+         * @description Lists what needs your attention, most urgent first: work that failed, resources that aren't working, alerts, updates waiting to be installed, certificates that expire soon or couldn't be renewed, and modules that would help. Each item says what happened and offers what to do about it. You see the items about what you may read, and not the ones you dismissed, unless dismissed=true.
+         */
+        get: operations["listInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbox/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow changes to your inbox
+         * @description Streams a changed event, as Server-Sent Events, whenever what your inbox shows may have changed: something you can see failed or recovered, an alert came in, a check of updates, certificates or modules finished, or you dismissed an item elsewhere. Read the inbox again when one arrives.
+         */
+        get: operations["streamInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inbox/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss an inbox item
+         * @description Hides an item of your inbox until it changes, such as when the same job fails again, or snoozes it until the time you give. It only changes what you see: others still see the item, and nothing on the server changes.
+         */
+        post: operations["dismissInboxItem"];
+        /**
+         * Bring back a dismissed inbox item
+         * @description Shows an item you dismissed or snoozed in your inbox again.
+         */
+        delete: operations["restoreInboxItem"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -592,6 +656,26 @@ export interface paths {
          * @description Returns the resource an ID names, whatever its kind; the ID's prefix says the kind. Handy for links and mentions that carry only an ID.
          */
         get: operations["getResource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search resources of every kind
+         * @description Finds the resources you can see, of every kind or of the kinds you name, whose ID, title, subtitle or indexed fields contain the text. Results come a few of each kind, best first: the resource the text names exactly, then those whose title starts with it. The panel's command bar searches with it.
+         */
+        get: operations["searchResources"];
         put?: never;
         post?: never;
         delete?: never;
@@ -942,6 +1026,13 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        DismissBody: {
+            /**
+             * Format: date-time
+             * @description Show the item again at this time, even if it hasn't changed, within a year; without it the item comes back once it changes
+             */
+            until?: string;
+        };
         Effect: {
             /** @description What happens, for example install, open, start or write */
             action: string;
@@ -1086,6 +1177,99 @@ export interface components {
         };
         HistoryBody: {
             versions: components["schemas"]["Version"][] | null;
+        };
+        InboxAction: {
+            /** @description What the action works on: a resource, job or change set ID, an event type pattern, or a page of the documentation */
+            target?: string;
+            /** @description The button's label, in English */
+            title: string;
+            /**
+             * @description What the action does
+             * @enum {string}
+             */
+            type: "open_resource" | "open_job" | "open_changeset" | "retry_job" | "undo_changeset" | "open_events" | "docs";
+        };
+        InboxChange: {
+            /**
+             * @description What changed: a check of updates, certificates or modules finished, something happened, a resource's state changed, or an item was dismissed or brought back
+             * @enum {string}
+             */
+            reason: "checked" | "event" | "resource" | "dismissal";
+        };
+        InboxDismissal: {
+            /**
+             * Format: date-time
+             * @description When the item was dismissed
+             */
+            at: string;
+            /**
+             * Format: date-time
+             * @description When a snoozed item comes back; a dismissed one without it comes back when it changes
+             */
+            until?: string;
+        };
+        InboxItem: {
+            actions: components["schemas"]["InboxAction"][] | null;
+            /**
+             * @description What the item is about
+             * @enum {string}
+             */
+            category: "job" | "resource" | "alert" | "update" | "certificate" | "suggestion";
+            changeSet?: string;
+            /** @description Names the message the panel shows in the person's language, inbox.<code>, filled in from params; title and message are the English text */
+            code: string;
+            /**
+             * Format: int64
+             * @description How often it happened, for alerts that repeat
+             */
+            count?: number;
+            /** @description Set on items you dismissed, when those are asked for */
+            dismissal?: components["schemas"]["InboxDismissal"];
+            /** @description The latest event, for alerts */
+            event?: components["schemas"]["Event"];
+            /** @description Names the item while it lasts, such as job:job_01... */
+            id: string;
+            job?: string;
+            /** @description The subject's kind */
+            kind?: string;
+            message?: string;
+            params?: {
+                [key: string]: string;
+            };
+            scope: components["schemas"]["Scope"];
+            /** @enum {string} */
+            severity: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description What found the item: core, or the id of the module that did */
+            source: string;
+            /** @description The resource the item is about */
+            subject?: string;
+            /**
+             * Format: date-time
+             * @description When it started needing attention, or last happened
+             */
+            time: string;
+            title: string;
+            /** @description Changes when the item does; a dismissal holds until it changes */
+            version: string;
+        };
+        InboxOutputBody: {
+            /** @description Parts of the inbox being checked for the first time; the stream says when to read it again */
+            checking?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many items you dismissed or snoozed that would show otherwise
+             */
+            dismissed: number;
+            items: components["schemas"]["InboxItem"][] | null;
+            /** @description Parts of the inbox that couldn't be read, and why */
+            unavailable?: components["schemas"]["InboxProblem"][] | null;
+        };
+        InboxProblem: {
+            /** @description The error's code, for the panel to translate */
+            code: string;
+            message: string;
+            /** @description What couldn't be read, such as updates */
+            source: string;
         };
         IndexInfo: {
             name: string;
@@ -1378,6 +1562,25 @@ export interface components {
              * @enum {string}
              */
             level: "server" | "reseller" | "account";
+        };
+        SearchOutputBody: {
+            /** @description Kinds with more results than the limit; search one of them alone, with a higher limit, for the rest */
+            more?: string[] | null;
+            results: components["schemas"]["SearchResult"][] | null;
+        };
+        SearchResult: {
+            id: string;
+            /** @description The resource's kind, such as web.site */
+            kind: string;
+            /** @enum {string} */
+            phase: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            scope: components["schemas"]["Scope"];
+            /** @description The value of the kind's subtitle field */
+            subtitle?: string;
+            /** @description The value of the kind's title field, or the ID when the kind has none */
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         Snapshot: {
             /** @description Where the snapshot is */
@@ -2415,6 +2618,140 @@ export interface operations {
             };
         };
     };
+    listInbox: {
+        parameters: {
+            query?: {
+                /** @description Also list the items you dismissed or snoozed, marked as such */
+                dismissed?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    streamInbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stream of Server-Sent Events, one JSON document per event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": {
+                        data: components["schemas"]["InboxChange"];
+                        /**
+                         * @description The event's name
+                         * @constant
+                         */
+                        event: "changed";
+                        /** @description Send it back as Last-Event-ID to resume after this event */
+                        id?: string;
+                    }[];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    dismissInboxItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The item's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DismissBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreInboxItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The item's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listJobs: {
         parameters: {
             query?: {
@@ -2844,6 +3181,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Resource"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    searchResources: {
+        parameters: {
+            query: {
+                /** @description The text to look for in IDs, titles, subtitles and indexed fields, in any case */
+                q: string;
+                /** @description Only resources of these kinds; repeat it for several */
+                kind?: string[] | null;
+                /** @description How many results of each kind; 5 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchOutputBody"];
                 };
             };
             /** @description Error */

@@ -237,7 +237,7 @@ func TestEveryOperationIsAuthorized(t *testing.T) {
 	// Operations that only describe the API, and searches whose answers
 	// are filtered to what the caller may see, need nothing more than a
 	// sign-in.
-	open := []string{"listOperations", "listKinds", "getKind", "listEventTypes", "streamResources", "listChangeSets", "listJobs"}
+	open := []string{"listOperations", "listKinds", "getKind", "listEventTypes", "streamResources", "listChangeSets", "listJobs", "searchResources", "listInbox", "streamInbox"}
 	// IDs that look right for each path, of things that exist or not.
 	prefixOf := func(path string) string {
 		switch {
@@ -266,13 +266,17 @@ func TestEveryOperationIsAuthorized(t *testing.T) {
 				body = map[string]any{"changes": []map[string]any{{"op": "create", "kind": "test.site", "scope": map[string]any{"level": "account", "id": s.account}, "spec": map[string]any{"domains": []string{"x.test"}, "content": "x"}}}}
 			}
 		}
-		if resp := s.call("", op.Method, path+"?dryRun=true", body, nil); resp.StatusCode != http.StatusUnauthorized {
+		query := "?dryRun=true"
+		if op.ID == "searchResources" {
+			query += "&q=x"
+		}
+		if resp := s.call("", op.Method, path+query, body, nil); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s without signing in = %d", op.ID, resp.StatusCode)
 		}
 		if op.Stream && slices.Contains(open, op.ID) {
 			continue
 		}
-		resp := s.call("nobody", op.Method, path+"?dryRun=true", body, nil)
+		resp := s.call("nobody", op.Method, path+query, body, nil)
 		if slices.Contains(open, op.ID) {
 			if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
 				t.Errorf("%s = %d %s", op.ID, resp.StatusCode, bodyOf(resp))
