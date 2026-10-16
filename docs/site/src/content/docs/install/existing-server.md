@@ -104,7 +104,7 @@ Every release also has a Debian package for each architecture, `racksail_<versio
 sudo apt install ./racksail_1.2.3_amd64.deb
 ```
 
-The package installs the binary as `/usr/bin/racksail`, with shell completions, and starts the agent, the panel and the edge's socket. An upgrade restarts them, and leaves alone a service you disabled. Removing the package stops them, and installing it again starts them as they were; purging it keeps `/var/lib/racksail` and `/srv/racksail`, which hold the panel's state and your data. A server uses the package or the install script, not both: the install script refuses to run where the package is installed.
+The package installs the binary as `/usr/bin/racksail`, with shell completions, and starts the agent, the panel and the edge's socket. An upgrade restarts them, and leaves alone a service you disabled. Removing the package stops them, and installing it again starts them as they were; purging it keeps `/var/lib/racksail` and `/srv/racksail`, which hold the panel's state and your data. A server uses the package or the install script, not both: the install script refuses to run where the package is installed, and the package refuses to install on a server the script set up, whose services run `/usr/local/bin/racksail`.
 
 ### From your own apt repository
 

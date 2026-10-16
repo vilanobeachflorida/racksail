@@ -96,7 +96,8 @@ func newMachine(t *testing.T, shell string, systemdRuns bool) *machine {
 	mkdir(t, m.scripts)
 	for name, data := range rendered {
 		text := string(data)
-		if !strings.Contains(text, runningSystemd) {
+		// preinst only looks at files, under DPKG_ROOT in these tests.
+		if name != "preinst" && !strings.Contains(text, runningSystemd) {
 			t.Fatalf("%s no longer checks %s, so these tests can't tell it whether systemd runs", name, runningSystemd)
 		}
 		write(t, filepath.Join(m.scripts, name), strings.ReplaceAll(text, runningSystemd, run), 0o755)
@@ -358,5 +359,100 @@ func TestScriptsIgnoreOtherActions(t *testing.T) {
 	m.dpkg("postrm", "abort-install")
 	if log := m.log(); log != "" {
 		t.Errorf("the scripts did something:\n%s", log)
+	}
+}
+
+// A server Racksail's install script set up keeps its own binary, run by
+// units in /etc/systemd/system, so the package refuses to install there;
+// anywhere else, and on upgrades, preinst lets dpkg go on.
+func TestPreinstRefusesAServerTheScriptSetUp(t *testing.T) {
+	p, err := Render(Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scripts, err := p.Scripts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(t.TempDir(), "preinst")
+	write(t, script, string(scripts["preinst"]), 0o755)
+	scriptUnit := "[Service]\nExecStart=" + ScriptBinary + " panel\n"
+	packageUnit := "[Service]\nExecStart=" + Binary + " panel --verbose\n"
+	cases := []struct {
+		name   string
+		files  map[string]string
+		args   []string
+		refuse bool
+	}{
+		{"a fresh server", nil, []string{"install"}, false},
+		{"the script's binary", map[string]string{ScriptBinary: "binary"}, []string{"install"}, true},
+		{"the script's units without its binary", map[string]string{"/etc/systemd/system/" + installer.PanelUnit: scriptUnit}, []string{"install"}, true},
+		{"installing again after a removal", map[string]string{ScriptBinary: "binary"}, []string{"install", "1.0.0"}, true},
+		// An administrator's copy of the package's unit runs the package's
+		// binary.
+		{"an administrator's copy of a unit", map[string]string{"/etc/systemd/system/" + installer.PanelUnit: packageUnit}, []string{"install"}, false},
+		{"an upgrade", map[string]string{ScriptBinary: "binary"}, []string{"upgrade", "1.0.0"}, false},
+	}
+	for _, shell := range scriptShells() {
+		for _, tc := range cases {
+			t.Run(shell+" "+tc.name, func(t *testing.T) {
+				root := t.TempDir()
+				for path, content := range tc.files {
+					mkdir(t, filepath.Dir(filepath.Join(root, path)))
+					write(t, filepath.Join(root, path), content, 0o644)
+				}
+				cmd := exec.Command(shell, append([]string{script}, tc.args...)...)
+				cmd.Env = []string{"PATH=/usr/bin:/bin", "DPKG_ROOT=" + root}
+				out, err := cmd.CombinedOutput()
+				if tc.refuse {
+					if err == nil || !strings.Contains(string(out), "a server uses the package or the install script, not both") {
+						t.Errorf("preinst %s = %v\n%s; want a refusal", strings.Join(tc.args, " "), err, out)
+					}
+					return
+				}
+				if err != nil || len(out) > 0 {
+					t.Errorf("preinst %s = %v\n%s", strings.Join(tc.args, " "), err, out)
+				}
+			})
+		}
+	}
+}
+
+// The package's preinst looks for the binary where the install script puts
+// it.
+func TestScriptBinaryIsTheInstallScripts(t *testing.T) {
+	script, err := os.ReadFile("../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "\nBINARY="+ScriptBinary+"\n") {
+		t.Errorf("install.sh doesn't install racksail as %s", ScriptBinary)
+	}
+}
+
+// nfpm packages every maintainer script packaging/deb writes.
+func TestNfpmPackagesEveryScript(t *testing.T) {
+	config, err := os.ReadFile("../nfpm.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Render(Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scripts, err := p.Scripts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]string{"preinst": "preinstall", "postinst": "postinstall", "prerm": "preremove", "postrm": "postremove"}
+	for name := range scripts {
+		key, ok := keys[name]
+		if !ok {
+			t.Errorf("%s isn't a script nfpm knows", name)
+			continue
+		}
+		if want := "  " + key + ": build/deb/scripts/" + name + "\n"; !strings.Contains(string(config), want) {
+			t.Errorf("nfpm.yaml doesn't package %s: want %q", name, want)
+		}
 	}
 }

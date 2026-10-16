@@ -187,6 +187,16 @@ jobs:
             dpkg-deb --contents "$deb"
             dpkg-deb --contents "$deb" | grep -q ' ./usr/lib/systemd/system/racksail-panel.service$'
           done
+      - name: Refuse a server the install script set up
+        run: |
+          sudo install -m 0755 /dev/null /usr/local/bin/racksail
+          if sudo apt-get install -y ./dist/racksail_*_amd64.deb; then
+            echo "the package installed beside the install script's /usr/local/bin/racksail"
+            exit 1
+          fi
+          # preinst refuses before dpkg unpacks anything.
+          test ! -e /usr/bin/racksail
+          sudo rm /usr/local/bin/racksail
       - name: Install, remove, install again and purge the amd64 package
         run: |
           units=(racksail-agent.service racksail-panel.service racksail-edge.socket)

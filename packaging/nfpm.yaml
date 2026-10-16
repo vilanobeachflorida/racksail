@@ -71,6 +71,7 @@ contents:
       mode: 0644
 
 scripts:
+  preinstall: build/deb/scripts/preinst
   postinstall: build/deb/scripts/postinst
   preremove: build/deb/scripts/prerm
   postremove: build/deb/scripts/postrm
