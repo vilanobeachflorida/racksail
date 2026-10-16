@@ -5457,7 +5457,7 @@
             "type": "boolean"
           },
           "events": {
-            "description": "Event types to send, as patterns such as *.failed; failures, security events and safe mode when empty",
+            "description": "Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty",
             "items": {
               "type": "string"
             },

@@ -55,7 +55,7 @@ type NotificationPreferences struct {
 	Email bool `json:"email" doc:"Send notifications to my email address"`
 	// Events are the event types wanted, as patterns; DefaultEvents when
 	// empty.
-	Events []string `json:"events,omitempty" maxItems:"64" doc:"Event types to send, as patterns such as *.failed; failures, security events and safe mode when empty"`
+	Events []string `json:"events,omitempty" maxItems:"64" doc:"Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty"`
 	// MinSeverity leaves out events less urgent than it; warning when
 	// empty.
 	MinSeverity events.Severity `json:"minSeverity,omitempty" enum:"info,notice,warning,error,critical" doc:"Only send events at least this urgent; warning when empty"`
@@ -66,8 +66,16 @@ type NotificationPreferences struct {
 }
 
 // DefaultEvents are what people hear about until they choose: failures,
-// security events, safe mode and hooks switched off.
-var DefaultEvents = []string{"*.failed", "security.*", "core.safe_mode.*", "core.hook.disabled", "core.update.*"}
+// security events, safe mode, hooks switched off, Racksail's updates and
+// reboots the server schedules for itself.
+var DefaultEvents = []string{"*.failed", "security.*", "core.safe_mode.*", "core.hook.disabled", "core.update.*", "core.reboot.scheduled"}
+
+// DirectoryFunc lets a function find people, such as one that reads the
+// panel's users.
+type DirectoryFunc func(ctx context.Context, id store.ID) (*Person, error)
+
+// Person implements Directory.
+func (f DirectoryFunc) Person(ctx context.Context, id store.ID) (*Person, error) { return f(ctx, id) }
 
 // Check returns what is wrong with preferences.
 func (p *NotificationPreferences) Check() error {

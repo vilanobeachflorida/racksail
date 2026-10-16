@@ -4231,7 +4231,7 @@ export interface components {
         NotificationPreferences: {
             /** @description Send notifications to my email address */
             email: boolean;
-            /** @description Event types to send, as patterns such as *.failed; failures, security events and safe mode when empty */
+            /** @description Event types to send, as patterns such as *.failed; failures, security events, safe mode, hooks switched off, Racksail's updates and reboots the server schedules when empty */
             events?: string[] | null;
             /**
              * @description Only send events at least this urgent; warning when empty

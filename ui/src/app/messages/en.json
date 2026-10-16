@@ -205,7 +205,7 @@
   "app.notifications.mineHelp": "Email to your address, about what you may see. Quiet hours hold back what can wait and send it as one summary.",
   "app.notifications.mineUnavailable": "Personal notifications aren't available here",
   "app.notifications.mineEmail": "Email me",
-  "app.notifications.mineEventsHelp": "Patterns such as *.failed or backups.*; failures, security events and safe mode when empty.",
+  "app.notifications.mineEventsHelp": "Patterns such as *.failed or backups.*; when empty, failures, security events, safe mode, hooks switched off, Racksail updates and reboots the server schedules.",
   "app.notifications.mineSaved": "Your notification preferences are saved.",
   "app.notifications.mineTest": "Email me a test",
   "app.notifications.mineTestSent": "A test is on its way to your email address.",
