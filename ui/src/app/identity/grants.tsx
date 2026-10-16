@@ -131,12 +131,14 @@ function NewGrant({ onAdd }: { onAdd: (grant: Grant) => void }) {
       .map((s) => s.trim())
       .filter(Boolean);
   const ready = where === "server" || target.trim() !== "";
+  // Collaborators and read-only users can be given single resources.
+  const single = role === "collaborator" || role === "readonly";
   const add = () => {
     const grant: Grant = {
       role,
       scope: where === "server" ? { level: "server" } : { level: where, id: target.trim() },
     };
-    if (role === "collaborator" && object.trim()) {
+    if (single && object.trim()) {
       grant.object = object.trim();
     }
     if (list(permissions).length > 0) {
@@ -216,8 +218,8 @@ function NewGrant({ onAdd }: { onAdd: (grant: Grant) => void }) {
           </Field>
         ) : null}
       </div>
-      {role === "collaborator" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {role === "collaborator" ? (
           <Field
             label={intl.formatMessage(t.grantPermissions)}
             description={intl.formatMessage(t.grantPermissionsHelp)}
@@ -228,25 +230,29 @@ function NewGrant({ onAdd }: { onAdd: (grant: Grant) => void }) {
               spellCheck={false}
             />
           </Field>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`${id}-special`}>{intl.formatMessage(t.grantSpecial)}</Label>
+            <p className="text-muted-foreground text-xs">
+              {intl.formatMessage(t.grantSpecialHelp)}
+            </p>
+            <Input
+              id={`${id}-special`}
+              value={permissions}
+              onChange={(e) => setPermissions(e.target.value)}
+              spellCheck={false}
+            />
+          </div>
+        )}
+        {single ? (
           <Field
             label={intl.formatMessage(t.grantOnly)}
             description={intl.formatMessage(t.grantOnlyHelp)}
           >
             <Input value={object} onChange={(e) => setObject(e.target.value)} spellCheck={false} />
           </Field>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-special`}>{intl.formatMessage(t.grantSpecial)}</Label>
-          <p className="text-muted-foreground text-xs">{intl.formatMessage(t.grantSpecialHelp)}</p>
-          <Input
-            id={`${id}-special`}
-            value={permissions}
-            onChange={(e) => setPermissions(e.target.value)}
-            spellCheck={false}
-          />
-        </div>
-      )}
+        ) : null}
+      </div>
       <Button variant="outline" className="self-start" onClick={add} disabled={!ready}>
         <Plus aria-hidden="true" />
         {intl.formatMessage(t.grantAddButton)}

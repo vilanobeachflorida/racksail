@@ -23,6 +23,15 @@ const kinds: Record<string, typeof t.kindAccount> = {
 };
 
 /**
+ * What a critical change asks people to type: an account's short name,
+ * a provider's title, or the resource's ID.
+ */
+function resourceName(change: { id: string; before?: unknown; after?: unknown }): string {
+  const spec = (change.before ?? change.after) as { slug?: string; title?: string } | undefined;
+  return spec?.slug ?? spec?.title ?? change.id;
+}
+
+/**
  * Previews a change before it's made: it asks the panel for the change set
  * of a dry run, shows it, and makes the change when the person applies it.
  * Applying runs the same request again for real, so it goes through the
@@ -93,6 +102,7 @@ export function PreviewDialog<T>({
           <ChangePreview
             changeSet={changeSet as unknown as Previewed}
             kindLabel={(kind) => (kinds[kind] ? intl.formatMessage(kinds[kind]) : kind)}
+            resourceName={resourceName}
             onApply={run}
             onCancel={onClose}
             applying={applying}
