@@ -11,7 +11,8 @@ import (
 
 // Retention bounds the change sets an Engine keeps. Get, Undo and Apply
 // reach only the ones kept here. The snapshots taken before a change set was
-// applied, and the secret versions only it used, are deleted with it.
+// applied, and the secret versions only it used, are deleted with it; Run
+// deletes the snapshots that outlived their change set, as across a stop.
 type Retention struct {
 	// Previews is how long dry runs stay available to be applied. The
 	// default is an hour.

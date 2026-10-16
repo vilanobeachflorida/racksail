@@ -354,6 +354,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	// The resync puts back what drifts on the machine and carries out
 	// changes whose apply job never ran.
 	c.work.Go(func() { runner.Run(ctx, reconcile.ResyncInterval) })
+	// Snapshots taken before changes that no change set keeps any more, as
+	// after a stop at the wrong moment, are deleted at start and daily.
+	c.work.Go(func() { pipeline.Run(ctx, changeset.SnapshotCollection) })
 	c.work.Go(func() { dispatcher.Run(ctx) })
 	c.work.Go(func() { notifier.Run(ctx) })
 	c.work.Go(func() { timeline.Run(ctx, time.Hour) })

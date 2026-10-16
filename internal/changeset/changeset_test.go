@@ -1116,6 +1116,81 @@ func TestSnapshotsBeforeRemovingData(t *testing.T) {
 	}
 }
 
+// Snapshots taken before changes that no kept change set lists are deleted:
+// those of a change whose writes never committed and of a preview whose
+// apply stopped, as a panel that stopped in between leaves them, and, after
+// a restart that kept no records, every change set's. Those being taken for
+// a change set not recorded yet, and those of anything but change sets,
+// stay.
+func TestSnapshotsNoChangeSetKeepsAreCollected(t *testing.T) {
+	ctx := context.Background()
+	machine := sim.New(sim.Options{})
+	e := buildEnv(t, envConfig{machine: machine})
+	exists := func(p string) bool {
+		_, err := machine.Backend().Files.Stat(ctx, p)
+		return err == nil
+	}
+	page := e.submit(t, false, e.createPage(pageSpec{Path: "kept.html", Content: "kept"}))
+	del := e.submit(t, false, Change{Op: OpDelete, Kind: "test.page", ID: page.Changes[0].ID})
+	if len(del.Snapshots) != 1 {
+		t.Fatalf("the delete's snapshots = %+v", del.Snapshots)
+	}
+	kept := del.Snapshots[0].Path
+	removes := []system.Effect{{Type: system.EffectFile, Action: "delete", Target: pagesDir + "/gone.html", Destructive: true}}
+	snapshot := func(id store.ID) string {
+		t.Helper()
+		cs := &ChangeSet{ID: id, Title: "Remove a page", Effects: removes, Snapshot: true}
+		if err := e.engine.takeSnapshots(ctx, cs); err != nil || len(cs.Snapshots) != 1 {
+			t.Fatalf("snapshots of %s = %+v, %v", id, cs.Snapshots, err)
+		}
+		return cs.Snapshots[0].Path
+	}
+	lost := snapshot(store.NewID(store.PrefixChangeSet))
+	preview := e.submit(t, true, e.createPage(pageSpec{Path: "later.html", Content: "later"}))
+	stopped := snapshot(preview.ID)
+	busyID := store.NewID(store.PrefixChangeSet)
+	release := e.engine.holdSnapshots(busyID)
+	busy := snapshot(busyID)
+	other, err := agent.SnapshotPaths.Call(ctx, e.engine.agent(), agent.SnapshotPathsInput{Paths: []string{pagesDir}, Label: "packages_20261016"}, agent.CallOptions{})
+	if err != nil || len(other.Snapshots) != 1 {
+		t.Fatalf("a snapshot of an upgrade = %+v, %v", other, err)
+	}
+
+	if n, err := e.engine.CollectSnapshots(ctx); err != nil || n != 2 {
+		t.Errorf("collected %d, %v", n, err)
+	}
+	for p, want := range map[string]bool{kept: true, lost: false, stopped: false, busy: true, other.Snapshots[0].Path: true} {
+		if exists(p) != want {
+			t.Errorf("%s is there: %v, want %v", p, exists(p), want)
+		}
+	}
+	if exists(path.Dir(lost)) {
+		t.Error("the directory of a collected snapshot goes too")
+	}
+	release()
+	if n, err := e.engine.CollectSnapshots(ctx); err != nil || n != 1 || exists(busy) {
+		t.Errorf("once the change set that was taking it is done = %d, %v", n, err)
+	}
+
+	// A restart that kept no change sets keeps none of their snapshots.
+	again := buildEnv(t, envConfig{machine: machine})
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		again.engine.Run(runCtx, time.Hour)
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for exists(kept) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	stop()
+	<-done
+	if exists(kept) || !exists(other.Snapshots[0].Path) {
+		t.Errorf("after the restart: the delete's snapshot is there %v, the upgrade's %v", exists(kept), exists(other.Snapshots[0].Path))
+	}
+}
+
 func TestActionChecks(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)

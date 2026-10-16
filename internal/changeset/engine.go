@@ -84,6 +84,10 @@ type Engine struct {
 	// claims are the change sets an undo or the apply of a preview is
 	// working on, which no other may start on and retention keeps.
 	claims map[store.ID]bool
+	// taking counts, by change set, the applies that are taking snapshots
+	// for it or haven't recorded it yet, whose snapshots the collection
+	// leaves alone.
+	taking map[store.ID]int
 }
 
 var _ Pipeline = (*Engine)(nil)
@@ -116,7 +120,7 @@ func NewEngine(opts Options) (*Engine, error) {
 			}
 		}
 	}
-	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), claims: map[store.ID]bool{}}
+	e := &Engine{opts: opts, storage: opts.Storage, retention: opts.Retention.withDefaults(), claims: map[store.ID]bool{}, taking: map[store.ID]int{}}
 	if err := opts.Jobs.Handle(jobs.Type{Name: ApplyJob, Run: e.runApply, Ended: e.applyEnded, Retryable: e.retryable}); err != nil {
 		return nil, err
 	}
@@ -760,6 +764,7 @@ func (e *Engine) apply(ctx context.Context, cs *ChangeSet, values map[secrets.Re
 	cleanup := context.WithoutCancel(ctx)
 	// Snapshots come first, so nothing changes when they can't be taken.
 	if cs.Snapshot {
+		defer e.holdSnapshots(cs.ID)()
 		if err := e.takeSnapshots(ctx, cs); err != nil {
 			return false, err
 		}
