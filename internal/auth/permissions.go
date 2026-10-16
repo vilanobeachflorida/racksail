@@ -6,7 +6,9 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -102,7 +104,7 @@ func Permissions(kinds []store.Kind) []PermissionInfo {
 // each of its actions.
 func KindPermissions(k store.Kind) []PermissionInfo {
 	info := k.Info()
-	many := info.Plural
+	many := pluralOf(info.Title)
 	out := []PermissionInfo{
 		{KindPermission(info.Name, "read"), "See " + many + "."},
 		{KindPermission(info.Name, "create"), "Create " + many + "."},
@@ -113,6 +115,25 @@ func KindPermissions(k store.Kind) []PermissionInfo {
 		out = append(out, PermissionInfo{KindPermission(info.Name, a.Name), a.Summary})
 	}
 	return out
+}
+
+// pluralOf names a kind's resources in a sentence, from its title: Sign-in
+// policy becomes sign-in policies, leaving abbreviations such as DNS alone.
+func pluralOf(title string) string {
+	r := []rune(title)
+	if len(r) > 1 && !unicode.IsUpper(r[1]) {
+		r[0] = unicode.ToLower(r[0])
+	}
+	s := string(r)
+	lower := strings.ToLower(s)
+	switch {
+	case len(lower) > 1 && strings.HasSuffix(lower, "y") && !strings.ContainsRune("aeiou", rune(lower[len(lower)-2])):
+		return s[:len(s)-1] + "ies"
+	case strings.HasSuffix(lower, "s"), strings.HasSuffix(lower, "x"), strings.HasSuffix(lower, "z"),
+		strings.HasSuffix(lower, "ch"), strings.HasSuffix(lower, "sh"):
+		return s + "es"
+	}
+	return s + "s"
 }
 
 // Known reports whether perm is a registered permission or the permission
