@@ -804,6 +804,158 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/core/update-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List update settings
+         * @description How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Lists the update settings you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreUpdateSettings"];
+        put?: never;
+        /**
+         * Create a update settings
+         * @description How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreUpdateSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a update settings
+         * @description Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.
+         */
+        get: operations["getCoreUpdateSettings"];
+        /**
+         * Change a update settings
+         * @description Replaces the update settings's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreUpdateSettings"];
+        post?: never;
+        /**
+         * Delete a update settings
+         * @description Deletes the update settings and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreUpdateSettings"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}/actions/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look for a newer release on the channel
+         * @description Lists the releases on the channel, and fetches and checks the signed manifest of the newest one that is newer than the running version. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["checkCoreUpdateSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}/actions/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install the release the last check found
+         * @description Backs up the panel's database, has the agent download the release and check its signature, snapshot the system and put the new binary in place, then restarts Racksail onto it. If the new release doesn't report healthy within fifteen minutes, the previous one comes back by itself. It runs as a job: the answer is 202 with the change set, whose job reports progress.
+         */
+        post: operations["installCoreUpdateSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}/actions/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Go back to the release before the last update
+         * @description Puts back the binary and the panel's database from before the last update and restarts Racksail. Changes made since the update are lost. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["rollbackCoreUpdateSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}/actions/upgrade_os": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upgrade Debian to its next major release
+         * @description Asks every module whether the upgrade can go ahead, snapshots the system, points apt at the next release and upgrades every package. Modules prepare first and check their services afterwards. The server needs a reboot to finish. It runs as a job: the answer is 202 with the change set, whose job reports progress.
+         */
+        post: operations["upgradeOsCoreUpdateSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/update-settings/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a update settings's history
+         * @description Returns every recorded version of the update settings's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreUpdateSettingsHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/core/webhooks": {
         parameters: {
             query?: never;
@@ -1375,6 +1527,14 @@ export interface components {
             /** @description The version whose program runs */
             version?: string;
         };
+        Asset: {
+            bundle?: string;
+            name: string;
+            sha256: string;
+            /** Format: int64 */
+            size: number;
+            url: string;
+        };
         AuditListBody: {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -1398,6 +1558,17 @@ export interface components {
             summary: string;
             /** Format: date-time */
             time: string;
+        };
+        Available: {
+            asset: components["schemas"]["Asset"];
+            /** @enum {string} */
+            channel: "stable" | "beta" | "nightly";
+            /** @description The release notes */
+            notesUrl?: string;
+            /** Format: date-time */
+            published: string;
+            tag: string;
+            version: string;
         };
         BackupInfo: {
             covered: boolean;
@@ -1563,6 +1734,11 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "failing";
+        };
+        CheckOutput: {
+            /** @description The release to update to; empty when the server is up to date */
+            available?: components["schemas"]["Available"];
+            running: string;
         };
         Column: {
             field: string;
@@ -2193,6 +2369,80 @@ export interface components {
             };
             spec: components["schemas"]["RelaySpec"];
         };
+        /** @description Update settings: How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. */
+        CoreUpdateSettings: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["SettingsSpec"];
+            status?: components["schemas"]["SettingsStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new update settings. */
+        CoreUpdateSettingsCreateRequest: {
+            /** @description An ID chosen up front, starting with upd_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["SettingsSpec"];
+        };
+        /** @description One page of update settings. */
+        CoreUpdateSettingsList: {
+            items: components["schemas"]["CoreUpdateSettings"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a update settings. */
+        CoreUpdateSettingsUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["SettingsSpec"];
+        };
         /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
         CoreWebhook: {
             /** Format: date-time */
@@ -2699,6 +2949,13 @@ export interface components {
             test?: boolean;
             title: string;
         };
+        OSStatus: {
+            codename: string;
+            /** @description The Debian release an upgrade would move to */
+            next?: string;
+            rebootRequired?: boolean;
+            version: string;
+        };
         Operation: {
             description?: string;
             /** @description Whether it removes data, and so needs a typed confirmation */
@@ -3009,6 +3266,9 @@ export interface components {
              */
             reason: "lagging";
         };
+        RollbackInput: {
+            reason?: string;
+        };
         Scope: {
             /** @description The owning reseller or account; empty for server-wide resources */
             id?: string;
@@ -3017,6 +3277,49 @@ export interface components {
              * @enum {string}
              */
             level: "server" | "reseller" | "account";
+        };
+        SettingsSpec: {
+            /** @description Install new releases on the channel by themselves, during the window */
+            automatic?: boolean;
+            /**
+             * @description Which releases the server takes: stable, beta and stable, or every nightly build too
+             * @enum {string}
+             */
+            channel: "stable" | "beta" | "nightly";
+            /**
+             * @description Mirrors to download releases from, tried before GitHub
+             * @example [
+             *       "https://mirror.example.com/racksail"
+             *     ]
+             */
+            mirrors?: string[] | null;
+            /** @description When automatic updates may be installed; any time when empty */
+            window?: components["schemas"]["Window"];
+        };
+        SettingsStatus: {
+            /** @description The newest release on the channel, when it is newer */
+            available?: components["schemas"]["Available"];
+            canRollBack?: boolean;
+            checkError?: string;
+            /** Format: date-time */
+            checkedAt?: string;
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description The last update the agent installed */
+            last?: components["schemas"]["UpdateState"];
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            os?: components["schemas"]["OSStatus"];
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            reported?: string;
+            /** @description The version running now */
+            running: string;
         };
         Snapshot: {
             /** @description Where the snapshot is */
@@ -3071,6 +3374,50 @@ export interface components {
             icon?: string;
             subtitleField?: string;
             titleField?: string;
+        };
+        UpdateInput: {
+            /** @description The version the last check found; empty takes it */
+            version?: string;
+        };
+        UpdateOutput: {
+            from: string;
+            /** Format: date-time */
+            restartsAt: string;
+            to: string;
+        };
+        UpdateState: {
+            binary: string;
+            /** Format: date-time */
+            confirmedAt?: string;
+            from: string;
+            /** Format: date-time */
+            installedAt: string;
+            panelBackup?: string;
+            /** @description Why the release was rolled back */
+            reason?: string;
+            /** Format: date-time */
+            rolledBackAt?: string;
+            snapshots?: components["schemas"]["Snapshot"][] | null;
+            /**
+             * @description installed until the new release confirms it works, then confirmed; rolled-back when it didn't
+             * @enum {string}
+             */
+            state: "installed" | "confirmed" | "rolled-back";
+            tag: string;
+            to: string;
+            unprotected?: string[] | null;
+        };
+        UpgradeOSInput: {
+            /** @description The code name of the next Debian release, such as forky */
+            to: string;
+        };
+        UpgradeOSOutput: {
+            from: string;
+            /** @description Whether the server needs a reboot to finish */
+            rebootRequired: boolean;
+            /** @description The snapshots taken first */
+            snapshots?: string[] | null;
+            to: string;
         };
         Usage: {
             /** @description How many resources of each kind exist */
@@ -3163,6 +3510,20 @@ export interface components {
             observedGeneration?: number;
             /** @enum {string} */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+        };
+        Window: {
+            /**
+             * @description When it closes; earlier than the start means the next day
+             * @example 05:00
+             */
+            end: string;
+            /**
+             * @description When the window opens, as HH:MM
+             * @example 03:00
+             */
+            start: string;
+            /** @description The time zone the times are in; UTC when empty */
+            timeZone?: string;
         };
     };
     responses: never;
@@ -5829,6 +6190,471 @@ export interface operations {
             header?: never;
             path: {
                 /** @description The reseller rule's ID, which starts with rpol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of update settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreUpdateSettingsList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreUpdateSettingsCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The update settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreUpdateSettings"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreUpdateSettingsUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the update settings since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the update settings from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    checkCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    installCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInput"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    rollbackCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    upgradeOsCoreUpdateSettings: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpgradeOSInput"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreUpdateSettingsHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The update settings's ID, which starts with upd_ */
                 id: string;
             };
             cookie?: never;

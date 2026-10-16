@@ -207,6 +207,34 @@
         },
         "type": "object"
       },
+      "Asset": {
+        "additionalProperties": false,
+        "properties": {
+          "bundle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "size",
+          "sha256"
+        ],
+        "type": "object"
+      },
       "AuditListBody": {
         "additionalProperties": false,
         "properties": {
@@ -286,6 +314,44 @@
           "scope",
           "outcome",
           "summary"
+        ],
+        "type": "object"
+      },
+      "Available": {
+        "additionalProperties": false,
+        "properties": {
+          "asset": {
+            "$ref": "#/components/schemas/Asset"
+          },
+          "channel": {
+            "enum": [
+              "stable",
+              "beta",
+              "nightly"
+            ],
+            "type": "string"
+          },
+          "notesUrl": {
+            "description": "The release notes",
+            "type": "string"
+          },
+          "published": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "version",
+          "channel",
+          "published",
+          "asset"
         ],
         "type": "object"
       },
@@ -738,6 +804,22 @@
         "required": [
           "name",
           "status"
+        ],
+        "type": "object"
+      },
+      "CheckOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "$ref": "#/components/schemas/Available",
+            "description": "The release to update to; empty when the server is up to date"
+          },
+          "running": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "running"
         ],
         "type": "object"
       },
@@ -2124,6 +2206,161 @@
           },
           "spec": {
             "$ref": "#/components/schemas/RelaySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreUpdateSettings": {
+        "additionalProperties": false,
+        "description": "Update settings: How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/SettingsSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SettingsStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreUpdateSettingsCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new update settings.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with upd_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/SettingsSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreUpdateSettingsList": {
+        "additionalProperties": false,
+        "description": "One page of update settings.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreUpdateSettings"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreUpdateSettingsUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a update settings.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/SettingsSpec"
           }
         },
         "required": [
@@ -3552,6 +3789,29 @@
         ],
         "type": "object"
       },
+      "OSStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "codename": {
+            "type": "string"
+          },
+          "next": {
+            "description": "The Debian release an upgrade would move to",
+            "type": "string"
+          },
+          "rebootRequired": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "codename",
+          "version"
+        ],
+        "type": "object"
+      },
       "Operation": {
         "additionalProperties": false,
         "properties": {
@@ -4321,6 +4581,16 @@
         ],
         "type": "object"
       },
+      "RollbackInput": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Scope": {
         "additionalProperties": false,
         "properties": {
@@ -4340,6 +4610,117 @@
         },
         "required": [
           "level"
+        ],
+        "type": "object"
+      },
+      "SettingsSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "automatic": {
+            "description": "Install new releases on the channel by themselves, during the window",
+            "type": "boolean"
+          },
+          "channel": {
+            "description": "Which releases the server takes: stable, beta and stable, or every nightly build too",
+            "enum": [
+              "stable",
+              "beta",
+              "nightly"
+            ],
+            "type": "string"
+          },
+          "mirrors": {
+            "description": "Mirrors to download releases from, tried before GitHub",
+            "examples": [
+              [
+                "https://mirror.example.com/racksail"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "window": {
+            "$ref": "#/components/schemas/Window",
+            "description": "When automatic updates may be installed; any time when empty"
+          }
+        },
+        "required": [
+          "channel"
+        ],
+        "type": "object"
+      },
+      "SettingsStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "$ref": "#/components/schemas/Available",
+            "description": "The newest release on the channel, when it is newer"
+          },
+          "canRollBack": {
+            "type": "boolean"
+          },
+          "checkError": {
+            "type": "string"
+          },
+          "checkedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "last": {
+            "$ref": "#/components/schemas/UpdateState",
+            "description": "The last update the agent installed"
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "os": {
+            "$ref": "#/components/schemas/OSStatus"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "reported": {
+            "type": "string"
+          },
+          "running": {
+            "description": "The version running now",
+            "type": "string"
+          }
+        },
+        "required": [
+          "running"
         ],
         "type": "object"
       },
@@ -4533,6 +4914,153 @@
         },
         "type": "object"
       },
+      "UpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "The version the last check found; empty takes it",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "restartsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "restartsAt"
+        ],
+        "type": "object"
+      },
+      "UpdateState": {
+        "additionalProperties": false,
+        "properties": {
+          "binary": {
+            "type": "string"
+          },
+          "confirmedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "installedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "panelBackup": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the release was rolled back",
+            "type": "string"
+          },
+          "rolledBackAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/Snapshot"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "installed until the new release confirms it works, then confirmed; rolled-back when it didn't",
+            "enum": [
+              "installed",
+              "confirmed",
+              "rolled-back"
+            ],
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "unprotected": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "tag",
+          "from",
+          "to",
+          "binary",
+          "installedAt"
+        ],
+        "type": "object"
+      },
+      "UpgradeOSInput": {
+        "additionalProperties": false,
+        "properties": {
+          "to": {
+            "description": "The code name of the next Debian release, such as forky",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to"
+        ],
+        "type": "object"
+      },
+      "UpgradeOSOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "rebootRequired": {
+            "description": "Whether the server needs a reboot to finish",
+            "type": "boolean"
+          },
+          "snapshots": {
+            "description": "The snapshots taken first",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "rebootRequired"
+        ],
+        "type": "object"
+      },
       "Usage": {
         "additionalProperties": false,
         "properties": {
@@ -4721,6 +5249,37 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "Window": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "description": "When it closes; earlier than the start means the next day",
+            "examples": [
+              "05:00"
+            ],
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "start": {
+            "description": "When the window opens, as HH:MM",
+            "examples": [
+              "03:00"
+            ],
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone the times are in; UTC when empty",
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
         "type": "object"
       }
     },
@@ -10143,6 +10702,901 @@
         "x-racksail-kind": "core.reseller_policy",
         "x-racksail-operation": "history",
         "x-racksail-permission": "core.reseller_policy.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/update-settings": {
+      "get": {
+        "description": "How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Lists the update settings you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreUpdateSettingsList"
+                }
+              }
+            },
+            "description": "A page of update settings"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List update settings",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.update_settings.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreUpdateSettingsCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a update settings",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.update_settings.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/update-settings/{id}": {
+      "delete": {
+        "description": "Deletes the update settings and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the update settings since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the update settings from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a update settings",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.update_settings.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail: the release channel, whether new releases install themselves and when, and mirrors. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
+        "operationId": "getCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreUpdateSettings"
+                }
+              }
+            },
+            "description": "The update settings"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a update settings",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.update_settings.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the update settings's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreUpdateSettingsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a update settings",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.update_settings.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/update-settings/{id}/actions/check": {
+      "post": {
+        "description": "Lists the releases on the channel, and fetches and checks the signed manifest of the newest one that is newer than the running version. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "checkCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Look for a newer release on the channel",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "check",
+        "x-racksail-output": {
+          "$ref": "#/components/schemas/CheckOutput"
+        },
+        "x-racksail-permission": "core.update_settings.check",
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/update-settings/{id}/actions/install": {
+      "post": {
+        "description": "Backs up the panel's database, has the agent download the release and check its signature, snapshot the system and put the new binary in place, then restarts Racksail onto it. If the new release doesn't report healthy within fifteen minutes, the previous one comes back by itself. It runs as a job: the answer is 202 with the change set, whose job reports progress.",
+        "operationId": "installCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install the release the last check found",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-long": true,
+        "x-racksail-operation": "install",
+        "x-racksail-output": {
+          "$ref": "#/components/schemas/UpdateOutput"
+        },
+        "x-racksail-permission": "core.update_settings.install",
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/update-settings/{id}/actions/rollback": {
+      "post": {
+        "description": "Puts back the binary and the panel's database from before the last update and restarts Racksail. Changes made since the update are lost. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "rollbackCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Go back to the release before the last update",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "rollback",
+        "x-racksail-permission": "core.update_settings.rollback",
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/update-settings/{id}/actions/upgrade_os": {
+      "post": {
+        "description": "Asks every module whether the upgrade can go ahead, snapshots the system, points apt at the next release and upgrades every package. Modules prepare first and check their services afterwards. The server needs a reboot to finish. It runs as a job: the answer is 202 with the change set, whose job reports progress.",
+        "operationId": "upgradeOsCoreUpdateSettings",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeOSInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Upgrade Debian to its next major release",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-long": true,
+        "x-racksail-operation": "upgrade_os",
+        "x-racksail-output": {
+          "$ref": "#/components/schemas/UpgradeOSOutput"
+        },
+        "x-racksail-permission": "core.update_settings.upgrade_os",
+        "x-racksail-risk": "critical"
+      }
+    },
+    "/api/v1/core/update-settings/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the update settings's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreUpdateSettingsHistory",
+        "parameters": [
+          {
+            "description": "The update settings's ID, which starts with upd_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a update settings's history",
+        "tags": [
+          "UpdateSettings"
+        ],
+        "x-racksail-kind": "core.update_settings",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.update_settings.read",
         "x-racksail-risk": "read"
       }
     },

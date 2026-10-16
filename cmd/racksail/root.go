@@ -43,7 +43,7 @@ func newRootCommand() *cobra.Command {
 		&cobra.Group{ID: groupClient, Title: "Manage a server:"},
 		&cobra.Group{ID: groupTools, Title: "Tools:"},
 	)
-	for _, cmd := range []*cobra.Command{newPanelCommand(), newAgentCommand(), newEdgeCommand(), newWakeProxyCommand(), newDevCommand(), newInstallCommand()} {
+	for _, cmd := range []*cobra.Command{newPanelCommand(), newAgentCommand(), newEdgeCommand(), newWakeProxyCommand(), newDevCommand(), newInstallCommand(), newSafeModeCommand(), newUpdateCommand()} {
 		cmd.GroupID = groupServer
 		root.AddCommand(cmd)
 	}

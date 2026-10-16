@@ -1,7 +1,6 @@
 package updates
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"runtime/debug"
@@ -208,16 +207,6 @@ func (r Release) Binary(arch string) (Asset, bool) {
 		}
 	}
 	return Asset{}, false
-}
-
-// Source lists releases, from GitHub Releases or a mirror.
-type Source interface {
-	Releases(ctx context.Context) ([]Release, error)
-}
-
-// Verifier checks that an asset was signed by the Racksail release workflow.
-type Verifier interface {
-	Verify(ctx context.Context, asset Asset, content []byte) error
 }
 
 // Latest returns the newest release a server on channel c should be offered

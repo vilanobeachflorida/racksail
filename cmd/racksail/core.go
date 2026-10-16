@@ -210,6 +210,31 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		return nil, err
 	}
 	svc.Pipeline, svc.Hooks, svc.Authorizer, svc.Rules = pipeline, hookRunner, authorizer, ruleEngine
+	// The updater confirms a new release once the panel's own parts work;
+	// a module that fails to start is no reason to roll Racksail back.
+	var coreHealth []api.HealthCheck
+	updater := updates.NewUpdater(updates.Options{
+		Store: st, Agent: agentClient, Events: timeline, Hooks: hookRunner, Channel: updates.Channel(cfg.Updates.Channel),
+		StateDir: cfg.Paths.State, Logger: log,
+		Submit: func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {
+			return pipeline.Submit(ctx, req)
+		},
+		Backup: func(ctx context.Context, dest string) error {
+			_, err := db.Exec(ctx, "VACUUM INTO ?", dest)
+			return err
+		},
+		Health: func(ctx context.Context) error {
+			for _, hc := range coreHealth {
+				if err := hc.Check(ctx); err != nil {
+					return fmt.Errorf("%s: %w", hc.Name, err)
+				}
+			}
+			return nil
+		},
+	})
+	if err := recs.Register(updater.Reconciler()); err != nil {
+		return nil, err
+	}
 	for _, h := range append(manager.Hooks(), addonRuntime.Hooks()...) {
 		if err := hookReg.Register(h); err != nil {
 			return nil, err
@@ -262,6 +287,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			return failed[ids[0]]
 		}},
 	}, moduleHealthChecks(reg, manager, svc)...)
+	coreHealth = c.health[:4]
 	// A module that doesn't start is reported by the health check rather
 	// than keeping the panel down, so it can still be turned off.
 	if err := manager.Boot(ctx); err != nil {
@@ -284,6 +310,12 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	addonRuntime.Load(ctx)
 	c.work.Go(func() { addonRuntime.Run(ctx) })
 	c.work.Go(func() { c.serveAddonGateway(ctx) })
+	// The update settings exist from the first start; then the updater
+	// finishes an update the panel restarted onto and looks for releases.
+	if err := updater.Boot(ctx); err != nil {
+		log.Warn("setting up updates", "error", err)
+	}
+	c.work.Go(func() { updater.Run(ctx) })
 	if err := timeline.Publish(ctx, events.Event{
 		Type: events.PanelStarted.Name, Severity: events.PanelStarted.Severity, Scope: store.ServerScope(),
 		Actor: auth.System("core"), Message: "Racksail " + updates.Build().Version + " started.",
