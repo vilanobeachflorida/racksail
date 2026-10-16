@@ -8581,7 +8581,7 @@ export interface components {
             pending?: "two-factor" | "password";
             /** @description What the person may do somewhere, as permission names and patterns; the panel checks each request against where it applies */
             permissions: string[] | null;
-            /** @description The person's display preferences, when they kept any */
+            /** @description The person's preferences for the panel, when they kept any */
             preferences?: components["schemas"]["Preferences"];
             /** @description How the person can confirm it's them: password, totp or passkey */
             stepUpMethods: string[] | null;

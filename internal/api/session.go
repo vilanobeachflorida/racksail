@@ -79,7 +79,7 @@ type Session struct {
 	Permissions []string `json:"permissions" doc:"What the person may do somewhere, as permission names and patterns; the panel checks each request against where it applies"`
 	// Modules says each module's state; modules left out are off.
 	Modules     map[string]ModuleState `json:"modules" doc:"Each module's state; modules left out are off"`
-	Preferences *Preferences           `json:"preferences,omitempty" doc:"The person's display preferences, when they kept any"`
+	Preferences *Preferences           `json:"preferences,omitempty" doc:"The person's preferences for the panel, when they kept any"`
 	// Token is the API token the request came with, when it did.
 	Token *SessionToken `json:"token,omitempty" doc:"The API token the request came with, when it did"`
 	// Impersonation says who is viewing the panel as the person.

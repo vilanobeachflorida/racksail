@@ -10574,7 +10574,7 @@
           },
           "preferences": {
             "$ref": "#/components/schemas/Preferences",
-            "description": "The person's display preferences, when they kept any"
+            "description": "The person's preferences for the panel, when they kept any"
           },
           "stepUpMethods": {
             "description": "How the person can confirm it's them: password, totp or passkey",
