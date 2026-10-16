@@ -171,6 +171,17 @@ export interface I18nProviderProps {
   children: ReactNode;
 }
 
+const ShownLocale = createContext<string>(defaultLocale);
+
+/**
+ * The locale the panel shows, pseudo-locales included, which react-intl
+ * only knows as the locale they format like. Parts of the panel that load
+ * their own messages with their screens load them for it.
+ */
+export function useShownLocale(): string {
+  return useContext(ShownLocale);
+}
+
 /** Provides react-intl with the loaded messages. Pseudo-locales format like English. */
 export function I18nProvider({ locale, messages, onError, children }: I18nProviderProps) {
   return (
@@ -182,7 +193,7 @@ export function I18nProvider({ locale, messages, onError, children }: I18nProvid
     >
       {/* Radix components set their own direction, left to right unless told otherwise. */}
       <Direction.Provider dir={isRightToLeft(locale) ? "rtl" : "ltr"}>
-        {children}
+        <ShownLocale value={locale}>{children}</ShownLocale>
       </Direction.Provider>
     </IntlProvider>
   );

@@ -3,13 +3,12 @@ import type { Job, JobList, JobState, LogLine } from "../changes";
 import type { Severity, TimelineEventList } from "../events";
 import { type ApiClient, type Problem, unwrap } from "./client";
 import type { paths } from "./schema";
-import type { PanelSession, SessionPreferences } from "./session";
+import { normalizeSession, type PanelSession, type SessionPreferences } from "./session";
 
 /*
  * Operations the UI calls that spec/openapi.json doesn't describe yet: the
  * job queue and the event timeline (listJobs, getJobLogs, cancelJob,
- * retryJob and listEvents) and the signed-in session. They're
- * declared here in the form openapi-typescript generates, and go through
+ * retryJob and listEvents). They're declared here in the form openapi-typescript generates, and go through
  * the same client and error handling as generated ones. When the OpenAPI
  * document gains an operation, `make gen` types it in schema.d.ts and the
  * generated types take over at once: the functions below are checked
@@ -95,24 +94,6 @@ export interface PanelPaths {
       requestBody?: never;
     } & Answer<TimelineEventList>;
   };
-  "/api/v1/session": {
-    parameters: NoParameters;
-    get: { parameters: NoParameters; requestBody?: never } & Answer<PanelSession>;
-  };
-  "/api/v1/session/preferences": {
-    parameters: NoParameters;
-    put: {
-      parameters: NoParameters;
-      requestBody: { content: { "application/json": SessionPreferences } };
-      responses: {
-        204: { headers: Record<string, unknown>; content?: never };
-        default: {
-          headers: Record<string, unknown>;
-          content: { "application/problem+json": Problem };
-        };
-      };
-    };
-  };
 }
 
 /** The generated paths, and the declared ones the OpenAPI document doesn't have yet. */
@@ -153,8 +134,8 @@ export function listEvents(api: ApiClient, query?: EventQuery): Promise<Timeline
 }
 
 /** Who is signed in and how the panel looks and behaves for them. */
-export function getSession(api: ApiClient): Promise<PanelSession> {
-  return unwrap(panel(api).GET("/api/v1/session"));
+export async function getSession(api: ApiClient): Promise<PanelSession> {
+  return normalizeSession(await unwrap(api.GET("/api/v1/session")));
 }
 
 /** Keeps the person's display preferences with their account. */
@@ -162,5 +143,5 @@ export async function savePreferences(
   api: ApiClient,
   preferences: SessionPreferences,
 ): Promise<void> {
-  await unwrap(panel(api).PUT("/api/v1/session/preferences", { body: preferences }));
+  await unwrap(api.PUT("/api/v1/session/preferences", { body: preferences }));
 }
