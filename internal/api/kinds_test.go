@@ -367,6 +367,23 @@ func TestKindValidationAndHooks(t *testing.T) {
 	if resp := s.call("nobody", "POST", sites+"?dryRun=true", map[string]any{"scope": scope, "spec": map[string]any{"domains": []string{"n.test"}, "content": "x"}}, nil); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("without a grant = %d", resp.StatusCode)
 	}
+	// Even an admin can't make a site of an account that doesn't exist.
+	nowhere := map[string]any{"level": "account", "id": store.NewID("acct")}
+	for _, query := range []string{"?dryRun=true", ""} {
+		resp := s.call("admin", "POST", sites+query, map[string]any{"scope": nowhere, "spec": map[string]any{"domains": []string{"nowhere.test"}, "content": "x"}}, nil)
+		var p struct {
+			Code   i18n.Code `json:"code"`
+			Errors []struct {
+				Location string    `json:"location"`
+				Code     i18n.Code `json:"code"`
+			} `json:"errors"`
+		}
+		json.Unmarshal([]byte(bodyOf(resp)), &p)
+		if resp.StatusCode != http.StatusUnprocessableEntity || p.Code != i18n.ErrInvalid.Code || len(p.Errors) != 1 ||
+			p.Errors[0].Location != "scope.id" || p.Errors[0].Code != i18n.ErrNotFound.Code {
+			t.Errorf("a site of an account that doesn't exist%s = %d %s", query, resp.StatusCode, bodyOf(resp))
+		}
+	}
 }
 
 func TestListingKinds(t *testing.T) {

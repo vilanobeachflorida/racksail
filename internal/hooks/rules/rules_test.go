@@ -40,6 +40,10 @@ var accountKind = store.Define[accountSpec, store.Status](store.KindInfo{
 	Name: "hosting.account", Prefix: "acct", Scope: store.ScopeServer, Title: "Account", Plural: "accounts", Description: "An account.",
 })
 
+var resellerKind = store.Define[accountSpec, store.Status](store.KindInfo{
+	Name: "hosting.reseller", Prefix: "rsl", Scope: store.ScopeServer, Title: "Reseller", Plural: "resellers", Description: "A reseller.",
+})
+
 type planSpec struct {
 	MaxWorkers int `json:"maxWorkers"`
 }
@@ -68,7 +72,7 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	ctx := context.Background()
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{siteKind, accountKind, planKind, Policy, ResellerPolicy, AccountPolicy} {
+	for _, k := range []store.Kind{siteKind, accountKind, resellerKind, planKind, Policy, ResellerPolicy, AccountPolicy} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -118,6 +122,20 @@ func (e *env) submit(t *testing.T, actor *auth.Actor, changes ...changeset.Chang
 	return e.engine.Get(ctx, cs.ID)
 }
 
+// owner puts an account or a reseller straight in the store, for what the
+// tests make to belong to: resources only belong to owners that exist.
+func (e *env) owner(t *testing.T, kind *store.KindOf[accountSpec, store.Status]) store.ID {
+	t.Helper()
+	id := store.NewID(kind.Info().Prefix)
+	ctx := context.Background()
+	if err := e.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: kind.Name(), Scope: store.ServerScope()}, Spec: json.RawMessage(`{"name":"test"}`)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func (e *env) rule(t *testing.T, kind string, scope store.Scope, spec hooks.PolicySpec) store.ID {
 	t.Helper()
 	raw, _ := json.Marshal(spec)
@@ -162,7 +180,7 @@ func TestRulesAreCheckedWhenSaved(t *testing.T) {
 func TestValidateRules(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := store.AccountScope(e.owner(t, accountKind))
 	id := e.rule(t, "core.policy", store.ServerScope(), hooks.PolicySpec{
 		Name: "No .invalid domains", Type: hooks.PolicyValidate, Enabled: true, Kinds: []string{"web.site"},
 		Expression: `resource.kind == "web.site" && resource.spec.domains.exists(d, d.endsWith(".invalid"))`,
@@ -196,7 +214,7 @@ func TestValidateRules(t *testing.T) {
 
 func TestRulesSeeTheRequestAndTheOldResource(t *testing.T) {
 	e := newEnv(t)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := store.AccountScope(e.owner(t, accountKind))
 	e.rule(t, "core.policy", store.ServerScope(), hooks.PolicySpec{
 		Name: "Domains only grow", Type: hooks.PolicyValidate, Enabled: true, Kinds: []string{"web.site"}, Operations: []string{"update"},
 		Expression: `request.operation == "update" && size(resource.spec.domains) < size(oldResource.spec.domains) && request.actor.type == "user"`,
@@ -256,8 +274,8 @@ func TestDefaultRules(t *testing.T) {
 
 func TestScopes(t *testing.T) {
 	e := newEnv(t)
-	reseller := store.NewID("rsl")
-	mine, theirs, other := store.NewID("acct"), store.NewID("acct"), store.NewID("acct")
+	reseller := e.owner(t, resellerKind)
+	mine, theirs, other := e.owner(t, accountKind), e.owner(t, accountKind), e.owner(t, accountKind)
 	e.owners[mine] = reseller
 	e.owners[theirs] = reseller
 	deny := func(name string) hooks.PolicySpec {
@@ -293,7 +311,7 @@ func TestCostLimit(t *testing.T) {
 	}
 	// The evaluation stops at the limit and counts as a failure of the
 	// rule's hook, which lets the change through.
-	if _, err := e.submit(t, e.admin, site(store.AccountScope(store.NewID("acct")), siteSpec{Domains: domains})); err != nil {
+	if _, err := e.submit(t, e.admin, site(store.AccountScope(e.owner(t, accountKind)), siteSpec{Domains: domains})); err != nil {
 		t.Fatalf("a rule over its cost limit fails open: %v", err)
 	}
 	res, err := e.rules.Test(context.Background(), e.admin, TestRequest{

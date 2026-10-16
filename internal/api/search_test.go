@@ -37,7 +37,7 @@ func TestSearch(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	alpha := s.createSite("owner", "alpha.test")
 	beta := s.createSite("owner", "beta.test")
-	elsewhere := store.AccountScope(store.NewID("acct"))
+	elsewhere := store.AccountScope(s.newAccount(""))
 	var cs changeset.ChangeSet
 	s.call("admin", "POST", "/api/v1/test/sites", map[string]any{"scope": elsewhere, "spec": map[string]any{"domains": []string{"alpha-two.test"}, "content": "x"}}, &cs)
 	s.finish("admin", &cs)

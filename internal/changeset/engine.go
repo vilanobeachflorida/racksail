@@ -403,6 +403,11 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 			return err
 		}
 	}
+	if ch.Op == OpCreate {
+		if err := e.checkOwner(ctx, p.view, next); err != nil {
+			return err
+		}
+	}
 
 	change := ResourceChange{
 		Op: ch.Op, Action: ch.Action, Kind: info.Name, ID: next.ID, Scope: next.Scope, Server: next.Server,
@@ -546,6 +551,33 @@ func (e *Engine) checkReuse(ctx context.Context, p *draft, r *store.Resource) er
 		return store.ErrExists.New("what", string(r.ID))
 	}
 	return store.CheckReuse(history, r, p.undoOf)
+}
+
+// checkOwner makes sure the account or reseller a new resource belongs to
+// exists: stored and not being removed, or created by an earlier change of
+// the change set. Otherwise the resource would sit outside every account,
+// seen only by the server's admins and left out of the account's archive,
+// and an account made later with that ID would inherit it. Owners belong to
+// themselves, so a new account names itself. A server's resources have no
+// owner to check.
+func (e *Engine) checkOwner(ctx context.Context, view store.Reader, r *store.Resource) error {
+	level := r.Scope.Level
+	if level != store.ScopeAccount && level != store.ScopeReseller {
+		return nil
+	}
+	owners, known := e.opts.Kinds.OwnerKind(level)
+	if known && r.Kind == owners.Info().Name && r.Scope.ID == r.ID {
+		return nil
+	}
+	owner, err := view.Get(ctx, r.Scope.ID)
+	switch {
+	case err != nil && !store.ErrNotFound.Is(err):
+		return err
+	case err == nil && known && owner.Kind == owners.Info().Name && !owner.Deleted():
+		return nil
+	}
+	what := strings.ToUpper(string(level[:1])) + string(level[1:]) + " " + string(r.Scope.ID)
+	return i18n.Invalid(i18n.Field("scope.id", i18n.ErrNotFound, "what", what))
 }
 
 // validate runs a kind's validation and checks its secret fields.

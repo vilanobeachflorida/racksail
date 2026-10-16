@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
@@ -82,6 +83,19 @@ var labelKind = store.Define[labelSpec, store.Status](store.KindInfo{
 	Name: "test.label", Prefix: "label", Scope: store.ScopeAccount, Title: "Label", Plural: "labels",
 	Description: "A label, for kinds without a reconciler.",
 })
+
+// Resellers belong to themselves, as accounts do, the way a module that
+// keeps resellers defines them; offers are a reseller's.
+var (
+	resellerKind = store.Define[labelSpec, store.Status](store.KindInfo{
+		Name: "test.reseller", Prefix: "rsl", Scope: store.ScopeReseller, Title: "Reseller", Plural: "resellers",
+		Description: "A reseller, for the checks of who resources belong to.",
+	})
+	offerKind = store.Define[labelSpec, store.Status](store.KindInfo{
+		Name: "test.offer", Prefix: "offer", Scope: store.ScopeReseller, Title: "Offer", Plural: "offers",
+		Description: "Something a reseller offers, for the checks of who resources belong to.",
+	})
+)
 
 func (e *env) create(kind string, spec any) Change {
 	raw, _ := json.Marshal(spec)
@@ -219,6 +233,108 @@ func TestCheckingAPreview(t *testing.T) {
 	}
 }
 
+// A new resource belongs to an account or reseller that exists: one that is
+// stored and not being removed, or one an earlier change of the same change
+// set creates. Otherwise it would sit outside every account, and an account
+// made later with that ID would inherit it.
+func TestOwnersMustExist(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	refused := func(err error, path string) bool {
+		t.Helper()
+		var coded *i18n.Error
+		if !errors.As(err, &coded) || coded.Code != i18n.ErrInvalid.Code {
+			return false
+		}
+		return slices.ContainsFunc(coded.Fields, func(f i18n.FieldError) bool { return f.Path == path && f.Code == i18n.ErrNotFound.Code })
+	}
+	nowhere := store.NewID("acct")
+	page := e.createPage(pageSpec{Path: "lost.html", Content: "lost"})
+	page.Scope = store.AccountScope(nowhere)
+	for _, dry := range []bool{true, false} {
+		if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: dry, Changes: []Change{page}}); !refused(err, "scope.id") {
+			t.Errorf("an account that doesn't exist (dry run %v): %v", dry, err)
+		}
+	}
+	if list, _ := e.store.List(ctx, store.Query{Kind: "test.page"}); len(list.Items) != 0 {
+		t.Error("nothing is created for it")
+	}
+
+	// An account opened in the same change set, before its resources.
+	acct := store.NewID("acct")
+	spec, _ := json.Marshal(account.AccountSpec{Slug: "newcomer", Name: "Newcomer"})
+	open := Change{Op: OpCreate, Kind: account.Kind.Name(), ID: acct, Scope: store.AccountScope(acct), Spec: spec}
+	page.Scope = store.AccountScope(acct)
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{page, open}}); !refused(err, "changes[0].scope.id") {
+		t.Errorf("an account opened after its page: %v", err)
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{open, page}}); err != nil {
+		t.Errorf("an account opened with its page: %v", err)
+	}
+	opened, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{open}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened = e.wait(t, opened); opened.State != StateApplied {
+		t.Fatalf("opening the account = %+v", opened)
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{page}}); err != nil {
+		t.Errorf("a page of an account that exists: %v", err)
+	}
+	// An account being deleted takes nothing new.
+	del := Change{Op: OpDelete, Kind: account.Kind.Name(), ID: acct}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{del, page}}); !refused(err, "changes[1].scope.id") {
+		t.Errorf("a page of an account deleted before it: %v", err)
+	}
+	// Nor can a resource of another kind name itself as its account.
+	self := e.createPage(pageSpec{Path: "self.html", Content: "self"})
+	self.ID = store.NewID("page")
+	self.Scope = store.AccountScope(self.ID)
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{self}}); !refused(err, "scope.id") {
+		t.Errorf("a page that names itself as its account: %v", err)
+	}
+
+	// A reseller is a resource of its own kind too.
+	rsl := store.NewID("rsl")
+	offer := Change{Op: OpCreate, Kind: "test.offer", Scope: store.ResellerScope(rsl), Spec: json.RawMessage(`{"name":"hosting"}`)}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{offer}}); !refused(err, "scope.id") {
+		t.Errorf("a reseller that doesn't exist: %v", err)
+	}
+	reseller := Change{Op: OpCreate, Kind: "test.reseller", ID: rsl, Scope: store.ResellerScope(rsl), Spec: json.RawMessage(`{"name":"Resold"}`)}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{reseller, offer}}); err != nil {
+		t.Errorf("a reseller and its offer: %v", err)
+	}
+
+	// Hooks can't add resources of an owner that doesn't exist either.
+	e.hooks.rewrite = func(cs *ChangeSet, _ []int) {
+		cs.Changes = append(cs.Changes, ResourceChange{Op: OpCreate, Kind: "test.label", Scope: store.AccountScope(nowhere), After: json.RawMessage(`{"name":"stray"}`),
+			Source: Source{Type: "addon", Name: "stray"}})
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{e.createPage(pageSpec{Path: "home.html", Content: "home"})}}); !refused(err, "changes[1].scope.id") {
+		t.Errorf("a hook's change in an account that doesn't exist: %v", err)
+	}
+	e.hooks.rewrite = nil
+
+	// Undoing the delete of a resource whose account is gone since can't
+	// bring it back into nothing.
+	asAdmin := func(changes ...Change) *ChangeSet {
+		t.Helper()
+		cs, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: changes})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.wait(t, cs)
+	}
+	gone := e.account(t)
+	label := asAdmin(Change{Op: OpCreate, Kind: "test.label", Scope: store.AccountScope(gone), Spec: json.RawMessage(`{"name":"orphan"}`)})
+	removed := asAdmin(Change{Op: OpDelete, Kind: "test.label", ID: label.Changes[0].ID})
+	asAdmin(Change{Op: OpDelete, Kind: account.Kind.Name(), ID: gone})
+	if _, err := e.engine.Undo(ctx, UndoRequest{Actor: admin, ChangeSet: removed.ID}); !refused(err, "scope.id") {
+		t.Errorf("undoing a delete into an account that is gone: %v", err)
+	}
+}
+
 func TestStalePreviewsAreNotApplied(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)
@@ -339,7 +455,7 @@ func testListingChangeSets(t *testing.T, e *env) {
 		t.Fatal(err)
 	}
 	e.wait(t, label)
-	otherAcct := store.AccountScope(store.NewID("acct"))
+	otherAcct := store.AccountScope(e.account(t))
 	elsewhere, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{{Op: OpCreate, Kind: "test.label", Scope: otherAcct, Spec: json.RawMessage(`{"name":"y"}`)}}})
 	if err != nil {
 		t.Fatal(err)

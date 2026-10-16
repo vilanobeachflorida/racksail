@@ -211,6 +211,41 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
+// Accounts' resources belong to core.account resources, and resellers' to
+// those of core.reseller or of the module kind named reseller, as the
+// screens choose owners; a module's account-owned kind called account owns
+// nothing.
+func TestOwnerKinds(t *testing.T) {
+	kind := func(name, prefix string, scope ScopeLevel) Kind {
+		return Define[testSiteSpec, Status](KindInfo{Name: name, Prefix: prefix, Scope: scope, Title: "Thing", Plural: prefix + "s", Description: "A thing."})
+	}
+	reg := NewKindRegistry()
+	for _, k := range []Kind{kind("mail.account", "macct", ScopeAccount), kind("hosting.reseller", "rsl", ScopeReseller)} {
+		if err := reg.Register(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if k, ok := reg.OwnerKind(ScopeAccount); ok {
+		t.Errorf("an account's own kind owns accounts' resources: %s", k.Info().Name)
+	}
+	if k, ok := reg.OwnerKind(ScopeReseller); !ok || k.Info().Name != "hosting.reseller" {
+		t.Errorf("resellers' owner = %v, %v", k, ok)
+	}
+	for _, k := range []Kind{kind("core.account", "acct", ScopeAccount), kind("core.reseller", "crsl", ScopeReseller)} {
+		if err := reg.Register(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for level, want := range map[ScopeLevel]string{ScopeAccount: "core.account", ScopeReseller: "core.reseller"} {
+		if k, ok := reg.OwnerKind(level); !ok || k.Info().Name != want {
+			t.Errorf("%s's owner = %v, %v", level, k, ok)
+		}
+	}
+	if _, ok := reg.OwnerKind(ScopeServer); ok {
+		t.Error("the server has no owner kind")
+	}
+}
+
 // The API serves every kind's operations at a path and under IDs of its own,
 // so the registry refuses a kind that would share them with another, rather
 // than the API's router stopping the binary at startup.

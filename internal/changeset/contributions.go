@@ -341,6 +341,11 @@ func (e *Engine) recheckAccess(ctx context.Context, p *draft, actor *auth.Actor,
 			return err
 		}
 	}
+	if c.Op == OpCreate {
+		if err := e.checkOwner(ctx, p.view, next); err != nil {
+			return err
+		}
+	}
 	if e.opts.Hooks != nil {
 		if err := e.opts.Hooks.Validate(ctx, HookPoint(info.Name, operation, StageValidate), p.cs, c); err != nil {
 			return err

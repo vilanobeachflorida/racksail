@@ -227,7 +227,8 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 			t.Fatal(err)
 		}
 	}
-	s := &stack{t: t, store: st, log: log, jobs: q, machine: machine, kinds: kinds, account: store.NewID("acct"), reseller: store.NewID("rsl")}
+	s := &stack{t: t, store: st, log: log, jobs: q, machine: machine, kinds: kinds, reseller: store.NewID("rsl")}
+	s.account = s.newAccount(s.reseller)
 	registry := hooks.NewRegistry()
 	for _, k := range kinds.All() {
 		registry.DeclareKind(k)
@@ -303,6 +304,21 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	s.http = httptest.NewServer(s.server.Handler())
 	t.Cleanup(s.http.Close)
 	return s
+}
+
+// newAccount puts an account straight in the store, a customer of reseller
+// when it isn't empty, for resources to belong to, and returns its ID.
+func (s *stack) newAccount(reseller store.ID) store.ID {
+	s.t.Helper()
+	id := store.NewID("acct")
+	spec, _ := json.Marshal(account.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test", Reseller: reseller})
+	ctx := context.Background()
+	if err := s.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: spec})
+	}); err != nil {
+		s.t.Fatal(err)
+	}
+	return id
 }
 
 // call makes a request as an actor and decodes a JSON answer into out,

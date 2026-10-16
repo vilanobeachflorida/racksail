@@ -27,6 +27,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	coreaccount "github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
@@ -269,7 +270,7 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{siteKind, Addon, AccountAddon, recipes.CatalogKind} {
+	for _, k := range []store.Kind{siteKind, Addon, AccountAddon, recipes.CatalogKind, coreaccount.Kind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -330,6 +331,21 @@ func newEnv(t *testing.T) *env {
 	// The site guard comes from the official catalog.
 	e.publish(t, "official", guard(true))
 	return e
+}
+
+// newAccount puts an account straight in the store, for what the tests make
+// to belong to: resources only belong to accounts that exist.
+func (e *env) newAccount(t *testing.T) store.Scope {
+	t.Helper()
+	id := store.NewID("acct")
+	raw, _ := json.Marshal(coreaccount.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test"})
+	ctx := context.Background()
+	if err := e.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: coreaccount.Kind.Name(), Scope: store.AccountScope(id)}, Spec: raw})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return store.AccountScope(id)
 }
 
 func (e *env) submit(actor *auth.Actor, changes ...changeset.Change) (*changeset.ChangeSet, error) {
@@ -488,7 +504,7 @@ func TestAddonsTakePartInChanges(t *testing.T) {
 	}
 
 	// Its validate hook refuses evil domains, with its reason.
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	_, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, Spec: spec(t, siteSpec{Domains: []string{"shop.evil"}})})
 	if !errors.Is(err, hooks.ErrDenied) || !strings.Contains(i18n.From(err).Message, "list of evil domains") || !strings.Contains(i18n.From(err).Message, "Site guard 0.3.0") {
 		t.Fatalf("an evil domain: %v", err)
@@ -626,7 +642,7 @@ func TestGateway(t *testing.T) {
 		t.Fatalf("actor = %+v", seen)
 	}
 	authz := auth.NewRoleAuthorizer(nil)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	if err := authz.Authorize(ctx, seen, "web.site.update", auth.Target{Scope: acct}); err != nil {
 		t.Errorf("it may change sites: %v", err)
 	}
@@ -730,8 +746,8 @@ func TestAccountAddonsOnlyTakePartInTheirChanges(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
 	e.publish(t, "acme", account(t, accountManifest))
-	mine := store.AccountScope(store.NewID("acct"))
-	theirs := store.AccountScope(store.NewID("acct"))
+	mine := e.newAccount(t)
+	theirs := e.newAccount(t)
 	e.places[mine.ID] = Placement{Slug: "mine", Limits: system.ResourceLimits{MemoryMaxBytes: 48 << 20, CPUQuotaPercent: 10}}
 	inst := Instance(AccountAddon.Name(), "site-guard", mine)
 	fake := &fakeAddon{}
@@ -958,7 +974,7 @@ func TestOnlyServerAdminsApproveWhatOnlyTheyMayGrant(t *testing.T) {
 func TestAddonsAreWhatTheirCatalogOffers(t *testing.T) {
 	e := newEnv(t)
 	e.publish(t, "acme", account(t, accountManifest))
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	e.places[acct.ID] = Placement{Slug: "acme"}
 	install := func(kind string, scope store.Scope, s AddonSpec) error {
 		t.Helper()
@@ -1005,7 +1021,7 @@ func TestAddonsAreWhatTheirCatalogOffers(t *testing.T) {
 func TestAccountAddonsNeedTheirAccount(t *testing.T) {
 	e := newEnv(t)
 	e.publish(t, "acme", account(t, accountManifest))
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	_, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: AccountAddon.Name(), Scope: acct, Spec: spec(t, account(t, accountManifest))})
 	if !errors.Is(err, ErrNoAccount) || !strings.Contains(i18n.From(err).Message, "nothing on this server keeps accounts") {
 		t.Errorf("no account to run in: %v", err)

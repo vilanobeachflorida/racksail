@@ -481,7 +481,7 @@ func TestPurgedIDsAreNotReused(t *testing.T) {
 		t.Fatalf("the page should be purged: %v", err)
 	}
 	other := e.owner.Clone()
-	otherAcct := store.NewID("acct")
+	otherAcct := e.account(t)
 	other.Grants[0].Scope = store.AccountScope(otherAcct)
 	for name, req := range map[string]Request{
 		"the same account": {Actor: e.owner, Changes: []Change{{Op: OpCreate, Kind: "test.page", ID: id, Scope: store.AccountScope(e.acct),

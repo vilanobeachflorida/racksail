@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -92,6 +93,28 @@ func (r *KindRegistry) ForID(id ID) (Kind, bool) {
 	}
 	k, ok := r.byName[name]
 	return k, ok
+}
+
+// OwnerKind returns the kind whose resources own the resources of a scope
+// level: core.account owns accounts' resources, and core.reseller, or a
+// module's kind named reseller that isn't an account's, as the module that
+// keeps resellers defines it, owns resellers'. The panel's screens choose
+// owners by the same rule. An owner belongs to itself, as an account's scope
+// is the account.
+func (r *KindRegistry) OwnerKind(level ScopeLevel) (Kind, bool) {
+	if level != ScopeAccount && level != ScopeReseller {
+		return nil, false
+	}
+	if k, ok := r.Get("core." + string(level)); ok {
+		return k, true
+	}
+	for _, k := range r.All() {
+		info := k.Info()
+		if strings.HasSuffix(info.Name, "."+string(level)) && info.Scope != ScopeAccount {
+			return k, true
+		}
+	}
+	return nil, false
 }
 
 // All returns every registered kind sorted by name.

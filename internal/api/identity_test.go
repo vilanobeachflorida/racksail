@@ -887,8 +887,10 @@ func TestOpeningAnAccountIsOneChange(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	admin.do("GET", "/api/v1/core/accounts", nil, &accounts)
-	if len(accounts.Items) != 0 {
-		t.Errorf("the account was opened without its owner: %+v", accounts.Items)
+	for _, a := range accounts.Items {
+		if spec, _ := a["spec"].(map[string]any); spec["slug"] == "acme" {
+			t.Errorf("the account was opened without its owner: %+v", a)
+		}
 	}
 	var opened OpenedAccount
 	if resp := admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened); resp.StatusCode != http.StatusAccepted {

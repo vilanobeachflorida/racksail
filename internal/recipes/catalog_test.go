@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
@@ -153,7 +154,7 @@ func newPanel(t *testing.T, configure func(*EngineOptions)) *panel {
 	t.Cleanup(cancel)
 	log := slog.New(slog.DiscardHandler)
 	kinds := testKinds(t)
-	for _, k := range []store.Kind{CatalogKind, InstallationKind, ServerInstallationKind} {
+	for _, k := range []store.Kind{CatalogKind, InstallationKind, ServerInstallationKind, account.Kind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -227,6 +228,21 @@ func (noop[S]) Apply(ctx context.Context, obj *store.Object[S, store.Status], pl
 	st := obj.Status
 	err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st, time.Now())
 	return st, err
+}
+
+// newAccount puts an account straight in the store, for what the tests
+// install to belong to: resources only belong to accounts that exist.
+func (p *panel) newAccount(t *testing.T) store.Scope {
+	t.Helper()
+	id := store.NewID("acct")
+	raw, _ := json.Marshal(account.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test"})
+	ctx := context.Background()
+	if err := p.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: raw})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return store.AccountScope(id)
 }
 
 func (p *panel) submit(t *testing.T, req changeset.Request) *changeset.ChangeSet {

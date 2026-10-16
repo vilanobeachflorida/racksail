@@ -14,6 +14,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
@@ -273,7 +274,7 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		ctx = context.Background()
 	}
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind} {
+	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind, account.Kind, resellerKind, offerKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -329,9 +330,25 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 	q.Start()
 	// The queue stops before the database it may be writing to closes.
 	t.Cleanup(func() { q.Stop(context.Background()) })
-	acct := store.NewID("acct")
-	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}}
-	return &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault, owner: owner, acct: acct}
+	e := &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault}
+	e.acct = e.account(t)
+	e.owner = &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(e.acct)}}}
+	return e
+}
+
+// account puts a new account straight in the store, for resources to
+// belong to, and returns its ID.
+func (e *env) account(t *testing.T) store.ID {
+	t.Helper()
+	id := store.NewID("acct")
+	spec, _ := json.Marshal(account.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test"})
+	ctx := context.Background()
+	if err := e.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: spec})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func (e *env) submit(t *testing.T, dryRun bool, changes ...Change) *ChangeSet {
@@ -882,7 +899,7 @@ func TestHookContributionsAreChecked(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)
 	theirs := e.createPage(pageSpec{Path: "theirs.html", Content: "theirs"})
-	theirs.Scope = store.AccountScope(store.NewID("acct"))
+	theirs.Scope = store.AccountScope(e.account(t))
 	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
 	other, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{theirs}})
 	if err != nil {

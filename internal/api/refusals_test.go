@@ -87,7 +87,7 @@ func TestRefusalsAreAudited(t *testing.T) {
 
 	// Lists leave out what someone may not see without refusing anything.
 	before := len(s.refusals("owner"))
-	other := store.AccountScope(store.NewID("acct"))
+	other := store.AccountScope(s.newAccount(""))
 	var theirs changeset.ChangeSet
 	s.call("admin", "POST", "/api/v1/test/sites", map[string]any{"scope": other, "spec": map[string]any{"domains": []string{"theirs.test"}, "content": "x"}}, &theirs)
 	s.finish("admin", &theirs)
@@ -196,7 +196,7 @@ func TestRetryingAJobOnce(t *testing.T) {
 // sees the change sets whose resources they may read, whoever made them.
 func TestServerWideReadersSeeChangeSets(t *testing.T) {
 	s := newStack(t, RateLimit{})
-	elsewhere := store.AccountScope(store.NewID("acct"))
+	elsewhere := store.AccountScope(s.newAccount(""))
 	var cs changeset.ChangeSet
 	s.call("admin", "POST", "/api/v1/test/sites", map[string]any{"scope": elsewhere, "spec": map[string]any{"domains": []string{"seen.test"}, "content": "x"}}, &cs)
 	s.finish("admin", &cs)

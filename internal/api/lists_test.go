@@ -58,7 +58,7 @@ func TestJobAndChangeSetListsStayFull(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	// The admin makes changes in another account, which the owner can't
 	// see, around the owner's own.
-	other := store.AccountScope(store.NewID("acct"))
+	other := store.AccountScope(s.newAccount(""))
 	adminChange := func(domain string) {
 		var cs changeset.ChangeSet
 		resp := s.call("admin", "POST", "/api/v1/test/sites", map[string]any{"scope": other, "spec": map[string]any{"domains": []string{domain}, "content": "x"}}, &cs)
@@ -122,7 +122,7 @@ func TestJobAndChangeSetListsStayFull(t *testing.T) {
 func TestResellersReachTheirCustomers(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	site := s.createSite("owner", "customer.test")
-	elsewhere := store.AccountScope(store.NewID("acct"))
+	elsewhere := store.AccountScope(s.newAccount(""))
 	var cs changeset.ChangeSet
 	s.call("admin", "POST", "/api/v1/test/sites", map[string]any{"scope": elsewhere, "spec": map[string]any{"domains": []string{"other.test"}, "content": "x"}}, &cs)
 	s.finish("admin", &cs)
