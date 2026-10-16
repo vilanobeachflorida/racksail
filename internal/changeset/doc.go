@@ -57,6 +57,13 @@
 // own for them to look at first. Actions whose work happens in the panel
 // rather than on the machine return an output, kept with the change set.
 //
+// A request, an undo or the apply of a preview may carry a Confirm, which
+// is asked about the change set as planned, just before anything is
+// written: the API decides there whether a person in the panel must first
+// confirm it's them, from what the changes do, hooks' included. The writes
+// are made only at the revisions the plan was made from, so what Confirm
+// agreed to is what gets written, or nothing is.
+//
 // Pipeline is the interface the API, recipes, automations, add-ons and the
 // assistant call. Engine implements it and keeps change sets, the requests
 // previews came from and idempotency keys in a Storage, within the bounds of

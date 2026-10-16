@@ -26,18 +26,17 @@ type ChangeSetOutput struct {
 
 // Submit sends a request through the change pipeline for the signed-in
 // actor, with the operation's change parameters, and builds the answer. A
-// person in the panel confirms it's them first when one of the changes
-// needs it, such as a user's new email address, whichever operation sends
-// it.
+// person in the panel confirms it's them first when what the changes do
+// needs it, such as giving a user a new email address, whichever operation
+// sends them: the pipeline asks once they are planned, hooks' changes
+// included.
 func Submit(ctx context.Context, p changeset.Pipeline, params ChangeParams, req changeset.Request) (*ChangeSetOutput, error) {
 	actor, err := Actor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := confirmSubmitted(ctx, actor, params.DryRun, req.Changes); err != nil {
-		return nil, err
-	}
 	req.Actor, req.DryRun, req.IdempotencyKey = actor, params.DryRun, params.IdempotencyKey
+	req.Confirm = confirmerFor(ctx, actor, req.Confirm)
 	cs, err := p.Submit(ctx, req)
 	if err != nil {
 		return nil, err

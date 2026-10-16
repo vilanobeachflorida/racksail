@@ -1,11 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -208,15 +206,6 @@ func (s *Server) confirms(kind string, op changeset.Op, action string) bool {
 	return !ok || a.Risk != store.RiskLow
 }
 
-// stepUpForKinds asks a person in the panel to confirm it's them before
-// changes of kinds that ask for it, however the changes are sent.
-func (s *Server) stepUpForKinds(actor *auth.Actor, confirms bool) error {
-	if !confirms {
-		return nil
-	}
-	return s.stepUpFor(actor, store.RiskCritical)
-}
-
 // confirmerKey carries the server of an API request to Submit, which every
 // operation that changes something answers through, those of modules and
 // of the extension system included, so it asks for the confirmations the
@@ -227,142 +216,71 @@ func withConfirmer(ctx context.Context, s *Server) context.Context {
 	return context.WithValue(ctx, confirmerKey{}, s)
 }
 
-// confirmSubmitted asks for the confirmations a request's changes need,
-// unless the request only previews them.
-func confirmSubmitted(ctx context.Context, actor *auth.Actor, dryRun bool, changes []changeset.Change) error {
+// confirmerFor is what Submit has the pipeline ask about a request of the
+// API's once it is planned, after what the request asks already; outside
+// an API request it is only that.
+func confirmerFor(ctx context.Context, actor *auth.Actor, also changeset.Confirm) changeset.Confirm {
 	s, ok := ctx.Value(confirmerKey{}).(*Server)
-	if !ok || dryRun {
-		return nil
+	if !ok {
+		return also
 	}
-	return s.confirmChanges(ctx, actor, changes)
+	mine := s.confirmPlan(actor)
+	if also == nil {
+		return mine
+	}
+	return func(ctx context.Context, cs *changeset.ChangeSet) error {
+		if err := also(ctx, cs); err != nil {
+			return err
+		}
+		return mine(ctx, cs)
+	}
 }
 
-// confirmChanges asks a person in the panel to confirm it's them before a
-// request's changes when one needs it: a change of a kind that asks for it,
-// or a profile change that gives a user another email address, which
-// outside sign-in may match people by, so it could become a way in. A
-// profile change that keeps the address is held to the user as read here:
-// one that lands meanwhile fails it with core.conflict rather than make it
-// change the address after all.
-func (s *Server) confirmChanges(ctx context.Context, actor *auth.Actor, changes []changeset.Change) error {
-	needs := s.stepUpFor(actor, store.RiskCritical)
-	if needs == nil {
-		// Confirmed recently, or not a person in the panel.
-		return nil
+// confirmPlan asks a person in the panel to confirm it's them before a
+// change set is written, when what it does needs it. The pipeline asks it
+// about the change set as planned, which it writes only at the revisions it
+// was planned against, so a change that lands meanwhile can't make it do
+// something it wasn't judged by: whatever the actor may read, and however
+// the changes were sent, previews applied later and undos included.
+func (s *Server) confirmPlan(actor *auth.Actor) changeset.Confirm {
+	return func(ctx context.Context, cs *changeset.ChangeSet) error {
+		if !s.planConfirms(cs) {
+			return nil
+		}
+		return s.stepUpFor(actor, store.RiskCritical)
 	}
-	held := map[store.ID]bool{}
-	for i := range changes {
-		c := &changes[i]
-		if s.confirms(c.Kind, c.Op, c.Action) {
-			return needs
-		}
-		if c.Kind != identity.KindUser || c.Op != changeset.OpAction || c.Action != identity.ActionUpdateProfile {
-			continue
-		}
-		// A user who is gone, or whom the actor may not change, is the
-		// pipeline's to answer for, as is a profile that isn't valid.
-		u, ok := s.userFor(ctx, c.ID, auth.PermUserUpdateProfile)
-		if !ok {
-			continue
-		}
-		next, err := identity.ApplyProfile(u.Spec, c.Input)
-		if err != nil {
-			continue
-		}
-		if identity.SignInMatchChanged(u.Spec, next) {
-			return needs
-		}
-		// Only the first change of a user can name its revision; later ones
-		// plan against what the first one leaves.
-		if !held[c.ID] && c.Revision == 0 {
-			c.Revision = u.Revision
-		}
-		held[c.ID] = true
-	}
-	return nil
 }
 
-// userFor reads a user the signed-in actor may use perm on, to decide what
-// a change of them needs; ok is false when they're gone or out of reach.
-func (s *Server) userFor(ctx context.Context, id store.ID, perm auth.Permission) (*store.Object[identity.UserSpec, identity.UserStatus], bool) {
-	st := s.store()
-	if st == nil {
-		return nil, false
+// planConfirms reports whether a planned change set asks people in the
+// panel to confirm it's them: a critical one, one with a change of a kind
+// that asks for it, or one that gives a user another username or email
+// address than they have, their own or someone else's, which outside
+// sign-in may match people by the first time they sign in, so it could
+// become a way in. What hooks added counts as much as what was asked for.
+func (s *Server) planConfirms(cs *changeset.ChangeSet) bool {
+	if cs.Risk == store.RiskCritical {
+		return true
 	}
-	u, err := identity.UserKind.Get(ctx, st, id)
-	if err != nil || u.Deleted() || allowed(ctx, s.authorizer(), perm, auth.Target{Scope: u.Scope, Object: u.ID}) != nil {
-		return nil, false
-	}
-	return u, true
-}
-
-// changeSetConfirms reports whether applying a preview asks for a
-// confirmation: a change of a kind that asks for it, or one that would
-// leave a user with another username or email address than the store has
-// now, which is what applying it changes.
-func (s *Server) changeSetConfirms(ctx context.Context, cs *changeset.ChangeSet) bool {
 	for _, c := range cs.Changes {
-		if s.confirms(c.Kind, c.Op, c.Action) {
-			return true
-		}
-		if c.Kind != identity.KindUser || (c.Op != changeset.OpUpdate && c.Op != changeset.OpAction) {
-			continue
-		}
-		u, ok := s.userFor(ctx, c.ID, auth.PermUserRead)
-		if !ok {
-			continue
-		}
-		// Settings that can't be read count as a change.
-		var next identity.UserSpec
-		if json.Unmarshal(c.After, &next) != nil || identity.SignInMatchChanged(u.Spec, next) {
+		if s.confirms(c.Kind, c.Op, c.Action) || signInMatchChanged(c) {
 			return true
 		}
 	}
 	return false
 }
 
-// undoConfirms reports whether undoing a change set asks for a
-// confirmation, from the changes its undo makes.
-func (s *Server) undoConfirms(cs *changeset.ChangeSet) bool {
-	for _, c := range undoChanges(cs) {
-		if s.confirms(c.kind, c.op, "") {
-			return true
-		}
+// signInMatchChanged reports whether a planned change of a user changes
+// what outside sign-in matches them by. Settings that can't be read count
+// as a change.
+func signInMatchChanged(c changeset.ResourceChange) bool {
+	if c.Kind != identity.KindUser || (c.Op != changeset.OpUpdate && c.Op != changeset.OpAction) {
+		return false
 	}
-	return false
-}
-
-// undoChange is what undoing a change set does to one resource.
-type undoChange struct {
-	kind string
-	op   changeset.Op
-}
-
-// undoChanges is what undoing a change set does, as Undo builds it:
-// creates become deletes, deletes become creates, and updates and actions
-// become updates that put back the settings they replaced, except those
-// that changed nothing and those of a resource whose creation is undone
-// too.
-func undoChanges(cs *changeset.ChangeSet) []undoChange {
-	created := map[store.ID]bool{}
-	for _, c := range cs.Changes {
-		if c.Op == changeset.OpCreate {
-			created[c.ID] = true
-		}
+	var before, after identity.UserSpec
+	if json.Unmarshal(c.Before, &before) != nil || json.Unmarshal(c.After, &after) != nil {
+		return true
 	}
-	var out []undoChange
-	for _, c := range cs.Changes {
-		switch {
-		case c.Op == changeset.OpCreate:
-			out = append(out, undoChange{c.Kind, changeset.OpDelete})
-		case c.Op == changeset.OpDelete:
-			out = append(out, undoChange{c.Kind, changeset.OpCreate})
-		case created[c.ID], bytes.Equal(c.Before, c.After) && maps.Equal(c.Labels, c.LabelsBefore):
-		default:
-			out = append(out, undoChange{c.Kind, changeset.OpUpdate})
-		}
-	}
-	return out
+	return identity.SignInMatchChanged(before, after)
 }
 
 // requireIdentity refuses identity operations on a panel without the
@@ -372,45 +290,4 @@ func (s *Server) requireIdentity() (*identity.Service, error) {
 		return nil, ErrNoSignIn.New()
 	}
 	return s.opts.Identity, nil
-}
-
-// requestRisk is the highest risk the kinds of a request's changes
-// declare, known before anything is planned.
-func (s *Server) requestRisk(changes []changeset.Change) store.Risk {
-	risk := store.RiskRead
-	for _, c := range changes {
-		k, ok := s.kinds.Get(c.Kind)
-		if !ok {
-			continue
-		}
-		risk = store.MaxRisk(risk, opRisk(k.Info(), c.Op, c.Action))
-	}
-	return risk
-}
-
-// undoRisk is the risk of undoing a change set, from the changes its undo
-// makes.
-func (s *Server) undoRisk(cs *changeset.ChangeSet) store.Risk {
-	risk := store.RiskRead
-	for _, c := range undoChanges(cs) {
-		if k, ok := s.kinds.Get(c.kind); ok {
-			risk = store.MaxRisk(risk, opRisk(k.Info(), c.op, ""))
-		}
-	}
-	return risk
-}
-
-func opRisk(info *store.KindInfo, op changeset.Op, action string) store.Risk {
-	switch op {
-	case changeset.OpCreate:
-		return info.Risks.Create
-	case changeset.OpDelete:
-		return info.Risks.Delete
-	case changeset.OpAction:
-		if a, ok := info.Action(action); ok {
-			return a.Risk
-		}
-		return store.RiskMedium
-	}
-	return info.Risks.Update
 }

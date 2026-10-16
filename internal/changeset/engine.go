@@ -637,6 +637,12 @@ func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string, 
 		e.settle(ctx, key, "")
 		return cs.Clone(), err
 	}
+	if req.Confirm != nil {
+		if err := req.Confirm(ctx, cs.Clone()); err != nil {
+			e.settle(ctx, key, "")
+			return nil, err
+		}
+	}
 	written, err := e.apply(ctx, cs, p.secrets, key)
 	if !written {
 		if replan && store.ErrConflict.Is(err) {
@@ -1305,7 +1311,7 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	request := Request{Actor: req.Actor, Title: "Undo: " + orig.Title, Changes: changes, DryRun: req.DryRun}
+	request := Request{Actor: req.Actor, Title: "Undo: " + orig.Title, Changes: changes, DryRun: req.DryRun, Confirm: req.Confirm}
 	p, err := e.plan(ctx, request, "", orig.ID)
 	if err != nil {
 		e.settle(ctx, key, "")
@@ -1478,7 +1484,7 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 			return refuse(ErrNotApplied.New())
 		}
 	}
-	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes}
+	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes, Confirm: req.Confirm}
 	p, err := e.plan(ctx, request, preview.ID, preview.UndoOf)
 	if err != nil {
 		return refuse(err)

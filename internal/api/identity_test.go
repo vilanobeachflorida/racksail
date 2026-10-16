@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
@@ -968,51 +968,133 @@ func TestNewEmailAddressesNeedConfirming(t *testing.T) {
 	}
 }
 
-// Asking whether a profile change needs a confirmation reads the user; the
-// change is then held to what was read, so one landing in between can't
-// turn it into a change of their address.
-func TestProfileChangesAreHeldToWhatWasChecked(t *testing.T) {
+// Someone may be allowed to change a user's profile without being allowed to
+// read the user, as with a grant that names only update_profile on them.
+// Giving that user a new address still takes confirming it's them, whether
+// they send the change at once or apply a preview of it: what a change
+// needs is judged by what it does, not by what its maker may read.
+func TestNewAddressesNeedConfirmingWhateverYouMayRead(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	acct := s.openAccount(admin, "acme")
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	home := map[string]any{"level": "account", "id": acct}
+	add := func(spec map[string]any) store.ID {
+		t.Helper()
+		resp := admin.do("POST", "/api/v1/core/users", map[string]any{"scope": home, "spec": spec}, nil)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("adding %s = %d %s", spec["username"], resp.StatusCode, bodyOf(resp))
+		}
+		return s.finish("admin", changeSetOf(t, resp)).Changes[0].ID
+	}
+	bea := add(map[string]any{"username": "bea", "email": "bea@example.com", "grants": []map[string]any{{"role": "readonly", "scope": home}}})
+	cleo := add(map[string]any{"username": "cleo", "grants": []map[string]any{{
+		"role": "collaborator", "scope": home, "object": bea, "permissions": []string{string(auth.PermUserUpdateProfile)},
+	}}})
+	const password = "a passphrase of her own"
+	if resp := admin.do("PUT", "/api/v1/core/users/"+string(cleo)+"/password", map[string]any{"password": password}, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("giving cleo a password = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b := s.browser()
+	var answer SignInAnswer
+	if resp := b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "cleo", "password": password}, &answer); !answer.SignedIn {
+		t.Fatalf("cleo signing in = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := b.do("GET", "/api/v1/core/users/"+string(bea), nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cleo reading bea = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	change := map[string]any{"changes": []map[string]any{{
+		"op": "action", "kind": identity.KindUser, "id": bea, "action": identity.ActionUpdateProfile,
+		"input": map[string]any{"name": "Bea", "email": "mallory@example.net"},
+	}}}
+	asks := func(what string, resp *http.Response) {
+		t.Helper()
+		if resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+			t.Errorf("%s = %d %s", what, resp.StatusCode, bodyOf(resp))
+		}
+		if u, err := identity.UserKind.Get(context.Background(), s.store, bea); err != nil || u.Spec.Email != "bea@example.com" {
+			t.Fatalf("after %s, bea = %+v, %v", what, u, err)
+		}
+	}
+	asks("sending the change", b.do("POST", "/api/v1/changesets", change, nil))
+	resp := b.do("POST", "/api/v1/changesets?dryRun=true", change, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	apply := "/api/v1/changesets/" + string(changeSetOf(t, resp).ID) + "/apply"
+	asks("applying the preview", b.do("POST", apply, nil, nil))
+
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": password}, nil)
+	resp = b.do("POST", apply, nil, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("applying it once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+	if u, _ := identity.UserKind.Get(context.Background(), s.store, bea); u.Spec.Email != "mallory@example.net" {
+		t.Errorf("once confirmed, bea's address is %s", u.Spec.Email)
+	}
+}
+
+// Whether a change needs a confirmation is decided on the change set as
+// planned, which is written only at the revisions it was planned against:
+// a change landing after the decision doesn't turn a new name into putting
+// back an old address. Sent at once, the change is planned and judged again
+// from what landed; a preview being applied fails instead.
+func TestConfirmationsHoldToWhatWasPlanned(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	admin := s.setUp()
 	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
 	var me identity.Me
 	admin.do("GET", "/api/v1/me", nil, &me)
 	ctx := context.Background()
-	before, err := identity.UserKind.Get(ctx, s.store, me.ID)
+	unconfirmed := &auth.Actor{Type: auth.ActorUser, ID: me.ID, User: me.ID, Name: "ada", Source: auth.SourceUI, SessionID: "a session",
+		Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	address := ""
+	// landing has someone who confirmed it's them give ada another address
+	// once a plan was judged, the first time only.
+	landing := func() changeset.Confirm {
+		judge, landed := s.server.confirmPlan(unconfirmed), false
+		return func(ctx context.Context, cs *changeset.ChangeSet) error {
+			if err := judge(ctx, cs); err != nil || landed {
+				return err
+			}
+			landed = true
+			address = "ada" + strconv.Itoa(len(address)) + "@example.com"
+			resp := admin.do("PUT", "/api/v1/me", map[string]any{"name": "Ada", "email": address}, nil)
+			if resp.StatusCode != http.StatusAccepted {
+				t.Fatalf("a new address meanwhile = %d %s", resp.StatusCode, bodyOf(resp))
+			}
+			s.finish("admin", changeSetOf(t, resp))
+			return nil
+		}
+	}
+	// A new name, keeping the address she has.
+	rename := func() []changeset.Change {
+		input, _ := json.Marshal(identity.ProfileInput{Name: "Ada L.", Email: address})
+		return []changeset.Change{{Op: changeset.OpAction, Kind: identity.KindUser, ID: me.ID, Action: identity.ActionUpdateProfile, Input: input}}
+	}
+	held := func(what string, err error, code error) {
+		t.Helper()
+		if !errors.Is(err, code) {
+			t.Errorf("%s = %v, want %v", what, err, code)
+		}
+		if u, _ := identity.UserKind.Get(ctx, s.store, me.ID); u.Spec.Email != address || u.Spec.Name != "Ada" {
+			t.Errorf("after %s, ada = %+v", what, u.Spec)
+		}
+	}
+	p := s.server.pipeline()
+	_, err := p.Submit(ctx, changeset.Request{Actor: unconfirmed, Changes: rename(), Confirm: landing()})
+	held("a new name sent as an address lands", err, auth.ErrStepUpRequired)
+
+	preview, err := p.Submit(ctx, changeset.Request{Actor: unconfirmed, Changes: rename(), DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	unconfirmed := &auth.Actor{Type: auth.ActorUser, ID: me.ID, User: me.ID, Name: "ada", Source: auth.SourceUI, SessionID: "a session",
-		Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
-	input, _ := json.Marshal(identity.ProfileInput{Name: "Ada L."})
-	changes := []changeset.Change{
-		{Op: changeset.OpAction, Kind: identity.KindUser, ID: me.ID, Action: identity.ActionUpdateProfile, Input: input},
-		{Op: changeset.OpAction, Kind: identity.KindUser, ID: me.ID, Action: identity.ActionUpdateProfile, Input: input},
-	}
-	if err := s.server.confirmChanges(auth.WithActor(ctx, unconfirmed), unconfirmed, changes); err != nil {
-		t.Fatalf("a new name alone = %v", err)
-	}
-	if changes[0].Revision != before.Revision || changes[1].Revision != 0 {
-		t.Errorf("revisions = %d and %d, want %d and none", changes[0].Revision, changes[1].Revision, before.Revision)
-	}
-	// Someone who confirmed it's them gives ada an address meanwhile.
-	resp := admin.do("PUT", "/api/v1/me", map[string]any{"name": "Ada", "email": "ada@example.com"}, nil)
-	s.finish("admin", changeSetOf(t, resp))
-	_, err = s.server.pipeline().Submit(ctx, changeset.Request{Actor: unconfirmed, Changes: changes[:1]})
-	if !store.ErrConflict.Is(err) {
-		t.Errorf("the held change after another landed = %v", err)
-	}
-	if u, _ := identity.UserKind.Get(ctx, s.store, me.ID); u.Spec.Email != "ada@example.com" {
-		t.Errorf("the address = %q", u.Spec.Email)
-	}
-	// Someone who confirmed it's them needs nothing held.
-	confirmed := unconfirmed.Clone()
-	confirmed.SteppedUpAt = time.Now()
-	changes = changes[:1]
-	changes[0].Revision = 0
-	if err := s.server.confirmChanges(auth.WithActor(ctx, confirmed), confirmed, changes); err != nil || changes[0].Revision != 0 {
-		t.Errorf("confirmed = %v, revision %d", err, changes[0].Revision)
-	}
+	_, err = p.Apply(ctx, changeset.ApplyRequest{Actor: unconfirmed, ChangeSet: preview.ID, Confirm: landing()})
+	held("a preview applied as an address lands", err, store.ErrConflict)
+	// The preview would now put back the address she had, which asks first.
+	_, err = p.Apply(ctx, changeset.ApplyRequest{Actor: unconfirmed, ChangeSet: preview.ID, Confirm: s.server.confirmPlan(unconfirmed)})
+	held("applying it again", err, auth.ErrStepUpRequired)
 }
 
 var testKeys = []string{

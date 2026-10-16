@@ -331,7 +331,19 @@ type Request struct {
 	// IdempotencyKey makes retries of the same request return the first
 	// change set instead of applying twice.
 	IdempotencyKey string
+	// Confirm, when set, is asked about the change set as planned, just
+	// before anything is written, and an error stops it.
+	Confirm Confirm
 }
+
+// Confirm decides whether a planned change set may be written, from what
+// it does: the API asks a person in the panel to confirm it's them there
+// when a change needs it. It gets a copy of the plan, which is written only
+// at the revisions it was planned against, so nothing that lands meanwhile
+// makes it do what wasn't decided on: a request that names no revision is
+// planned and asked about again, and the others fail with core.conflict.
+// Dry runs change nothing and aren't asked about.
+type Confirm func(ctx context.Context, cs *ChangeSet) error
 
 // UndoRequest asks for a change set that reverts an applied one.
 type UndoRequest struct {
@@ -340,6 +352,8 @@ type UndoRequest struct {
 	ChangeSet      store.ID
 	DryRun         bool
 	IdempotencyKey string
+	// Confirm is asked about the undo as planned, as for any request.
+	Confirm Confirm
 }
 
 // ApplyRequest asks for a preview to be applied as it was shown.
@@ -348,6 +362,9 @@ type ApplyRequest struct {
 	// ChangeSet is the preview, a dry run.
 	ChangeSet      store.ID
 	IdempotencyKey string
+	// Confirm is asked about the preview as planned again, as for any
+	// request.
+	Confirm Confirm
 }
 
 // Pipeline is how anything changes Racksail.

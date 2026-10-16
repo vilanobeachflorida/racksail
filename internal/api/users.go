@@ -311,11 +311,6 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 		}
 		changes = append(changes, changeset.Change{Op: changeset.OpCreate, Kind: identity.KindUser, ID: ownerID, Scope: home, Spec: owner})
 	}
-	if !in.DryRun {
-		if err := s.stepUpFor(actor, s.requestRisk(changes)); err != nil {
-			return nil, err
-		}
-	}
 	// An owner is a new user, which people in the panel confirm it's them
 	// for, as when they add one on its own: Submit asks.
 	res, err := Submit(ctx, p, in.ChangeParams, changeset.Request{Title: "Open the account " + in.Body.Name, Changes: changes})
