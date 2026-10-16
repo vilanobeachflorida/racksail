@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { House, type LucideIcon, Settings } from "lucide-react";
+import { Building2, House, type LucideIcon, ScrollText, Settings, Users } from "lucide-react";
 import { useIntl } from "react-intl";
 import { cn } from "@/lib/utils";
 import { messages } from "./messages";
@@ -36,9 +36,21 @@ function RailLink({
   );
 }
 
+/** The panel's own screens in the navigation, with what they need. */
+const panelEntries = [
+  {
+    to: "/accounts",
+    icon: Building2,
+    label: messages.navAccounts,
+    permission: "core.account.read",
+  },
+  { to: "/users", icon: Users, label: messages.navUsers, permission: "core.user.read" },
+  { to: "/audit", icon: ScrollText, label: messages.navAudit, permission: "core.audit.read" },
+];
+
 /**
- * The navigation: Home, every module's entries the person may see, and
- * Settings. It is the icon rail on wide screens and the menu sheet on
+ * The navigation: Home, every module's entries the person may see, the
+ * accounts, users and audit log, and Settings. It is the icon rail on wide screens and the menu sheet on
  * phones, where wide lays the entries out in rows.
  */
 export function NavLinks({ wide, onNavigate }: { wide?: boolean; onNavigate?: () => void }) {
@@ -69,6 +81,19 @@ export function NavLinks({ wide, onNavigate }: { wide?: boolean; onNavigate?: ()
             />
           </li>
         ))}
+        {panelEntries
+          .filter((entry) => allowed(entry.permission))
+          .map((entry) => (
+            <li key={entry.to}>
+              <RailLink
+                to={entry.to}
+                icon={entry.icon}
+                label={intl.formatMessage(entry.label)}
+                onNavigate={onNavigate}
+                wide={wide}
+              />
+            </li>
+          ))}
       </ul>
       <div className="border-border border-t pt-1">
         <RailLink

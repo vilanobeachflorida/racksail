@@ -7,7 +7,9 @@ import {
 import { type RouterHistory, RouterProvider } from "@tanstack/react-router";
 import {
   type ComponentProps,
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -42,11 +44,21 @@ import { createQueryClient } from "@/lib/query";
 import { loadModules, type ModuleId } from "@/modules/registry";
 import type { ModuleUI } from "@/modules/types";
 import { BootError } from "./errors";
+import { SessionProvider, useSignOutWatch } from "./identity/session";
+import { StepUpProvider } from "./identity/step-up";
 import { messages } from "./messages";
 import { type ModuleState, ModulesProvider } from "./modules";
 import { createAppRouter } from "./router";
 import { ShellSkeleton } from "./shell";
 import { ShellStateProvider } from "./shell-state";
+
+// Signing in, and what someone must do before the panel opens, load only
+// when they're needed.
+const AuthScreens = lazy(() => import("./identity/sign-in"));
+const PendingScreens = lazy(() => import("./identity/pending"));
+
+/** What the session query holds when nobody is signed in. */
+const signedOut = { signedOut: true } as const;
 
 export interface AppProps {
   api: ApiClient;
@@ -111,7 +123,9 @@ export function App({ api, queryClient, locale, history, onIntlError, session, l
 
 /**
  * Reads the session before the shell, unless it was given. A panel that
- * doesn't serve sessions answers 404, and the UI runs without one.
+ * doesn't serve sessions answers 404, and the UI runs without one. Nobody
+ * signed in gets the sign-in screens instead of the shell, and someone who
+ * must first set up a second step or choose a password gets those.
  */
 function SessionPanel({
   api,
@@ -128,6 +142,7 @@ function SessionPanel({
   onIntlError: IntlConfig["onError"] | undefined;
   localeChoice: ComponentProps<typeof LocaleChoiceProvider>["value"];
 }) {
+  const queryClient = useQueryClient();
   const loaded = useQuery({
     queryKey: ["session"],
     queryFn: async () => {
@@ -137,6 +152,9 @@ function SessionPanel({
         if (error instanceof ApiError && error.status === 404) {
           return null;
         }
+        if (error instanceof ApiError && error.status === 401) {
+          return signedOut;
+        }
         throw error;
       }
     },
@@ -145,24 +163,62 @@ function SessionPanel({
     retry: false,
   });
   const ready = given !== undefined || loaded.isSuccess;
-  const session = given !== undefined ? given : (loaded.data ?? null);
+  const current = given !== undefined ? given : (loaded.data ?? null);
+  const out = current !== null && "signedOut" in current;
+  const session = current === null || "signedOut" in current ? null : current;
+  const refresh = useCallback(async () => {
+    if (given === undefined) {
+      await queryClient.refetchQueries({ queryKey: ["session"], exact: true });
+    }
+  }, [queryClient, given]);
+  const onSignedOut = useCallback(() => void refresh(), [refresh]);
+  useSignOutWatch(queryClient, onSignedOut);
+  const sessionValue = useMemo(() => ({ session, refresh }), [session, refresh]);
   const states = useMemo(() => (session ? sessionModuleStates(session) : null), [session]);
   const can = useMemo(
     () => (session ? (permission: string) => permits(session.permissions, permission) : undefined),
     [session],
   );
+  const waiting = (
+    <I18nProvider locale={defaultLocale} messages={shellMessages} onError={onIntlError}>
+      <ShellSkeleton />
+    </I18nProvider>
+  );
+  let content: ReactNode;
+  if (out) {
+    content = (
+      <Suspense fallback={waiting}>
+        <AuthScreens locale={locale} onSignedIn={() => void refresh()} onIntlError={onIntlError} />
+      </Suspense>
+    );
+  } else if (session?.pending) {
+    content = (
+      <Suspense fallback={waiting}>
+        <PendingScreens
+          locale={locale}
+          session={session}
+          onDone={() => void refresh()}
+          onIntlError={onIntlError}
+        />
+      </Suspense>
+    );
+  } else {
+    content = (
+      <Panel
+        locale={locale}
+        history={history}
+        onIntlError={onIntlError}
+        moduleStates={states}
+        can={can}
+      />
+    );
+  }
   return (
     <SessionTheme api={api} session={session}>
       {ready ? (
-        <LocaleChoiceProvider value={localeChoice}>
-          <Panel
-            locale={locale}
-            history={history}
-            onIntlError={onIntlError}
-            moduleStates={states}
-            can={can}
-          />
-        </LocaleChoiceProvider>
+        <SessionProvider value={sessionValue}>
+          <LocaleChoiceProvider value={localeChoice}>{content}</LocaleChoiceProvider>
+        </SessionProvider>
       ) : (
         <I18nProvider locale={defaultLocale} messages={shellMessages} onError={onIntlError}>
           {loaded.isError ? <BootError error={loaded.error} /> : <ShellSkeleton />}
@@ -295,7 +351,9 @@ function Panel({
           {...(can ? { can } : {})}
         >
           <ShellStateProvider assistant={assistant}>
-            <RouterProvider router={router} />
+            <StepUpProvider>
+              <RouterProvider router={router} />
+            </StepUpProvider>
           </ShellStateProvider>
         </ModulesProvider>
       </TooltipProvider>

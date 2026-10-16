@@ -50,12 +50,34 @@ export function createAppRouter(
     path: "appearance",
     staticData: { title: messages.appearanceTitle },
   });
+  // Your own account, under Settings.
+  const accountPage = (
+    path: string,
+    title: MessageDescriptor,
+    page: Parameters<typeof lazyRouteComponent>[0],
+  ) =>
+    createRoute({
+      getParentRoute: () => settings,
+      path,
+      component: lazyRouteComponent(page),
+      staticData: { title },
+    });
   const settingsTree = settings.addChildren([
     createRoute({
       getParentRoute: () => settings,
       path: "/",
       component: lazyRouteComponent(() => import("./settings/index")),
     }),
+    accountPage("profile", messages.routeProfile, () => import("./identity/account/profile")),
+    accountPage("security", messages.routeSecurity, () => import("./identity/account/security")),
+    accountPage("sessions", messages.routeSessions, () => import("./identity/account/sessions")),
+    accountPage("tokens", messages.routeTokens, () => import("./identity/account/tokens")),
+    accountPage("ssh-keys", messages.routeSSHKeys, () => import("./identity/account/ssh-keys")),
+    accountPage(
+      "sign-in",
+      messages.routeSignIn,
+      () => import("./identity/people/sign-in-settings"),
+    ),
     appearance.addChildren([
       createRoute({
         getParentRoute: () => appearance,
@@ -80,6 +102,33 @@ export function createAppRouter(
       ),
     ),
   ]);
+  // People and access: users, roles, accounts and the audit log.
+  const section = (
+    path: string,
+    title: MessageDescriptor,
+    list: Parameters<typeof lazyRouteComponent>[0],
+    item?: {
+      param: string;
+      title: MessageDescriptor;
+      page: Parameters<typeof lazyRouteComponent>[0];
+    },
+  ) => {
+    const base = createRoute({ getParentRoute: () => root, path, staticData: { title } });
+    const children: AnyRoute[] = [
+      createRoute({ getParentRoute: () => base, path: "/", component: lazyRouteComponent(list) }),
+    ];
+    if (item) {
+      children.push(
+        createRoute({
+          getParentRoute: () => base,
+          path: `$${item.param}`,
+          component: lazyRouteComponent(item.page),
+          staticData: { title: item.title },
+        }),
+      );
+    }
+    return base.addChildren(children);
+  };
   const routes: AnyRoute[] = [
     createRoute({
       getParentRoute: () => root,
@@ -88,6 +137,18 @@ export function createAppRouter(
       staticData: { title: messages.homeTitle },
     }),
     settingsTree,
+    section("users", messages.navUsers, () => import("./identity/people/users"), {
+      param: "userId",
+      title: messages.routeUser,
+      page: () => import("./identity/people/user"),
+    }),
+    section("accounts", messages.navAccounts, () => import("./identity/people/accounts"), {
+      param: "accountId",
+      title: messages.routeAccount,
+      page: () => import("./identity/people/account"),
+    }),
+    section("roles", messages.routeRoles, () => import("./identity/people/roles")),
+    section("audit", messages.navAudit, () => import("./identity/people/audit")),
   ];
   for (const module of modules) {
     if (module.routes?.length) {

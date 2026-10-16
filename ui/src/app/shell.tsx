@@ -9,6 +9,7 @@ import { useMediaQuery } from "@/lib/media";
 import { AssistantDock } from "./assistant-dock";
 import { BrandMark, useBrandName } from "./brand";
 import { RouteAnnouncer, useRouteFocus } from "./focus";
+import { ImpersonationBanner } from "./identity/banner";
 import { useJobs } from "./jobs";
 import { messages } from "./messages";
 import { moduleCommands, useActiveModules, usePermission } from "./modules";
@@ -138,6 +139,7 @@ export function Shell() {
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
       <SkipLinks />
+      <ImpersonationBanner />
       <TopBar runningJobs={running} />
       <div className="flex min-h-0 flex-1">
         <Rail />

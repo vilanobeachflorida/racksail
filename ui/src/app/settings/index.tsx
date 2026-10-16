@@ -1,5 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, Paintbrush, Palette } from "lucide-react";
+import {
+  ChevronRight,
+  KeyRound,
+  Laptop,
+  LogIn,
+  Paintbrush,
+  Palette,
+  ShieldCheck,
+  Terminal,
+  UserRound,
+  UsersRound,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { messages } from "../messages";
@@ -48,12 +59,83 @@ export default function SettingsIndex() {
   const withPages = modules
     .map((m) => ({ module: m, pages: (m.settings ?? []).filter((p) => allowed(p.permission)) }))
     .filter((m) => m.pages.length > 0);
+  const people = [
+    {
+      to: "/roles",
+      icon: <UsersRound aria-hidden="true" />,
+      title: messages.routeRoles,
+      description: messages.settingsRolesDescription,
+      permission: "core.user.read",
+    },
+    {
+      to: "/settings/sign-in",
+      icon: <LogIn aria-hidden="true" />,
+      title: messages.routeSignIn,
+      description: messages.settingsSignInDescription,
+      permission: "core.signin_policy.read",
+    },
+  ].filter((e) => allowed(e.permission));
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
       <div className="flex flex-col gap-1">
         <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.settingsTitle)}</h1>
         <p className="text-muted-foreground">{intl.formatMessage(messages.settingsDescription)}</p>
       </div>
+      <section className="flex flex-col gap-3" aria-labelledby="settings-you">
+        <h2 id="settings-you" className="font-semibold text-lg">
+          {intl.formatMessage(messages.settingsYou)}
+        </h2>
+        <ul className="flex flex-col gap-2">
+          <Entry
+            to="/settings/profile"
+            icon={<UserRound aria-hidden="true" />}
+            title={intl.formatMessage(messages.routeProfile)}
+            description={intl.formatMessage(messages.settingsProfileDescription)}
+          />
+          <Entry
+            to="/settings/security"
+            icon={<ShieldCheck aria-hidden="true" />}
+            title={intl.formatMessage(messages.routeSecurity)}
+            description={intl.formatMessage(messages.settingsSecurityDescription)}
+          />
+          <Entry
+            to="/settings/sessions"
+            icon={<Laptop aria-hidden="true" />}
+            title={intl.formatMessage(messages.routeSessions)}
+            description={intl.formatMessage(messages.settingsSessionsDescription)}
+          />
+          <Entry
+            to="/settings/tokens"
+            icon={<KeyRound aria-hidden="true" />}
+            title={intl.formatMessage(messages.routeTokens)}
+            description={intl.formatMessage(messages.settingsTokensDescription)}
+          />
+          <Entry
+            to="/settings/ssh-keys"
+            icon={<Terminal aria-hidden="true" />}
+            title={intl.formatMessage(messages.routeSSHKeys)}
+            description={intl.formatMessage(messages.settingsSSHKeysDescription)}
+          />
+        </ul>
+      </section>
+      {people.length > 0 ? (
+        <section className="flex flex-col gap-3" aria-labelledby="settings-people">
+          <h2 id="settings-people" className="font-semibold text-lg">
+            {intl.formatMessage(messages.settingsPeople)}
+          </h2>
+          <ul className="flex flex-col gap-2">
+            {people.map((e) => (
+              <Entry
+                key={e.to}
+                to={e.to}
+                icon={e.icon}
+                title={intl.formatMessage(e.title)}
+                description={intl.formatMessage(e.description)}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section className="flex flex-col gap-3" aria-labelledby="settings-panel">
         <h2 id="settings-panel" className="font-semibold text-lg">
           {intl.formatMessage(messages.settingsPanel)}

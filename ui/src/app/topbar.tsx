@@ -28,6 +28,7 @@ import type { Preferences } from "@/design/theme/prefs";
 import { useTheme } from "@/design/theme/provider";
 import { cn } from "@/lib/utils";
 import { BrandLogo, useBrandName } from "./brand";
+import { UserMenu } from "./identity/user-menu";
 import { messages } from "./messages";
 import { useShell } from "./shell-state";
 import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
@@ -246,6 +247,7 @@ export function TopBar({ runningJobs }: { runningJobs: number }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <UserMenu />
     </header>
   );
 }
