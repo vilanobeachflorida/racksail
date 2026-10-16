@@ -46,6 +46,9 @@ type Info struct {
 	Reversible  bool
 	// Stream says the operation answers with Server-Sent Events.
 	Stream bool
+	// StepUp says the person must have confirmed it's them recently, as
+	// for changing how they sign in; API tokens can't use the operation.
+	StepUp bool
 }
 
 // Describe records what an operation does in its extensions, before it is
@@ -76,6 +79,7 @@ func Describe(op *huma.Operation, info Info) {
 	set(ExtDestructive, true, info.Destructive)
 	set(ExtReversible, true, info.Reversible)
 	set(ExtStream, true, info.Stream)
+	set(ExtStepUp, true, info.StepUp)
 }
 
 // Operation is one entry of the operations catalog.
@@ -96,6 +100,7 @@ type Operation struct {
 	Destructive bool       `json:"destructive,omitempty" doc:"Whether it removes data, and so needs a typed confirmation"`
 	Reversible  bool       `json:"reversible,omitempty" doc:"Whether it can be undone"`
 	Stream      bool       `json:"stream,omitempty" doc:"Whether it answers with Server-Sent Events"`
+	StepUp      bool       `json:"stepUp,omitempty" doc:"Whether it needs you to have confirmed it's you recently; API tokens can't use it"`
 	Public      bool       `json:"public,omitempty" doc:"Whether it works without signing in"`
 	// Request and Response name the schemas of the body and of the answer
 	// in the document's components, and Output the schema of what an action
@@ -125,7 +130,7 @@ func Catalog(doc *huma.OpenAPI) []Operation {
 				ID: op.OperationID, Method: method, Path: path, Summary: op.Summary, Description: op.Description, Tags: op.Tags,
 				Kind: text(ExtKind), Operation: text(ExtOperation), Permission: text(ExtPermission), Risk: store.Risk(text(ExtRisk)),
 				Mutating: method != http.MethodGet, DryRun: flag(ExtDryRun), Long: flag(ExtLong), Destructive: flag(ExtDestructive),
-				Reversible: flag(ExtReversible), Stream: flag(ExtStream), Public: len(op.Security) == 0,
+				Reversible: flag(ExtReversible), Stream: flag(ExtStream), StepUp: flag(ExtStepUp), Public: len(op.Security) == 0,
 			}
 			if !o.Risk.Valid() {
 				o.Risk = store.RiskRead

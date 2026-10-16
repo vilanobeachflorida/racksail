@@ -224,6 +224,15 @@ func (s *Server) registerChangeSets() {
 		if p == nil {
 			return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 		}
+		if !in.DryRun {
+			actor, err := Actor(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.stepUpFor(actor, s.requestRisk(in.Body.Changes)); err != nil {
+				return nil, err
+			}
+		}
 		return Submit(ctx, p, in.ChangeParams, changeset.Request{Title: in.Body.Title, Changes: in.Body.Changes})
 	})
 
@@ -243,7 +252,11 @@ func (s *Server) registerChangeSets() {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.changeSet(ctx, in.ID); err != nil {
+		preview, err := s.changeSet(ctx, in.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.stepUpFor(actor, preview.Risk); err != nil {
 			return nil, err
 		}
 		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, IdempotencyKey: in.IdempotencyKey})
@@ -270,8 +283,14 @@ func (s *Server) registerChangeSets() {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.changeSet(ctx, in.ID); err != nil {
+		original, err := s.changeSet(ctx, in.ID)
+		if err != nil {
 			return nil, err
+		}
+		if !in.DryRun {
+			if err := s.stepUpFor(actor, s.undoRisk(original)); err != nil {
+				return nil, err
+			}
 		}
 		cs, err := s.pipeline().Undo(ctx, changeset.UndoRequest{Actor: actor, ChangeSet: in.ID, DryRun: in.DryRun, IdempotencyKey: in.IdempotencyKey})
 		if err != nil {

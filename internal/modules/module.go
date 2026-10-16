@@ -42,7 +42,10 @@ type Services struct {
 	// backups.run.before, and its Registry lists providers and extensions.
 	Hooks      *hooks.Runner
 	Authorizer auth.Authorizer
-	Log        *slog.Logger
+	// Identity answers questions about the panel's users, such as which
+	// SSH keys may reach an account's files.
+	Identity auth.Directory
+	Log      *slog.Logger
 }
 
 // KindProvider declares a module's kinds. Kind names must start with the

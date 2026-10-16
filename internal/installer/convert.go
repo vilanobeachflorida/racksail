@@ -65,6 +65,11 @@ func ConvertSteps(a *Answers, binary string) ([]Step, error) {
 		short, _, _ := strings.Cut(a.Hostname, ".")
 		steps = append(steps, Step{Title: "Set the hostname", Ops: []agent.Step{agent.SetHostname.Step(agent.HostnameInput{Name: short})}})
 	}
+	if handover, ok, err := AdminHandover(a); err != nil {
+		return nil, err
+	} else if ok {
+		steps = append(steps, Step{Title: "Hand the admin's account to the panel", Ops: []agent.Step{handover}})
+	}
 	steps = append(steps, Step{Title: "Install Racksail's services", Ops: []agent.Step{
 		agent.InstallPlatformUnits.Step(agent.PlatformUnitsInput{Binary: binary}),
 	}})

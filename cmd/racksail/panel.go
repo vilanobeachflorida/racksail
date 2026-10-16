@@ -44,9 +44,10 @@ func newPanelCommand() *cobra.Command {
 				return err
 			}
 			defer c.stop(context.WithoutCancel(ctx))
-			// No authenticator yet: the API refuses what needs a signed-in
-			// user rather than serving it to anyone.
-			apiServer, err := c.apiServer(nil, false)
+			if err := c.bootstrap(ctx, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
+			apiServer, err := c.apiServer(c.identity, false)
 			if err != nil {
 				return err
 			}
