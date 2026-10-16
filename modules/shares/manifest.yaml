@@ -15,6 +15,12 @@ cost:
   activeMemoryMB: 60
   diskMB: 80
   notes: Samba uses most of it; WebDAV is served by the edge.
+ports:
+  - {port: 445, protocol: tcp, description: SMB file sharing}
+  - {port: 2049, protocol: tcp, description: NFS file sharing}
+services:
+  - {unit: smbd.service, description: Serves the SMB shares.}
+  - {unit: nfs-server.service, description: Serves the NFS shares.}
 upstream:
   - id: samba
     name: Samba

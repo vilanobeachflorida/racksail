@@ -780,6 +780,7 @@
   "error.recipes.scope": "Install into an account or onto the server.",
   "error.recipes.sync_failed": "The {catalog} catalog couldn't be fetched: {reason}.",
   "error.recipes.unknown_reference": "The recipe refers to {ref}, which it doesn't define.",
+  "error.recipes.upstream_failed": "Nothing of {name} {version} was installed: {reason}.",
   "error.reconcile.check_failed": "The {check} health check didn't pass: {reason}.",
   "error.rules.bad_rule": "The rule can't be used: {reason}.",
   "error.rules.refused": "{message}",

@@ -1,6 +1,8 @@
 package modulesapi_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,9 +12,12 @@ import (
 	"testing"
 
 	"github.com/vilanobeachflorida/racksail/internal/api"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/modules/modulesapi"
 	"github.com/vilanobeachflorida/racksail/internal/modules/modulestest"
+	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system/sim"
 )
 
 func manifest(id, extra string) []byte {
@@ -93,5 +98,118 @@ func TestModulesAPI(t *testing.T) {
 	}
 	if code, body := do(t, h, http.MethodPost, "/api/v1/modules/profiles/all-in-one"); code != http.StatusConflict || !strings.Contains(string(body), "modules.nothing_to_turn_on") {
 		t.Errorf("again = %d %s", code, body)
+	}
+}
+
+type noteSpec struct {
+	Text string `json:"text"`
+	Key  string `json:"key,omitempty"`
+}
+
+var noteKind = store.Define[noteSpec, store.Status](store.KindInfo{
+	Name: "notes.note", Prefix: "note", Scope: store.ScopeServer, Title: "Note", Plural: "notes", Description: "A note.",
+	UI: store.UIHints{Fields: map[string]store.FieldHint{"key": {Sensitive: true}}},
+})
+
+type notesModule struct{ modules.Base }
+
+func (notesModule) Kinds() []store.Kind { return []store.Kind{noteKind} }
+
+func init() {
+	sim.RegisterPackage("notesd", sim.PackageInfo{Version: "1.2-1", DownloadBytes: 3 << 20, InstalledBytes: 9 << 20})
+}
+
+func send(t *testing.T, h http.Handler, method, path string, body any) (int, http.Header, []byte) {
+	t.Helper()
+	var r io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		r = bytes.NewReader(raw)
+	}
+	req := httptest.NewRequest(method, path, r)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	out, _ := io.ReadAll(rec.Result().Body)
+	return rec.Code, rec.Result().Header, out
+}
+
+// Turning a module on with what it needs, turning it off, saying what it
+// installs, exporting its resources and removing it, each through the API.
+func TestModuleTransitionsAPI(t *testing.T) {
+	ctx := context.Background()
+	net := &module{modules.NewBase(manifest("net", "required: true\ndependencies: {}\n"))}
+	notes := &notesModule{modules.NewBase([]byte(strings.Replace(string(manifest("notes", "dependencies: {requires: [net]}\n")), "upstream: []\n",
+		"upstream:\n  - {id: notesd, name: Notesd, license: MIT, source: {type: debian, packages: [notesd]}, install: With the first note.}\n", 1)))}
+	shop := &module{modules.NewBase(manifest("shop", "dependencies: {requires: [notes]}\n"))}
+	e := modulestest.New(t, modulestest.Options{}, net, notes, shop)
+	h := api.New(api.Options{Dev: true, Modules: e.Registry, Services: e.Services, Log: slog.New(slog.DiscardHandler)}).Handler()
+
+	// Shop needs notes, which is turned on with it, first.
+	code, _, body := send(t, h, http.MethodPost, "/api/v1/modules/shop/actions/turn_on?dryRun=true", nil)
+	var preview changeset.ChangeSet
+	if err := json.Unmarshal(body, &preview); code != http.StatusOK || err != nil || len(preview.Changes) != 2 || preview.Title != "Turn on Shop and Notes" {
+		t.Fatalf("preview = %d %s", code, body)
+	}
+	if !strings.Contains(string(body), `"action":"download_on_first_use","target":"Notesd"`) || preview.Estimate.DownloadBytes != 3<<20 {
+		t.Errorf("the preview lists what notes installs once used: %s", body)
+	}
+	if code, _, body := send(t, h, http.MethodPost, "/api/v1/modules/shop/actions/turn_on", nil); code != http.StatusAccepted {
+		t.Fatalf("turn on = %d %s", code, body)
+	}
+	e.Settle(t)
+	if !e.Manager.State("notes").IsOn() || !e.Manager.State("shop").IsOn() {
+		t.Fatalf("states = %v", e.Manager.States())
+	}
+
+	code, _, body = send(t, h, http.MethodGet, "/api/v1/modules/notes/software", nil)
+	if code != http.StatusOK || !strings.Contains(string(body), `"downloadBytes":3145728`) || !strings.Contains(string(body), `"installed":false`) {
+		t.Errorf("software = %d %s", code, body)
+	}
+
+	e.MustApply(t, changeset.Request{Changes: []changeset.Change{{
+		Op: changeset.OpCreate, Kind: "notes.note", Scope: store.ServerScope(), Spec: modulestest.JSON(t, noteSpec{Text: "remember"}),
+		Secrets: map[string]string{"key": "s3cret"},
+	}}})
+	code, header, body := send(t, h, http.MethodGet, "/api/v1/modules/notes/export", nil)
+	var export modules.Export
+	if err := json.Unmarshal(body, &export); code != http.StatusOK || err != nil || len(export.Resources) != 1 {
+		t.Fatalf("export = %d %s", code, body)
+	}
+	if r := export.Resources[0]; !strings.Contains(string(r.Spec), "remember") || strings.Contains(string(body), "s3cret") || strings.Contains(string(r.Spec), "key") || len(r.Withheld) != 1 {
+		t.Errorf("the export keeps the settings and leaves secrets out: %s", body)
+	}
+	if !strings.HasPrefix(header.Get("Content-Disposition"), `attachment; filename="racksail-notes-`) {
+		t.Errorf("disposition = %q", header.Get("Content-Disposition"))
+	}
+
+	// Removing needs the name typed, and what needs the module off first.
+	if code, _, body := send(t, h, http.MethodPost, "/api/v1/modules/notes/actions/remove", modules.RemoveInput{Confirm: "nots"}); code != http.StatusUnprocessableEntity || !strings.Contains(string(body), "modules.confirm") {
+		t.Errorf("a typo = %d %s", code, body)
+	}
+	if code, _, body := send(t, h, http.MethodPost, "/api/v1/modules/notes/actions/remove?dryRun=true", modules.RemoveInput{Confirm: "Notes"}); code != http.StatusConflict || !strings.Contains(string(body), "modules.in_use") {
+		t.Errorf("while shop needs it = %d %s", code, body)
+	}
+	if code, _, body := send(t, h, http.MethodPost, "/api/v1/modules/shop/actions/turn_off", nil); code != http.StatusAccepted {
+		t.Fatalf("turn off = %d %s", code, body)
+	}
+	e.Settle(t)
+	code, _, body = send(t, h, http.MethodPost, "/api/v1/modules/notes/actions/remove?dryRun=true", modules.RemoveInput{Confirm: "Notes"})
+	var removal changeset.ChangeSet
+	if err := json.Unmarshal(body, &removal); code != http.StatusOK || err != nil || len(removal.Changes) != 2 ||
+		removal.Changes[0].Op != changeset.OpDelete || removal.Changes[0].Kind != "notes.note" || removal.Changes[1].Action != modules.ActionRemove {
+		t.Fatalf("the removal deletes the note and removes the module = %d %s", code, body)
+	}
+	if code, _, body := send(t, h, http.MethodPost, "/api/v1/modules/notes/actions/remove", modules.RemoveInput{Confirm: "Notes"}); code != http.StatusAccepted {
+		t.Fatalf("remove = %d %s", code, body)
+	}
+	e.Settle(t)
+	if objs, _, _ := noteKind.List(ctx, e.Store, store.Query{}); len(objs) != 0 || e.Manager.State("notes") != modules.StateOff {
+		t.Errorf("after removing: %d notes, notes is %s", len(objs), e.Manager.State("notes"))
+	}
+	if code, _, body := send(t, h, http.MethodGet, "/api/v1/modules/notes", nil); code != http.StatusOK || !strings.Contains(string(body), `"removed":true`) {
+		t.Errorf("notes = %d %s", code, body)
 	}
 }

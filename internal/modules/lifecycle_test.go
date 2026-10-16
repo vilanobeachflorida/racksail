@@ -2,7 +2,9 @@ package modules_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -235,8 +237,11 @@ func TestTurningOnAndOff(t *testing.T) {
 		t.Fatalf("a page while web is off: %v", err)
 	}
 
-	// The preview of turning a module on lists its cost and installs nothing.
-	req, err := e.Manager.TurnOnRequest("web")
+	// The preview of turning a module on lists what it costs and what it
+	// does once something uses it: the software it downloads then, from
+	// where and how large, its packages, services and ports, and its
+	// memory and disk.
+	req, err := e.Manager.TurnOnRequest(context.Background(), "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,8 +250,23 @@ func TestTurningOnAndOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Title != "Turn on Web" || preview.Estimate.MemoryBytes != 4<<20 || preview.Estimate.DownloadBytes != 0 {
+	if preview.Title != "Turn on Web" || preview.Estimate.MemoryBytes != 40<<20 || preview.Estimate.DownloadBytes != 1<<20 || preview.Estimate.DiskBytes != 10<<20 {
 		t.Errorf("preview = %+v", preview)
+	}
+	effects := map[string]system.Effect{}
+	for _, eff := range preview.Effects {
+		effects[string(eff.Type)+" "+eff.Action+" "+eff.Target] = eff
+	}
+	for _, want := range []string{
+		"process start module web", "download download_on_first_use Webd", "package install_on_first_use webd",
+		"service start_when_used webd.service", "port open_when_used tcp/443", "process run_when_used Web",
+	} {
+		if _, ok := effects[want]; !ok {
+			t.Errorf("the preview doesn't list %s: %+v", want, preview.Effects)
+		}
+	}
+	if d := effects["download download_on_first_use Webd"]; d.Source != "Debian's archive" || d.DownloadBytes != 1<<20 || d.DiskBytes != 4<<20 {
+		t.Errorf("the download says where from and how large: %+v", d)
 	}
 	e.TurnOn(t, "web")
 	if e.Manager.State("web") != modules.StateOn {
@@ -285,11 +305,19 @@ func TestTurningOnAndOff(t *testing.T) {
 	e.Settle(t)
 	e.RequireUnit(t, "webd.service", "active")
 
-	mu.Lock()
-	got := len(transitions)
-	mu.Unlock()
-	if got < 3 {
-		t.Errorf("transitions = %+v", transitions)
+	// Observe hooks run in the background.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := slices.Clone(transitions)
+		mu.Unlock()
+		if len(got) >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("transitions = %+v", got)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -299,7 +327,7 @@ func TestDependenciesAndRules(t *testing.T) {
 	e := modulestest.New(t, modulestest.Options{Machine: m}, newNet(), newWeb(), newNotes(), newShop(), newVM())
 
 	// shop needs web or notes, and the person chooses which.
-	if _, err := e.Manager.TurnOnRequest("shop"); !errors.Is(err, modules.ErrDependency) {
+	if _, err := e.Manager.TurnOnRequest(context.Background(), "shop"); !errors.Is(err, modules.ErrDependency) {
 		t.Errorf("shop without web or notes: %v", err)
 	}
 	e.TurnOn(t, "notes")
@@ -323,7 +351,7 @@ func TestDependenciesAndRules(t *testing.T) {
 	}
 
 	// The VM module can't run without hardware virtualization.
-	if _, err := e.Submit(t, mustRequest(t)(e.Manager.TurnOnRequest("vm"))); !errors.Is(err, modules.ErrHardware) {
+	if _, err := e.Submit(t, mustRequest(t)(e.Manager.TurnOnRequest(context.Background(), "vm"))); !errors.Is(err, modules.ErrHardware) {
 		t.Errorf("vm without virtualization: %v", err)
 	}
 	info, _ := e.Manager.Info(ctx, "vm")
@@ -393,12 +421,136 @@ func TestRemoving(t *testing.T) {
 	if pkgs, _ := e.Machine.Backend().Packages.Installed(ctx, "webd"); len(pkgs) != 0 {
 		t.Errorf("webd is still installed: %+v", pkgs)
 	}
+	obj, _ := modules.Kind.Get(ctx, e.Store, web)
+	if !obj.Spec.Removed || !obj.Status.Uninstalled || obj.Status.State != modules.StateOff {
+		t.Errorf("after removing = %+v %+v", obj.Spec, obj.Status)
+	}
+	// The resync uninstalls nothing again.
+	before := len(e.Machine.Calls())
+	if err := e.Runner.Reconcile(ctx, web, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range e.Machine.Calls()[before:] {
+		if c.Area == "packages" && c.Op == "remove" {
+			t.Errorf("the resync uninstalled again: %+v", c)
+		}
+	}
+	// Turned on again, it is no longer removed, and installs its software
+	// the first time something needs it.
+	e.TurnOn(t, "web")
+	if obj, _ := modules.Kind.Get(ctx, e.Store, web); obj.Spec.Removed || obj.Status.Uninstalled {
+		t.Errorf("turned on again = %+v %+v", obj.Spec, obj.Status)
+	}
+	e.MustApply(t, changeset.Request{Changes: []changeset.Change{page(t, "index.html", "Back")}})
+	e.RequireUnit(t, "webd.service", "active")
+}
+
+// executor runs steps through the agent, and tells first what the module
+// manager says of a module.
+type executor struct {
+	agent agent.Client
+	seen  func()
+}
+
+func (x executor) Run(ctx context.Context, steps []agent.Step) ([]agent.StepResult, error) {
+	x.seen()
+	return agent.Execute(ctx, x.agent, steps, agent.CallOptions{}, nil)
+}
+
+// While a module's software is uninstalled the module is being removed,
+// and while its services stop it is stopping.
+func TestStatesOnTheWay(t *testing.T) {
+	ctx := context.Background()
+	e := modulestest.New(t, modulestest.Options{}, newNet(), newWeb())
+	e.TurnOn(t, "web")
+	e.MustApply(t, changeset.Request{Changes: []changeset.Change{page(t, "index.html", "Hi")}})
+	e.RequireState(t, "web", modules.StateActive)
+	id, _ := e.Manager.Resource("web")
+	rec := e.Manager.Reconciler()
+	facts, err := agent.GetFacts.Call(ctx, e.Agent, agent.Empty{}, agent.CallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name    string
+		removed bool
+		want    modules.State
+	}{
+		{"turning off", false, modules.StateStopping},
+		{"removing", true, modules.StateRemoving},
+	} {
+		res, err := e.Store.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		obj, err := modules.Kind.Decode(res)
+		if err != nil {
+			t.Fatal(err)
+		}
+		obj.Spec.Enabled, obj.Spec.Removed = false, c.removed
+		planned, err := modules.Kind.Encode(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := reconcile.Request{Resource: planned, Read: e.Store, Facts: facts}
+		plan, err := rec.Plan(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seen []modules.State
+		if _, err := rec.Apply(ctx, req, plan, executor{agent: e.Agent, seen: func() { seen = append(seen, e.Manager.State("web")) }}); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if len(seen) == 0 || seen[0] != c.want {
+			t.Errorf("%s shows %v while it runs, not %s", c.name, seen, c.want)
+		}
+		stored, _ := modules.Kind.Get(ctx, e.Store, id)
+		if e.Manager.State("web") != modules.StateOff {
+			t.Errorf("after %s the module is %s (%s)", c.name, e.Manager.State("web"), stored.Status.State)
+		}
+		if c.removed && !strings.Contains(string(mustJSON(t, plan.Steps)), "RemovePackages") {
+			t.Errorf("removing uninstalls: %s", mustJSON(t, plan.Steps))
+		}
+	}
+}
+
+// Turning a module on through the manager turns on what it needs with it,
+// dependencies first.
+func TestTurningOnWithWhatItNeeds(t *testing.T) {
+	e := modulestest.New(t, modulestest.Options{}, newNet(), newWeb(), newNotes(), newShop())
+	req, err := e.Manager.TurnOnRequest(context.Background(), "shop")
+	if err == nil {
+		t.Fatalf("shop needs web or notes, which the person chooses: %s", req.Title)
+	}
+	e.TurnOn(t, "notes")
+	cs := e.TurnOn(t, "shop")
+	if len(cs.Changes) != 1 {
+		t.Errorf("only shop is turned on: %+v", cs.Changes)
+	}
+	e.TurnOff(t, "shop")
+	e.TurnOff(t, "notes")
+	req, err = e.Manager.TurnOnRequest(context.Background(), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(req.Changes) != 1 || req.Title != "Turn on Web" {
+		t.Errorf("web needs only net, which is on: %+v", req)
+	}
+}
+
+func mustJSON(t testing.TB, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func TestStartFailures(t *testing.T) {
 	broken := &starter{Base: modules.NewBase(manifest("flaky", "dependencies: {}\nupstream: []\n")), broken: true}
 	e := modulestest.New(t, modulestest.Options{}, newNet(), broken)
-	cs, err := e.Submit(t, mustRequest(t)(e.Manager.TurnOnRequest("flaky")))
+	cs, err := e.Submit(t, mustRequest(t)(e.Manager.TurnOnRequest(context.Background(), "flaky")))
 	if err != nil {
 		t.Fatal(err)
 	}

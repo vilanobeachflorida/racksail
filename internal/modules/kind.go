@@ -29,6 +29,10 @@ type ModuleSpec struct {
 	// OptIn lists the upstream software marked opt-in in the manifest that
 	// the admin allows the module to install, such as ZFS.
 	OptIn []string `json:"optIn,omitempty" doc:"Optional software the module may install, by its id in the manifest"`
+	// Removed says the module was removed: it is off and its software is
+	// uninstalled. Turning it on again clears it, and its software is
+	// installed again the first time something needs it.
+	Removed bool `json:"removed,omitempty" doc:"Whether the module was removed: off, with its software uninstalled until something needs it again"`
 }
 
 // Usage counts what uses a module.
@@ -54,6 +58,9 @@ type ModuleStatus struct {
 	HardwareProblems []string `json:"hardwareProblems,omitempty" doc:"Why the module can't run on this server"`
 	// Started says the module's work in the panel is running.
 	Started bool `json:"started,omitempty" doc:"Whether the module's work in the panel is running"`
+	// Uninstalled says the software of a removed module was uninstalled,
+	// so the resync doesn't uninstall it again.
+	Uninstalled bool `json:"uninstalled,omitempty" doc:"Whether the software of a removed module was uninstalled"`
 }
 
 // RemoveInput confirms removing a module.
@@ -92,7 +99,7 @@ var Kind = store.Define[ModuleSpec, ModuleStatus](store.KindInfo{
 		{
 			Name: ActionTurnOn, Title: "Turn on", Summary: "Turn the module on",
 			Description: "Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. " +
-				"The modules it needs must be on.",
+				"The modules it needs must be on; POST /api/v1/modules/{id}/actions/turn_on turns them on with it.",
 			Risk: store.RiskLow, Reversible: true,
 		},
 		{
@@ -104,7 +111,7 @@ var Kind = store.Define[ModuleSpec, ModuleStatus](store.KindInfo{
 		{
 			Name: ActionRemove, Title: "Remove", Summary: "Uninstall the module's software, and delete its data unless it is kept",
 			Description: "Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, " +
-				"which POST /api/v1/modules/{module}/remove does. Removing needs the module's name typed as confirmation.",
+				"which POST /api/v1/modules/{id}/actions/remove does. Removing needs the module's name typed as confirmation.",
 			Risk: store.RiskHigh, Destructive: true, Input: RemoveInput{},
 		},
 	},

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -76,7 +77,9 @@ type HealthResult struct {
 // InstallationStatus is what the panel last found of an installation.
 type InstallationStatus struct {
 	store.Status
-	// Applied is the version the resources were last brought to.
+	// Applied is the version the installation was last applied at. Its
+	// resources follow in the same change set, and its check action, last
+	// in that change set, confirms they work.
 	Applied   string             `json:"applied,omitempty"`
 	Downloads []VerifiedDownload `json:"downloads,omitempty" doc:"Upstream files checked against the recipe"`
 	Health    []HealthResult     `json:"health,omitempty"`
@@ -91,6 +94,24 @@ type InstallationHealth struct {
 	Health  []HealthResult `json:"health"`
 }
 
+// CheckInput says how an installation's health is checked.
+type CheckInput struct {
+	// Wait gives every check its whole timeout to pass, and fails when one
+	// doesn't, as installs and upgrades do.
+	Wait bool `json:"wait,omitempty" doc:"Wait for the checks to pass, up to each one's timeout, and fail when one doesn't, as installs and upgrades do"`
+}
+
+// Validate implements the check every action input gets.
+func (CheckInput) Validate() error { return nil }
+
+// confirm is the last change of an install or an upgrade: the
+// installation's health checks, waited for, so the change set fails when
+// what it installed doesn't work.
+func confirm(kind store.Kind, id store.ID) changeset.Change {
+	input, _ := json.Marshal(CheckInput{Wait: true})
+	return changeset.Change{Op: changeset.OpAction, Kind: kind.Info().Name, ID: id, Action: "check", Input: input}
+}
+
 func installationInfo(name, prefix, plural string, scope store.ScopeLevel, title string) store.KindInfo {
 	return store.KindInfo{
 		Name: name, Prefix: prefix, Scope: scope, Title: title, Plural: plural,
@@ -98,8 +119,9 @@ func installationInfo(name, prefix, plural string, scope store.ScopeLevel, title
 			"Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created.",
 		Actions: []store.Action{{
 			Name: "check", Title: "Check health", Summary: "Run the recipe's health checks now",
-			Description: "Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went.",
-			Risk:        store.RiskRead, Output: InstallationHealth{},
+			Description: "Runs the health checks the recipe declares, as the panel does every few minutes, and records how they went. " +
+				"Installs and upgrades end with it, waiting for the checks to pass, so a change set that applies is one that works.",
+			Risk: store.RiskRead, Input: CheckInput{}, Output: InstallationHealth{},
 		}},
 		Indexes: []store.Index{{Name: "item", Path: "item"}, {Name: "catalog", Path: "catalog"}},
 		Risks:   store.Risks{Create: store.RiskMedium, Update: store.RiskMedium, Delete: store.RiskLow},
@@ -125,6 +147,11 @@ func init() {
 	store.RegisterKind(ServerInstallationKind)
 }
 
+// InstallationKindFor returns the kind of what is installed into scope:
+// core.installation for an account, core.server_installation for the
+// server.
+func InstallationKindFor(scope store.Scope) (store.Kind, error) { return installationKind(scope) }
+
 // installationKind returns the kind an installation in scope is.
 func installationKind(scope store.Scope) (store.Kind, error) {
 	switch scope.Level {
@@ -146,6 +173,9 @@ var (
 	ErrNoUpgrade      = i18n.Define("recipes.no_upgrade", http.StatusConflict, "{name} {version} is the newest version its catalog offers.")
 	ErrNoRecipeSource = i18n.Define("recipes.no_source", http.StatusUnprocessableEntity, "Name a catalog or a module to install from.")
 	ErrBroken         = i18n.Define("recipes.broken", http.StatusConflict, "{name} is marked broken in its catalog: {reason}.")
+	// ErrUpstream refuses an install or an upgrade whose upstream files
+	// can't be fetched, or aren't the ones its recipe pins.
+	ErrUpstream = i18n.Define("recipes.upstream_failed", http.StatusBadGateway, "Nothing of {name} {version} was installed: {reason}.")
 )
 
 // EngineOptions configure the recipe engine.
@@ -318,9 +348,10 @@ func (e *Engine) admit(r *Recipe, p *provenance, accept bool) error {
 	return nil
 }
 
-// InstallRequest builds the change set that installs an item: its
-// resources in dependency order, then the installation that records it
-// and whose checks confirm it works.
+// InstallRequest builds the change set that installs an item: first the
+// installation that records it, whose applying checks the upstream files
+// the recipe pins before anything else is applied, then its resources in
+// dependency order, and last its health checks, which confirm it works.
 func (e *Engine) InstallRequest(ctx context.Context, in InstallInput) (changeset.Request, error) {
 	kind, err := installationKind(in.Scope)
 	if err != nil {
@@ -358,12 +389,20 @@ func (e *Engine) InstallRequest(ctx context.Context, in InstallInput) (changeset
 	if err != nil {
 		return changeset.Request{}, err
 	}
-	req.Changes = append(req.Changes, changeset.Change{
+	installation := changeset.Change{
 		Op: changeset.OpCreate, Kind: kind.Info().Name, ID: instID, Scope: in.Scope, Spec: raw,
 		Labels: map[string]string{"racksail.dev/recipe": r.ID},
-	})
+	}
+	req.Changes = append(append([]changeset.Change{installation}, req.Changes...), confirm(kind, instID))
 	req.Title = "Install " + r.Name + " " + r.Version
 	return req, nil
+}
+
+// Installation returns an installation of either kind, for callers that
+// authorize what is done with it.
+func (e *Engine) Installation(ctx context.Context, id store.ID) (*store.Object[InstallationSpec, InstallationStatus], error) {
+	inst, _, err := e.installation(ctx, id)
+	return inst, err
 }
 
 // installation returns an installation of either kind.
@@ -389,9 +428,10 @@ type UpgradeInput struct {
 }
 
 // UpgradeRequest builds the change set that upgrades an installation: the
-// installation first, which snapshots the data when the recipe asks, then
-// updates of the resources both versions have, new ones, and the removal
-// of those the new version dropped that hold no data.
+// installation first, which checks the new version's upstream files and
+// snapshots the data when the recipe asks, then updates of the resources
+// both versions have, new ones, the removal of those the new version
+// dropped that hold no data, and last the health checks.
 func (e *Engine) UpgradeRequest(ctx context.Context, id store.ID, in UpgradeInput) (changeset.Request, error) {
 	inst, kind, err := e.installation(ctx, id)
 	if err != nil {
@@ -506,6 +546,7 @@ func (e *Engine) UpgradeRequest(ctx context.Context, id store.ID, in UpgradeInpu
 	req.Changes = append(req.Changes, changeset.Change{Op: changeset.OpUpdate, Kind: kind.Info().Name, ID: inst.ID, Spec: raw})
 	req.Changes = append(req.Changes, changes...)
 	req.Changes = append(req.Changes, dropped...)
+	req.Changes = append(req.Changes, confirm(kind, inst.ID))
 	return req, nil
 }
 
@@ -698,6 +739,17 @@ func resourceReady(ctx context.Context, rd store.Reader, inst *store.Object[Inst
 // Check runs an installation's health checks once, records how they went
 // and returns that.
 func (e *Engine) Check(ctx context.Context, id store.ID) (InstallationHealth, error) {
+	return e.check(ctx, id, false)
+}
+
+// periodicTimeout bounds each check the panel runs every few minutes.
+const periodicTimeout = 30 * time.Second
+
+// check runs an installation's health checks and records how they went.
+// Waiting, as when an install or an upgrade is confirmed, gives each check
+// its whole timeout to pass, and resource checks wait for their resources
+// to be ready; otherwise each check has at most thirty seconds.
+func (e *Engine) check(ctx context.Context, id store.ID, wait bool) (InstallationHealth, error) {
 	inst, kind, err := e.installation(ctx, id)
 	if err != nil {
 		return InstallationHealth{}, err
@@ -707,23 +759,27 @@ func (e *Engine) Check(ctx context.Context, id store.ID) (InstallationHealth, er
 		return InstallationHealth{}, err
 	}
 	out := InstallationHealth{Healthy: true}
-	now := e.opts.Now().UTC()
 	for i, hc := range list {
-		res := HealthResult{Type: hc.Type, Target: hc.Target, OK: true, CheckedAt: now}
+		timeout := checkTimeout(hc)
+		if !wait {
+			timeout = min(timeout, periodicTimeout)
+		}
 		var err error
 		if hc.Type == HealthResource {
-			err = resourceReady(ctx, e.opts.Store, inst, hc.Target)
+			err = e.waitReady(ctx, inst, hc.Target, wait, timeout)
 		} else if e.opts.Checker != nil {
-			cctx, cancel := context.WithTimeout(ctx, min(checkTimeout(hc), 30*time.Second))
-			err = e.opts.Checker.Check(cctx, inst.Server, reconcile.HealthCheck{Name: fmt.Sprintf("%s check %d", inst.Spec.Name, i+1), Type: hc.Type, Target: hc.Target, Expect: hc.Expect, Timeout: min(checkTimeout(hc), 30*time.Second)})
+			cctx, cancel := context.WithTimeout(ctx, timeout)
+			err = e.opts.Checker.Check(cctx, inst.Server, reconcile.HealthCheck{Name: checkName(inst, i), Type: hc.Type, Target: hc.Target, Expect: hc.Expect, Timeout: timeout})
 			cancel()
 		}
+		res := HealthResult{Type: hc.Type, Target: hc.Target, OK: true, CheckedAt: e.opts.Now().UTC()}
 		if err != nil {
 			res.OK, res.Message = false, reasonOf(err)
 			out.Healthy = false
 		}
 		out.Health = append(out.Health, res)
 	}
+	now := e.opts.Now().UTC()
 	e.record(ctx, kind, inst.ID, func(st *InstallationStatus) {
 		st.Health, st.CheckedAt = out.Health, &now
 		if st.ObservedGeneration < inst.Generation {
@@ -762,36 +818,24 @@ func (e *Engine) record(ctx context.Context, kind store.Kind, id store.ID, chang
 	}
 }
 
-// checkLater checks an upgraded installation once its resources are
-// applied, or after a few minutes whatever they are.
-func (e *Engine) checkLater(ctx context.Context, id store.ID) {
-	deadline := time.Now().Add(5 * time.Minute)
-	for time.Now().Before(deadline) {
-		inst, _, err := e.installation(ctx, id)
-		if err != nil {
-			return
+func checkName(inst *store.Object[InstallationSpec, InstallationStatus], i int) string {
+	return fmt.Sprintf("%s check %d", inst.Spec.Name, i+1)
+}
+
+// waitReady checks a resource check, and when wait is set keeps checking
+// until it passes or timeout runs out.
+func (e *Engine) waitReady(ctx context.Context, inst *store.Object[InstallationSpec, InstallationStatus], target string, wait bool, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		err := resourceReady(ctx, e.opts.Store, inst, target)
+		if err == nil || !wait || time.Now().After(deadline) {
+			return err
 		}
-		settled := true
-		for _, res := range inst.Spec.Resources {
-			r, err := e.opts.Store.Get(ctx, res.ID)
-			if err != nil {
-				settled = false
-				break
-			}
-			var st store.Status
-			json.Unmarshal(r.Status, &st)
-			if st.ObservedGeneration < r.Generation {
-				settled = false
-				break
-			}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
 		}
-		if settled {
-			break
-		}
-		time.Sleep(time.Second)
-	}
-	if _, err := e.Check(ctx, id); err != nil {
-		e.opts.Logger.Warn("checking an upgraded installation", "installation", id, "error", err)
 	}
 }
 
@@ -870,8 +914,8 @@ type installationReconciler struct {
 }
 
 // Plan snapshots the data of an installation that is upgraded with the
-// snapshot-then-replace strategy, before its resources change, and has a
-// new install's health checks confirm it, once its resources are applied.
+// snapshot-then-replace strategy, before its resources change, and lists
+// the upstream files applying it checks.
 func (r installationReconciler) Plan(ctx context.Context, obj *store.Object[InstallationSpec, InstallationStatus], req reconcile.Request) (reconcile.Plan, error) {
 	if obj.Deleted() {
 		return reconcile.Plan{}, nil
@@ -881,6 +925,14 @@ func (r installationReconciler) Plan(ctx context.Context, obj *store.Object[Inst
 		return reconcile.Plan{}, err
 	}
 	var plan reconcile.Plan
+	if r.e.opts.Verifier != nil {
+		for _, d := range unverified(recipe, obj.Status) {
+			plan.Effects = append(plan.Effects, system.Effect{
+				Type: system.EffectDownload, Action: "verify", Target: path.Base(d.URL), Source: d.URL, DownloadBytes: d.Size,
+				Detail: "checked against the SHA-256 the recipe pins" + signatureDetail(d) + " before anything is installed",
+			})
+		}
+	}
 	upgrading := obj.Status.Applied != "" && obj.Status.Applied != obj.Spec.Version
 	if upgrading && recipe.Upgrade.Strategy == "snapshot-then-replace" && r.e.opts.DataPaths != nil {
 		var paths []string
@@ -906,25 +958,34 @@ func (r installationReconciler) Plan(ctx context.Context, obj *store.Object[Inst
 			plan.Steps = append(plan.Steps, agent.SnapshotPaths.Titled("Snapshot "+obj.Spec.Name+"'s data before the upgrade", agent.SnapshotPathsInput{Paths: paths, Label: label}))
 		}
 	}
-	if !upgrading && obj.Status.Applied == "" {
-		hcs, err := checks(obj)
-		if err != nil {
-			return reconcile.Plan{}, err
-		}
-		for i, hc := range hcs {
-			if hc.Type == HealthResource {
-				continue
-			}
-			plan.Checks = append(plan.Checks, reconcile.HealthCheck{
-				Name: fmt.Sprintf("%s check %d", obj.Spec.Name, i+1), Type: hc.Type, Target: hc.Target, Expect: hc.Expect, Timeout: checkTimeout(hc),
-			})
-		}
-	}
 	return plan, nil
 }
 
-// Apply checks the upstream files the recipe pins, waits for the resources
-// a resource check names and records the version applied.
+// signatureDetail says what signature a download is checked against too.
+func signatureDetail(d Download) string {
+	if d.Signature == nil {
+		return ""
+	}
+	return " and its " + d.Signature.Type + " signature"
+}
+
+// unverified lists the recipe's downloads that weren't checked yet, as
+// they are pinned now.
+func unverified(r *Recipe, st InstallationStatus) []Download {
+	var out []Download
+	for _, d := range r.Downloads {
+		if !slices.ContainsFunc(st.Downloads, func(v VerifiedDownload) bool { return v.URL == d.URL && v.SHA256 == d.SHA256 && v.Size == d.Size }) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// Apply checks the upstream files the recipe pins, before any of the
+// installation's resources, which come after it in the change set, are
+// applied: a file that doesn't match refuses the install or the upgrade
+// while nothing of it is on the server yet. Then it takes the snapshots
+// an upgrade asks for and records the version applied.
 func (r installationReconciler) Apply(ctx context.Context, obj *store.Object[InstallationSpec, InstallationStatus], plan reconcile.Plan, ex reconcile.Executor) (InstallationStatus, error) {
 	st := obj.Status
 	if obj.Deleted() {
@@ -934,12 +995,15 @@ func (r installationReconciler) Apply(ctx context.Context, obj *store.Object[Ins
 	if err != nil {
 		return st, err
 	}
-	if st.Applied != obj.Spec.Version && r.e.opts.Verifier != nil {
+	if missing := unverified(recipe, st); r.e.opts.Verifier != nil && len(missing) > 0 {
 		var verified []VerifiedDownload
 		for _, d := range recipe.Downloads {
 			v, err := r.e.opts.Verifier.Verify(ctx, d)
 			if err != nil {
-				return st, fmt.Errorf("checking %s's upstream files: %w", obj.Spec.Name, err)
+				err = ErrUpstream.Wrap(err, "name", obj.Spec.Name, "version", obj.Spec.Version, "reason", strings.TrimSuffix(reasonOf(err), "."))
+				e := i18n.From(err)
+				st.Phase, st.Message, st.Code = store.PhaseFailed, e.Message, e.Code
+				return st, err
 			}
 			verified = append(verified, v)
 		}
@@ -947,33 +1011,6 @@ func (r installationReconciler) Apply(ctx context.Context, obj *store.Object[Ins
 	}
 	if err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, r.e.opts.Now()); err != nil {
 		return st, err
-	}
-	if st.Applied != "" {
-		// An upgrade is applied before the resources it changes, so its
-		// health is checked once they had their turn.
-		go r.e.checkLater(context.WithoutCancel(ctx), obj.ID)
-		st.Applied = obj.Spec.Version
-		return st, nil
-	}
-	for _, hc := range recipe.Health {
-		if hc.Type != HealthResource {
-			continue
-		}
-		deadline := time.Now().Add(checkTimeout(hc))
-		for {
-			err := resourceReady(ctx, r.e.opts.Store, obj, hc.Target)
-			if err == nil {
-				break
-			}
-			if time.Now().After(deadline) {
-				return st, reconcile.ErrCheckFailed.Wrap(err, "check", hc.Target, "reason", err.Error())
-			}
-			select {
-			case <-ctx.Done():
-				return st, ctx.Err()
-			case <-time.After(time.Second):
-			}
-		}
 	}
 	st.Applied = obj.Spec.Version
 	if st.Upgrade == obj.Spec.Version {
@@ -986,9 +1023,33 @@ func (installationReconciler) PlanAction(ctx context.Context, req reconcile.Acti
 	return reconcile.ActionPlan{}, nil
 }
 
+// ApplyAction runs the health checks. Waiting, as the last change of an
+// install or an upgrade does, a check that doesn't pass fails the change
+// set.
 func (r installationReconciler) ApplyAction(ctx context.Context, req reconcile.ActionRequest) (any, error) {
 	if req.Action != "check" {
 		return nil, fmt.Errorf("recipes: installations have no action called %q", req.Action)
 	}
-	return r.e.Check(ctx, req.Resource.ID)
+	var in CheckInput
+	if len(req.Input) > 0 {
+		if err := json.Unmarshal(req.Input, &in); err != nil {
+			return nil, i18n.ErrBadRequest.Wrap(err, "reason", err.Error())
+		}
+	}
+	out, err := r.e.check(ctx, req.Resource.ID, in.Wait)
+	if err != nil {
+		return nil, err
+	}
+	if in.Wait {
+		for i, h := range out.Health {
+			if !h.OK {
+				inst, _, err := r.e.installation(ctx, req.Resource.ID)
+				if err != nil {
+					return nil, err
+				}
+				return out, reconcile.ErrCheckFailed.New("check", checkName(inst, i), "reason", h.Message)
+			}
+		}
+	}
+	return out, nil
 }

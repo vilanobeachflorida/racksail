@@ -12,7 +12,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -53,22 +55,27 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(req.Changes) != 3 || req.Changes[2].Kind != InstallationKind.Name() || req.Title != "Install WordPress 6.8.3" {
+	// The installation comes first, so its upstream files are checked before
+	// anything else applies, and its health checks last.
+	if len(req.Changes) != 4 || req.Changes[0].Kind != InstallationKind.Name() || req.Changes[0].Op != changeset.OpCreate || req.Title != "Install WordPress 6.8.3" {
 		t.Fatalf("request = %s", mustJSON(req))
 	}
+	if last := req.Changes[3]; last.Op != changeset.OpAction || last.Action != "check" || last.ID != req.Changes[0].ID || string(last.Input) != `{"wait":true}` {
+		t.Errorf("the install ends with its health checks: %s", mustJSON(last))
+	}
 	var spec InstallationSpec
-	json.Unmarshal(req.Changes[2].Spec, &spec)
+	json.Unmarshal(req.Changes[0].Spec, &spec)
 	if spec.Catalog != cat || spec.RecipeSHA256 == "" || spec.IndexSHA256 == "" || spec.Inputs["dbPassword"] != nil || spec.Inputs["domain"] != "blog.example.com" || len(spec.Resources) != 2 {
 		t.Errorf("provenance = %+v", spec)
 	}
-	if req.Changes[0].Labels["racksail.dev/installation"] != string(req.Changes[2].ID) {
+	if req.Changes[1].Labels["racksail.dev/installation"] != string(req.Changes[0].ID) {
 		t.Error("resources are labelled with their installation")
 	}
 	cs := p.submit(t, req)
 	if cs.State != changeset.StateApplied {
 		t.Fatalf("install: %s %s", cs.State, mustJSON(cs.Error))
 	}
-	id := req.Changes[2].ID
+	id := req.Changes[0].ID
 	inst, err := InstallationKind.Get(ctx, p.store, id)
 	if err != nil || inst.Status.Applied != "6.8.3" || inst.Status.Phase != store.PhaseReady {
 		t.Fatalf("installation = %+v, %v", inst, err)
@@ -106,7 +113,7 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 			t.Error("a password given at install isn't asked for again, and isn't replaced")
 		}
 	}
-	if strings.Join(ops, ",") != "update databases.database,create web.site,update web.site" {
+	if strings.Join(ops, ",") != "update databases.database,create web.site,update web.site,action core.installation" {
 		t.Errorf("upgrade changes = %v", ops)
 	}
 	if cs := p.submit(t, up); cs.State != changeset.StateApplied {
@@ -148,6 +155,129 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 	}
 	if r, err := p.store.Get(ctx, id); err == nil && !r.Deleted() {
 		t.Error("the installation is gone")
+	}
+}
+
+// An upstream file that isn't what the recipe pins refuses the install
+// before anything of it is applied, and one that is gets recorded.
+func TestUpstreamFilesAreCheckedFirst(t *testing.T) {
+	ctx := context.Background()
+	payload := []byte("wordpress 6.8.3 release")
+	sum := sha256.Sum256(payload)
+	var mu sync.Mutex
+	served := payload
+	serve := func(data []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		served = data
+	}
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Path != "/wordpress.tar.gz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(served)
+	}))
+	defer upstream.Close()
+	srv := healthServer(t)
+	recipe := checkedRecipe(srv) + "downloads:\n  - {url: \"" + upstream.URL + "/wordpress.tar.gz\", sha256: " + hex.EncodeToString(sum[:]) + ", size: " + strconv.Itoa(len(payload)) + "}\n"
+	c := newCatalogServer(t)
+	c.add(recipe, nil)
+	p := newPanel(t, func(o *EngineOptions) { o.Verifier = &Verifier{HTTP: upstream.Client(), Dir: t.TempDir()} })
+	cat := p.addCatalog(t, c, c.srv.URL)
+	if _, err := p.catalogs.Sync(ctx, cat); err != nil {
+		t.Fatal(err)
+	}
+	install := func() (*changeset.ChangeSet, changeset.Request) {
+		t.Helper()
+		req, err := p.recipes.InstallRequest(ctx, InstallInput{
+			Source: Source{Catalog: cat, Item: "wordpress"}, Scope: store.AccountScope(store.NewID("acct")),
+			Inputs: map[string]any{"domain": "blog.example.com", "dbPassword": "correct horse"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.submit(t, req), req
+	}
+
+	// The preview says which files are checked.
+	req, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: store.AccountScope(store.NewID("acct")), Inputs: map[string]any{"domain": "a.example", "dbPassword": "pw"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Actor, req.DryRun = p.admin, true
+	preview, err := p.engine.Submit(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mustJSON(preview.Effects)), `"action":"verify"`) || preview.Estimate.DownloadBytes != int64(len(payload)) {
+		t.Errorf("the preview lists the files checked: %s", mustJSON(preview.Effects))
+	}
+
+	// Upstream changed the file: nothing is applied.
+	serve([]byte("something else entirely"))
+	cs, req := install()
+	if cs.State != changeset.StateFailed || !strings.Contains(cs.Error, "Nothing of WordPress 6.8.3 was installed") {
+		t.Fatalf("a changed file: %s %s", cs.State, cs.Error)
+	}
+	for _, ch := range cs.Changes[1:] {
+		if ch.State == changeset.ChangeDone {
+			t.Errorf("%s %s was applied although its upstream file changed", ch.Op, ch.Kind)
+		}
+		if ch.Op == changeset.OpCreate {
+			if r, err := p.store.Get(ctx, ch.ID); err == nil {
+				var st store.Status
+				json.Unmarshal(r.Status, &st)
+				if st.Phase == store.PhaseReady {
+					t.Errorf("%s is in place", ch.Kind)
+				}
+			}
+		}
+	}
+	inst, _ := InstallationKind.Get(ctx, p.store, req.Changes[0].ID)
+	if inst.Status.Phase != store.PhaseFailed || inst.Status.Applied != "" {
+		t.Errorf("the installation says so: %+v", inst.Status)
+	}
+
+	// The file it pins installs, and is recorded.
+	serve(payload)
+	cs, req = install()
+	if cs.State != changeset.StateApplied {
+		t.Fatalf("install: %s %s", cs.State, cs.Error)
+	}
+	inst, _ = InstallationKind.Get(ctx, p.store, req.Changes[0].ID)
+	if len(inst.Status.Downloads) != 1 || inst.Status.Downloads[0].SHA256 != hex.EncodeToString(sum[:]) || inst.Status.Applied != "6.8.3" || len(inst.Status.Health) != 3 {
+		t.Errorf("installation = %+v", inst.Status)
+	}
+}
+
+// An install whose health checks don't pass fails, once they had their
+// time.
+func TestInstallsEndWithTheirHealthChecks(t *testing.T) {
+	ctx := context.Background()
+	sick := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
+	defer sick.Close()
+	recipe := strings.Replace(checkedRecipe(sick), `expect: "200"}`, `expect: "200", timeoutSeconds: 1}`, 1)
+	c := newCatalogServer(t)
+	c.add(recipe, nil)
+	p := newPanel(t, nil)
+	cat := p.addCatalog(t, c, c.srv.URL)
+	if _, err := p.catalogs.Sync(ctx, cat); err != nil {
+		t.Fatal(err)
+	}
+	req, err := p.recipes.InstallRequest(ctx, InstallInput{Source: Source{Catalog: cat, Item: "wordpress"}, Scope: store.AccountScope(store.NewID("acct")), Inputs: map[string]any{"domain": "a.example", "dbPassword": "pw"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := p.submit(t, req)
+	if cs.State != changeset.StateFailed || !strings.Contains(cs.Error, "WordPress check 3") {
+		t.Fatalf("an install that doesn't work: %s %s", cs.State, cs.Error)
+	}
+	inst, _ := InstallationKind.Get(ctx, p.store, req.Changes[0].ID)
+	if inst.Status.Phase != store.PhaseDegraded || len(inst.Status.Health) != 3 || inst.Status.Health[2].OK {
+		t.Errorf("the installation records its health: %+v", inst.Status)
 	}
 }
 

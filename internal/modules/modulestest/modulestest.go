@@ -247,7 +247,7 @@ func (e *Env) MustApply(t testing.TB, req changeset.Request) *changeset.ChangeSe
 // TurnOn turns a module on, with the modules it needs.
 func (e *Env) TurnOn(t testing.TB, id string) *changeset.ChangeSet {
 	t.Helper()
-	req, err := e.Manager.TurnOnRequest(id)
+	req, err := e.Manager.TurnOnRequest(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func Lifecycle(t *testing.T, mod modules.Module, use Use, deps ...modules.Module
 	on := e.TurnOn(t, id)
 	e.RequireState(t, id, modules.StateOn)
 	for _, eff := range on.Effects {
-		if eff.Type == system.EffectPackage || eff.Type == system.EffectDownload {
+		if (eff.Type == system.EffectPackage || eff.Type == system.EffectDownload) && !modules.Later(eff) {
 			t.Errorf("turning %s on installed %s %s; software is installed the first time something needs it", id, eff.Action, eff.Target)
 		}
 	}

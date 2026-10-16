@@ -145,7 +145,7 @@ func (m *Manager) ProfileRequest(ctx context.Context, p Profile) (changeset.Requ
 	if len(turnOn) == 0 {
 		return changeset.Request{}, skipped, ErrNothingToTurnOn.New("profile", profileName(p))
 	}
-	req, err := m.turnOnRequest(turnOn)
+	req, err := m.turnOnRequest(ctx, turnOn)
 	if err != nil {
 		return changeset.Request{}, skipped, err
 	}

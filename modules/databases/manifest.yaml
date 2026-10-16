@@ -19,6 +19,11 @@ cost:
   notes: >-
     Measured for one MariaDB server tuned for a small server; each further server or engine adds its
     own.
+services:
+  - {unit: mariadb.service, description: Runs MariaDB database servers.}
+  - {unit: postgresql.service, description: Runs PostgreSQL database servers.}
+  - {unit: valkey-server.service, description: Runs Valkey.}
+  - {unit: memcached.service, description: Runs Memcached.}
 upstream:
   - id: mariadb
     name: MariaDB

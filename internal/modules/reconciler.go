@@ -107,10 +107,7 @@ func (r moduleReconciler) Plan(ctx context.Context, obj *store.Object[ModuleSpec
 		if current.IsOn() {
 			return reconcile.Plan{}, nil
 		}
-		plan := reconcile.Plan{Effects: []system.Effect{{
-			Type: system.EffectProcess, Action: "start", Target: "module " + man.ID, Detail: "in the panel",
-			MemoryBytes: int64(man.Cost.IdleMemoryMB) << 20,
-		}}}
+		plan := reconcile.Plan{Effects: m.turnOnEffects(ctx, man)}
 		usage, err := m.usage(ctx, req.Read, man.ID)
 		if err != nil {
 			return reconcile.Plan{}, err
@@ -120,9 +117,7 @@ func (r moduleReconciler) Plan(ctx context.Context, obj *store.Object[ModuleSpec
 			if err != nil {
 				return reconcile.Plan{}, err
 			}
-			plan.Steps = append(plan.Steps, extra.Steps...)
-			plan.Effects = append(plan.Effects, extra.Effects...)
-			plan.Checks = append(plan.Checks, extra.Checks...)
+			plan = merge(plan, extra)
 		}
 		return plan, nil
 	}
@@ -136,29 +131,50 @@ func (r moduleReconciler) Plan(ctx context.Context, obj *store.Object[ModuleSpec
 	if len(dependents) > 0 {
 		return reconcile.Plan{}, ErrInUse.New("module", man.Name, "dependents", strings.Join(dependents, ", "))
 	}
-	if !current.IsOn() {
+	removing := obj.Spec.Removed && !obj.Status.Uninstalled
+	if !current.IsOn() && !removing {
 		return reconcile.Plan{}, nil
 	}
 	usage, err := m.usage(ctx, req.Read, man.ID)
 	if err != nil {
 		return reconcile.Plan{}, err
 	}
-	plan := reconcile.Plan{Effects: []system.Effect{{Type: system.EffectProcess, Action: "stop", Target: "module " + man.ID, Detail: "in the panel"}}}
-	if usage.Resources == 0 {
-		return plan, nil
+	var plan reconcile.Plan
+	tp, planner := mod.(TransitionPlanner)
+	if current.IsOn() {
+		plan.Effects = m.turnOffEffects(man, current)
+		if usage.Resources > 0 {
+			if !planner {
+				return reconcile.Plan{}, ErrHasResources.New("module", man.Name, "count", usage.Resources)
+			}
+			extra, err := tp.PlanTransition(ctx, TransitionRequest{Module: man, From: current, To: StateOff, Usage: usage, Read: req.Read, Facts: req.Facts})
+			if err != nil {
+				return reconcile.Plan{}, err
+			}
+			plan = merge(plan, extra)
+		}
 	}
-	tp, ok := mod.(TransitionPlanner)
-	if !ok {
-		return reconcile.Plan{}, ErrHasResources.New("module", man.Name, "count", usage.Resources)
+	if removing {
+		plan = merge(plan, UninstallPlan(man))
+		if planner {
+			extra, err := tp.PlanTransition(ctx, TransitionRequest{
+				Module: man, From: current, To: StateOff, Remove: true, KeepData: usage.Resources > 0, Usage: usage, Read: req.Read, Facts: req.Facts,
+			})
+			if err != nil {
+				return reconcile.Plan{}, err
+			}
+			plan = merge(plan, extra)
+		}
 	}
-	extra, err := tp.PlanTransition(ctx, TransitionRequest{Module: man, From: current, To: StateOff, Usage: usage, Read: req.Read, Facts: req.Facts})
-	if err != nil {
-		return reconcile.Plan{}, err
-	}
+	return plan, nil
+}
+
+// merge appends what another plan does to a plan.
+func merge(plan, extra reconcile.Plan) reconcile.Plan {
 	plan.Steps = append(plan.Steps, extra.Steps...)
 	plan.Effects = append(plan.Effects, extra.Effects...)
 	plan.Checks = append(plan.Checks, extra.Checks...)
-	return plan, nil
+	return plan
 }
 
 // name returns a module's name, or its id when it isn't registered.
@@ -181,13 +197,12 @@ func (r moduleReconciler) PlanAction(ctx context.Context, req reconcile.ActionRe
 	}
 	man := mod.Manifest()
 	spec := obj.Spec
-	var plan reconcile.Plan
 	switch req.Action {
 	case ActionTurnOn:
 		if spec.Enabled {
 			return reconcile.ActionPlan{}, ErrAlreadyOn.New("module", man.Name)
 		}
-		spec.Enabled = true
+		spec.Enabled, spec.Removed = true, false
 	case ActionTurnOff:
 		if !spec.Enabled {
 			return reconcile.ActionPlan{}, ErrAlreadyOff.New("module", man.Name)
@@ -211,19 +226,10 @@ func (r moduleReconciler) PlanAction(ctx context.Context, req reconcile.ActionRe
 		if !in.KeepData && usage.Resources > 0 {
 			return reconcile.ActionPlan{}, ErrRemoveResources.New("module", man.Name, "count", usage.Resources)
 		}
-		spec.Enabled = false
-		plan = UninstallPlan(man)
-		if tp, ok := mod.(TransitionPlanner); ok {
-			extra, err := tp.PlanTransition(ctx, TransitionRequest{
-				Module: man, From: obj.Status.State, To: StateOff, Remove: true, KeepData: in.KeepData, Usage: usage, Read: req.Read, Facts: req.Facts,
-			})
-			if err != nil {
-				return reconcile.ActionPlan{}, err
-			}
-			plan.Steps = append(plan.Steps, extra.Steps...)
-			plan.Effects = append(plan.Effects, extra.Effects...)
-			plan.Checks = append(plan.Checks, extra.Checks...)
-		}
+		// The module's reconciler uninstalls the software once the spec
+		// says it was removed, so the module shows as being removed while
+		// it does.
+		spec.Enabled, spec.Removed = false, true
 	default:
 		return reconcile.ActionPlan{}, fmt.Errorf("modules: core.module has no action %q", req.Action)
 	}
@@ -231,7 +237,7 @@ func (r moduleReconciler) PlanAction(ctx context.Context, req reconcile.ActionRe
 	if err != nil {
 		return reconcile.ActionPlan{}, err
 	}
-	return reconcile.ActionPlan{Spec: raw, Plan: plan}, nil
+	return reconcile.ActionPlan{Spec: raw}, nil
 }
 
 // Apply runs the transition steps, starts or stops the module and reports
@@ -258,14 +264,20 @@ func (r moduleReconciler) Apply(ctx context.Context, obj *store.Object[ModuleSpe
 		return st, nil
 	}
 	// The way to the new state is shown while it takes time.
-	if !obj.Spec.Enabled && from.IsOn() && len(plan.Steps) > 0 {
+	removing := obj.Spec.Removed && !st.Uninstalled
+	switch {
+	case !obj.Spec.Enabled && removing && len(plan.Steps) > 0:
+		m.writeState(ctx, obj, StateRemoving)
+	case !obj.Spec.Enabled && from.IsOn() && len(plan.Steps) > 0:
 		m.writeState(ctx, obj, StateStopping)
 	}
 	err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, now)
 	if err != nil {
+		// The status recorded keeps the state it was in.
 		m.remember(&store.Object[ModuleSpec, ModuleStatus]{Meta: obj.Meta, Spec: obj.Spec, Status: obj.Status})
 		return st, err
 	}
+	st.Uninstalled = obj.Spec.Removed
 	usage, uerr := m.usage(ctx, m.opts.Services.Store, id)
 	if uerr == nil {
 		st.Usage = usage

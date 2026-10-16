@@ -116,6 +116,8 @@ type Manager struct {
 	kinds map[string]string
 	// refresh asks the usage watcher to count a module's resources again.
 	refresh chan string
+	// software is what FirstUse last found of each module's software.
+	software map[string]found
 }
 
 // NewManager returns a manager. Until Boot loads the states kept in the
@@ -133,6 +135,7 @@ func NewManager(reg *Registry, opts ManagerOptions) *Manager {
 	m := &Manager{
 		reg: reg, opts: opts, ids: map[string]store.ID{}, enabled: map[string]bool{}, states: map[string]State{},
 		started: map[string]bool{}, failed: map[string]error{}, kinds: map[string]string{}, refresh: make(chan string, 64),
+		software: map[string]found{},
 	}
 	for _, mod := range reg.All() {
 		man := mod.Manifest()
@@ -445,8 +448,9 @@ func action(rid store.ID, name string, input any) changeset.Change {
 // TurnOnRequest builds the change set that turns a module on, together
 // with the modules it needs that are off, dependencies first. A module
 // that needs any one of several others, none of them on, needs the person
-// to choose which.
-func (m *Manager) TurnOnRequest(id string) (changeset.Request, error) {
+// to choose which. It asks the server what each would install, for the
+// preview.
+func (m *Manager) TurnOnRequest(ctx context.Context, id string) (changeset.Request, error) {
 	man, err := m.manifest(id)
 	if err != nil {
 		return changeset.Request{}, err
@@ -484,13 +488,18 @@ func (m *Manager) TurnOnRequest(id string) (changeset.Request, error) {
 	if err := visit(id); err != nil {
 		return changeset.Request{}, err
 	}
-	return m.turnOnRequest(need)
+	return m.turnOnRequest(ctx, need)
 }
 
-func (m *Manager) turnOnRequest(ids []string) (changeset.Request, error) {
+func (m *Manager) turnOnRequest(ctx context.Context, ids []string) (changeset.Request, error) {
 	req := changeset.Request{}
 	var names []string
 	for _, id := range ids {
+		// A server that can't say leaves the preview to the manifest's
+		// estimates.
+		if _, err := m.FirstUse(ctx, id); err != nil {
+			m.opts.Log.Warn("asking the server what a module would install", "module", id, "error", err)
+		}
 		rid, err := m.resourceOf(id)
 		if err != nil {
 			return changeset.Request{}, err

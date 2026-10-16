@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/vilanobeachflorida/racksail/internal/api"
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/recipes"
@@ -196,6 +197,14 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
+		kind, err := recipes.InstallationKindFor(in.Body.Scope)
+		if err != nil {
+			return nil, err
+		}
+		// Who may install there is settled before the recipe is read.
+		if err := api.Authorize(ctx, svc.Authorizer, auth.KindPermission(kind.Info().Name, "create"), auth.Target{Scope: in.Body.Scope}); err != nil {
+			return nil, err
+		}
 		req, err := engine.InstallRequest(ctx, in.Body)
 		if err != nil {
 			return nil, err
@@ -213,6 +222,9 @@ func register(a huma.API, svc *modules.Services) {
 	huma.Register(a, op, func(ctx context.Context, in *upgradeInput) (*api.ChangeSetOutput, error) {
 		_, engine, err := parts(svc)
 		if err != nil {
+			return nil, err
+		}
+		if err := mayChange(ctx, svc, engine, in.ID, "update"); err != nil {
 			return nil, err
 		}
 		req, err := engine.UpgradeRequest(ctx, in.ID, in.Body)
@@ -234,10 +246,28 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
+		if err := mayChange(ctx, svc, engine, in.ID, "delete"); err != nil {
+			return nil, err
+		}
 		req, err := engine.UninstallRequest(ctx, in.ID, in.Body)
 		if err != nil {
 			return nil, err
 		}
 		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
 	})
+}
+
+// mayChange authorizes an operation on an installation before anything is
+// read for it, such as its recipe or what its catalog offers now, which
+// would say things about installations of other accounts. One the actor
+// may not see answers as if it didn't exist.
+func mayChange(ctx context.Context, svc *modules.Services, engine *recipes.Engine, id store.ID, operation string) error {
+	inst, err := engine.Installation(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := api.AuthorizeRead(ctx, svc.Authorizer, inst.Meta); err != nil {
+		return err
+	}
+	return api.Authorize(ctx, svc.Authorizer, auth.KindPermission(inst.Kind, operation), auth.Target{Scope: inst.Scope, Object: inst.ID})
 }

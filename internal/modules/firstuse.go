@@ -2,10 +2,12 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -127,9 +129,56 @@ type Software struct {
 	Installed     bool  `json:"installed"`
 }
 
+// softwareFresh is how long what FirstUse found stands for the previews
+// that read it.
+const softwareFresh = 10 * time.Minute
+
+// found is what FirstUse found of a module's software, and when.
+type found struct {
+	at       time.Time
+	software []Software
+}
+
+// knownSoftware returns what FirstUse found of a module's software, while
+// it is fresh. Plans read it rather than ask the agent themselves.
+func (m *Manager) knownSoftware(id string) ([]Software, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.software[id]
+	if !ok || m.opts.Now().Sub(f.at) > softwareFresh {
+		return nil, false
+	}
+	return f.software, true
+}
+
+// manifestSoftware is a module's software as its manifest estimates it,
+// for when the server wasn't asked.
+func manifestSoftware(man *Manifest) []Software {
+	out := make([]Software, 0, len(man.Upstream))
+	for _, u := range man.Upstream {
+		out = append(out, Software{
+			Upstream: u, DownloadBytes: int64(u.DownloadMB) << 20, DiskBytes: int64(u.DiskMB) << 20,
+			Installed: u.Source.Type == "embedded" || u.Source.Type == "present",
+		})
+	}
+	return out
+}
+
 // FirstUse describes what a module installs when something first needs
-// it, asking the agent about the packages it names exactly.
+// it, asking the agent about the packages it names exactly. What it finds
+// is what previews of turning the module on list for a while after.
 func (m *Manager) FirstUse(ctx context.Context, id string) ([]Software, error) {
+	out, err := m.firstUse(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	m.software[id] = found{at: m.opts.Now(), software: out}
+	m.mu.Unlock()
+	return out, nil
+}
+
+func (m *Manager) firstUse(ctx context.Context, id string) ([]Software, error) {
 	man, err := m.manifest(id)
 	if err != nil {
 		return nil, err
@@ -174,6 +223,125 @@ func (m *Manager) FirstUse(ctx context.Context, id string) ([]Software, error) {
 	return out, nil
 }
 
+// Actions of the effects a module's transitions list for what happens
+// later rather than when the change applies: its software is installed the
+// first time something needs it, and its services and ports run and open
+// while something uses it.
+const (
+	ActionDownloadOnFirstUse = "download_on_first_use"
+	ActionInstallOnFirstUse  = "install_on_first_use"
+	ActionStartWhenUsed      = "start_when_used"
+	ActionOpenWhenUsed       = "open_when_used"
+	ActionRunWhenUsed        = "run_when_used"
+)
+
+// Later reports whether an effect of a module's transition happens later,
+// once something uses the module, rather than when the change applies.
+func Later(e system.Effect) bool {
+	switch e.Action {
+	case ActionDownloadOnFirstUse, ActionInstallOnFirstUse, ActionStartWhenUsed, ActionOpenWhenUsed, ActionRunWhenUsed:
+		return true
+	}
+	return false
+}
+
+// sourceOf says where upstream software comes from, for the preview.
+func sourceOf(u Upstream) string {
+	switch u.Source.Type {
+	case "debian":
+		return "Debian's archive"
+	case "apt-repository":
+		if u.Source.Repository != "" {
+			return u.Source.Repository
+		}
+		return "the vendor's package repository"
+	case "racksail-build":
+		if u.Source.URL != "" {
+			return u.Source.URL
+		}
+		return "Racksail's builds"
+	}
+	return u.Source.URL
+}
+
+// turnOnEffects are what the preview of turning a module on lists: the
+// module starting in the panel, with the memory it takes while idle, and
+// what it does once something uses it: the software it downloads and
+// installs then, from where and how large, the services it runs, the ports
+// it opens, and the memory and disk it takes.
+func (m *Manager) turnOnEffects(ctx context.Context, man *Manifest) []system.Effect {
+	effects := []system.Effect{{
+		Type: system.EffectProcess, Action: "start", Target: "module " + man.ID, Detail: "in the panel",
+		MemoryBytes: int64(man.Cost.IdleMemoryMB) << 20,
+	}}
+	// What the server said its packages take, when it was asked as the
+	// change was requested, and the manifest's estimates otherwise.
+	software, ok := m.knownSoftware(man.ID)
+	if !ok {
+		software = manifestSoftware(man)
+	}
+	var disk int64
+	for _, sw := range software {
+		if sw.Installed {
+			continue
+		}
+		detail := sw.Install
+		if sw.OptIn {
+			detail = "only when allowed in the module's settings. " + detail
+		}
+		effects = append(effects, system.Effect{
+			Type: system.EffectDownload, Action: ActionDownloadOnFirstUse, Target: sw.Name, Source: sourceOf(sw.Upstream), Detail: detail,
+			DownloadBytes: sw.DownloadBytes, DiskBytes: sw.DiskBytes,
+		})
+		disk += sw.DiskBytes
+		if len(sw.Packages) > 0 {
+			for _, p := range sw.Packages {
+				effects = append(effects, system.Effect{Type: system.EffectPackage, Action: ActionInstallOnFirstUse, Target: p.Name, Detail: p.Version})
+			}
+			continue
+		}
+		for _, name := range exactPackages(sw.Upstream) {
+			effects = append(effects, system.Effect{Type: system.EffectPackage, Action: ActionInstallOnFirstUse, Target: name, Detail: "for " + sw.Name})
+		}
+	}
+	for _, s := range man.Services {
+		effects = append(effects, system.Effect{Type: system.EffectService, Action: ActionStartWhenUsed, Target: s.Unit, Detail: s.Description})
+	}
+	for _, p := range man.Ports {
+		effects = append(effects, system.Effect{Type: system.EffectPort, Action: ActionOpenWhenUsed, Target: fmt.Sprintf("%s/%d", p.Protocol, p.Port), Detail: p.Description})
+	}
+	run := system.Effect{Type: system.EffectProcess, Action: ActionRunWhenUsed, Target: man.Name, Detail: "what it takes while something uses it"}
+	if extra := man.Cost.ActiveMemoryMB - man.Cost.IdleMemoryMB; extra > 0 {
+		run.MemoryBytes = int64(extra) << 20
+	}
+	// The manifest's estimate of its disk covers what the package index
+	// doesn't, such as the data its software keeps.
+	if rest := int64(man.Cost.DiskMB)<<20 - disk; rest > 0 {
+		run.DiskBytes = rest
+	}
+	if run.MemoryBytes > 0 || run.DiskBytes > 0 {
+		effects = append(effects, run)
+	}
+	return effects
+}
+
+// turnOffEffects are what turning a module off stops: the module in the
+// panel and, when something uses it, the services it runs and the ports it
+// opened, whose resources it keeps.
+func (m *Manager) turnOffEffects(man *Manifest, current State) []system.Effect {
+	effects := []system.Effect{{Type: system.EffectProcess, Action: "stop", Target: "module " + man.ID, Detail: "in the panel"}}
+	if current != StateActive {
+		return effects
+	}
+	for _, s := range man.Services {
+		effects = append(effects, system.Effect{Type: system.EffectService, Action: "stop", Target: s.Unit, Detail: s.Description})
+	}
+	for _, p := range man.Ports {
+		effects = append(effects, system.Effect{Type: system.EffectPort, Action: "close", Target: fmt.Sprintf("%s/%d", p.Protocol, p.Port), Detail: p.Description})
+	}
+	return effects
+}
+
 // ModuleInfo is a module as the modules page shows it: its manifest, its
 // state and what uses it.
 type ModuleInfo struct {
@@ -196,9 +364,11 @@ type ModuleInfo struct {
 	// Suspends says the module can be turned off while resources use it,
 	// keeping them.
 	Suspends bool `json:"suspends,omitempty" doc:"Whether the module can be turned off while resources use it, keeping them"`
-	// Exportable says the backups module is on, so the module's data can be
-	// exported before it is removed.
-	Exportable bool `json:"exportable,omitempty" doc:"Whether the module's data can be exported before removing it, which needs the backups module"`
+	// Exportable says the module has resources, which removing it with its
+	// data deletes, and which GET /api/v1/modules/{id}/export exports first.
+	Exportable bool `json:"exportable,omitempty" doc:"Whether the module has resources to export before it is removed with its data"`
+	// Removed says the module was removed and its software uninstalled.
+	Removed bool `json:"removed,omitempty" doc:"Whether the module was removed, its software uninstalled until something needs it again"`
 }
 
 // Info describes one module.
@@ -221,7 +391,7 @@ func (m *Manager) Info(ctx context.Context, id string) (*ModuleInfo, error) {
 				return nil, err
 			}
 			if obj != nil {
-				info.Usage, info.Installed = obj.Status.Usage, obj.Status.Installed
+				info.Usage, info.Installed, info.Removed = obj.Status.Usage, obj.Status.Installed, obj.Spec.Removed
 			}
 		}
 	}
@@ -245,7 +415,7 @@ func (m *Manager) Info(ctx context.Context, id string) (*ModuleInfo, error) {
 	if err, ok := m.Failed()[id]; ok {
 		info.Error = strings.TrimSpace(err.Error())
 	}
-	info.Exportable = m.State("backups").IsOn()
+	info.Exportable = info.Usage.Resources > 0
 	return info, nil
 }
 

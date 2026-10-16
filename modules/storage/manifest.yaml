@@ -16,6 +16,9 @@ cost:
   activeMemoryMB: 20
   diskMB: 30
   notes: Tools only; ZFS adds a kernel module built with DKMS when chosen.
+services:
+  - {unit: smartmontools.service, description: Watches the disks' health.}
+  - {unit: hd-idle.service, description: Spins idle disks down.}
 upstream:
   - id: btrfs-progs
     name: Btrfs tools

@@ -1,8 +1,10 @@
 // Package modulesapi adds the module manager's operations to the API: the
-// modules with their state, what they need and cost, and the profiles that
-// turn several on at once. Turning one module on, off or removing it are
-// the actions of its core.module resource, which the kind's operations
-// carry, previews included.
+// modules with their state, what they need and cost and what they install,
+// turning one on with the modules it needs, turning it off, removing it
+// with or without its data and exporting its resources first, and the
+// profiles that turn several on at once. Each change is a change set that
+// can be previewed first. The actions of core.module resources, which the
+// kind's operations carry, change one module at a time.
 package modulesapi
 
 import (
@@ -68,6 +70,28 @@ type applyProfileOutput struct {
 	Body   ProfileChange
 }
 
+type changeModuleInput struct {
+	ID string `path:"id" doc:"The module's id, such as web"`
+	api.ChangeParams
+}
+
+type removeModuleInput struct {
+	ID string `path:"id" doc:"The module's id, such as mail"`
+	api.ChangeParams
+	Body modules.RemoveInput
+}
+
+type softwareOutput struct {
+	Body struct {
+		Software []modules.Software `json:"software"`
+	}
+}
+
+type exportOutput struct {
+	Disposition string `header:"Content-Disposition"`
+	Body        *modules.Export
+}
+
 func manager(svc *modules.Services) (*modules.Manager, error) {
 	if svc == nil || svc.Modules == nil {
 		return nil, i18n.ErrUnavailable.New("what", "The module manager")
@@ -78,7 +102,13 @@ func manager(svc *modules.Services) (*modules.Manager, error) {
 // mayRead checks that the signed-in actor may see the modules: a server
 // admin, since modules belong to the server.
 func mayRead(ctx context.Context, svc *modules.Services) error {
-	return api.Authorize(ctx, svc.Authorizer, api.ReadPermission(modules.Kind.Name()), auth.Target{Scope: store.ServerScope()})
+	return may(ctx, svc, "read")
+}
+
+// may checks that the signed-in actor may use an operation of core.module,
+// before anything is read for it.
+func may(ctx context.Context, svc *modules.Services, operation string) error {
+	return api.Authorize(ctx, svc.Authorizer, auth.KindPermission(modules.Kind.Name(), operation), auth.Target{Scope: store.ServerScope()})
 }
 
 func register(a huma.API, svc *modules.Services) {
@@ -158,6 +188,9 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
+		if err := may(ctx, svc, modules.ActionTurnOn); err != nil {
+			return nil, err
+		}
 		req, skipped, err := m.ProfileRequest(ctx, in.Profile)
 		if err != nil {
 			return nil, err
@@ -167,5 +200,127 @@ func register(a huma.API, svc *modules.Services) {
 			return nil, err
 		}
 		return &applyProfileOutput{Status: res.Status, Body: ProfileChange{ChangeSet: res.Body, Skipped: skipped}}, nil
+	})
+
+	op = huma.Operation{
+		OperationID: "turnOnModule", Method: http.MethodPost, Path: api.Prefix + "/modules/{id}/actions/turn_on", Tags: tags, Security: api.Protected,
+		Summary: "Turn a module on, with the modules it needs",
+		Description: "Turns on a module and the modules it needs that are off, dependencies first, as one change set. The preview lists what the module " +
+			"does once something uses it: the software it downloads then, from where and how large, its packages, services and ports, and its memory and disk.",
+	}
+	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionTurnOn, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionTurnOn)), Risk: store.RiskLow, DryRun: true, Reversible: true})
+	huma.Register(a, op, func(ctx context.Context, in *changeModuleInput) (*api.ChangeSetOutput, error) {
+		m, err := manager(svc)
+		if err != nil {
+			return nil, err
+		}
+		if err := may(ctx, svc, modules.ActionTurnOn); err != nil {
+			return nil, err
+		}
+		req, err := m.TurnOnRequest(ctx, in.ID)
+		if err != nil {
+			return nil, err
+		}
+		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+	})
+
+	op = huma.Operation{
+		OperationID: "turnOffModule", Method: http.MethodPost, Path: api.Prefix + "/modules/{id}/actions/turn_off", Tags: tags, Security: api.Protected,
+		Summary: "Turn a module off",
+		Description: "Stops a module and hides it, keeping its software, resources, settings and data, as a change set. A module that resources use " +
+			"can only be turned off when it can keep them dormant.",
+	}
+	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionTurnOff, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionTurnOff)), Risk: store.RiskMedium, DryRun: true, Reversible: true})
+	huma.Register(a, op, func(ctx context.Context, in *changeModuleInput) (*api.ChangeSetOutput, error) {
+		m, err := manager(svc)
+		if err != nil {
+			return nil, err
+		}
+		if err := may(ctx, svc, modules.ActionTurnOff); err != nil {
+			return nil, err
+		}
+		req, err := m.TurnOffRequest(in.ID)
+		if err != nil {
+			return nil, err
+		}
+		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+	})
+
+	op = huma.Operation{
+		OperationID: "removeModule", Method: http.MethodPost, Path: api.Prefix + "/modules/{id}/actions/remove", Tags: tags, Security: api.Protected,
+		Summary: "Remove a module",
+		Description: "Turns a module off and uninstalls its software, as one change set. With keepData its resources and their data stay, and come " +
+			"back when it is turned on again; without it they are deleted in the same change set, after a snapshot. The person removing it types " +
+			"its name to confirm, and GET /api/v1/modules/{id}/export keeps a copy of its resources first.",
+	}
+	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionRemove, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionRemove)), Risk: store.RiskHigh, DryRun: true, Destructive: true})
+	huma.Register(a, op, func(ctx context.Context, in *removeModuleInput) (*api.ChangeSetOutput, error) {
+		m, err := manager(svc)
+		if err != nil {
+			return nil, err
+		}
+		if err := may(ctx, svc, modules.ActionRemove); err != nil {
+			return nil, err
+		}
+		req, err := m.RemoveRequest(ctx, in.ID, in.Body.Confirm, in.Body.KeepData)
+		if err != nil {
+			return nil, err
+		}
+		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+	})
+
+	op = huma.Operation{
+		OperationID: "listModuleSoftware", Method: http.MethodGet, Path: api.Prefix + "/modules/{id}/software", Tags: tags, Security: api.Protected,
+		Summary: "List what a module installs",
+		Description: "The software a module installs the first time something needs it: where each comes from, when it is installed, the packages " +
+			"it brings in, how much it downloads and takes on disk, and whether it is installed already. The server's package index gives the sizes " +
+			"where it can, and the module's manifest otherwise.",
+	}
+	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: "software", Permission: string(api.ReadPermission(modules.Kind.Name())), Risk: store.RiskRead})
+	huma.Register(a, op, func(ctx context.Context, in *moduleInput) (*softwareOutput, error) {
+		m, err := manager(svc)
+		if err != nil {
+			return nil, err
+		}
+		if err := mayRead(ctx, svc); err != nil {
+			return nil, err
+		}
+		list, err := m.FirstUse(ctx, in.ID)
+		if err != nil {
+			return nil, err
+		}
+		out := &softwareOutput{}
+		out.Body.Software = list
+		return out, nil
+	})
+
+	op = huma.Operation{
+		OperationID: "exportModule", Method: http.MethodGet, Path: api.Prefix + "/modules/{id}/export", Tags: tags, Security: api.Protected,
+		Summary: "Export a module's resources",
+		Description: "Every resource of the module's kinds with its settings and labels, as a JSON file to keep before removing the module with its data. " +
+			"Fields that refer to secrets are left out and named, since secret values never leave the panel this way.",
+	}
+	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: "export", Permission: string(api.ReadPermission(modules.Kind.Name())), Risk: store.RiskRead})
+	huma.Register(a, op, func(ctx context.Context, in *moduleInput) (*exportOutput, error) {
+		m, err := manager(svc)
+		if err != nil {
+			return nil, err
+		}
+		if err := mayRead(ctx, svc); err != nil {
+			return nil, err
+		}
+		// The export holds resources of every owner, so it is for those
+		// who may read them all.
+		for _, kind := range m.KindsOf(in.ID) {
+			if err := api.Authorize(ctx, svc.Authorizer, api.ReadPermission(kind), auth.Target{Scope: store.ServerScope()}); err != nil {
+				return nil, err
+			}
+		}
+		export, err := m.Export(ctx, in.ID)
+		if err != nil {
+			return nil, err
+		}
+		name := "racksail-" + export.Module + "-" + export.Exported.Format("20060102-150405") + ".json"
+		return &exportOutput{Disposition: `attachment; filename="` + name + `"`, Body: export}, nil
 	})
 }
