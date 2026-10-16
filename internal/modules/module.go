@@ -14,6 +14,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
 	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
@@ -47,6 +48,8 @@ type Services struct {
 	Modules *Manager
 	// Rules runs the panel's CEL rules and tries rules out.
 	Rules *rules.Engine
+	// Addons runs installed add-ons and keeps safe mode.
+	Addons *addons.Runtime
 	Log   *slog.Logger
 }
 

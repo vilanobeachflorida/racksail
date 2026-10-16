@@ -83,6 +83,130 @@
         ],
         "type": "object"
       },
+      "AddonSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "$ref": "#/components/schemas/Permissions",
+            "description": "The permissions the person installing the add-on approved"
+          },
+          "catalog": {
+            "description": "The catalog it was installed from",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the add-on runs",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The add-on's id, as in its manifest",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
+            "type": "string"
+          },
+          "item": {
+            "description": "Its item in that catalog",
+            "type": "string"
+          },
+          "manifest": {
+            "description": "The add-on's addon.yaml",
+            "maxLength": 262144,
+            "minLength": 1,
+            "type": "string"
+          },
+          "package": {
+            "$ref": "#/components/schemas/Package"
+          }
+        },
+        "required": [
+          "id",
+          "manifest",
+          "package",
+          "approved",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "AddonStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "checkedAt": {
+            "description": "When it was last asked",
+            "format": "date-time",
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "health": {
+            "description": "What the add-on last answered when asked how it is",
+            "enum": [
+              "ok",
+              "degraded",
+              "unreachable"
+            ],
+            "type": "string"
+          },
+          "hooks": {
+            "description": "How many hooks, providers and extensions are attached",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hosts": {
+            "description": "The hosts the add-on may reach and the addresses they resolved to",
+            "items": {
+              "$ref": "#/components/schemas/Host"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "description": "Whether the add-on runs",
+            "enum": [
+              "running",
+              "stopped",
+              "safe_mode",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "description": "The version whose program runs",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "AuditListBody": {
         "additionalProperties": false,
         "properties": {
@@ -603,6 +727,963 @@
         ],
         "type": "object"
       },
+      "CoreAccountAddon": {
+        "additionalProperties": false,
+        "description": "Account add-on: An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AddonSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AddonStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreAccountAddonCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new account add-on.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with acaddon_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "scope": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ],
+            "description": "The account it belongs to"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AddonSpec"
+          }
+        },
+        "required": [
+          "spec",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "CoreAccountAddonList": {
+        "additionalProperties": false,
+        "description": "One page of account addons.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreAccountAddon"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreAccountAddonUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a account add-on.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AddonSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreAccountPolicy": {
+        "additionalProperties": false,
+        "description": "Account rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Status"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreAccountPolicyCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new account rule.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with apol_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "scope": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ],
+            "description": "The account it belongs to"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "CoreAccountPolicyList": {
+        "additionalProperties": false,
+        "description": "One page of account policies.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreAccountPolicy"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreAccountPolicyUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a account rule.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreAddon": {
+        "additionalProperties": false,
+        "description": "Add-on: An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AddonSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AddonStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreAddonCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new add-on.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with addon_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AddonSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreAddonList": {
+        "additionalProperties": false,
+        "description": "One page of addons.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreAddon"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreAddonUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a add-on.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AddonSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreModule": {
+        "additionalProperties": false,
+        "description": "Module: A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ModuleSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ModuleStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreModuleCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new module.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with mod_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ModuleSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreModuleList": {
+        "additionalProperties": false,
+        "description": "One page of modules.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreModule"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreModuleUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a module.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ModuleSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CorePolicy": {
+        "additionalProperties": false,
+        "description": "Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Status"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CorePolicyCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new rule.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with pol_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CorePolicyList": {
+        "additionalProperties": false,
+        "description": "One page of policies.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CorePolicy"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CorePolicyUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a rule.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreResellerPolicy": {
+        "additionalProperties": false,
+        "description": "Reseller rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Status"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreResellerPolicyCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new reseller rule.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with rpol_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "scope": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ],
+            "description": "The reseller it belongs to"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "CoreResellerPolicyList": {
+        "additionalProperties": false,
+        "description": "One page of reseller policies.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreResellerPolicy"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreResellerPolicyUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a reseller rule.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
       "CoreWebhook": {
         "additionalProperties": false,
         "description": "Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log.",
@@ -755,6 +1836,27 @@
         },
         "required": [
           "spec"
+        ],
+        "type": "object"
+      },
+      "DataScope": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
         ],
         "type": "object"
       },
@@ -1120,6 +2222,25 @@
         ],
         "type": "object"
       },
+      "FieldDefault": {
+        "additionalProperties": false,
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "override": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "field",
+          "expression"
+        ],
+        "type": "object"
+      },
       "FieldDiff": {
         "additionalProperties": false,
         "properties": {
@@ -1312,6 +2433,29 @@
         },
         "required": [
           "versions"
+        ],
+        "type": "object"
+      },
+      "Host": {
+        "additionalProperties": false,
+        "properties": {
+          "addresses": {
+            "description": "The addresses or networks the add-on may reach for it",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The host's name, as the add-on's manifest declares it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "addresses"
         ],
         "type": "object"
       },
@@ -1639,6 +2783,128 @@
         ],
         "type": "object"
       },
+      "ModuleSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Whether the module is on",
+            "type": "boolean"
+          },
+          "module": {
+            "description": "The module's id, such as web",
+            "examples": [
+              "web"
+            ],
+            "pattern": "^[a-z][a-z0-9]*$",
+            "type": "string"
+          },
+          "optIn": {
+            "description": "Optional software the module may install, by its id in the manifest",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "settings": {
+            "additionalProperties": {},
+            "description": "The module's settings, as its manifest's settings schema describes them",
+            "type": "object"
+          }
+        },
+        "required": [
+          "module",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ModuleStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hardwareProblems": {
+            "description": "Why the module can't run on this server",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "installed": {
+            "description": "The module's software found installed on the server, by its id in the manifest",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "since": {
+            "description": "When the module last changed state",
+            "format": "date-time",
+            "type": "string"
+          },
+          "started": {
+            "description": "Whether the module's work in the panel is running",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "off, on, active (something uses it), stopping or removing",
+            "enum": [
+              "off",
+              "on",
+              "active",
+              "stopping",
+              "removing"
+            ],
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage",
+            "description": "What uses the module"
+          }
+        },
+        "required": [
+          "usage"
+        ],
+        "type": "object"
+      },
       "Notice": {
         "additionalProperties": false,
         "properties": {
@@ -1796,6 +3062,167 @@
         ],
         "type": "object"
       },
+      "Package": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "description": "The archive's format",
+            "enum": [
+              "tar.gz",
+              "tar.xz",
+              "tar.zst",
+              "zip"
+            ],
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The archive's SHA-256, which the download must match",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "size": {
+            "description": "The archive's size in bytes",
+            "format": "int64",
+            "maximum": 536870912,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "stripComponents": {
+            "description": "Leading directories to drop from the archive's paths",
+            "format": "int64",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "url": {
+            "description": "Where the archive is downloaded from",
+            "format": "uri",
+            "pattern": "^https://",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "sha256",
+          "size",
+          "format"
+        ],
+        "type": "object"
+      },
+      "Permissions": {
+        "additionalProperties": false,
+        "properties": {
+          "hooks": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "network": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "override": {
+            "type": "boolean"
+          },
+          "read": {
+            "items": {
+              "$ref": "#/components/schemas/DataScope"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "resources": {
+            "$ref": "#/components/schemas/Resources"
+          },
+          "secrets": {
+            "type": "boolean"
+          },
+          "write": {
+            "items": {
+              "$ref": "#/components/schemas/DataScope"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PolicySpec": {
+        "additionalProperties": false,
+        "properties": {
+          "defaults": {
+            "items": {
+              "$ref": "#/components/schemas/FieldDefault"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "validate",
+              "default"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "properties": {
@@ -1894,6 +3321,24 @@
         },
         "required": [
           "delivery"
+        ],
+        "type": "object"
+      },
+      "RemoveInput": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "description": "The module's id or name, typed to confirm removing it",
+            "minLength": 1,
+            "type": "string"
+          },
+          "keepData": {
+            "description": "Uninstall the software but keep the module's resources and their data",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
         ],
         "type": "object"
       },
@@ -2057,6 +3502,19 @@
         ],
         "type": "object"
       },
+      "Resources": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "type": "string"
+          },
+          "memoryMB": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "ResyncNotice": {
         "additionalProperties": false,
         "properties": {
@@ -2136,6 +3594,64 @@
         "required": [
           "type"
         ],
+        "type": "object"
+      },
+      "Status": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "points": {
+            "description": "The hook points the rule is attached to while it is enabled",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "problems": {
+            "description": "Why the rule couldn't be attached everywhere it names",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "Step": {
@@ -2225,6 +3741,28 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "Usage": {
+        "additionalProperties": false,
+        "properties": {
+          "kinds": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "How many resources of each kind exist",
+            "type": "object"
+          },
+          "resources": {
+            "description": "How many resources of the module's kinds exist",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resources"
+        ],
         "type": "object"
       },
       "Version": {
@@ -3180,6 +4718,3412 @@
         "x-racksail-operation": "undo",
         "x-racksail-reversible": true,
         "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/account-addons": {
+      "get": {
+        "description": "An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. Lists the account addons you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreAccountAddons",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, addon, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose id is this value",
+            "in": "query",
+            "name": "addon",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreAccountAddonList"
+                }
+              }
+            },
+            "description": "A page of account addons"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List account addons",
+        "tags": [
+          "AccountAddons"
+        ],
+        "x-racksail-kind": "core.account_addon",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.account_addon.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreAccountAddon",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreAccountAddonCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a account add-on",
+        "tags": [
+          "AccountAddons"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.account_addon",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.account_addon.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/account-addons/{id}": {
+      "delete": {
+        "description": "Deletes the account add-on and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreAccountAddon",
+        "parameters": [
+          {
+            "description": "The account add-on's ID, which starts with acaddon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the account add-on since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the account add-on from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a account add-on",
+        "tags": [
+          "AccountAddons"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.account_addon",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.account_addon.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one account add-on: its settings (spec), and what Racksail last saw of it (status). An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override.",
+        "operationId": "getCoreAccountAddon",
+        "parameters": [
+          {
+            "description": "The account add-on's ID, which starts with acaddon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreAccountAddon"
+                }
+              }
+            },
+            "description": "The account add-on"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a account add-on",
+        "tags": [
+          "AccountAddons"
+        ],
+        "x-racksail-kind": "core.account_addon",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.account_addon.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the account add-on's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreAccountAddon",
+        "parameters": [
+          {
+            "description": "The account add-on's ID, which starts with acaddon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreAccountAddonUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a account add-on",
+        "tags": [
+          "AccountAddons"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.account_addon",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.account_addon.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/account-addons/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the account add-on's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreAccountAddonHistory",
+        "parameters": [
+          {
+            "description": "The account add-on's ID, which starts with acaddon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a account add-on's history",
+        "tags": [
+          "AccountAddons"
+        ],
+        "x-racksail-kind": "core.account_addon",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.account_addon.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/account-policies": {
+      "get": {
+        "description": "A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. Lists the account policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreAccountPolicies",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreAccountPolicyList"
+                }
+              }
+            },
+            "description": "A page of account policies"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List account policies",
+        "tags": [
+          "AccountPolicies"
+        ],
+        "x-racksail-kind": "core.account_policy",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.account_policy.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreAccountPolicy",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreAccountPolicyCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a account rule",
+        "tags": [
+          "AccountPolicies"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.account_policy",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.account_policy.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/account-policies/{id}": {
+      "delete": {
+        "description": "Deletes the account rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreAccountPolicy",
+        "parameters": [
+          {
+            "description": "The account rule's ID, which starts with apol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the account rule since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the account rule from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a account rule",
+        "tags": [
+          "AccountPolicies"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.account_policy",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.account_policy.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one account rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account.",
+        "operationId": "getCoreAccountPolicy",
+        "parameters": [
+          {
+            "description": "The account rule's ID, which starts with apol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreAccountPolicy"
+                }
+              }
+            },
+            "description": "The account rule"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a account rule",
+        "tags": [
+          "AccountPolicies"
+        ],
+        "x-racksail-kind": "core.account_policy",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.account_policy.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the account rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreAccountPolicy",
+        "parameters": [
+          {
+            "description": "The account rule's ID, which starts with apol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreAccountPolicyUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a account rule",
+        "tags": [
+          "AccountPolicies"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.account_policy",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.account_policy.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/account-policies/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the account rule's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreAccountPolicyHistory",
+        "parameters": [
+          {
+            "description": "The account rule's ID, which starts with apol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a account rule's history",
+        "tags": [
+          "AccountPolicies"
+        ],
+        "x-racksail-kind": "core.account_policy",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.account_policy.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/addons": {
+      "get": {
+        "description": "An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. Lists the addons you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreAddons",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, addon, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose id is this value",
+            "in": "query",
+            "name": "addon",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreAddonList"
+                }
+              }
+            },
+            "description": "A page of addons"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List addons",
+        "tags": [
+          "Addons"
+        ],
+        "x-racksail-kind": "core.addon",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.addon.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreAddon",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreAddonCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a add-on",
+        "tags": [
+          "Addons"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.addon",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.addon.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/addons/{id}": {
+      "delete": {
+        "description": "Deletes the add-on and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreAddon",
+        "parameters": [
+          {
+            "description": "The add-on's ID, which starts with addon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the add-on since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the add-on from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a add-on",
+        "tags": [
+          "Addons"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.addon",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.addon.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one add-on: its settings (spec), and what Racksail last saw of it (status). An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it.",
+        "operationId": "getCoreAddon",
+        "parameters": [
+          {
+            "description": "The add-on's ID, which starts with addon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreAddon"
+                }
+              }
+            },
+            "description": "The add-on"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a add-on",
+        "tags": [
+          "Addons"
+        ],
+        "x-racksail-kind": "core.addon",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.addon.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the add-on's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreAddon",
+        "parameters": [
+          {
+            "description": "The add-on's ID, which starts with addon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreAddonUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a add-on",
+        "tags": [
+          "Addons"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.addon",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.addon.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/addons/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the add-on's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreAddonHistory",
+        "parameters": [
+          {
+            "description": "The add-on's ID, which starts with addon_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a add-on's history",
+        "tags": [
+          "Addons"
+        ],
+        "x-racksail-kind": "core.addon",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.addon.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/modules": {
+      "get": {
+        "description": "A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. Lists the modules you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreModules",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, module, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose module is this value",
+            "in": "query",
+            "name": "module",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreModuleList"
+                }
+              }
+            },
+            "description": "A page of modules"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List modules",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreModule",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreModuleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a module",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.module.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/modules/{id}": {
+      "delete": {
+        "description": "Deletes the module and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreModule",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the module since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the module from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a module",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.module.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high"
+      },
+      "get": {
+        "description": "Returns one module: its settings (spec), and what Racksail last saw of it (status). A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview.",
+        "operationId": "getCoreModule",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreModule"
+                }
+              }
+            },
+            "description": "The module"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a module",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the module's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreModule",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreModuleUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a module",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.module.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/modules/{id}/actions/remove": {
+      "post": {
+        "description": "Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, which POST /api/v1/modules/{module}/remove does. Removing needs the module's name typed as confirmation. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "removeCoreModule",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Uninstall the module's software, and delete its data unless it is kept",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "remove",
+        "x-racksail-permission": "core.module.remove",
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/core/modules/{id}/actions/turn_off": {
+      "post": {
+        "description": "Stops the module and hides it. Its software, data and settings are kept, so turning it on again brings everything back. Modules that need it must be turned off first. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "turnOffCoreModule",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn the module off, keeping its data and settings",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "turn_off",
+        "x-racksail-permission": "core.module.turn_off",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/modules/{id}/actions/turn_on": {
+      "post": {
+        "description": "Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. The modules it needs must be on. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "turnOnCoreModule",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn the module on",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "turn_on",
+        "x-racksail-permission": "core.module.turn_on",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/modules/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the module's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreModuleHistory",
+        "parameters": [
+          {
+            "description": "The module's ID, which starts with mod_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a module's history",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/policies": {
+      "get": {
+        "description": "A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. Lists the policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCorePolicies",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorePolicyList"
+                }
+              }
+            },
+            "description": "A page of policies"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List policies",
+        "tags": [
+          "Policies"
+        ],
+        "x-racksail-kind": "core.policy",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.policy.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCorePolicy",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorePolicyCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a rule",
+        "tags": [
+          "Policies"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.policy",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.policy.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/policies/{id}": {
+      "delete": {
+        "description": "Deletes the rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCorePolicy",
+        "parameters": [
+          {
+            "description": "The rule's ID, which starts with pol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the rule since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the rule from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a rule",
+        "tags": [
+          "Policies"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.policy",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.policy.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server.",
+        "operationId": "getCorePolicy",
+        "parameters": [
+          {
+            "description": "The rule's ID, which starts with pol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorePolicy"
+                }
+              }
+            },
+            "description": "The rule"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a rule",
+        "tags": [
+          "Policies"
+        ],
+        "x-racksail-kind": "core.policy",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.policy.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCorePolicy",
+        "parameters": [
+          {
+            "description": "The rule's ID, which starts with pol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorePolicyUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a rule",
+        "tags": [
+          "Policies"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.policy",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.policy.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/policies/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the rule's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCorePolicyHistory",
+        "parameters": [
+          {
+            "description": "The rule's ID, which starts with pol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a rule's history",
+        "tags": [
+          "Policies"
+        ],
+        "x-racksail-kind": "core.policy",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.policy.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/reseller-policies": {
+      "get": {
+        "description": "A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts. Lists the reseller policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreResellerPolicies",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreResellerPolicyList"
+                }
+              }
+            },
+            "description": "A page of reseller policies"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List reseller policies",
+        "tags": [
+          "ResellerPolicies"
+        ],
+        "x-racksail-kind": "core.reseller_policy",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.reseller_policy.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreResellerPolicy",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreResellerPolicyCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a reseller rule",
+        "tags": [
+          "ResellerPolicies"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.reseller_policy",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.reseller_policy.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/reseller-policies/{id}": {
+      "delete": {
+        "description": "Deletes the reseller rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreResellerPolicy",
+        "parameters": [
+          {
+            "description": "The reseller rule's ID, which starts with rpol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the reseller rule since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the reseller rule from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a reseller rule",
+        "tags": [
+          "ResellerPolicies"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.reseller_policy",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.reseller_policy.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one reseller rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts.",
+        "operationId": "getCoreResellerPolicy",
+        "parameters": [
+          {
+            "description": "The reseller rule's ID, which starts with rpol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreResellerPolicy"
+                }
+              }
+            },
+            "description": "The reseller rule"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a reseller rule",
+        "tags": [
+          "ResellerPolicies"
+        ],
+        "x-racksail-kind": "core.reseller_policy",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.reseller_policy.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the reseller rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreResellerPolicy",
+        "parameters": [
+          {
+            "description": "The reseller rule's ID, which starts with rpol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreResellerPolicyUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a reseller rule",
+        "tags": [
+          "ResellerPolicies"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.reseller_policy",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.reseller_policy.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/reseller-policies/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the reseller rule's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreResellerPolicyHistory",
+        "parameters": [
+          {
+            "description": "The reseller rule's ID, which starts with rpol_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a reseller rule's history",
+        "tags": [
+          "ResellerPolicies"
+        ],
+        "x-racksail-kind": "core.reseller_policy",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.reseller_policy.read",
+        "x-racksail-risk": "read"
       }
     },
     "/api/v1/core/webhooks": {

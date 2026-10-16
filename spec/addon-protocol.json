@@ -574,6 +574,15 @@
         ],
         "type": "object"
       },
+      "ProvideCall": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "What the method takes, as the capability's interface describes it"
+          }
+        },
+        "type": "object"
+      },
       "ResourceChange": {
         "additionalProperties": false,
         "properties": {
@@ -837,6 +846,319 @@
           }
         },
         "summary": "Run one of the add-on's hooks",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    },
+    "/provide/{capability}/{method}": {
+      "post": {
+        "description": "The panel calls it when it uses a capability the add-on declares under provides, such as sending a notification for notifier or creating a record for dns. The capability's interface says what each method takes and returns.",
+        "operationId": "provide",
+        "parameters": [
+          {
+            "description": "The capability, as under provides",
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The method, such as send",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvideCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "What the method returns"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The hook failed"
+          }
+        },
+        "summary": "Call a method of a capability the add-on provides",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    },
+    "/routes/{path}": {
+      "delete": {
+        "description": "The panel passes requests for /api/v1/addons/\u003cid\u003e/\u003cpath\u003e on to the add-on, for the routes its manifest declares. Cookies and credentials stay with the panel; the add-on learns who asks from Racksail-Actor.",
+        "operationId": "routeDelete",
+        "parameters": [
+          {
+            "description": "The rest of the path",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on",
+            "in": "header",
+            "name": "Racksail-Actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ID of the panel request this one comes from, for the add-on's logs",
+            "in": "header",
+            "name": "Racksail-Request-Id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Whatever the route answers"
+          }
+        },
+        "summary": "Serve one of the add-on's API routes",
+        "tags": [
+          "Add-on"
+        ]
+      },
+      "get": {
+        "description": "The panel passes requests for /api/v1/addons/\u003cid\u003e/\u003cpath\u003e on to the add-on, for the routes its manifest declares. Cookies and credentials stay with the panel; the add-on learns who asks from Racksail-Actor.",
+        "operationId": "routeGet",
+        "parameters": [
+          {
+            "description": "The rest of the path",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on",
+            "in": "header",
+            "name": "Racksail-Actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ID of the panel request this one comes from, for the add-on's logs",
+            "in": "header",
+            "name": "Racksail-Request-Id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Whatever the route answers"
+          }
+        },
+        "summary": "Serve one of the add-on's API routes",
+        "tags": [
+          "Add-on"
+        ]
+      },
+      "patch": {
+        "description": "The panel passes requests for /api/v1/addons/\u003cid\u003e/\u003cpath\u003e on to the add-on, for the routes its manifest declares. Cookies and credentials stay with the panel; the add-on learns who asks from Racksail-Actor.",
+        "operationId": "routePatch",
+        "parameters": [
+          {
+            "description": "The rest of the path",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on",
+            "in": "header",
+            "name": "Racksail-Actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ID of the panel request this one comes from, for the add-on's logs",
+            "in": "header",
+            "name": "Racksail-Request-Id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Whatever the route answers"
+          }
+        },
+        "summary": "Serve one of the add-on's API routes",
+        "tags": [
+          "Add-on"
+        ]
+      },
+      "post": {
+        "description": "The panel passes requests for /api/v1/addons/\u003cid\u003e/\u003cpath\u003e on to the add-on, for the routes its manifest declares. Cookies and credentials stay with the panel; the add-on learns who asks from Racksail-Actor.",
+        "operationId": "routePost",
+        "parameters": [
+          {
+            "description": "The rest of the path",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on",
+            "in": "header",
+            "name": "Racksail-Actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ID of the panel request this one comes from, for the add-on's logs",
+            "in": "header",
+            "name": "Racksail-Request-Id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Whatever the route answers"
+          }
+        },
+        "summary": "Serve one of the add-on's API routes",
+        "tags": [
+          "Add-on"
+        ]
+      },
+      "put": {
+        "description": "The panel passes requests for /api/v1/addons/\u003cid\u003e/\u003cpath\u003e on to the add-on, for the routes its manifest declares. Cookies and credentials stay with the panel; the add-on learns who asks from Racksail-Actor.",
+        "operationId": "routePut",
+        "parameters": [
+          {
+            "description": "The rest of the path",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on",
+            "in": "header",
+            "name": "Racksail-Actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ID of the panel request this one comes from, for the add-on's logs",
+            "in": "header",
+            "name": "Racksail-Request-Id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "Whatever the route answers"
+          }
+        },
+        "summary": "Serve one of the add-on's API routes",
+        "tags": [
+          "Add-on"
+        ]
+      }
+    },
+    "/ui/{path}": {
+      "get": {
+        "description": "Pages of the add-on's UI extensions that need more than the panel's declarative entries. The panel shows them in a sandboxed frame of an origin of their own, so they can never read the panel's session.",
+        "operationId": "screen",
+        "parameters": [
+          {
+            "description": "The rest of the path",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on",
+            "in": "header",
+            "name": "Racksail-Actor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ID of the panel request this one comes from, for the add-on's logs",
+            "in": "header",
+            "name": "Racksail-Request-Id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The page"
+          }
+        },
+        "summary": "Serve one of the add-on's screens",
         "tags": [
           "Add-on"
         ]

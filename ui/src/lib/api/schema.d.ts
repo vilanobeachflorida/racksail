@@ -128,6 +128,498 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/core/account-addons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List account addons
+         * @description An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. Lists the account addons you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreAccountAddons"];
+        put?: never;
+        /**
+         * Create a account add-on
+         * @description An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreAccountAddon"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/account-addons/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a account add-on
+         * @description Returns one account add-on: its settings (spec), and what Racksail last saw of it (status). An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override.
+         */
+        get: operations["getCoreAccountAddon"];
+        /**
+         * Change a account add-on
+         * @description Replaces the account add-on's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreAccountAddon"];
+        post?: never;
+        /**
+         * Delete a account add-on
+         * @description Deletes the account add-on and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreAccountAddon"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/account-addons/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a account add-on's history
+         * @description Returns every recorded version of the account add-on's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreAccountAddonHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/account-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List account policies
+         * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. Lists the account policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreAccountPolicies"];
+        put?: never;
+        /**
+         * Create a account rule
+         * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreAccountPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/account-policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a account rule
+         * @description Returns one account rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account.
+         */
+        get: operations["getCoreAccountPolicy"];
+        /**
+         * Change a account rule
+         * @description Replaces the account rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreAccountPolicy"];
+        post?: never;
+        /**
+         * Delete a account rule
+         * @description Deletes the account rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreAccountPolicy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/account-policies/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a account rule's history
+         * @description Returns every recorded version of the account rule's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreAccountPolicyHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/addons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List addons
+         * @description An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. Lists the addons you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreAddons"];
+        put?: never;
+        /**
+         * Create a add-on
+         * @description An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreAddon"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/addons/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a add-on
+         * @description Returns one add-on: its settings (spec), and what Racksail last saw of it (status). An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it.
+         */
+        get: operations["getCoreAddon"];
+        /**
+         * Change a add-on
+         * @description Replaces the add-on's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreAddon"];
+        post?: never;
+        /**
+         * Delete a add-on
+         * @description Deletes the add-on and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreAddon"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/addons/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a add-on's history
+         * @description Returns every recorded version of the add-on's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreAddonHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/modules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List modules
+         * @description A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. Lists the modules you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreModules"];
+        put?: never;
+        /**
+         * Create a module
+         * @description A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/modules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a module
+         * @description Returns one module: its settings (spec), and what Racksail last saw of it (status). A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview.
+         */
+        get: operations["getCoreModule"];
+        /**
+         * Change a module
+         * @description Replaces the module's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreModule"];
+        post?: never;
+        /**
+         * Delete a module
+         * @description Deletes the module and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreModule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/modules/{id}/actions/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Uninstall the module's software, and delete its data unless it is kept
+         * @description Turns the module off and uninstalls the software it installed. Unless keepData is set, its resources must be deleted in the same change, which POST /api/v1/modules/{module}/remove does. Removing needs the module's name typed as confirmation. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["removeCoreModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/modules/{id}/actions/turn_off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the module off, keeping its data and settings
+         * @description Stops the module and hides it. Its software, data and settings are kept, so turning it on again brings everything back. Modules that need it must be turned off first. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["turnOffCoreModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/modules/{id}/actions/turn_on": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the module on
+         * @description Makes the module visible and ready. Nothing heavy is installed yet: its software is installed the first time something needs it. The modules it needs must be on. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["turnOnCoreModule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/modules/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a module's history
+         * @description Returns every recorded version of the module's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreModuleHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List policies
+         * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. Lists the policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCorePolicies"];
+        put?: never;
+        /**
+         * Create a rule
+         * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCorePolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a rule
+         * @description Returns one rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server.
+         */
+        get: operations["getCorePolicy"];
+        /**
+         * Change a rule
+         * @description Replaces the rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCorePolicy"];
+        post?: never;
+        /**
+         * Delete a rule
+         * @description Deletes the rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCorePolicy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/policies/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a rule's history
+         * @description Returns every recorded version of the rule's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCorePolicyHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/reseller-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List reseller policies
+         * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts. Lists the reseller policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreResellerPolicies"];
+        put?: never;
+        /**
+         * Create a reseller rule
+         * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreResellerPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/reseller-policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a reseller rule
+         * @description Returns one reseller rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts.
+         */
+        get: operations["getCoreResellerPolicy"];
+        /**
+         * Change a reseller rule
+         * @description Replaces the reseller rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreResellerPolicy"];
+        post?: never;
+        /**
+         * Delete a reseller rule
+         * @description Deletes the reseller rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreResellerPolicy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/reseller-policies/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a reseller rule's history
+         * @description Returns every recorded version of the reseller rule's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreResellerPolicyHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/core/webhooks": {
         parameters: {
             query?: never;
@@ -647,6 +1139,58 @@ export interface components {
             type: string;
             user?: string;
         };
+        AddonSpec: {
+            /** @description The permissions the person installing the add-on approved */
+            approved: components["schemas"]["Permissions"];
+            /** @description The catalog it was installed from */
+            catalog?: string;
+            /** @description Whether the add-on runs */
+            enabled: boolean;
+            /** @description The add-on's id, as in its manifest */
+            id: string;
+            /** @description Its item in that catalog */
+            item?: string;
+            /** @description The add-on's addon.yaml */
+            manifest: string;
+            package: components["schemas"]["Package"];
+        };
+        AddonStatus: {
+            /**
+             * Format: date-time
+             * @description When it was last asked
+             */
+            checkedAt?: string;
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /**
+             * @description What the add-on last answered when asked how it is
+             * @enum {string}
+             */
+            health?: "ok" | "degraded" | "unreachable";
+            /**
+             * Format: int64
+             * @description How many hooks, providers and extensions are attached
+             */
+            hooks?: number;
+            /** @description The hosts the add-on may reach and the addresses they resolved to */
+            hosts?: components["schemas"]["Host"][] | null;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /**
+             * @description Whether the add-on runs
+             * @enum {string}
+             */
+            state?: "running" | "stopped" | "safe_mode" | "failed";
+            /** @description The version whose program runs */
+            version?: string;
+        };
         AuditListBody: {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -806,6 +1350,456 @@ export interface components {
             source: components["schemas"]["Source"];
             summary: string;
         };
+        /** @description Account add-on: An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. */
+        CoreAccountAddon: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["AddonSpec"];
+            status?: components["schemas"]["AddonStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new account add-on. */
+        CoreAccountAddonCreateRequest: {
+            /** @description An ID chosen up front, starting with acaddon_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description The account it belongs to */
+            scope: components["schemas"]["Scope"];
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["AddonSpec"];
+        };
+        /** @description One page of account addons. */
+        CoreAccountAddonList: {
+            items: components["schemas"]["CoreAccountAddon"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a account add-on. */
+        CoreAccountAddonUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["AddonSpec"];
+        };
+        /** @description Account rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. */
+        CoreAccountPolicy: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["PolicySpec"];
+            status?: components["schemas"]["Status"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new account rule. */
+        CoreAccountPolicyCreateRequest: {
+            /** @description An ID chosen up front, starting with apol_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description The account it belongs to */
+            scope: components["schemas"]["Scope"];
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description One page of account policies. */
+        CoreAccountPolicyList: {
+            items: components["schemas"]["CoreAccountPolicy"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a account rule. */
+        CoreAccountPolicyUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description Add-on: An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. */
+        CoreAddon: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["AddonSpec"];
+            status?: components["schemas"]["AddonStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new add-on. */
+        CoreAddonCreateRequest: {
+            /** @description An ID chosen up front, starting with addon_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["AddonSpec"];
+        };
+        /** @description One page of addons. */
+        CoreAddonList: {
+            items: components["schemas"]["CoreAddon"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a add-on. */
+        CoreAddonUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["AddonSpec"];
+        };
+        /** @description Module: A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. */
+        CoreModule: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["ModuleSpec"];
+            status?: components["schemas"]["ModuleStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new module. */
+        CoreModuleCreateRequest: {
+            /** @description An ID chosen up front, starting with mod_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["ModuleSpec"];
+        };
+        /** @description One page of modules. */
+        CoreModuleList: {
+            items: components["schemas"]["CoreModule"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a module. */
+        CoreModuleUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["ModuleSpec"];
+        };
+        /** @description Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. */
+        CorePolicy: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["PolicySpec"];
+            status?: components["schemas"]["Status"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new rule. */
+        CorePolicyCreateRequest: {
+            /** @description An ID chosen up front, starting with pol_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description One page of policies. */
+        CorePolicyList: {
+            items: components["schemas"]["CorePolicy"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a rule. */
+        CorePolicyUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description Reseller rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts. */
+        CoreResellerPolicy: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["PolicySpec"];
+            status?: components["schemas"]["Status"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new reseller rule. */
+        CoreResellerPolicyCreateRequest: {
+            /** @description An ID chosen up front, starting with rpol_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description The reseller it belongs to */
+            scope: components["schemas"]["Scope"];
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description One page of reseller policies. */
+        CoreResellerPolicyList: {
+            items: components["schemas"]["CoreResellerPolicy"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a reseller rule. */
+        CoreResellerPolicyUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["PolicySpec"];
+        };
         /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
         CoreWebhook: {
             /** Format: date-time */
@@ -879,6 +1873,10 @@ export interface components {
                 [key: string]: string;
             };
             spec: components["schemas"]["WebhookSpec"];
+        };
+        DataScope: {
+            fields?: string[] | null;
+            kind: string;
         };
         DeliveriesOutputBody: {
             deliveries: components["schemas"]["Delivery"][] | null;
@@ -1019,6 +2017,11 @@ export interface components {
             code: string;
             message: string;
         };
+        FieldDefault: {
+            expression: string;
+            field: string;
+            override?: boolean;
+        };
         FieldDiff: {
             after?: unknown;
             before?: unknown;
@@ -1086,6 +2089,12 @@ export interface components {
         };
         HistoryBody: {
             versions: components["schemas"]["Version"][] | null;
+        };
+        Host: {
+            /** @description The addresses or networks the add-on may reach for it */
+            addresses: string[] | null;
+            /** @description The host's name, as the add-on's manifest declares it */
+            name?: string;
         };
         IndexInfo: {
             name: string;
@@ -1185,6 +2194,52 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        ModuleSpec: {
+            /** @description Whether the module is on */
+            enabled: boolean;
+            /**
+             * @description The module's id, such as web
+             * @example web
+             */
+            module: string;
+            /** @description Optional software the module may install, by its id in the manifest */
+            optIn?: string[] | null;
+            /** @description The module's settings, as its manifest's settings schema describes them */
+            settings?: {
+                [key: string]: unknown;
+            };
+        };
+        ModuleStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description Why the module can't run on this server */
+            hardwareProblems?: string[] | null;
+            /** @description The module's software found installed on the server, by its id in the manifest */
+            installed?: string[] | null;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /**
+             * Format: date-time
+             * @description When the module last changed state
+             */
+            since?: string;
+            /** @description Whether the module's work in the panel is running */
+            started?: boolean;
+            /**
+             * @description off, on, active (something uses it), stopping or removing
+             * @enum {string}
+             */
+            state?: "off" | "on" | "active" | "stopping" | "removing";
+            /** @description What uses the module */
+            usage: components["schemas"]["Usage"];
+        };
         Notice: {
             /** @description The change set that made the write, if one did */
             changeSet?: string;
@@ -1239,6 +2294,53 @@ export interface components {
             stream?: boolean;
             summary: string;
             tags?: string[] | null;
+        };
+        Package: {
+            /**
+             * @description The archive's format
+             * @enum {string}
+             */
+            format: "tar.gz" | "tar.xz" | "tar.zst" | "zip";
+            /** @description The archive's SHA-256, which the download must match */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description The archive's size in bytes
+             */
+            size: number;
+            /**
+             * Format: int64
+             * @description Leading directories to drop from the archive's paths
+             */
+            stripComponents?: number;
+            /**
+             * Format: uri
+             * @description Where the archive is downloaded from
+             */
+            url: string;
+        };
+        Permissions: {
+            hooks?: string[] | null;
+            network?: string[] | null;
+            override?: boolean;
+            read?: components["schemas"]["DataScope"][] | null;
+            resources?: components["schemas"]["Resources"];
+            secrets?: boolean;
+            write?: components["schemas"]["DataScope"][] | null;
+        };
+        PolicySpec: {
+            defaults?: components["schemas"]["FieldDefault"][] | null;
+            description?: string;
+            enabled?: boolean;
+            expression?: string;
+            kinds?: string[] | null;
+            message?: string;
+            name: string;
+            operations?: string[] | null;
+            /** Format: int64 */
+            priority?: number;
+            /** @enum {string} */
+            type: "validate" | "default";
         };
         Problem: {
             /**
@@ -1297,6 +2399,12 @@ export interface components {
         RedeliverInput: {
             /** @description The delivery to send again */
             delivery: string;
+        };
+        RemoveInput: {
+            /** @description The module's id or name, typed to confirm removing it */
+            confirm: string;
+            /** @description Uninstall the software but keep the module's resources and their data */
+            keepData?: boolean;
         };
         Resource: {
             /** Format: date-time */
@@ -1363,6 +2471,11 @@ export interface components {
             state?: "started" | "done";
             steps?: components["schemas"]["Step"][] | null;
         };
+        Resources: {
+            cpu?: string;
+            /** Format: int64 */
+            memoryMB?: number;
+        };
         ResyncNotice: {
             /**
              * @description Why to read the lists again: lagging, the client didn't keep up
@@ -1391,6 +2504,23 @@ export interface components {
             /** @enum {string} */
             type: "request" | "hook" | "rule" | "addon" | "module";
         };
+        Status: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The hook points the rule is attached to while it is enabled */
+            points?: string[] | null;
+            /** @description Why the rule couldn't be attached everywhere it names */
+            problems?: string[] | null;
+        };
         Step: {
             /** @description The operation's input */
             input: unknown;
@@ -1415,6 +2545,17 @@ export interface components {
             icon?: string;
             subtitleField?: string;
             titleField?: string;
+        };
+        Usage: {
+            /** @description How many resources of each kind exist */
+            kinds?: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @description How many resources of the module's kinds exist
+             */
+            resources: number;
         };
         Version: {
             /** @description Who made the change, and what acted for them */
@@ -1804,6 +2945,1747 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreAccountAddons: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, addon, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose id is this value */
+                addon?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of account addons */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAccountAddonList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreAccountAddon: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAccountAddonCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAccountAddon: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The account add-on's ID, which starts with acaddon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account add-on */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAccountAddon"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreAccountAddon: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The account add-on's ID, which starts with acaddon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAccountAddonUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreAccountAddon: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the account add-on since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The account add-on's ID, which starts with acaddon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the account add-on from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAccountAddonHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The account add-on's ID, which starts with acaddon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreAccountPolicies: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of account policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAccountPolicyList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreAccountPolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAccountPolicyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAccountPolicy: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The account rule's ID, which starts with apol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAccountPolicy"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreAccountPolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The account rule's ID, which starts with apol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAccountPolicyUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreAccountPolicy: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the account rule since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The account rule's ID, which starts with apol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the account rule from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAccountPolicyHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The account rule's ID, which starts with apol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreAddons: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, addon, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose id is this value */
+                addon?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of addons */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAddonList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreAddon: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAddonCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAddon: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The add-on's ID, which starts with addon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The add-on */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAddon"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreAddon: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The add-on's ID, which starts with addon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAddonUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreAddon: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the add-on since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The add-on's ID, which starts with addon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the add-on from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAddonHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The add-on's ID, which starts with addon_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreModules: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, module, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose module is this value */
+                module?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of modules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreModuleList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreModuleCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreModule: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The module */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreModule"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreModuleUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreModule: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the module since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the module from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeCoreModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    turnOffCoreModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    turnOnCoreModule: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreModuleHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCorePolicies: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorePolicyList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCorePolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorePolicyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCorePolicy: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The rule's ID, which starts with pol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorePolicy"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCorePolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The rule's ID, which starts with pol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorePolicyUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCorePolicy: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the rule since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The rule's ID, which starts with pol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the rule from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCorePolicyHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule's ID, which starts with pol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreResellerPolicies: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of reseller policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreResellerPolicyList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreResellerPolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreResellerPolicyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreResellerPolicy: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The reseller rule's ID, which starts with rpol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reseller rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreResellerPolicy"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreResellerPolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The reseller rule's ID, which starts with rpol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreResellerPolicyUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreResellerPolicy: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the reseller rule since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The reseller rule's ID, which starts with rpol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the reseller rule from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreResellerPolicyHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The reseller rule's ID, which starts with rpol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
                 };
             };
             /** @description A problem; its code says what went wrong */

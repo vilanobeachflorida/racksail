@@ -175,6 +175,16 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			return nil, err
 		}
 	}
+	addonRuntime, err := newAddonRuntime(ctx, cfg, db, st, hookReg, agentClient, timeline, runner, log)
+	if err != nil {
+		return nil, err
+	}
+	svc.Addons = addonRuntime
+	for _, r := range addonRuntime.Reconcilers() {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
 	pipeline, err := changeset.NewEngine(changeset.Options{
 		Store: st, Kinds: kinds, Runner: runner, Jobs: queue, Events: timeline, Audit: timeline,
 		Hooks: hookRunner, Authorizer: authorizer, Secrets: vault, Storage: changeSets,
@@ -184,7 +194,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		return nil, err
 	}
 	svc.Pipeline, svc.Hooks, svc.Authorizer, svc.Rules = pipeline, hookRunner, authorizer, ruleEngine
-	for _, h := range manager.Hooks() {
+	for _, h := range append(manager.Hooks(), addonRuntime.Hooks()...) {
 		if err := hookReg.Register(h); err != nil {
 			return nil, err
 		}
@@ -251,6 +261,11 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	c.work.Go(func() { timeline.Run(ctx, time.Hour) })
 	// Modules become active as resources start to use them.
 	c.work.Go(func() { manager.Run(ctx) })
+	// Add-ons are watched for safe mode and crash loops, and reach the
+	// panel through their gateway.
+	addonRuntime.Load(ctx)
+	c.work.Go(func() { addonRuntime.Run(ctx) })
+	c.work.Go(func() { c.serveAddonGateway(ctx) })
 	if err := timeline.Publish(ctx, events.Event{
 		Type: events.PanelStarted.Name, Severity: events.PanelStarted.Severity, Scope: store.ServerScope(),
 		Actor: auth.System("core"), Message: "Racksail " + updates.Build().Version + " started.",

@@ -20,6 +20,19 @@
         ],
         "type": "object"
       },
+      "AddonInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The add-on's instance",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
       "Address": {
         "additionalProperties": false,
         "properties": {
@@ -1558,6 +1571,29 @@
         "required": [
           "names",
           "hold"
+        ],
+        "type": "object"
+      },
+      "Host": {
+        "additionalProperties": false,
+        "properties": {
+          "addresses": {
+            "description": "The addresses or networks the add-on may reach for it",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The host's name, as the add-on's manifest declares it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "addresses"
         ],
         "type": "object"
       },
@@ -3356,6 +3392,46 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "ServiceSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuPercent": {
+            "description": "The most CPU time the add-on may use, in percent of one CPU",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hosts": {
+            "description": "The hosts the add-on may reach, with their addresses; none means no network",
+            "items": {
+              "$ref": "#/components/schemas/Host"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "The add-on's instance: its id, with part of the account's for account add-ons",
+            "type": "string"
+          },
+          "memoryMB": {
+            "description": "The most memory the add-on may use, in MB",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The version whose program runs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "memoryMB",
+          "cpuPercent"
         ],
         "type": "object"
       },
@@ -6737,6 +6813,119 @@
           }
         },
         "summary": "Start units at boot",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/EnsureAddonService": {
+      "post": {
+        "description": "Writes racksail-addon@.service and racksail-addon@.socket, the sandbox every add-on runs in, and the add-on's own drop-in with its program, memory and CPU limits and the addresses it may reach, then reloads systemd when anything changed.",
+        "operationId": "EnsureAddonService",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Set up an add-on's service",
         "tags": [
           "core"
         ]
@@ -11117,6 +11306,118 @@
           }
         },
         "summary": "Reload a unit's configuration",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/ops/RemoveAddonService": {
+      "post": {
+        "operationId": "RemoveAddonService",
+        "parameters": [
+          {
+            "description": "Report what would change without changing anything",
+            "explode": false,
+            "in": "query",
+            "name": "check",
+            "schema": {
+              "description": "Report what would change without changing anything",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The resource the call is made for",
+            "in": "header",
+            "name": "Racksail-Owner",
+            "schema": {
+              "description": "The resource the call is made for",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddonInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Remove an add-on's service",
         "tags": [
           "core"
         ]
