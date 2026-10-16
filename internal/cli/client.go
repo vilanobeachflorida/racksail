@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -234,10 +235,15 @@ type Request struct {
 	Body any
 	// Accept is the media type asked for; JSON when empty.
 	Accept string
+	// Answers are statuses of 400 and up whose answer the caller reads as
+	// it would a success's, such as the 503 the health check answers with
+	// its report when a check fails.
+	Answers []int
 }
 
 // Do sends a request. A problem the panel answers with comes back as a
-// *Problem; otherwise the caller reads and closes the response.
+// *Problem, unless the request expects its status (Request.Answers);
+// otherwise the caller reads and closes the response.
 func (c *Client) Do(ctx context.Context, r Request) (*http.Response, error) {
 	u := c.Server + r.Path
 	if len(r.Query) > 0 {
@@ -283,7 +289,7 @@ func (c *Client) Do(ctx context.Context, r Request) (*http.Response, error) {
 		}
 		return nil, fmt.Errorf("can't reach %s: %w", c.Server, err)
 	}
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 400 && !slices.Contains(r.Answers, resp.StatusCode) {
 		defer resp.Body.Close()
 		return nil, readProblem(resp)
 	}

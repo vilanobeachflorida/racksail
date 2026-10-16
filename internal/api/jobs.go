@@ -70,7 +70,7 @@ type listJobsInput struct {
 
 type jobList struct {
 	Body struct {
-		Jobs []*jobs.Job `json:"jobs"`
+		Jobs []*jobs.Job `json:"jobs" doc:"The jobs on this page, newest first"`
 		Next string      `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }
@@ -81,6 +81,9 @@ type jobInput struct {
 
 type cancelJobInput struct {
 	ID store.ID `path:"id" doc:"The job's ID, which starts with job_"`
+	// A job's controls change no settings, so a dry run has no change set
+	// to show: it checks the request and answers with the job as it is.
+	DryRun bool `query:"dryRun" doc:"Check that you may cancel the job, and answer with it as it is, without canceling it"`
 	// Canceling twice changes nothing, so the key needs no keeping; it is
 	// taken for clients that send one with every change.
 	IdempotencyKey string `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string. Canceling a job again changes nothing, so a repeat is safe with or without it"`
@@ -88,6 +91,7 @@ type cancelJobInput struct {
 
 type retryJobInput struct {
 	ID             store.ID `path:"id" doc:"The job's ID, which starts with job_"`
+	DryRun         bool     `query:"dryRun" doc:"Check that the job can be retried, and answer with it, without queuing anything"`
 	IdempotencyKey string   `header:"Idempotency-Key" maxLength:"128" doc:"Any unique string; a repeat of the request with the same key, within a day, answers with the job the first one queued instead of refusing"`
 }
 
@@ -103,7 +107,7 @@ type jobLogsInput struct {
 
 type jobLogsOutput struct {
 	Body struct {
-		Lines []jobs.LogLine `json:"lines"`
+		Lines []jobs.LogLine `json:"lines" doc:"The lines of the log, oldest first"`
 	}
 }
 
@@ -221,9 +225,10 @@ func (s *Server) registerJobs() {
 	op = huma.Operation{
 		OperationID: "cancelJob", Method: http.MethodPost, Path: Prefix + "/jobs/{id}/cancel", Tags: tags, Security: Protected,
 		Summary: "Cancel a job",
-		Description: "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, " +
-			"so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; " +
-			"a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. " +
+		Description: "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished, or asking a job " +
+			"to stop again, changes nothing and isn't recorded in the audit log, so sending the request again, with or without the same Idempotency-Key, is safe. " +
+			"What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are " +
+			"carried out at the next resync unless it is undone. With dryRun=true it only checks that you may cancel the job and answers with the job as it is. " +
 			"You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
 	}
 	Describe(&op, Info{Operation: "cancel", Risk: store.RiskMedium})
@@ -235,11 +240,17 @@ func (s *Server) registerJobs() {
 		if err := s.authorizeJob(ctx, PermJobCancel, job); err != nil {
 			return nil, err
 		}
-		if err := s.jobs().Cancel(ctx, in.ID); err != nil {
+		if in.DryRun {
+			return &jobOutput{Body: job}, nil
+		}
+		canceled, err := s.jobs().Cancel(ctx, in.ID)
+		if err != nil {
 			s.auditJob(ctx, PermJobCancel, job, events.OutcomeFailed, "Cancel "+job.Title, err)
 			return nil, err
 		}
-		s.auditJob(ctx, PermJobCancel, job, events.OutcomeSuccess, "Canceled "+job.Title, nil)
+		if canceled {
+			s.auditJob(ctx, PermJobCancel, job, events.OutcomeSuccess, "Canceled "+job.Title, nil)
+		}
 		if job, err = s.jobs().Get(ctx, in.ID); err != nil {
 			return nil, err
 		}
@@ -251,11 +262,15 @@ func (s *Server) registerJobs() {
 		Summary: "Retry a job",
 		Description: "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. " +
 			"A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; " +
-			"a repeat with the first request's Idempotency-Key answers with the same new job. " +
+			"a repeat with the first request's Idempotency-Key answers with the same new job, even once the job it retried is no longer kept. " +
 			"Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, " +
-			"and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
+			"and a change set that was undone is never carried out again. With dryRun=true it checks that the job can be retried and answers 200 with it, " +
+			"queuing nothing. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
 		DefaultStatus: http.StatusAccepted,
-		Responses:     map[string]*huma.Response{"202": jsonResponse("The new job", s.schemaOf(typeOfJob, "Job"))},
+		Responses: map[string]*huma.Response{
+			"200": jsonResponse("The job a retry would run again, for a dry run", s.schemaOf(typeOfJob, "Job")),
+			"202": jsonResponse("The new job", s.schemaOf(typeOfJob, "Job")),
+		},
 	}
 	s.withProblems(&op)
 	Describe(&op, Info{Operation: "retry", Risk: store.RiskMedium})
@@ -264,6 +279,21 @@ func (s *Server) registerJobs() {
 		if err != nil {
 			return nil, err
 		}
+		q := s.jobs()
+		if q == nil {
+			return nil, i18n.ErrUnavailable.New("what", "The job queue")
+		}
+		// A repeated request gets the job the first one queued before
+		// anything is read for it.
+		if !in.DryRun {
+			earlier, err := q.Retried(ctx, actor, in.IdempotencyKey)
+			if err != nil {
+				return nil, err
+			}
+			if earlier != nil {
+				return &retryOutput{Status: http.StatusAccepted, Body: earlier}, nil
+			}
+		}
 		job, err := s.job(ctx, in.ID)
 		if err != nil {
 			return nil, err
@@ -271,7 +301,14 @@ func (s *Server) registerJobs() {
 		if err := s.authorizeJob(ctx, PermJobRetry, job); err != nil {
 			return nil, err
 		}
-		next, err := s.jobs().Retry(ctx, in.ID, jobs.RetryOptions{Actor: actor, IdempotencyKey: in.IdempotencyKey})
+		if in.DryRun {
+			checked, err := q.Retry(ctx, in.ID, jobs.RetryOptions{Actor: actor, DryRun: true})
+			if err != nil {
+				return nil, err
+			}
+			return &retryOutput{Status: http.StatusOK, Body: checked}, nil
+		}
+		next, err := q.Retry(ctx, in.ID, jobs.RetryOptions{Actor: actor, IdempotencyKey: in.IdempotencyKey})
 		if err != nil {
 			s.auditJob(ctx, PermJobRetry, job, events.OutcomeFailed, "Retry "+job.Title, err)
 			return nil, err

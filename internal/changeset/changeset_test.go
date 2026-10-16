@@ -14,6 +14,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
@@ -273,7 +274,7 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 		ctx = context.Background()
 	}
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind} {
+	for _, k := range []store.Kind{pageKind, menuKind, ticketKind, labelKind, gateKind, account.Kind, resellerKind, offerKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -329,9 +330,25 @@ func buildEnv(t *testing.T, cfg envConfig) *env {
 	q.Start()
 	// The queue stops before the database it may be writing to closes.
 	t.Cleanup(func() { q.Stop(context.Background()) })
-	acct := store.NewID("acct")
-	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(acct)}}}
-	return &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault, owner: owner, acct: acct}
+	e := &env{engine: engine, store: st, sim: m, bus: bus, jobs: q, hooks: hooks, secrets: vault}
+	e.acct = e.account(t)
+	e.owner = &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(e.acct)}}}
+	return e
+}
+
+// account puts a new account straight in the store, for resources to
+// belong to, and returns its ID.
+func (e *env) account(t *testing.T) store.ID {
+	t.Helper()
+	id := store.NewID("acct")
+	spec, _ := json.Marshal(account.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test"})
+	ctx := context.Background()
+	if err := e.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: spec})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func (e *env) submit(t *testing.T, dryRun bool, changes ...Change) *ChangeSet {
@@ -512,6 +529,56 @@ func TestApplyUpdateUndo(t *testing.T) {
 	e.wait(t, back)
 	if got := e.file(pagesDir + "/index.html"); got != "v1" {
 		t.Errorf("undoing the delete brings the page back: %q", got)
+	}
+}
+
+// Undoing a change set puts back the settings from before it even when the
+// resource changed since, and its preview names the resources whose later
+// changes go with it.
+func TestUndoSaysWhatChangedSince(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	created := e.submit(t, false, e.createPage(pageSpec{Path: "since.html", Content: "v1"}))
+	id := created.Changes[0].ID
+	update := func(content string, labels map[string]string) *ChangeSet {
+		t.Helper()
+		raw, _ := json.Marshal(pageSpec{Path: "since.html", Content: content})
+		return e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw, Labels: labels})
+	}
+	first := update("v2", nil)
+	if preview, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: first.ID, DryRun: true}); err != nil || len(preview.ChangedSince) != 0 {
+		t.Errorf("nothing changed after the last change: %+v, %v", preview, err)
+	}
+	second := update("v3", map[string]string{"env": "prod"})
+	for _, undone := range []*ChangeSet{created, first} {
+		preview, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: undone.ID, DryRun: true})
+		if err != nil || !slices.Equal(preview.ChangedSince, []store.ID{id}) {
+			t.Errorf("undoing %q after a later change = %+v, %v", undone.Title, preview, err)
+		}
+	}
+	if preview, _ := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: second.ID, DryRun: true}); len(preview.ChangedSince) != 0 {
+		t.Errorf("undoing the last change = %+v", preview.ChangedSince)
+	}
+
+	// Applying the preview says so too, and the later change goes.
+	preview, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: first.ID, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	undo, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID})
+	if err != nil || !slices.Equal(undo.ChangedSince, []store.ID{id}) {
+		t.Fatalf("applied undo = %+v, %v", undo, err)
+	}
+	e.wait(t, undo)
+	if got := e.file(pagesDir + "/since.html"); got != "v1" {
+		t.Errorf("page after the undo = %q", got)
+	}
+	// A label someone added since counts as a change too.
+	labelled := update("v4", nil)
+	raw, _ := json.Marshal(pageSpec{Path: "since.html", Content: "v4"})
+	e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw, Labels: map[string]string{"team": "web"}})
+	if preview, _ := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: labelled.ID, DryRun: true}); !slices.Equal(preview.ChangedSince, []store.ID{id}) {
+		t.Errorf("undoing after a change of labels = %+v", preview.ChangedSince)
 	}
 }
 
@@ -882,7 +949,7 @@ func TestHookContributionsAreChecked(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)
 	theirs := e.createPage(pageSpec{Path: "theirs.html", Content: "theirs"})
-	theirs.Scope = store.AccountScope(store.NewID("acct"))
+	theirs.Scope = store.AccountScope(e.account(t))
 	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
 	other, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{theirs}})
 	if err != nil {
@@ -964,6 +1031,65 @@ func TestHookContributionsAreChecked(t *testing.T) {
 	}
 }
 
+// A modify hook that rewrites a spec changes what applying the change does
+// to the machine, and the preview shows that, not what the request alone
+// would have done; what the hook added keeps its label.
+func TestPreviewsShowWhatRewrittenSpecsDo(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	e.hooks.rewrite = func(cs *ChangeSet, changes []int) {
+		if cs.Changes[changes[0]].Kind != "test.page" {
+			return
+		}
+		cs.Changes[changes[0]].After = json.RawMessage(`{"path":"moved.html","content":"draft"}`)
+		cs.Effects = append(cs.Effects, system.Effect{Type: system.EffectFile, Action: "write", Target: "/etc/racksail/generated/redirects.conf", Contributor: "addon:mover"})
+		cs.Contributions = append(cs.Contributions, Contribution{Source: Source{Type: "addon", Name: "mover"}, Summary: "Move drafts", Effects: []int{len(cs.Effects) - 1}})
+	}
+	menuOf := func(pages ...store.ID) Change {
+		raw, _ := json.Marshal(menuSpec{Pages: pages})
+		return Change{Op: OpCreate, Kind: "test.menu", Scope: store.AccountScope(e.acct), Spec: raw}
+	}
+	pageID := store.NewID("page")
+	page := e.createPage(pageSpec{Path: "draft.html", Content: "draft"})
+	page.ID = pageID
+	req := Request{Actor: e.owner, DryRun: true, Changes: []Change{page, menuOf(pageID)}}
+	preview, err := e.engine.Submit(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]string{}
+	for _, eff := range preview.Effects {
+		targets[eff.Target] = eff.Contributor
+	}
+	if _, ok := targets[pagesDir+"/moved.html"]; !ok {
+		t.Errorf("the preview lists the page where the hook moved it: %+v", preview.Effects)
+	}
+	if _, ok := targets[pagesDir+"/draft.html"]; ok {
+		t.Errorf("the preview lists the page where it would have gone without the hook: %+v", preview.Effects)
+	}
+	if len(preview.Contributions) != 1 || len(preview.Contributions[0].Effects) != 1 {
+		t.Fatalf("contributions = %+v", preview.Contributions)
+	}
+	if got := preview.Effects[preview.Contributions[0].Effects[0]]; got.Contributor != "addon:mover" || got.Target != "/etc/racksail/generated/redirects.conf" {
+		t.Errorf("the contribution points at the hook's own effect: %+v", got)
+	}
+
+	// Applying the preview plans the same, and does what it showed.
+	applied, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done := e.wait(t, applied); done.State != StateApplied {
+		t.Fatalf("applied = %+v", done)
+	}
+	if e.file(pagesDir+"/moved.html") != "draft" || e.file(pagesDir+"/draft.html") != "" {
+		t.Error("the page went where the preview said")
+	}
+	if got := e.file(pagesDir + "/menu-" + string(applied.Changes[1].ID)); got != "moved.html" {
+		t.Errorf("the menu, planned after the page, lists it where the hook moved it: %q", got)
+	}
+}
+
 func mustSubmit(t *testing.T, engine *Engine, req Request) *ChangeSet {
 	t.Helper()
 	cs, err := engine.Submit(context.Background(), req)
@@ -1037,6 +1163,81 @@ func TestSnapshotsBeforeRemovingData(t *testing.T) {
 	}
 	if _, err := e.sim.Backend().Files.Stat(ctx, path.Dir(snap)); !errors.Is(err, system.ErrNotFound) {
 		t.Errorf("and so is its directory: %v", err)
+	}
+}
+
+// Snapshots taken before changes that no kept change set lists are deleted:
+// those of a change whose writes never committed and of a preview whose
+// apply stopped, as a panel that stopped in between leaves them, and, after
+// a restart that kept no records, every change set's. Those being taken for
+// a change set not recorded yet, and those of anything but change sets,
+// stay.
+func TestSnapshotsNoChangeSetKeepsAreCollected(t *testing.T) {
+	ctx := context.Background()
+	machine := sim.New(sim.Options{})
+	e := buildEnv(t, envConfig{machine: machine})
+	exists := func(p string) bool {
+		_, err := machine.Backend().Files.Stat(ctx, p)
+		return err == nil
+	}
+	page := e.submit(t, false, e.createPage(pageSpec{Path: "kept.html", Content: "kept"}))
+	del := e.submit(t, false, Change{Op: OpDelete, Kind: "test.page", ID: page.Changes[0].ID})
+	if len(del.Snapshots) != 1 {
+		t.Fatalf("the delete's snapshots = %+v", del.Snapshots)
+	}
+	kept := del.Snapshots[0].Path
+	removes := []system.Effect{{Type: system.EffectFile, Action: "delete", Target: pagesDir + "/gone.html", Destructive: true}}
+	snapshot := func(id store.ID) string {
+		t.Helper()
+		cs := &ChangeSet{ID: id, Title: "Remove a page", Effects: removes, Snapshot: true}
+		if err := e.engine.takeSnapshots(ctx, cs); err != nil || len(cs.Snapshots) != 1 {
+			t.Fatalf("snapshots of %s = %+v, %v", id, cs.Snapshots, err)
+		}
+		return cs.Snapshots[0].Path
+	}
+	lost := snapshot(store.NewID(store.PrefixChangeSet))
+	preview := e.submit(t, true, e.createPage(pageSpec{Path: "later.html", Content: "later"}))
+	stopped := snapshot(preview.ID)
+	busyID := store.NewID(store.PrefixChangeSet)
+	release := e.engine.holdSnapshots(busyID)
+	busy := snapshot(busyID)
+	other, err := agent.SnapshotPaths.Call(ctx, e.engine.agent(), agent.SnapshotPathsInput{Paths: []string{pagesDir}, Label: "packages_20261016"}, agent.CallOptions{})
+	if err != nil || len(other.Snapshots) != 1 {
+		t.Fatalf("a snapshot of an upgrade = %+v, %v", other, err)
+	}
+
+	if n, err := e.engine.CollectSnapshots(ctx); err != nil || n != 2 {
+		t.Errorf("collected %d, %v", n, err)
+	}
+	for p, want := range map[string]bool{kept: true, lost: false, stopped: false, busy: true, other.Snapshots[0].Path: true} {
+		if exists(p) != want {
+			t.Errorf("%s is there: %v, want %v", p, exists(p), want)
+		}
+	}
+	if exists(path.Dir(lost)) {
+		t.Error("the directory of a collected snapshot goes too")
+	}
+	release()
+	if n, err := e.engine.CollectSnapshots(ctx); err != nil || n != 1 || exists(busy) {
+		t.Errorf("once the change set that was taking it is done = %d, %v", n, err)
+	}
+
+	// A restart that kept no change sets keeps none of their snapshots.
+	again := buildEnv(t, envConfig{machine: machine})
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		again.engine.Run(runCtx, time.Hour)
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for exists(kept) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	stop()
+	<-done
+	if exists(kept) || !exists(other.Snapshots[0].Path) {
+		t.Errorf("after the restart: the delete's snapshot is there %v, the upgrade's %v", exists(kept), exists(other.Snapshots[0].Path))
 	}
 }
 

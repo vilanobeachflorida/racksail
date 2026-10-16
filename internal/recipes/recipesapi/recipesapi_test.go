@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,24 +76,43 @@ health:
 `
 
 func catalog(t *testing.T) (*httptest.Server, string) {
+	srv, key, _ := versionedCatalog(t)
+	return srv, key
+}
+
+// versionedCatalog serves a signed catalog with the hello recipe at 1.0.0,
+// and publish replaces it with another version, as a catalog's maintainers
+// release one.
+func versionedCatalog(t *testing.T) (*httptest.Server, string, func(version string)) {
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
 	icon := []byte("<svg xmlns='http://www.w3.org/2000/svg'/>")
 	sum := func(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
-	idx, _ := json.Marshal(recipes.Index{Format: 1, Catalog: "test", Built: time.Now().UTC().Truncate(time.Second), Items: []recipes.IndexItem{{
-		ID: "hello", Kind: recipes.KindApp, Name: "Hello", Version: "1.0.0", Summary: "A page that says hello.", LicenseClass: recipes.OpenSource,
-		Path: "apps/hello/recipe.yaml", SHA256: sum([]byte(recipe)), Icon: "apps/hello/icon.svg",
-		Files: []recipes.IndexFile{{Path: "apps/hello/icon.svg", SHA256: sum(icon), Size: int64(len(icon))}, {Path: "apps/hello/recipe.yaml", SHA256: sum([]byte(recipe)), Size: int64(len(recipe))}},
-	}}})
-	files := map[string][]byte{"/index.json": idx, "/index.json.sig": ed25519.Sign(key, idx), "/apps/hello/recipe.yaml": []byte(recipe), "/apps/hello/icon.svg": icon}
+	var mu sync.Mutex
+	files := map[string][]byte{}
+	publish := func(version string) {
+		r := []byte(strings.Replace(recipe, `version: "1.0.0"`, `version: "`+version+`"`, 1))
+		idx, _ := json.Marshal(recipes.Index{Format: 1, Catalog: "test", Built: time.Now().UTC().Truncate(time.Second), Items: []recipes.IndexItem{{
+			ID: "hello", Kind: recipes.KindApp, Name: "Hello", Version: version, Summary: "A page that says hello.", LicenseClass: recipes.OpenSource,
+			Path: "apps/hello/recipe.yaml", SHA256: sum(r), Icon: "apps/hello/icon.svg",
+			Files: []recipes.IndexFile{{Path: "apps/hello/icon.svg", SHA256: sum(icon), Size: int64(len(icon))}, {Path: "apps/hello/recipe.yaml", SHA256: sum(r), Size: int64(len(r))}},
+		}}})
+		mu.Lock()
+		defer mu.Unlock()
+		files = map[string][]byte{"/index.json": idx, "/index.json.sig": ed25519.Sign(key, idx), "/apps/hello/recipe.yaml": r, "/apps/hello/icon.svg": icon}
+	}
+	publish("1.0.0")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if data, ok := files[r.URL.Path]; ok {
+		mu.Lock()
+		data, ok := files[r.URL.Path]
+		mu.Unlock()
+		if ok {
 			w.Write(data)
 			return
 		}
 		http.NotFound(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	return srv, base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey))
+	return srv, base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), publish
 }
 
 func do(t *testing.T, h http.Handler, method, path string, body any) (*httptest.ResponseRecorder, []byte) {
@@ -112,9 +132,11 @@ func do(t *testing.T, h http.Handler, method, path string, body any) (*httptest.
 	return rec, out
 }
 
-func TestCatalogAPI(t *testing.T) {
-	ctx := context.Background()
-	srv, key := catalog(t)
+// catalogPanel is a panel with the web module and the catalog srv serves,
+// signed with key, synced; it returns the panel, its API and the catalog's
+// ID.
+func catalogPanel(t *testing.T, srv *httptest.Server, key string) (*modulestest.Env, http.Handler, store.ID) {
+	t.Helper()
 	mod := &web{modules.NewBase([]byte(`hardware: {arch: [amd64, arm64]}
 id: web
 name: Web
@@ -149,10 +171,16 @@ upstream: []
 		t.Fatalf("catalog: %v", err)
 	}
 	cat := cs.Changes[0].ID
-	if _, err := e.Services.Catalogs.Sync(ctx, cat); err != nil {
+	if _, err := e.Services.Catalogs.Sync(context.Background(), cat); err != nil {
 		t.Fatal(err)
 	}
-	h := api.New(api.Options{Dev: true, Modules: e.Registry, Services: e.Services, Log: slog.New(slog.DiscardHandler)}).Handler()
+	return e, api.New(api.Options{Dev: true, Modules: e.Registry, Services: e.Services, Log: slog.New(slog.DiscardHandler)}).Handler(), cat
+}
+
+func TestCatalogAPI(t *testing.T) {
+	ctx := context.Background()
+	srv, key := catalog(t)
+	e, h, cat := catalogPanel(t, srv, key)
 
 	rec, body := do(t, h, http.MethodGet, "/api/v1/catalog/items?q=hel", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(string(body), `"id":"hello"`) {
@@ -192,5 +220,92 @@ upstream: []
 	e.Settle(t)
 	if list, _, _ := recipes.ServerInstallationKind.List(ctx, e.Store, store.Query{}); len(list) != 0 {
 		t.Errorf("after uninstalling = %+v", list)
+	}
+}
+
+// keyed sends a request with an Idempotency-Key and returns the ID of the
+// change set it answers with, if any.
+func keyed(t *testing.T, h http.Handler, path, key string, body any) (int, store.ID, []byte) {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", key)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	out, _ := io.ReadAll(rec.Result().Body)
+	var cs changeset.ChangeSet
+	json.Unmarshal(out, &cs)
+	return rec.Code, cs.ID, out
+}
+
+// Retries of installing, upgrading and uninstalling with the first
+// request's Idempotency-Key answer with the first change set, even once the
+// installation is at the version the upgrade asked for or the uninstall
+// removed it.
+func TestRetriesGetTheFirstChangeSet(t *testing.T) {
+	ctx := context.Background()
+	srv, key, publish := versionedCatalog(t)
+	e, h, cat := catalogPanel(t, srv, key)
+	in := recipes.InstallInput{Source: recipes.Source{Catalog: cat, Item: "hello"}, Scope: store.ServerScope(), Inputs: map[string]any{"greeting": "Hi"}}
+	installation := func() *store.Object[recipes.InstallationSpec, recipes.InstallationStatus] {
+		t.Helper()
+		list, _, err := recipes.ServerInstallationKind.List(ctx, e.Store, store.Query{})
+		if err != nil || len(list) > 1 {
+			t.Fatalf("installations = %+v, %v", list, err)
+		}
+		if len(list) == 0 {
+			return nil
+		}
+		return list[0]
+	}
+
+	code, first, body := keyed(t, h, "/api/v1/catalog/install", "install-1", in)
+	if code != http.StatusAccepted || first == "" {
+		t.Fatalf("install = %d %s", code, body)
+	}
+	e.Settle(t)
+	if code, again, body := keyed(t, h, "/api/v1/catalog/install", "install-1", in); code != http.StatusAccepted || again != first {
+		t.Errorf("installing again with the same key = %d %s, want %s", code, body, first)
+	}
+	inst := installation()
+	if inst == nil || inst.Spec.Version != "1.0.0" {
+		t.Fatalf("installation = %+v", inst)
+	}
+
+	publish("1.1.0")
+	if _, err := e.Services.Catalogs.Sync(ctx, cat); err != nil {
+		t.Fatal(err)
+	}
+	upgrade := "/api/v1/catalog/installations/" + string(inst.ID) + "/upgrade"
+	code, first, body = keyed(t, h, upgrade, "upgrade-1", recipes.UpgradeInput{})
+	if code != http.StatusAccepted || first == "" {
+		t.Fatalf("upgrade = %d %s", code, body)
+	}
+	e.Settle(t)
+	if inst := installation(); inst == nil || inst.Spec.Version != "1.1.0" {
+		t.Fatalf("after the upgrade = %+v", inst)
+	}
+	if code, again, body := keyed(t, h, upgrade, "upgrade-1", recipes.UpgradeInput{}); code != http.StatusAccepted || again != first {
+		t.Errorf("upgrading again with the same key = %d %s, want %s", code, body, first)
+	}
+	if code, _, body := keyed(t, h, upgrade, "upgrade-2", recipes.UpgradeInput{}); code != http.StatusConflict || !strings.Contains(string(body), "recipes.no_upgrade") {
+		t.Errorf("another upgrade = %d %s", code, body)
+	}
+
+	uninstall := "/api/v1/catalog/installations/" + string(inst.ID) + "/uninstall"
+	code, first, body = keyed(t, h, uninstall, "uninstall-1", recipes.UninstallInput{})
+	if code != http.StatusAccepted || first == "" {
+		t.Fatalf("uninstall = %d %s", code, body)
+	}
+	e.Settle(t)
+	if inst := installation(); inst != nil {
+		t.Fatalf("after uninstalling = %+v", inst)
+	}
+	if code, again, body := keyed(t, h, uninstall, "uninstall-1", recipes.UninstallInput{}); code != http.StatusAccepted || again != first {
+		t.Errorf("uninstalling again with the same key = %d %s, want %s", code, body, first)
+	}
+	if code, _, body := keyed(t, h, uninstall, "uninstall-2", recipes.UninstallInput{}); code != http.StatusNotFound {
+		t.Errorf("another uninstall of what is gone = %d %s", code, body)
 	}
 }

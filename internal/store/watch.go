@@ -23,13 +23,13 @@ const (
 // the resource; watchers read it again when they need more.
 type Notice struct {
 	Op         NoticeOp `json:"op" enum:"created,updated,status,deleted,purged" doc:"What the write did"`
-	ID         ID       `json:"id"`
-	Kind       string   `json:"kind"`
-	Scope      Scope    `json:"scope"`
-	Generation int64    `json:"generation"`
-	Revision   int64    `json:"revision"`
+	ID         ID       `json:"id" doc:"The resource written"`
+	Kind       string   `json:"kind" doc:"The resource's kind"`
+	Scope      Scope    `json:"scope" doc:"Who the resource belongs to"`
+	Generation int64    `json:"generation" doc:"The generation of its settings after the write"`
+	Revision   int64    `json:"revision" doc:"Its revision after the write"`
 	// Phase is the phase the resource's status reports after the write.
-	Phase     Phase `json:"phase" enum:"pending,applying,ready,degraded,failed,deleting"`
+	Phase     Phase `json:"phase" enum:"pending,applying,ready,degraded,failed,deleting" doc:"The phase its status reports after the write"`
 	ChangeSet ID    `json:"changeSet,omitempty" doc:"The change set that made the write, if one did"`
 }
 

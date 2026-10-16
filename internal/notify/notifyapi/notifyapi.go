@@ -43,7 +43,7 @@ type ChannelType struct {
 
 type typeList struct {
 	Body struct {
-		Types []ChannelType `json:"types"`
+		Types []ChannelType `json:"types" doc:"The channel types: those built in, then those modules and add-ons provide"`
 	}
 }
 
@@ -56,7 +56,7 @@ type deliveriesInput struct {
 
 type deliveryList struct {
 	Body struct {
-		Notifications []*notify.Notification `json:"notifications"`
+		Notifications []*notify.Notification `json:"notifications" doc:"The notifications on this page, newest first, without their messages"`
 		Next          string                 `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }
@@ -144,8 +144,8 @@ func register(a huma.API, svc *modules.Services) {
 	op = huma.Operation{
 		OperationID: "getNotification", Method: http.MethodGet, Path: api.Prefix + "/notifications/{id}", Tags: tags, Security: api.Protected,
 		Summary: "Show a notification and its message",
-		Description: "One notification with the message it carries, where it went, how its attempts went and why the last one failed. " +
-			"You see your own; those sent through channels, and to other people, are for those who may see the channels.",
+		Description: "Returns one notification with the message it carries: where it goes, how its attempts went and why the last one failed, " +
+			"and when it is sent or tried again. You see your own; those sent through channels, and to other people, are for those who may see the channels.",
 	}
 	api.Describe(&op, api.Info{Permission: string(PermChannelRead), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *deliveryInput) (*deliveryOutput, error) {
@@ -214,6 +214,11 @@ func register(a huma.API, svc *modules.Services) {
 		actor, err := api.Actor(ctx)
 		if err != nil {
 			return nil, err
+		}
+		// A retry is answered before the preferences are read. The key is
+		// the person's: the actor the change is made as only adds a grant.
+		if earlier, err := api.Replayed(ctx, svc.Pipeline, in.ChangeParams); earlier != nil || err != nil {
+			return earlier, err
 		}
 		req, err := s.PreferencesRequest(ctx, person, in.Body)
 		if err != nil {

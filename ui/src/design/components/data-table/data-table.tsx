@@ -210,7 +210,11 @@ export function DataTable<Row>({
     );
   };
 
+  // Bulk actions act on the selected rows the search and filters show, and
+  // the toolbar counts those; rows they hide stay selected for when they
+  // show again, and the toolbar says how many.
   const selectedRows = shown.filter((row) => selected.has(rowKey(row)));
+  const selectedHidden = selected.size - selectedRows.length;
 
   return (
     <div data-slot="data-table" className={cn("flex min-w-0 flex-col gap-3", className)}>
@@ -351,9 +355,16 @@ export function DataTable<Row>({
           className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary-subtle px-3 py-2"
         >
           <span className="font-medium text-sm">
-            {intl.formatMessage(m.tableSelected, { count: selected.size })}
+            {intl.formatMessage(m.tableSelected, {
+              count: selectedRows.length,
+              hidden: selectedHidden,
+            })}
           </span>
-          <div className="flex flex-wrap gap-2">{bulkActions?.(selectedRows, clearSelection)}</div>
+          {selectedRows.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {bulkActions?.(selectedRows, clearSelection)}
+            </div>
+          ) : null}
           <Button variant="ghost" size="sm" className="ms-auto" onClick={clearSelection}>
             <X aria-hidden="true" />
             {intl.formatMessage(m.tableClearSelection)}

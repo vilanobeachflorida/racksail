@@ -122,33 +122,114 @@ func validateProvider(ctx context.Context, obj, old *store.Object[ProviderSpec, 
 	return nil
 }
 
-type providerReconciler struct{}
+// capabilityPoints are the provide points of the capabilities a sign-in
+// provider can name.
+var capabilityPoints = map[string]hooks.Point{"identity": hooks.AuthProvider, "mfa": hooks.AuthMFA}
 
-func (providerReconciler) Plan(ctx context.Context, obj *store.Object[ProviderSpec, ProviderStatus], req reconcile.Request) (reconcile.Plan, error) {
+// provided reports whether an add-on or a module provides what a sign-in
+// provider names.
+func (s *Service) provided(spec ProviderSpec) bool {
+	point, ok := capabilityPoints[spec.Capability]
+	reg := s.registry()
+	if !ok || reg == nil {
+		return false
+	}
+	_, ok = reg.Provider(point, spec.Provider)
+	return ok
+}
+
+// providerMissing is the error of a sign-in provider nothing provides,
+// pointing at the field that names it.
+func providerMissing(spec ProviderSpec) *i18n.Error {
+	return auth.ErrProviderMissing.New("provider", spec.Provider).
+		WithFields(i18n.Field("spec.provider", auth.ErrProviderMissing, "provider", spec.Provider))
+}
+
+type providerReconciler struct{ s *Service }
+
+// Plan refuses, in the change pipeline, a sign-in provider that names what
+// nothing provides, so the preview says so rather than the sign-in screen
+// leaving it out. Outside the pipeline, as when an add-on that provided it
+// was removed since, the status says it instead.
+func (r providerReconciler) Plan(ctx context.Context, obj *store.Object[ProviderSpec, ProviderStatus], req reconcile.Request) (reconcile.Plan, error) {
+	if _, inPipeline := auth.ActorFrom(ctx); inPipeline && !obj.Deleted() && !r.s.provided(obj.Spec) {
+		return reconcile.Plan{}, providerMissing(obj.Spec)
+	}
 	return reconcile.Plan{}, nil
 }
 
-func (providerReconciler) Apply(ctx context.Context, obj *store.Object[ProviderSpec, ProviderStatus], plan reconcile.Plan, ex reconcile.Executor) (ProviderStatus, error) {
+func (r providerReconciler) Apply(ctx context.Context, obj *store.Object[ProviderSpec, ProviderStatus], plan reconcile.Plan, ex reconcile.Executor) (ProviderStatus, error) {
 	st := obj.Status
-	err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
-	return st, err
+	now := r.s.now()
+	if err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, now); err != nil {
+		return st, err
+	}
+	if !obj.Deleted() && !r.s.provided(obj.Spec) {
+		e := providerMissing(obj.Spec)
+		st.Phase, st.Message, st.Code = store.PhaseDegraded, e.Message, e.Code
+		st.SetCondition(store.Condition{
+			Type: reconcile.ConditionReady, Status: store.ConditionFalse, Reason: "ProviderMissing", Message: e.Message, Code: e.Code,
+			ObservedGeneration: obj.Generation,
+		}, now)
+	}
+	return st, nil
 }
 
 // ProviderReconciler returns the reconciler of sign-in providers, which
-// the panel applies as soon as they're saved.
-func ProviderReconciler() reconcile.Reconciler {
-	return reconcile.Typed(ProviderKind, providerReconciler{})
+// the panel applies as soon as they're saved. A provider is ready while an
+// add-on or a module provides what it names; the service has the providers
+// reconciled again when what add-ons provide changes (Run).
+func (s *Service) ProviderReconciler() reconcile.Reconciler {
+	return reconcile.Typed(ProviderKind, providerReconciler{s})
+}
+
+// offered names every provider of the capabilities sign-in providers name,
+// so the service sees when an add-on that provides one comes or goes.
+func (s *Service) offered() string {
+	reg := s.registry()
+	if reg == nil {
+		return ""
+	}
+	var names []string
+	for capability, point := range capabilityPoints {
+		for _, p := range reg.Providers(point) {
+			names = append(names, capability+":"+p.Provider.Name)
+		}
+	}
+	slices.Sort(names)
+	return strings.Join(names, ",")
+}
+
+// followOffers has every sign-in provider reconciled again when what
+// add-ons and modules provide changed since last, so their status says
+// whether what they name is provided now, and returns what is provided.
+func (s *Service) followOffers(ctx context.Context, last string) string {
+	now := s.offered()
+	if now == last || s.opts.Resources == nil || s.opts.Refresh == nil {
+		return now
+	}
+	list, _, err := ProviderKind.List(ctx, s.opts.Resources, store.Query{Limit: store.MaxLimit})
+	if err != nil {
+		s.opts.Log.Warn("listing sign-in providers", "error", err)
+		return last
+	}
+	for _, p := range list {
+		if !p.Deleted() {
+			s.opts.Refresh(p.ID, "what add-ons provide changed")
+		}
+	}
+	return now
 }
 
 // SignInOption is an outside provider the sign-in screen offers.
 type SignInOption struct {
-	ID store.ID `json:"id"`
+	ID store.ID `json:"id" doc:"The sign-in provider's ID"`
 	// Title is what the button says.
-	Title string `json:"title"`
+	Title string `json:"title" doc:"What the sign-in screen's button says"`
 	// Method is password for providers that check a username and password
 	// typed on the panel's own screen, and redirect for those whose own page
 	// people sign in on.
-	Method auth.ProviderMethod `json:"method" enum:"password,redirect"`
+	Method auth.ProviderMethod `json:"method" enum:"password,redirect" doc:"How the provider signs people in: with a password typed on the panel's own screen, or on its own page"`
 }
 
 // providers lists the connected providers of a capability that are on.
@@ -361,7 +442,7 @@ func (s *Service) link(ctx context.Context, actor *auth.Actor, u *User, p *store
 }
 
 func (s *Service) userByEmail(ctx context.Context, email string) (*User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = NormalizeEmail(email)
 	var found []*store.Object[UserSpec, UserStatus]
 	err := s.eachUser(ctx, store.Query{Index: map[string]string{"email": email}}, func(u *store.Object[UserSpec, UserStatus]) error {
 		found = append(found, u)
@@ -627,10 +708,10 @@ func (s *Service) BeginLinkMine(ctx context.Context, actor *auth.Actor, id store
 
 // LinkView is an outside identity linked to the actor's user.
 type LinkView struct {
-	Provider store.ID  `json:"provider"`
-	Title    string    `json:"title"`
-	Username string    `json:"username,omitempty"`
-	LinkedAt time.Time `json:"linkedAt"`
+	Provider store.ID  `json:"provider" doc:"The sign-in provider the identity is at"`
+	Title    string    `json:"title" doc:"What the provider is called"`
+	Username string    `json:"username,omitempty" doc:"The person's username at the provider"`
+	LinkedAt time.Time `json:"linkedAt" doc:"When it was linked"`
 }
 
 // MyLinks lists the outside identities the actor signs in with.
@@ -679,8 +760,8 @@ func (s *Service) UnlinkMine(ctx context.Context, actor *auth.Actor, provider st
 
 // MFAOption is a second step from an add-on that people can turn on.
 type MFAOption struct {
-	ID      store.ID `json:"id"`
-	Title   string   `json:"title"`
+	ID      store.ID `json:"id" doc:"The sign-in provider that adds the second step"`
+	Title   string   `json:"title" doc:"What the second step is called"`
 	Enabled bool     `json:"enabled" doc:"Whether the person asking has it on"`
 }
 

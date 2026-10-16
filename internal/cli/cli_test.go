@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -331,6 +332,31 @@ func TestProblemsNameFlags(t *testing.T) {
 	})
 	if _, err := run(t, "", "webhook", "list", "--server", p.URL); err == nil || !strings.Contains(err.Error(), "racksail login") {
 		t.Errorf("unauthenticated = %v", err)
+	}
+}
+
+// A request can expect an answer of 400 or more, as the health check's 503
+// with its report, and read it rather than get a problem.
+func TestAnswersAStatusExpects(t *testing.T) {
+	p := newPanel(t)
+	p.json("GET /api/v1/health", http.StatusServiceUnavailable, `{"status":"degraded","checks":[]}`)
+	c, err := NewClient(p.URL, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	resp, err := c.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/health", Answers: []int{http.StatusServiceUnavailable}})
+	if err != nil || resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected = %v, %v", resp, err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), `"degraded"`) {
+		t.Errorf("body = %s", body)
+	}
+	var problem *Problem
+	if _, err := c.Do(ctx, Request{Method: http.MethodGet, Path: "/api/v1/health"}); !errors.As(err, &problem) || problem.Status != http.StatusServiceUnavailable {
+		t.Errorf("unexpected = %v", err)
 	}
 }
 

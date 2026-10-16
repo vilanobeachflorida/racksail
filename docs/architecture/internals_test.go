@@ -78,7 +78,7 @@ func TestZoneExampleRuns(t *testing.T) {
 
 	const file = "/etc/knot/zones/example.com.zone"
 	create := changeset.Request{Title: "Create example.com", Changes: []changeset.Change{{
-		Op: changeset.OpCreate, Kind: "dns.zone", Scope: store.AccountScope(store.NewID("acct")),
+		Op: changeset.OpCreate, Kind: "dns.zone", Scope: e.Account(t),
 		Spec: modulestest.JSON(t, ZoneSpec{Name: "example.com"}),
 	}}}
 

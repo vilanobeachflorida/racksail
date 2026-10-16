@@ -1,12 +1,15 @@
-import type { Preferences } from "@/design/theme/prefs";
 import type { Theme } from "@/design/theme/types";
 import { isModuleId, type ModuleId } from "@/modules/registry";
+import type { Schemas } from "./client";
 
 /** Where a module is in its life, as the module manager reports it. */
 export type ModuleState = "off" | "on" | "active" | "stopping" | "removing";
 
-/** Display preferences as the account keeps them; ones it leaves out are the defaults. */
-export type SessionPreferences = Partial<Preferences>;
+/**
+ * The person's preferences for the panel as their account keeps them, how
+ * it looks and how it works for them; ones it leaves out are the defaults.
+ */
+export type SessionPreferences = Schemas["Preferences"];
 
 /**
  * What the panel tells the web UI when it starts: who is signed in, what
@@ -20,6 +23,8 @@ export interface PanelSession {
     email?: string;
     /** Where the person belongs: the server, a reseller or an account. */
     home?: { level: "server" | "reseller" | "account"; id?: string };
+    /** The language of the person's profile, such as pt-BR; left out, their browser's. */
+    locale?: string;
   };
   /**
    * What the person may do, as their roles grant it: permission names such
@@ -40,7 +45,7 @@ export interface PanelSession {
     /** Where the admin's custom CSS is served, when it's on. */
     customCSS?: string;
   };
-  /** The person's display preferences, kept with their account. */
+  /** The person's preferences, kept with their account so they follow them. */
   preferences?: SessionPreferences | null;
   /** The API token the panel was called with, rather than a session. */
   token?: { id: string; name: string };

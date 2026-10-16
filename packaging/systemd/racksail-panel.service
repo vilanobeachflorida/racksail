@@ -3,7 +3,8 @@
 [Unit]
 Description=Racksail panel
 Documentation=https://github.com/vilanobeachflorida/racksail
-After=network-online.target racksail-agent.service
+Requires=racksail-panel.socket
+After=network-online.target racksail-agent.service racksail-panel.socket
 Wants=network-online.target racksail-agent.service
 
 [Service]

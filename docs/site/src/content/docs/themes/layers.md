@@ -37,7 +37,7 @@ Preferences sit on top of every theme and are set in **Settings → Appearance**
 
 "Match the system" follows the operating system's settings for dark mode, more contrast and reduced motion, and changes when they do.
 
-Preferences apply the moment they're chosen, without reloading, and are remembered in the browser so the next visit starts the same way, before anything else loads. A change in one tab reaches the others.
+Preferences apply the moment they're chosen, without reloading, and are remembered in the browser so the next visit starts the same way, before anything else loads. A change in one tab reaches the others. Once you're signed in they're kept with your account too, and follow you to every browser you sign in on.
 
 ## What no layer can change
 

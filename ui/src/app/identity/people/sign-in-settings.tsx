@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
-import { useIntl } from "react-intl";
+import { type IntlShape, useIntl } from "react-intl";
 import { type FormResult, SchemaForm } from "@/design/components/schema-form";
 import { Button } from "@/design/components/ui/button";
 import { Checkbox } from "@/design/components/ui/choice";
@@ -25,6 +25,7 @@ import {
 import { ErrorState } from "@/design/components/ui/states";
 import { toast } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
+import { problemMessage } from "@/lib/errors";
 import type { UIHints } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { usePermission } from "../../modules";
@@ -365,6 +366,25 @@ function ProviderEditor({
   );
 }
 
+/**
+ * Why a provider can't sign anyone in, when its status says nothing on the
+ * panel provides what it names any more, as when its add-on was removed.
+ */
+export function providerProblem(intl: IntlShape, p: SigninProvider): string | null {
+  const status = p.status as { code?: string; message?: string } | undefined;
+  if (status?.code !== missingProvider) {
+    return null;
+  }
+  return problemMessage(intl, {
+    type: "about:blank",
+    code: missingProvider,
+    params: { provider: p.spec.provider },
+    ...(status.message ? { detail: status.message } : {}),
+  });
+}
+
+const missingProvider = "auth.provider_missing";
+
 function Providers() {
   const intl = useIntl();
   const api = useApi();
@@ -411,45 +431,51 @@ function Providers() {
       ) : null}
       {providers.data && providers.data.length > 0 ? (
         <ItemList label={intl.formatMessage(t.providersTitle)}>
-          {providers.data.map((p) => (
-            <Item
-              key={p.id}
-              icon={<KeyRound aria-hidden="true" />}
-              title={p.spec.title}
-              badge={
-                <>
-                  <Badge variant="outline">
-                    {intl.formatMessage(
-                      p.spec.capability === "mfa" ? t.providerSecondStep : t.providerSignIn,
-                    )}
-                  </Badge>
-                  {p.spec.disabled ? (
-                    <Badge variant="neutral">{intl.formatMessage(t.stateOff)}</Badge>
-                  ) : null}
-                </>
-              }
-              meta={p.spec.provider}
-              actions={
-                <>
-                  {can("core.signin_provider.update") && form ? (
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
-                      {intl.formatMessage(t.edit)}
-                    </Button>
-                  ) : null}
-                  {can("core.signin_provider.delete") ? (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={intl.formatMessage(t.providerRemove, { name: p.spec.title })}
-                      onClick={() => setDeleting(p)}
-                    >
-                      <Trash2 aria-hidden="true" />
-                    </Button>
-                  ) : null}
-                </>
-              }
-            />
-          ))}
+          {providers.data.map((p) => {
+            const problem = providerProblem(intl, p);
+            return (
+              <Item
+                key={p.id}
+                icon={<KeyRound aria-hidden="true" />}
+                title={p.spec.title}
+                badge={
+                  <>
+                    <Badge variant="outline">
+                      {intl.formatMessage(
+                        p.spec.capability === "mfa" ? t.providerSecondStep : t.providerSignIn,
+                      )}
+                    </Badge>
+                    {p.spec.disabled ? (
+                      <Badge variant="neutral">{intl.formatMessage(t.stateOff)}</Badge>
+                    ) : null}
+                    {problem ? (
+                      <Badge variant="warning">{intl.formatMessage(t.providerMissing)}</Badge>
+                    ) : null}
+                  </>
+                }
+                meta={problem ?? p.spec.provider}
+                actions={
+                  <>
+                    {can("core.signin_provider.update") && form ? (
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
+                        {intl.formatMessage(t.edit)}
+                      </Button>
+                    ) : null}
+                    {can("core.signin_provider.delete") ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={intl.formatMessage(t.providerRemove, { name: p.spec.title })}
+                        onClick={() => setDeleting(p)}
+                      >
+                        <Trash2 aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                  </>
+                }
+              />
+            );
+          })}
         </ItemList>
       ) : null}
       <Dialog

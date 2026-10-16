@@ -757,11 +757,22 @@ var EnsureMounted = Register(Def[MountInput, Result]{
 				return Result{}, fmt.Errorf("%s is already mounted from %s: %w", m.Target, m.Source, system.ErrExists)
 			}
 		}
-		effect := system.Effect{Type: system.EffectStorage, Action: "mount", Target: mount.Target, Detail: mount.Source}
-		if env.Check {
-			return Changed(effect), nil
+		var effects []system.Effect
+		if mount.FSType == "btrfs" {
+			// The operations that manage a Btrfs pool run the btrfs tools, which a
+			// disk brought from another machine doesn't bring along, so it gets
+			// them with its first mount, as a disk formatted here does.
+			pkg, err := ensurePackage(ctx, env, "btrfs-progs")
+			if err != nil {
+				return Result{}, err
+			}
+			effects = append(effects, pkg...)
 		}
-		return Changed(effect), env.System.Mounts.Mount(ctx, mount)
+		effects = append(effects, system.Effect{Type: system.EffectStorage, Action: "mount", Target: mount.Target, Detail: mount.Source})
+		if env.Check {
+			return Changed(effects...), nil
+		}
+		return Changed(effects...), env.System.Mounts.Mount(ctx, mount)
 	},
 })
 
@@ -1011,13 +1022,24 @@ var PartitionDisk = Register(Def[PartitionInput, Result]{
 		if err := deviceUnused(ctx, env.System, "/dev/"+in.Disk); err != nil {
 			return Result{}, err
 		}
-		effect := system.Effect{Type: system.EffectStorage, Action: "partition", Target: in.Disk, Destructive: true}
-		if env.Check {
-			return Changed(effect), nil
+		// Debian 13 installs gdisk, which provides sgdisk, only on demand.
+		pkg, err := ensurePackage(ctx, env, "gdisk")
+		if err != nil {
+			return Result{}, err
 		}
-		return Changed(effect), env.System.Disks.Partition(ctx, in.Disk, in.Partitions)
+		effects := append(pkg, system.Effect{Type: system.EffectStorage, Action: "partition", Target: in.Disk, Destructive: true})
+		if env.Check {
+			return Changed(effects...), nil
+		}
+		return Changed(effects...), env.System.Disks.Partition(ctx, in.Disk, in.Partitions)
 	},
 })
+
+// formatPackages are the packages that provide the mkfs tools Debian 13
+// doesn't install by default: btrfs-progs only comes with a system installed
+// on Btrfs, and is no more than a recommendation of Racksail's own package.
+// e2fsprogs is always there, and mkswap comes with util-linux.
+var formatPackages = map[string]string{"btrfs": "btrfs-progs", "xfs": "xfsprogs", "vfat": "dosfstools"}
 
 // FormatInput is a filesystem to create.
 type FormatInput struct {
@@ -1055,10 +1077,18 @@ var FormatDevice = Register(Def[FormatInput, Result]{
 				return Result{}, err
 			}
 		}
-		effect := system.Effect{Type: system.EffectStorage, Action: "format", Target: strings.Join(in.Spec.Devices, ","), Detail: in.Spec.Type, Destructive: true}
-		if env.Check {
-			return Changed(effect), nil
+		var effects []system.Effect
+		if pkgName, ok := formatPackages[in.Spec.Type]; ok {
+			pkg, err := ensurePackage(ctx, env, pkgName)
+			if err != nil {
+				return Result{}, err
+			}
+			effects = append(effects, pkg...)
 		}
-		return Changed(effect), env.System.Disks.Format(ctx, in.Spec)
+		effects = append(effects, system.Effect{Type: system.EffectStorage, Action: "format", Target: strings.Join(in.Spec.Devices, ","), Detail: in.Spec.Type, Destructive: true})
+		if env.Check {
+			return Changed(effects...), nil
+		}
+		return Changed(effects...), env.System.Disks.Format(ctx, in.Spec)
 	},
 })

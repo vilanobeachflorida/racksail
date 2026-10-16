@@ -15,12 +15,6 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// typeName turns a kind name into the name of its schemas: web.site gives
-// WebSite and mail.mailbox_alias gives MailMailboxAlias.
-func typeName(kind string) string {
-	return camel(strings.FieldsFunc(kind, func(r rune) bool { return r == '.' || r == '_' || r == '-' })...)
-}
-
 // camel joins words, each starting with a capital letter.
 func camel(words ...string) string {
 	var b strings.Builder
@@ -32,16 +26,6 @@ func camel(words ...string) string {
 		}
 	}
 	return b.String()
-}
-
-// lowerFirst makes the first letter of an operation ID lowercase.
-func lowerFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	r[0] = unicode.ToLower(r[0])
-	return string(r)
 }
 
 // kindDoc holds the schemas of one kind in the API document.
@@ -69,7 +53,7 @@ func (s *Server) register(name string, schema *huma.Schema) *huma.Schema {
 // create and update requests.
 func (s *Server) kindSchemas(k store.Kind) kindDoc {
 	info := k.Info()
-	name := typeName(info.Name)
+	name := info.TypeName()
 	reg := s.api.OpenAPI().Components.Schemas
 	d := kindDoc{
 		name:    name,
@@ -78,12 +62,23 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		inputs:  map[string]*huma.Schema{},
 		outputs: map[string]*huma.Schema{},
 	}
+	// Every resource, request and form shows the spec under one heading;
+	// kinds that share a spec type share its schema.
+	spec := d.spec
+	if d.spec.Ref != "" {
+		spec = reg.SchemaFromRef(d.spec.Ref)
+	}
+	if spec.Description == "" {
+		spec.Description = "The settings: what should exist, which Racksail puts in place"
+	}
 	base := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[store.Resource](), true, "Resource").Ref)
 	props := map[string]*huma.Schema{}
 	for key, p := range base.Properties {
 		props[key] = p
 	}
-	props["spec"], props["status"] = d.spec, d.status
+	title := sentenceTitle(info)
+	props["spec"] = described(d.spec, "What the "+title+" should be: its settings")
+	props["status"] = described(d.status, "What Racksail last saw of the "+title+", as its reconciler reports")
 	d.resource = s.register(name, &huma.Schema{
 		Type: huma.TypeObject, Description: info.Title + ": " + info.Description,
 		Properties: props, Required: base.Required, AdditionalProperties: false,
@@ -92,7 +87,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		Type:        huma.TypeObject,
 		Description: "One page of " + plural(info) + ".",
 		Properties: map[string]*huma.Schema{
-			"items": {Type: huma.TypeArray, Items: d.resource},
+			"items": {Type: huma.TypeArray, Items: d.resource, Description: "The " + plural(info) + " on this page"},
 			"next":  {Type: huma.TypeString, Description: "The cursor of the next page; empty on the last one"},
 		},
 		Required:             []string{"items"},
@@ -110,7 +105,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		"id":      {Type: huma.TypeString, Description: "An ID chosen up front, starting with " + info.Prefix + "_; one is made when left out"},
 		"server":  {Type: huma.TypeString, Description: "The cluster server to place it on; the panel's own server when left out"},
 		"labels":  labels,
-		"spec":    d.spec,
+		"spec":    described(d.spec, "The new "+title+"'s settings"),
 		"secrets": secrets,
 	}
 	required := []string{"spec"}
@@ -136,7 +131,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 	d.edit = s.register(name+"UpdateRequest", &huma.Schema{
 		Type: huma.TypeObject, Description: "New settings for a " + strings.ToLower(info.Title) + ".",
 		Properties: map[string]*huma.Schema{
-			"spec":     d.spec,
+			"spec":     described(d.spec, "The "+title+"'s new settings, which replace the old ones whole"),
 			"labels":   labels,
 			"secrets":  secrets,
 			"revision": {Type: huma.TypeInteger, Format: "int64", Description: "The revision the settings were read at; when someone changed them since, the update fails with a conflict"},
@@ -152,6 +147,14 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		}
 	}
 	return d
+}
+
+// described returns a copy of a schema, usually a reference to a named
+// one, that says what the field holding it is.
+func described(schema *huma.Schema, description string) *huma.Schema {
+	c := *schema
+	c.Description = description
+	return &c
 }
 
 // plural names a kind's resources in sentences: "sites", "mail domains".

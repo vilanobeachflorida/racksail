@@ -3,17 +3,26 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
+	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
+	"github.com/vilanobeachflorida/racksail/internal/cli"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/edge"
+	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -109,5 +118,71 @@ func TestPanelAgentAndEdgeInOneProcess(t *testing.T) {
 	}
 	if !slices.ContainsFunc(res.Items, func(it inbox.Item) bool { return it.ID == "suggestion:storage" }) {
 		t.Errorf("inbox = %+v", res)
+	}
+}
+
+// What racksail dev's developer does is recorded with the address the
+// request came from, without its ephemeral port, and with the surface it
+// came through: the panel's pages, the racksail command or another program.
+func TestDevRecordsWhereRequestsComeFrom(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := shortTemp(t)
+	t.Setenv("XDG_DATA_HOME", dir)
+	cfg, err := config.Dev(dir, config.DevAddresses{Panel: "127.0.0.1:0", EdgeHTTP: "127.0.0.1:0", EdgeHTTPS: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := newDevServer(ctx, cfg, dir, false, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close(context.Background())
+	dev, err := d.core.identity.Developer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiServer, err := d.core.apiServer(identity.DevAuthenticator{Service: d.core.identity, User: dev}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(apiServer.Handler())
+	defer srv.Close()
+	defer apiServer.Close()
+	for i, tc := range []struct {
+		header map[string]string
+		want   auth.Source
+	}{
+		{map[string]string{"Sec-Fetch-Site": "same-origin", "User-Agent": "Mozilla/5.0"}, auth.SourceUI},
+		{map[string]string{"User-Agent": cli.UserAgent}, auth.SourceCLI},
+		{map[string]string{"User-Agent": "curl/8.14.1"}, auth.SourceAPI},
+	} {
+		req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/me", strings.NewReader(`{"name":"Developer `+strconv.Itoa(i)+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range tc.header {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cs changeset.ChangeSet
+		err = json.NewDecoder(resp.Body).Decode(&cs)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("%s: %d, %v", tc.want, resp.StatusCode, err)
+		}
+		if cs.Actor.IP != "127.0.0.1" || cs.Actor.Source != tc.want || cs.Actor.ID != dev {
+			t.Errorf("the change set's actor = %+v, want %s from 127.0.0.1", cs.Actor, tc.want)
+		}
+	}
+	records, _, err := d.core.timeline.QueryAudit(ctx, events.Query{Types: []string{"core.user.update_profile"}, Limit: 10})
+	if err != nil || len(records) != 3 {
+		t.Fatalf("audit = %+v, %v", records, err)
+	}
+	for _, r := range records {
+		if r.Actor.IP != "127.0.0.1" {
+			t.Errorf("an audit record says the developer came from %q", r.Actor.IP)
+		}
 	}
 }

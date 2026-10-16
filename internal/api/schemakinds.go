@@ -91,7 +91,7 @@ func (s *Server) registerSchemaKinds() {
 		Responses: map[string]*huma.Response{"200": jsonResponse("A page of resources", &huma.Schema{
 			Type: huma.TypeObject, Required: []string{"items"},
 			Properties: map[string]*huma.Schema{
-				"items": {Type: huma.TypeArray, Items: resource},
+				"items": {Type: huma.TypeArray, Items: resource, Description: "The resources on this page"},
 				"next":  {Type: huma.TypeString, Description: "The cursor of the next page; empty on the last one"},
 			},
 		})},

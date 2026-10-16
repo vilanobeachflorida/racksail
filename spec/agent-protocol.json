@@ -1027,6 +1027,7 @@
             "type": "string"
           },
           "destructive": {
+            "description": "Whether it removes data",
             "type": "boolean"
           },
           "detail": {
@@ -1364,6 +1365,7 @@
           },
           "params": {
             "additionalProperties": {},
+            "description": "The values the code's message is filled in with",
             "type": "object"
           },
           "value": {
@@ -4354,20 +4356,25 @@
         "additionalProperties": false,
         "properties": {
           "binary": {
+            "description": "The racksail binary the update replaced",
             "type": "string"
           },
           "confirmedAt": {
+            "description": "When the new release confirmed it works",
             "format": "date-time",
             "type": "string"
           },
           "from": {
+            "description": "The version before the update",
             "type": "string"
           },
           "installedAt": {
+            "description": "When the release was installed",
             "format": "date-time",
             "type": "string"
           },
           "panelBackup": {
+            "description": "The copy of the panel's database kept from before the update",
             "type": "string"
           },
           "reason": {
@@ -4375,10 +4382,12 @@
             "type": "string"
           },
           "rolledBackAt": {
+            "description": "When the update was rolled back",
             "format": "date-time",
             "type": "string"
           },
           "snapshots": {
+            "description": "The read-only snapshots of the system taken before the update",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -4397,12 +4406,15 @@
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag, such as v1.2.3",
             "type": "string"
           },
           "to": {
+            "description": "The version the update installed",
             "type": "string"
           },
           "unprotected": {
+            "description": "Paths no snapshot covers, because they aren't on Btrfs",
             "items": {
               "type": "string"
             },
@@ -8178,7 +8190,7 @@
     },
     "/v1/ops/EnsureUser": {
       "post": {
-        "description": "Creates a Linux user, or updates the shell, groups, comment, lock state and subordinate IDs of an existing one. User and group IDs never change.",
+        "description": "Creates a Linux account or racksail-* system user, or updates the home, shell, groups, comment, lock state and subordinate IDs of one. It refuses to change any other user, and user and group IDs never change, nor does whether the user is a system user. An account's home is its own directory under /srv/racksail/accounts, its subordinate IDs are its own range, and it can't take the name of a privileged group or of a user or group the system or its packages use.",
         "operationId": "EnsureUser",
         "parameters": [
           {
@@ -9638,7 +9650,7 @@
     },
     "/v1/ops/InstallPlatformUnits": {
       "post": {
-        "description": "Renders racksail.slice, racksail-accounts.slice and the agent, panel and edge units for the given racksail executable, which only root may be able to change, and writes the ones that differ.",
+        "description": "Renders racksail.slice, racksail-accounts.slice and the agent, panel and edge units and sockets for the given racksail executable, which only root may be able to change, and writes the ones that differ. Only the installer and the self-update code, which run in the agent's own process, can call it; the agent's socket and panels on other servers are refused.",
         "operationId": "InstallPlatformUnits",
         "parameters": [
           {
@@ -14127,6 +14139,7 @@
     },
     "/v1/ops/SetUnitProperties": {
       "post": {
+        "description": "Sets resource-control limits of a unit Racksail manages, as systemctl set-property does: at once, and unless runtime is set, also in a drop-in that outlives a reboot. Racksail's own units and the root system services can't be adjusted.",
         "operationId": "SetUnitProperties",
         "parameters": [
           {

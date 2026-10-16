@@ -244,15 +244,48 @@ func (s *Server) Handler() http.Handler {
 		}
 		st := &auditState{}
 		ctx := context.WithValue(context.WithValue(r.Context(), callerKey{}, caller), auditedKey{}, st)
+		// A local operation is refused before its input is even read: whoever
+		// reaches the socket or comes from another server is outside the
+		// agent's process.
+		if op, ok := strings.CutPrefix(r.URL.Path, "/v1/ops/"); ok {
+			if e, found := Lookup(op); found && e.Local() {
+				err := errNotInProcess(e.Name())
+				if s.runtime != nil {
+					s.env(ctx, false, store.ID(r.Header.Get("Racksail-Owner"))).audit(e.Name(), nil, []byte{}, nil, err, time.Now())
+				}
+				writeProblem(w, err)
+				return
+			}
+		}
 		sw := &statusWriter{ResponseWriter: w}
 		inner.ServeHTTP(sw, r.WithContext(ctx))
-		op, isOp := strings.CutPrefix(r.URL.Path, "/v1/ops/")
-		if isOp && !st.done && s.runtime != nil {
-			// Huma refused the request before the operation saw it.
-			env := s.env(ctx, false, store.ID(r.Header.Get("Racksail-Owner")))
-			env.audit(op, nil, []byte{}, nil, refusal(op, sw.status), time.Now())
+		// Operations and streams record themselves once they are reached; the
+		// middleware records what was refused first, so every call is in the
+		// trail: a malformed operation or stream request, and any path under
+		// /v1 that no handler served.
+		if !st.done && s.runtime != nil {
+			if op := refusedCall(r.URL.Path, sw.status); op != "" {
+				env := s.env(ctx, false, store.ID(r.Header.Get("Racksail-Owner")))
+				env.audit(op, nil, []byte{}, nil, refusal(op, sw.status), time.Now())
+			}
 		}
 	})
+}
+
+// refusedCall names a call the middleware should record because no operation
+// or stream recorded it: an operation or stream request, or any other path
+// that was refused, whether or not it is under /v1 (for example "/" or "/x"),
+// so every refused call is in the trail (security.md rule 1). Paths that
+// answer normally without reaching an operation, such as the health check
+// and the event stream, return below 400 and aren't recorded.
+func refusedCall(path string, status int) string {
+	switch {
+	case strings.HasPrefix(path, "/v1/ops/"), strings.HasPrefix(path, "/v1/streams/"):
+		return requestedOp(path)
+	case status >= 400:
+		return requestedOp(path)
+	}
+	return ""
 }
 
 // refusal describes a request the API refused before it reached an

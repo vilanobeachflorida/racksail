@@ -292,9 +292,11 @@ func newServer(t *testing.T, g *github, version string, configure func(*Options)
 	if err := s.updater.Boot(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Their first reconcile writes the status, so tests wait for it rather
+	// than have it land on top of what they check.
 	waitFor(t, "the settings exist", func() bool {
 		set, _ := s.updater.Settings(ctx)
-		return set != nil
+		return set != nil && set.Status.ObservedGeneration == set.Generation
 	})
 	return s
 }

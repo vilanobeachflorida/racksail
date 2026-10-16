@@ -3,13 +3,18 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -185,14 +190,59 @@ func TestSigningInOverTheAPI(t *testing.T) {
 		t.Errorf("a signed-out session = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 
-	// The edge says who the browser is; the panel believes it from
-	// loopback.
+	// A site that reaches the panel's port over loopback can't forge its
+	// address: the panel believes X-Forwarded-For only from the edge over its
+	// Unix socket (TestForwardedTrustBoundary), never from this TCP
+	// connection, so the audit records where the request really came from.
 	edge := s.browser()
 	edge.header.Set("X-Forwarded-For", "203.0.113.50")
 	edge.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
 	records, _, _ := s.log.QueryAudit(context.Background(), events.Query{Types: []string{"auth.sign_in"}, Limit: 1})
+	if len(records) != 1 || records[0].Actor.IP == "203.0.113.50" {
+		t.Errorf("a forged X-Forwarded-For over TCP must be ignored: audit = %+v", records)
+	}
+	if ip, err := netip.ParseAddr(records[0].Actor.IP); err != nil || !ip.Unmap().IsLoopback() {
+		t.Errorf("the recorded client should be the real loopback peer, got %q", records[0].Actor.IP)
+	}
+}
+
+// TestForwardedTrustBoundary checks the boundary the sandbox relies on: the
+// panel believes a forwarded client address only on the Unix socket the edge
+// proxies through (which account sandboxes can't reach), never on its TCP
+// port, which a site can reach over loopback.
+func TestForwardedTrustBoundary(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	s.setUp()
+
+	// The edge's channel: the same handler on a Unix socket. A request that
+	// arrives there is trusted, so its X-Forwarded-For is believed.
+	sock := filepath.Join(t.TempDir(), "e.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: s.server.Handler()}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	overSocket := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return net.Dial("unix", sock) },
+	}}
+	req, _ := http.NewRequest("POST", "http://edge/api/v1/auth/sign-in",
+		strings.NewReader(`{"username":"ada","password":"`+testPassword+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	resp, err := overSocket.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sign-in over the edge socket = %d", resp.StatusCode)
+	}
+	records, _, _ := s.log.QueryAudit(context.Background(), events.Query{Types: []string{"auth.sign_in"}, Limit: 1})
 	if len(records) != 1 || records[0].Actor.IP != "203.0.113.50" {
-		t.Errorf("audit = %+v", records)
+		t.Errorf("the edge's forwarded address should be believed over its socket: audit = %+v", records)
 	}
 }
 
@@ -226,6 +276,71 @@ func TestSignInLimitsSayWhenToTryAgain(t *testing.T) {
 	}
 	if p.Detail != want {
 		t.Errorf("detail = %q, want %q", p.Detail, want)
+	}
+}
+
+// A lockout says how long it lasts in Retry-After as well, as the API's own
+// rate limit and the limits on signing in from one address do.
+func TestLockoutsSayWhenToTryAgain(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	s.setUp()
+	b := s.browser()
+	for range identity.DefaultPolicy().LockoutAttempts {
+		b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": "not the password at all"}, nil)
+	}
+	resp := b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	if resp.StatusCode != http.StatusTooManyRequests || s.problem(resp) != auth.ErrLocked.Code {
+		t.Fatalf("a locked-out user = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var p struct {
+		Params map[string]any `json:"params"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	after := resp.Header.Get("Retry-After")
+	if seconds, err := strconv.Atoi(after); err != nil || after != fmt.Sprint(p.Params["retryAfter"]) || seconds < 14*60 || seconds > 15*60 {
+		t.Errorf("Retry-After = %q, params = %v", after, p.Params)
+	}
+}
+
+// A sign-in provider names what an add-on or a module provides, or adding
+// it is refused, and the problem points at the name.
+func TestSignInProvidersNameWhatIsProvided(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	connect := func(name string) *http.Response {
+		return admin.do("POST", "/api/v1/core/signin-providers", map[string]any{"spec": map[string]any{"capability": "identity", "provider": name, "title": "Directory"}}, nil)
+	}
+	resp := connect("no-such-provider")
+	var p struct {
+		Detail string `json:"detail"`
+		Errors []struct {
+			Location string    `json:"location"`
+			Code     i18n.Code `json:"code"`
+		} `json:"errors"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	if resp.StatusCode != http.StatusUnprocessableEntity || s.problem(resp) != auth.ErrProviderMissing.Code || !strings.Contains(p.Detail, "no-such-provider") ||
+		len(p.Errors) != 1 || p.Errors[0].Location != "spec.provider" || p.Errors[0].Code != auth.ErrProviderMissing.Code {
+		t.Errorf("a provider nothing provides = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if err := s.hooks.Register(hooks.Registration{
+		Point: hooks.AuthProvider, Kind: hooks.Provide, Owner: "addon:ldap-sign-in",
+		Provider: &hooks.Provider{Name: "ldap-sign-in", Title: "LDAP sign-in", Open: func(ctx context.Context, settings json.RawMessage) (any, error) { return nil, nil }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp = connect("ldap-sign-in")
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("a provider an add-on provides = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	cs := s.finish("admin", changeSetOf(t, resp))
+	var provider struct {
+		Status identity.ProviderStatus `json:"status"`
+	}
+	admin.do("GET", "/api/v1/core/signin-providers/"+string(cs.Changes[0].ID), nil, &provider)
+	if provider.Status.Phase != store.PhaseReady {
+		t.Errorf("its status = %+v", provider.Status)
 	}
 }
 
@@ -287,7 +402,7 @@ func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	}
 	// What only the person in the panel changes stays theirs.
 	if resp := call("PUT", "/api/v1/session/preferences", map[string]any{"mode": "dark"}); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrPanelOnly.Code {
-		t.Errorf("a token changing display preferences = %d %s", resp.StatusCode, bodyOf(resp))
+		t.Errorf("a token changing preferences for the web UI = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	if resp := call("PUT", "/api/v1/me", map[string]any{"name": "Mallory", "email": "mallory@example.net"}); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("a read-only token changing the profile = %d %s", resp.StatusCode, bodyOf(resp))
@@ -457,8 +572,17 @@ func TestOpeningAnAccountWithAnOwnerNeedsStepUp(t *testing.T) {
 	}
 	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
 	opened = OpenedAccount{}
-	if resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &opened); resp.StatusCode != http.StatusAccepted || opened.Link == nil {
-		t.Errorf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	b.header.Set("Idempotency-Key", "open-acme")
+	if resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &opened); resp.StatusCode != http.StatusAccepted || opened.Link == nil || opened.Owner == nil {
+		t.Fatalf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	// A retry with the key gets the same account and owner, with a link of
+	// its own: the first was in an answer that may never have arrived.
+	var again OpenedAccount
+	resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &again)
+	if resp.StatusCode != http.StatusAccepted || again.ChangeSet == nil || again.ChangeSet.ID != opened.ChangeSet.ID ||
+		again.Owner == nil || again.Owner.ID != opened.Owner.ID || again.Link == nil {
+		t.Errorf("opening it again with the same key = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
 
@@ -772,16 +896,16 @@ func TestOwnChangesOverTheAPI(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !changeSetOf(t, resp).DryRun {
 		t.Fatalf("a preview of a profile change = %d %s", resp.StatusCode, bodyOf(resp))
 	}
-	resp = b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada Lovelace", "email": "ada@example.com"}, nil)
+	// A new name goes ahead as it is; a new email address, which outside
+	// sign-in may match people by, needs the person to confirm it's them.
+	resp = b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada Lovelace"}, nil)
 	cs := changeSetOf(t, resp)
 	if cs.Changes[0].Action != "update_profile" || cs.Changes[0].Kind != identity.KindUser {
 		t.Fatalf("a profile change = %+v", cs.Changes)
 	}
 	s.finish("admin", cs)
-	var me identity.Me
-	b.do("GET", "/api/v1/me", nil, &me)
-	if me.Name != "Ada Lovelace" || me.Email != "ada@example.com" {
-		t.Errorf("me = %+v", me.UserView)
+	if resp := b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada Lovelace", "email": "ada@example.com"}, nil); s.problem(resp) != auth.ErrStepUpRequired.Code {
+		t.Errorf("a new email address without confirming = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 
 	// Keys need the person to confirm it's them, and keys added at the same
@@ -790,6 +914,16 @@ func TestOwnChangesOverTheAPI(t *testing.T) {
 		t.Errorf("a key without confirming = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	resp = b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada Lovelace", "email": "ada@example.com"}, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("a new email address once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+	var me identity.Me
+	b.do("GET", "/api/v1/me", nil, &me)
+	if me.Name != "Ada Lovelace" || me.Email != "ada@example.com" {
+		t.Errorf("me = %+v", me.UserView)
+	}
 	var wg sync.WaitGroup
 	for _, key := range testKeys {
 		wg.Add(1)
@@ -811,15 +945,225 @@ func TestOwnChangesOverTheAPI(t *testing.T) {
 	if len(keys.Keys) != len(testKeys) {
 		t.Fatalf("keys = %+v", keys.Keys)
 	}
-	resp = b.do("DELETE", "/api/v1/me/ssh-keys/"+string(keys.Keys[0].ID), nil, nil)
-	if resp.StatusCode != http.StatusAccepted || changeSetOf(t, resp).Changes[0].Action != "remove_ssh_key" {
+	removal := "/api/v1/me/ssh-keys/" + string(keys.Keys[0].ID)
+	b.header.Set("Idempotency-Key", "remove-key-1")
+	resp = b.do("DELETE", removal, nil, nil)
+	removed := changeSetOf(t, resp)
+	if resp.StatusCode != http.StatusAccepted || removed.Changes[0].Action != "remove_ssh_key" {
 		t.Fatalf("removing a key = %d %s", resp.StatusCode, bodyOf(resp))
 	}
-	s.finish("admin", changeSetOf(t, resp))
+	s.finish("admin", removed)
 	b.do("GET", "/api/v1/me/ssh-keys", nil, &keys)
 	if len(keys.Keys) != len(testKeys)-1 {
 		t.Errorf("after removing one = %+v", keys.Keys)
 	}
+	// A retry with the key gets the first change set, though the key it
+	// removed is gone by then.
+	if resp = b.do("DELETE", removal, nil, nil); resp.StatusCode != http.StatusAccepted || changeSetOf(t, resp).ID != removed.ID {
+		t.Errorf("removing the key again with the same Idempotency-Key = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b.header.Del("Idempotency-Key")
+	if resp = b.do("DELETE", removal, nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("removing the key again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// An email address can become a way in, since outside sign-in may match
+// people by it the first time they sign in, so a person in the panel
+// confirms it's them before giving anyone a new one, however the change is
+// sent: a profile change of their own or someone else's, several changes
+// at once, a preview applied later or an undo.
+func TestNewEmailAddressesNeedConfirming(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	acct := s.openAccount(admin, "acme")
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	resp := admin.do("POST", "/api/v1/core/users", map[string]any{"scope": map[string]any{"level": "account", "id": acct}, "spec": map[string]any{
+		"username": "bea", "name": "Bea", "email": "bea@example.com", "grants": []map[string]any{{"role": "readonly", "scope": map[string]any{"level": "account", "id": acct}}},
+	}}, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("adding bea = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	bea := s.finish("admin", changeSetOf(t, resp)).Changes[0].ID
+	profile := func(name, email string) map[string]any { return map[string]any{"name": name, "email": email} }
+	action := "/api/v1/core/users/" + string(bea) + "/actions/update_profile"
+
+	// Ada again, in a browser where she hasn't confirmed it's her.
+	b := s.browser()
+	b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	asks := func(what string, resp *http.Response) {
+		t.Helper()
+		if resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+			t.Errorf("%s = %d %s", what, resp.StatusCode, bodyOf(resp))
+		}
+	}
+	asks("her own new address", b.do("PUT", "/api/v1/me", profile("Ada", "ada@example.org"), nil))
+	asks("someone else's", b.do("POST", action, profile("Bea", "mallory@example.net"), nil))
+	asks("taking it away", b.do("POST", action, profile("Bea", ""), nil))
+	asks("several changes at once", b.do("POST", "/api/v1/changesets", map[string]any{"changes": []map[string]any{{
+		"op": "action", "kind": identity.KindUser, "id": bea, "action": "update_profile", "input": profile("Bea", "mallory@example.net"),
+	}}}, nil))
+	if resp := b.do("GET", "/api/v1/core/users/"+string(bea), nil, nil); !strings.Contains(bodyOf(resp), `"email":"bea@example.com"`) {
+		t.Errorf("bea's address changed: %s", bodyOf(resp))
+	}
+
+	// Another name, or the address in other letters, goes ahead.
+	if resp := b.do("POST", action, profile("Beatrice", "BEA@example.com"), nil); resp.StatusCode >= 300 {
+		t.Errorf("a new name = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	// A preview needs nothing, but applying it does.
+	resp = b.do("POST", action+"?dryRun=true", profile("Bea", "mallory@example.net"), nil)
+	preview := changeSetOf(t, resp)
+	if resp.StatusCode != http.StatusOK || !preview.DryRun {
+		t.Fatalf("a preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	asks("applying the preview", b.do("POST", "/api/v1/changesets/"+string(preview.ID)+"/apply", nil, nil))
+
+	// Undoing a change of someone's address gives them another one too.
+	resp = admin.do("POST", action, profile("Bea", "bea@example.org"), nil)
+	if resp.StatusCode >= 300 {
+		t.Fatalf("a new address once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	changed := changeSetOf(t, resp)
+	asks("undoing it", b.do("POST", "/api/v1/changesets/"+string(changed.ID)+"/undo", nil, nil))
+
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	resp = b.do("POST", "/api/v1/changesets/"+string(preview.ID)+"/apply", nil, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Errorf("applying once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := b.do("POST", "/api/v1/changesets/"+string(changed.ID)+"/undo", nil, nil); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("undoing once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// Someone may be allowed to change a user's profile without being allowed to
+// read the user, as with a grant that names only update_profile on them.
+// Giving that user a new address still takes confirming it's them, whether
+// they send the change at once or apply a preview of it: what a change
+// needs is judged by what it does, not by what its maker may read.
+func TestNewAddressesNeedConfirmingWhateverYouMayRead(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	acct := s.openAccount(admin, "acme")
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	home := map[string]any{"level": "account", "id": acct}
+	add := func(spec map[string]any) store.ID {
+		t.Helper()
+		resp := admin.do("POST", "/api/v1/core/users", map[string]any{"scope": home, "spec": spec}, nil)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("adding %s = %d %s", spec["username"], resp.StatusCode, bodyOf(resp))
+		}
+		return s.finish("admin", changeSetOf(t, resp)).Changes[0].ID
+	}
+	bea := add(map[string]any{"username": "bea", "email": "bea@example.com", "grants": []map[string]any{{"role": "readonly", "scope": home}}})
+	cleo := add(map[string]any{"username": "cleo", "grants": []map[string]any{{
+		"role": "collaborator", "scope": home, "object": bea, "permissions": []string{string(auth.PermUserUpdateProfile)},
+	}}})
+	const password = "a passphrase of her own"
+	if resp := admin.do("PUT", "/api/v1/core/users/"+string(cleo)+"/password", map[string]any{"password": password}, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("giving cleo a password = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b := s.browser()
+	var answer SignInAnswer
+	if resp := b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "cleo", "password": password}, &answer); !answer.SignedIn {
+		t.Fatalf("cleo signing in = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := b.do("GET", "/api/v1/core/users/"+string(bea), nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cleo reading bea = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	change := map[string]any{"changes": []map[string]any{{
+		"op": "action", "kind": identity.KindUser, "id": bea, "action": identity.ActionUpdateProfile,
+		"input": map[string]any{"name": "Bea", "email": "mallory@example.net"},
+	}}}
+	asks := func(what string, resp *http.Response) {
+		t.Helper()
+		if resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+			t.Errorf("%s = %d %s", what, resp.StatusCode, bodyOf(resp))
+		}
+		if u, err := identity.UserKind.Get(context.Background(), s.store, bea); err != nil || u.Spec.Email != "bea@example.com" {
+			t.Fatalf("after %s, bea = %+v, %v", what, u, err)
+		}
+	}
+	asks("sending the change", b.do("POST", "/api/v1/changesets", change, nil))
+	resp := b.do("POST", "/api/v1/changesets?dryRun=true", change, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	apply := "/api/v1/changesets/" + string(changeSetOf(t, resp).ID) + "/apply"
+	asks("applying the preview", b.do("POST", apply, nil, nil))
+
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": password}, nil)
+	resp = b.do("POST", apply, nil, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("applying it once confirmed = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+	if u, _ := identity.UserKind.Get(context.Background(), s.store, bea); u.Spec.Email != "mallory@example.net" {
+		t.Errorf("once confirmed, bea's address is %s", u.Spec.Email)
+	}
+}
+
+// Whether a change needs a confirmation is decided on the change set as
+// planned, which is written only at the revisions it was planned against:
+// a change landing after the decision doesn't turn a new name into putting
+// back an old address. Sent at once, the change is planned and judged again
+// from what landed; a preview being applied fails instead.
+func TestConfirmationsHoldToWhatWasPlanned(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var me identity.Me
+	admin.do("GET", "/api/v1/me", nil, &me)
+	ctx := context.Background()
+	unconfirmed := &auth.Actor{Type: auth.ActorUser, ID: me.ID, User: me.ID, Name: "ada", Source: auth.SourceUI, SessionID: "a session",
+		Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	address := ""
+	// landing has someone who confirmed it's them give ada another address
+	// once a plan was judged, the first time only.
+	landing := func() changeset.Confirm {
+		judge, landed := s.server.confirmPlan(unconfirmed), false
+		return func(ctx context.Context, cs *changeset.ChangeSet) error {
+			if err := judge(ctx, cs); err != nil || landed {
+				return err
+			}
+			landed = true
+			address = "ada" + strconv.Itoa(len(address)) + "@example.com"
+			resp := admin.do("PUT", "/api/v1/me", map[string]any{"name": "Ada", "email": address}, nil)
+			if resp.StatusCode != http.StatusAccepted {
+				t.Fatalf("a new address meanwhile = %d %s", resp.StatusCode, bodyOf(resp))
+			}
+			s.finish("admin", changeSetOf(t, resp))
+			return nil
+		}
+	}
+	// A new name, keeping the address she has.
+	rename := func() []changeset.Change {
+		input, _ := json.Marshal(identity.ProfileInput{Name: "Ada L.", Email: address})
+		return []changeset.Change{{Op: changeset.OpAction, Kind: identity.KindUser, ID: me.ID, Action: identity.ActionUpdateProfile, Input: input}}
+	}
+	held := func(what string, err error, code error) {
+		t.Helper()
+		if !errors.Is(err, code) {
+			t.Errorf("%s = %v, want %v", what, err, code)
+		}
+		if u, _ := identity.UserKind.Get(ctx, s.store, me.ID); u.Spec.Email != address || u.Spec.Name != "Ada" {
+			t.Errorf("after %s, ada = %+v", what, u.Spec)
+		}
+	}
+	p := s.server.pipeline()
+	_, err := p.Submit(ctx, changeset.Request{Actor: unconfirmed, Changes: rename(), Confirm: landing()})
+	held("a new name sent as an address lands", err, auth.ErrStepUpRequired)
+
+	preview, err := p.Submit(ctx, changeset.Request{Actor: unconfirmed, Changes: rename(), DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Apply(ctx, changeset.ApplyRequest{Actor: unconfirmed, ChangeSet: preview.ID, Confirm: landing()})
+	held("a preview applied as an address lands", err, store.ErrConflict)
+	// The preview would now put back the address she had, which asks first.
+	_, err = p.Apply(ctx, changeset.ApplyRequest{Actor: unconfirmed, ChangeSet: preview.ID, Confirm: s.server.confirmPlan(unconfirmed)})
+	held("applying it again", err, auth.ErrStepUpRequired)
 }
 
 var testKeys = []string{
@@ -887,8 +1231,10 @@ func TestOpeningAnAccountIsOneChange(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	admin.do("GET", "/api/v1/core/accounts", nil, &accounts)
-	if len(accounts.Items) != 0 {
-		t.Errorf("the account was opened without its owner: %+v", accounts.Items)
+	for _, a := range accounts.Items {
+		if spec, _ := a["spec"].(map[string]any); spec["slug"] == "acme" {
+			t.Errorf("the account was opened without its owner: %+v", a)
+		}
 	}
 	var opened OpenedAccount
 	if resp := admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened); resp.StatusCode != http.StatusAccepted {

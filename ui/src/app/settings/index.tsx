@@ -20,6 +20,7 @@ import {
 import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { addonEntryKey, addonIcon, addonScreenPath, useAddonEntries } from "../addons";
+import { useSession } from "../identity/session";
 import { messages } from "../messages";
 import { useActiveModules, usePermission } from "../modules";
 import { generalMessages, peopleMessages as pm } from "../screens/messages";
@@ -62,6 +63,7 @@ function Entry({
 /** Every settings page: the panel's own, then each module's, then the add-ons'. */
 export default function SettingsIndex() {
   const intl = useIntl();
+  const { session } = useSession();
   const modules = useActiveModules();
   const allowed = usePermission();
   const addonPages = useAddonEntries("ui.settings");
@@ -160,7 +162,9 @@ export default function SettingsIndex() {
             to="/settings/appearance"
             icon={<Palette aria-hidden="true" />}
             title={intl.formatMessage(messages.appearanceTitle)}
-            description={intl.formatMessage(messages.appearanceDescription)}
+            description={intl.formatMessage(messages.appearanceDescription, {
+              kept: session ? "account" : "browser",
+            })}
           />
           <Entry
             to="/settings/appearance/theme"

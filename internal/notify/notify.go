@@ -32,15 +32,15 @@ type Message struct {
 	ID       string          `json:"id,omitempty" doc:"The same on every attempt to deliver the message"`
 	Title    string          `json:"title" doc:"What happened, in a few words"`
 	Body     string          `json:"body" doc:"What happened and what to do, in plain text"`
-	Severity events.Severity `json:"severity" enum:"info,notice,warning,error,critical"`
+	Severity events.Severity `json:"severity" enum:"info,notice,warning,error,critical" doc:"How serious it is: info, notice, warning, error or critical"`
 	// URL links back to the panel, such as the failed job.
 	URL string `json:"url,omitempty" doc:"Where in the panel to look"`
 	// ActionLabel names the link, such as "Look at the backup".
-	ActionLabel string `json:"actionLabel,omitempty"`
+	ActionLabel string `json:"actionLabel,omitempty" doc:"What the link back to the panel says, such as Look at the backup"`
 	// Event is the event the message is about, when there is one.
-	Event *events.Event `json:"event,omitempty"`
+	Event *events.Event `json:"event,omitempty" doc:"The event the message is about, when there is one"`
 	// Digest holds the messages a summary of quiet hours stands for.
-	Digest []Message `json:"digest,omitempty"`
+	Digest []Message `json:"digest,omitempty" doc:"The messages a summary of quiet hours stands for"`
 	// Locale is the language of the words the panel adds to the message,
 	// such as its severity and the link back to the panel.
 	Locale string `json:"locale,omitempty" doc:"The language of the panel's own words in the message, such as de or pt-BR; English when empty"`

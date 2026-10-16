@@ -16,7 +16,9 @@
 // AuthorizeRead and List, which also honours grants on single resources.
 // Changes go through Submit, which carries the dryRun and Idempotency-Key
 // parameters every mutating operation accepts (ChangeParams) into the
-// pipeline, where each change is authorized again.
+// pipeline, where each change is authorized again. A request built from
+// what is there goes through SubmitFunc, which answers a retry with the
+// first change set before building the request again (Replayed).
 //
 // Close ends the live streams and the waits for actions when the panel
 // shuts down, and GET /api/v1/metrics reports the API's own counts with

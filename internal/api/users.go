@@ -45,14 +45,14 @@ type userTokenPath struct {
 
 // MatrixEntry is one permission and how far each role reaches with it.
 type MatrixEntry struct {
-	Permission  auth.Permission           `json:"permission"`
-	Description string                    `json:"description"`
+	Permission  auth.Permission           `json:"permission" doc:"The permission"`
+	Description string                    `json:"description" doc:"What it lets someone do"`
 	Roles       map[auth.Role]auth.Access `json:"roles" doc:"For each role: everywhere, scope (where the grant applies), named (only when a grant names it) or none"`
 }
 
 type rolesOutput struct {
 	Body struct {
-		Roles  []auth.RoleInfo `json:"roles"`
+		Roles  []auth.RoleInfo `json:"roles" doc:"Every role, from the most to the least powerful"`
 		Matrix []MatrixEntry   `json:"matrix" doc:"Every permission, and how far each role reaches with it"`
 		// Self are what everyone may do to their own user.
 		Self []auth.Permission `json:"self" doc:"What everyone may do to their own user, whatever their roles"`
@@ -87,10 +87,10 @@ type openAccountInput struct {
 type OpenedAccount struct {
 	// ChangeSet adds the account and its owner together, so both are
 	// there or neither is.
-	ChangeSet *changeset.ChangeSet `json:"changeSet"`
-	Owner     *identity.UserView   `json:"owner,omitempty"`
+	ChangeSet *changeset.ChangeSet `json:"changeSet" doc:"The change set that adds the account and its owner together"`
+	Owner     *identity.UserView   `json:"owner,omitempty" doc:"The user who owns the account"`
 	// Link is the owner's sign-in link, shown once.
-	Link *identity.IssuedLink `json:"link,omitempty"`
+	Link *identity.IssuedLink `json:"link,omitempty" doc:"The owner's sign-in link to choose their password, shown once"`
 }
 
 type openAccountOutput struct {
@@ -281,6 +281,15 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 	if p == nil {
 		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 	}
+	// A retry gets the first change set before anything is checked or made
+	// for it, and its owner a new sign-in link: the first link was in an
+	// answer that may never have arrived.
+	if earlier, err := Replayed(ctx, p, in.ChangeParams); earlier != nil || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return s.openedAccount(ctx, actor, earlier, ownerOf(earlier.Body))
+	}
 	scope := store.ServerScope()
 	if in.Body.Reseller != "" {
 		scope = store.ResellerScope(in.Body.Reseller)
@@ -311,22 +320,23 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 		}
 		changes = append(changes, changeset.Change{Op: changeset.OpCreate, Kind: identity.KindUser, ID: ownerID, Scope: home, Spec: owner})
 	}
-	if !in.DryRun {
-		// An owner is a new user, which people in the panel confirm it's
-		// them for, as when they add one on its own.
-		if err := s.stepUpFor(actor, s.requestRisk(changes)); err != nil {
-			return nil, err
-		}
-		if err := s.stepUpForKinds(actor, s.requestConfirms(changes)); err != nil {
-			return nil, err
-		}
-	}
+	// An owner is a new user, which people in the panel confirm it's them
+	// for, as when they add one on its own: Submit asks.
 	res, err := Submit(ctx, p, in.ChangeParams, changeset.Request{Title: "Open the account " + in.Body.Name, Changes: changes})
 	if err != nil {
 		return nil, err
 	}
+	if in.DryRun {
+		ownerID = ""
+	}
+	return s.openedAccount(ctx, actor, res, ownerID)
+}
+
+// openedAccount answers the opening of an account with its change set and,
+// when it added an owner, the owner with a sign-in link.
+func (s *Server) openedAccount(ctx context.Context, actor *auth.Actor, res *ChangeSetOutput, ownerID store.ID) (*openAccountOutput, error) {
 	out := &openAccountOutput{Status: res.Status, Body: OpenedAccount{ChangeSet: res.Body}}
-	if in.DryRun || ownerID == "" {
+	if ownerID == "" {
 		return out, nil
 	}
 	ids, err := s.requireIdentity()
@@ -343,4 +353,15 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 	}
 	out.Body.Owner, out.Body.Link = &view, &link
 	return out, nil
+}
+
+// ownerOf is the user the opening of an account added as its owner, or ""
+// when it added none.
+func ownerOf(cs *changeset.ChangeSet) store.ID {
+	for _, c := range cs.Changes {
+		if c.Op == changeset.OpCreate && c.Kind == identity.KindUser {
+			return c.ID
+		}
+	}
+	return ""
 }

@@ -237,9 +237,10 @@ func (s *Service) MyPasskeys(ctx context.Context, actor *auth.Actor) ([]PasskeyV
 	return out, nil
 }
 
-// RenamePasskey gives one of the actor's passkeys a new name.
+// RenamePasskey gives one of the actor's passkeys a new name. Someone
+// viewing the panel as the person leaves their passkeys as they are.
 func (s *Service) RenamePasskey(ctx context.Context, actor *auth.Actor, id store.ID, name string) (PasskeyView, error) {
-	if err := requirePerson(actor); err != nil {
+	if err := ownChange(actor, "rename passkeys"); err != nil {
 		return PasskeyView{}, err
 	}
 	name = strings.TrimSpace(name)

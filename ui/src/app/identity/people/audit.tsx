@@ -117,6 +117,19 @@ export function who(intl: IntlShape, record: AuditRecord): string {
     : through;
 }
 
+/**
+ * How often a refusal repeated after the record was made, and when it last
+ * did: repeats of the same refusal count on its first record rather than
+ * getting records of their own.
+ */
+export function repeats(intl: IntlShape, record: AuditRecord): string {
+  const count = record.repeats ?? 0;
+  const last = formatTime(intl, record.lastTime);
+  return last
+    ? intl.formatMessage(t.auditRepeatsUntil, { count, time: last })
+    : intl.formatMessage(t.auditRepeats, { count });
+}
+
 function Details({ record, onClose }: { record: AuditRecord | null; onClose: () => void }) {
   const intl = useIntl();
   const names = useAccountNames();
@@ -143,6 +156,12 @@ function Details({ record, onClose }: { record: AuditRecord | null; onClose: () 
                 <Outcome outcome={record.outcome} />
                 {record.reason ? <span className="ms-2">{record.reason}</span> : null}
               </dd>
+              {record.repeats ? (
+                <>
+                  <dt className="text-muted-foreground">{intl.formatMessage(t.auditRepeated)}</dt>
+                  <dd>{repeats(intl, record)}</dd>
+                </>
+              ) : null}
               <dt className="text-muted-foreground">{intl.formatMessage(t.auditOwner)}</dt>
               <dd>{ownerLabel(intl, record.scope, names)}</dd>
               {record.subject ? (
@@ -300,7 +319,7 @@ function Audit() {
       ) : null}
       {rows.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-border">
-          <Table>
+          <Table aria-label={intl.formatMessage(t.auditTitle)}>
             <TableHeader>
               <TableRow>
                 <TableHead>{intl.formatMessage(t.auditWhen)}</TableHead>
@@ -330,6 +349,11 @@ function Audit() {
                   </TableCell>
                   <TableCell>
                     <Outcome outcome={r.outcome} />
+                    {r.repeats ? (
+                      <span className="block text-muted-foreground text-xs">
+                        {intl.formatMessage(t.auditRepeats, { count: r.repeats })}
+                      </span>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}

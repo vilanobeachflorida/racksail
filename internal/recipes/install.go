@@ -90,8 +90,8 @@ type InstallationStatus struct {
 
 // InstallationHealth is how the health checks went.
 type InstallationHealth struct {
-	Healthy bool           `json:"healthy"`
-	Health  []HealthResult `json:"health"`
+	Healthy bool           `json:"healthy" doc:"Whether every health check passed"`
+	Health  []HealthResult `json:"health" doc:"How each health check went"`
 }
 
 // CheckInput says how an installation's health is checked.
@@ -428,7 +428,7 @@ type UpgradeInput struct {
 	// Inputs replace values given at install; passwords and secrets the
 	// new version asks for anew must be given here.
 	Inputs        map[string]any `json:"inputs,omitempty" doc:"Values for inputs the new version adds or that should change"`
-	AcceptLicense bool           `json:"acceptLicense,omitempty"`
+	AcceptLicense bool           `json:"acceptLicense,omitempty" doc:"Accept the license of software that isn't open source"`
 }
 
 // UpgradeRequest builds the change set that upgrades an installation: the

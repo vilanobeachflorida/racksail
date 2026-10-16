@@ -27,7 +27,7 @@
   "app.inbox.retryFailed": "The job couldn't run again: {reason}",
   "app.inbox.all": "Show all {count, number}",
   "app.inbox.fewer": "Show fewer",
-  "app.inbox.newTab": "(opens in a new tab)",
+  "app.inbox.newTab": "{label} <hidden>(opens in a new tab)</hidden>",
   "app.inbox.actionOpen": "Open",
   "app.inbox.actionLog": "Show the log",
   "app.inbox.actionChange": "Show the change",

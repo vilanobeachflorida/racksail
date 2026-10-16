@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -109,7 +110,7 @@ type listEventsInput struct {
 
 type eventList struct {
 	Body struct {
-		Events []events.Event `json:"events"`
+		Events []events.Event `json:"events" doc:"The events on this page, newest first"`
 		Next   string         `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }
@@ -124,16 +125,16 @@ type streamEventsInput struct {
 
 // EventType describes an event type.
 type EventType struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Severity    events.Severity `json:"severity" enum:"info,notice,warning,error,critical"`
+	Name        string          `json:"name" doc:"The type's name, <kind>.<past-tense verb>"`
+	Description string          `json:"description" doc:"What happened, in English"`
+	Severity    events.Severity `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent events of the type are"`
 	// Data is the JSON Schema of the event's data, when it has any.
 	Data json.RawMessage `json:"data,omitempty" doc:"The JSON Schema of the event's data"`
 }
 
 type eventTypesOutput struct {
 	Body struct {
-		Types []EventType `json:"types"`
+		Types []EventType `json:"types" doc:"Every event type, sorted by name"`
 	}
 }
 
@@ -152,7 +153,7 @@ type listAuditInput struct {
 
 type auditList struct {
 	Body struct {
-		Records []events.AuditRecord `json:"records"`
+		Records []events.AuditRecord `json:"records" doc:"The records on this page, newest first"`
 		Next    string               `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }
@@ -483,7 +484,7 @@ func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, mos
 	enc := json.NewEncoder(w)
 	if format != "json" {
 		cw = csv.NewWriter(w)
-		cw.Write([]string{"id", "time", "outcome", "action", "kind", "subject", "scope", "actor", "for", "via", "address", "change set", "request", "summary", "reason"})
+		cw.Write([]string{"id", "time", "outcome", "action", "kind", "subject", "scope", "actor", "for", "via", "address", "change set", "request", "summary", "reason", "repeats", "last time"})
 	}
 	written := 0
 	for {
@@ -497,9 +498,14 @@ func exportAudit(ctx context.Context, audit events.AuditLog, q events.Query, mos
 				if r.Actor.ID == "" {
 					who = string(r.Actor.Type) + ":" + r.Actor.Name
 				}
+				var last string
+				if r.LastTime != nil {
+					last = r.LastTime.Format(time.RFC3339Nano)
+				}
 				row := []string{
 					string(r.ID), r.Time.Format(time.RFC3339Nano), string(r.Outcome), r.Action, r.Kind, string(r.Subject), r.Scope.String(),
 					who, string(r.Actor.User), string(r.Actor.Source), r.Actor.IP, string(r.ChangeSet), r.RequestID, r.Summary, r.Reason,
+					strconv.Itoa(r.Repeats), last,
 				}
 				for i, cell := range row {
 					row[i] = spreadsheetSafe(cell)

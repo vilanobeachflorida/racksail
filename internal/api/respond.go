@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/validation"
 
 	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -82,7 +85,9 @@ func writeProblemTo(ctx huma.Context, err error) {
 }
 
 // readJSON decodes the request body into v, refusing unknown fields, so a
-// misspelt field is reported rather than ignored.
+// misspelt field is reported rather than ignored. What the decoder finds
+// wrong comes back as the schema validator's findings do for operations
+// with typed inputs, in the catalog's words (bodyError).
 func readJSON(ctx huma.Context, v any) error {
 	data, err := io.ReadAll(io.LimitReader(ctx.BodyReader(), maxBody+1))
 	if err != nil {
@@ -97,11 +102,7 @@ func readJSON(ctx huma.Context, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) && typeErr.Field != "" {
-			return i18n.Invalid(i18n.Field("body."+typeErr.Field, i18n.ErrBadValue, "reason", "expected "+typeErr.Type.String()))
-		}
-		return i18n.ErrBadRequest.New("reason", "the body isn't valid JSON: "+strings.TrimPrefix(err.Error(), "json: "))
+		return bodyError(reflect.TypeOf(v), data, err)
 	}
 	if dec.More() {
 		return i18n.ErrBadRequest.New("reason", "the body has more than one JSON value")
@@ -123,9 +124,226 @@ func readRaw(ctx huma.Context) (json.RawMessage, error) {
 		return nil, nil
 	}
 	if !json.Valid(data) {
-		return nil, i18n.ErrBadRequest.New("reason", "the body isn't valid JSON")
+		return nil, notJSON()
 	}
 	return data, nil
+}
+
+// notJSON is the answer to a body that isn't JSON at all, the one operations
+// with typed inputs give.
+func notJSON() error {
+	const reason = "the body isn't valid JSON"
+	return i18n.ErrBadRequest.New("reason", reason).WithFields(i18n.Field("body", i18n.ErrBadValue, "reason", reason))
+}
+
+// bodyError says what the JSON decoder found wrong with data, a body for a
+// value of type t, as the schema validator says it for operations with
+// typed inputs (i18n.SchemaField): a field of the wrong type is
+// core.bad_value with what the field takes, such as "use a whole number",
+// a field t doesn't have is core.unknown_name, and a body that isn't JSON,
+// one cut short included, is core.bad_request. The decoder's own words,
+// which name Go types, never reach people.
+func bodyError(t reflect.Type, data []byte, err error) error {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		path := "body"
+		if typeErr.Field != "" {
+			path += "." + decodedPath(data, typeErr.Field)
+		}
+		return i18n.Invalid(i18n.SchemaField(path, expected(typeErr.Type)))
+	}
+	if name, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		path, found := unknownField(t, data)
+		if !found {
+			path, _ = strconv.Unquote(name)
+		}
+		return i18n.Invalid(i18n.SchemaField("body."+path, validation.MsgUnexpectedProperty))
+	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return notJSON()
+	}
+	// A field's own decoding refused its value.
+	return i18n.Invalid(i18n.Field("body", i18n.ErrBadValue, "reason", "it doesn't have the form the operation takes"))
+}
+
+// expected is what the schema validator says when a value isn't of the JSON
+// type a value of t is written as.
+func expected(t reflect.Type) string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Bool:
+		return validation.MsgExpectedBoolean
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return validation.MsgExpectedInteger
+	case reflect.Float32, reflect.Float64:
+		return validation.MsgExpectedNumber
+	case reflect.String:
+		return validation.MsgExpectedString
+	case reflect.Slice, reflect.Array:
+		if t.Elem().Kind() == reflect.Uint8 {
+			// Bytes are written as base64 text.
+			return validation.MsgExpectedBase64String
+		}
+		return validation.MsgExpectedArray
+	case reflect.Map, reflect.Struct:
+		return validation.MsgExpectedObject
+	}
+	return ""
+}
+
+// decodedPath turns the path of a field of the JSON document data, as the
+// decoder writes it, the names and indexes from the top joined by dots, into
+// the API's, where an index is in brackets: items.1.name becomes
+// items[1].name. The decoder escapes names as a JSON pointer does, ~1 for /
+// and ~0 for ~, but not their dots, so a name is matched with the document:
+// labels.app.example.com is the key app.example.com of labels when labels
+// has that key.
+func decodedPath(data []byte, dotted string) string {
+	parts := strings.Split(dotted, ".")
+	for i, part := range parts {
+		parts[i] = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
+	}
+	var b strings.Builder
+	node := bytes.TrimSpace(data)
+	i := 0
+walk:
+	for i < len(parts) {
+		switch {
+		case len(node) > 0 && node[0] == '{':
+			var members map[string]json.RawMessage
+			if json.Unmarshal(node, &members) != nil {
+				break walk
+			}
+			for k := i + 1; k <= len(parts); k++ {
+				name := strings.Join(parts[i:k], ".")
+				if value, ok := members[name]; ok {
+					b.WriteString("." + name)
+					node, i = bytes.TrimSpace(value), k
+					continue walk
+				}
+			}
+		case len(node) > 0 && node[0] == '[':
+			var items []json.RawMessage
+			n, err := strconv.Atoi(parts[i])
+			if json.Unmarshal(node, &items) != nil || err != nil || n < 0 || n >= len(items) {
+				break walk
+			}
+			b.WriteString("[" + parts[i] + "]")
+			node, i = bytes.TrimSpace(items[n]), i+1
+			continue walk
+		}
+		break
+	}
+	if i < len(parts) {
+		b.WriteString("." + strings.Join(parts[i:], "."))
+	}
+	return strings.TrimPrefix(b.String(), ".")
+}
+
+var (
+	typeOfRawMessage  = reflect.TypeFor[json.RawMessage]()
+	typeOfUnmarshaler = reflect.TypeFor[json.Unmarshaler]()
+)
+
+// unknownField finds the first field of the JSON document data that a value
+// of type t has no place for, the one the decoder refused, and returns its
+// path, such as scope.idd. Values t decodes itself, and raw JSON, take
+// anything.
+func unknownField(t reflect.Type, data []byte) (string, bool) {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == typeOfRawMessage || t.Implements(typeOfUnmarshaler) || reflect.PointerTo(t).Implements(typeOfUnmarshaler) {
+		return "", false
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		dec := json.NewDecoder(bytes.NewReader(data))
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+			return "", false
+		}
+		for dec.More() {
+			tok, err := dec.Token()
+			if err != nil {
+				return "", false
+			}
+			name, _ := tok.(string)
+			var value json.RawMessage
+			if err := dec.Decode(&value); err != nil {
+				return "", false
+			}
+			f, ok := jsonField(t, name)
+			if !ok {
+				return name, true
+			}
+			if path, ok := unknownField(f.Type, value); ok {
+				return joinPath(name, path), true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		var items []json.RawMessage
+		if json.Unmarshal(data, &items) != nil {
+			return "", false
+		}
+		for i, item := range items {
+			if path, ok := unknownField(t.Elem(), item); ok {
+				return joinPath("["+strconv.Itoa(i)+"]", path), true
+			}
+		}
+	case reflect.Map:
+		var entries map[string]json.RawMessage
+		if json.Unmarshal(data, &entries) != nil {
+			return "", false
+		}
+		for _, key := range slices.Sorted(maps.Keys(entries)) {
+			if path, ok := unknownField(t.Elem(), entries[key]); ok {
+				return joinPath(key, path), true
+			}
+		}
+	}
+	return "", false
+}
+
+// joinPath puts the path of a field inside another after that one's.
+func joinPath(outer, inner string) string {
+	if strings.HasPrefix(inner, "[") {
+		return outer + inner
+	}
+	return outer + "." + inner
+}
+
+// jsonField finds the field of struct type t that the decoder fills from
+// the JSON field name: the one with that name, or failing that the one whose
+// name matches it but for case, as the decoder does, those of embedded
+// structs included.
+func jsonField(t reflect.Type, name string) (reflect.StructField, bool) {
+	var folded *reflect.StructField
+	for _, f := range reflect.VisibleFields(t) {
+		if !f.IsExported() || (f.Anonymous && f.Tag.Get("json") == "") {
+			continue
+		}
+		tag, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if tag == "-" {
+			continue
+		}
+		if tag == "" {
+			tag = f.Name
+		}
+		if tag == name {
+			return f, true
+		}
+		if folded == nil && strings.EqualFold(tag, name) {
+			folded = &f
+		}
+	}
+	if folded != nil {
+		return *folded, true
+	}
+	return reflect.StructField{}, false
 }
 
 func badParam(name, reason string) error {

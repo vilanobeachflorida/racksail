@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -147,9 +148,13 @@ func homeScope(u *User) store.Scope {
 	return u.Home
 }
 
+// lockedError says how long a lockout lasts: in minutes for people, and in
+// seconds for the answer's Retry-After header, as rate limits say it.
 func (s *Service) lockedError(u *User) error {
-	minutes := int(u.LockedUntil.Sub(s.now()).Minutes()) + 1
-	return auth.ErrLocked.New("minutes", itoa(minutes))
+	left := u.LockedUntil.Sub(s.now())
+	minutes := max(int(math.Ceil(left.Minutes())), 1)
+	seconds := max(int(math.Ceil(left.Seconds())), 1)
+	return auth.ErrLocked.New("minutes", itoa(minutes), "retryAfter", itoa(seconds))
 }
 
 // failed counts a failed attempt against a user, and locks them out once

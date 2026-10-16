@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkTheme, consoleColors, contrastTable, isBundledFont, paletteColors } from "./check";
 import { contrast, hue, isColor, luminance, mix, parseColor } from "./color";
-import { cssShadow, cssVar, renderLayerCSS, renderScopedCSS } from "./css";
+import { cssDuration, cssLength, cssShadow, cssVar, renderLayerCSS, renderScopedCSS } from "./css";
 import { fontLayer, layerAssetURLs } from "./files";
 import { overlay, resolveLayers } from "./layers";
 import {
@@ -263,6 +263,40 @@ describe("theme CSS", () => {
     expect(readThemeDocument(theme).issues).toContainEqual(
       expect.objectContaining({ path: "tokens.shadows.sm", keyword: "pattern" }),
     );
+  });
+
+  it("leaves out lengths and durations that would close the rule early", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.radius = { ...theme.tokens.radius, sm: "4px}main{display:none}x{" };
+    theme.tokens.typography = { ...theme.tokens.typography, baseSize: "1rem;color:red" };
+    theme.tokens.motion = { ...theme.tokens.motion, fast: "120ms}" };
+    theme.tokens.focusRing = { width: "3px" };
+    for (const css of [renderLayerCSS(theme), renderScopedCSS(theme, ".preview", "light")]) {
+      for (const gone of ["--rs-radius-sm", "--rs-font-size-base", "--rs-motion-fast", "main{"]) {
+        expect(css).not.toContain(gone);
+      }
+      expect(css).toContain("--rs-radius-md: 6px;");
+      expect(css).toContain("--rs-motion-slow: 320ms;");
+      expect(css).toContain("--rs-focus-width: 3px;");
+      expect(css.split("{").length).toBe(css.split("}").length);
+    }
+    expect(cssLength("0.5rem")).toBe("0.5rem");
+    expect(cssLength("var(--x)")).toBe("");
+    expect(cssDuration("200ms")).toBe("200ms");
+    expect(cssDuration("0.2s")).toBe("");
+    expect(readThemeDocument(theme).issues).toContainEqual(
+      expect.objectContaining({ path: "tokens.radius.sm", keyword: "pattern" }),
+    );
+  });
+
+  it("leaves out weights a theme doesn't set, as internal/theme does", () => {
+    const theme = builtinTheme("racksail");
+    theme.tokens.typography = { ...theme.tokens.typography, weights: { medium: 450, bold: 800 } };
+    const css = renderLayerCSS(theme);
+    expect(css).toContain("--rs-weight-medium: 450;");
+    expect(css).toContain("--rs-weight-bold: 800;");
+    expect(css).not.toContain("--rs-weight-regular");
+    expect(css).not.toContain("--rs-weight-semibold");
   });
 
   it("scopes a preview to one element and one mode", () => {

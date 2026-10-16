@@ -437,8 +437,17 @@ func TestOwnSignInTakesThePanel(t *testing.T) {
 	if _, err := h.update(viewing, owen.ID, func(s *UserSpec) { s.AllowFrom = []string{"203.0.113.0/24"} }); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("someone viewing as the user changing where they sign in from = %v", err)
 	}
-	// What doesn't sign anyone in goes through.
-	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Name = "Owen Owner" }); err != nil {
+	// Nor an address that only Unicode's case folding would count as the
+	// one he has, which outside sign-in tells apart.
+	if _, err := h.update(root(), owen.ID, func(s *UserSpec) { s.Email = "owen@shop.example" }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Email = "owen@\u017fhop.example" }); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token giving its user an address with a long s = %v", err)
+	}
+	// What doesn't sign anyone in goes through, his address in capitals
+	// included.
+	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Name, s.Email = "Owen Owner", "Owen@Shop.example" }); err != nil {
 		t.Errorf("a token renaming its user = %v", err)
 	}
 	// Others with the permission add keys, and the user hears about it.
@@ -450,6 +459,74 @@ func TestOwnSignInTakesThePanel(t *testing.T) {
 	}
 	if u := h.get(owen.ID); len(u.SSHKeys) != 1 || u.Name != "Owen Owner" {
 		t.Errorf("owen = %+v", u)
+	}
+}
+
+// What outside sign-in matches people by is a user's username and email
+// address, in whatever case; their name, language and the rest aren't.
+func TestSignInMatch(t *testing.T) {
+	ada := UserSpec{Username: "ada", Name: "Ada", Email: "ada@example.com", Locale: "en"}
+	for _, tc := range []struct {
+		name    string
+		change  func(*UserSpec)
+		changed bool
+	}{
+		{"a new name and language", func(s *UserSpec) { s.Name, s.Locale = "Ada Lovelace", "pt-BR" }, false},
+		{"the address in capitals", func(s *UserSpec) { s.Email = " ADA@Example.com" }, false},
+		{"another address", func(s *UserSpec) { s.Email = "ada@example.org" }, true},
+		{"no address", func(s *UserSpec) { s.Email = "" }, true},
+		{"another username", func(s *UserSpec) { s.Username = "lovelace" }, true},
+		{"new keys", func(s *UserSpec) { s.SSHKeys = []UserSSHKey{{Name: "laptop"}} }, false},
+	} {
+		next := ada
+		tc.change(&next)
+		if got := SignInMatchChanged(ada, next); got != tc.changed {
+			t.Errorf("%s: changed = %v", tc.name, got)
+		}
+	}
+	got, err := ApplyProfile(ada, json.RawMessage(`{"name":" Ada L. ","email":" ada@example.org ","locale":"en-GB"}`))
+	if err != nil || got.Name != "Ada L." || got.Email != "ada@example.org" || got.Locale != "en-GB" || got.Username != "ada" {
+		t.Errorf("a profile = %+v, %v", got, err)
+	}
+	if _, err := ApplyProfile(ada, json.RawMessage(`{"email":"not an address"}`)); !i18n.ErrInvalid.Is(err) {
+		t.Errorf("a bad address = %v", err)
+	}
+}
+
+// A change counts as giving a user another address exactly when it changes
+// whom the address finds: addresses are compared as the users' email index
+// keeps them and outside sign-in looks them up, which tells apart letters
+// that Unicode's case folding counts as one.
+func TestSignInMatchFollowsTheIndex(t *testing.T) {
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	sam := h.user("sam", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	for _, tc := range []struct{ has, next string }{
+		{"sam@example.com", "sam@example.com"},
+		{"sam@example.com", " SAM@Example.COM "},
+		{"sam@example.com", "\u017fam@example.com"},
+		{"\u00b5@example.com", "\u03bc@example.com"},
+		{"\u03c3@example.com", "\u03c2@example.com"},
+		{"\u03c3@example.com", "\u03a3@example.com"},
+		{"sam@example.com", "sam@example.org"},
+	} {
+		if _, err := h.update(root(), sam.ID, func(s *UserSpec) { s.Email = tc.has }); err != nil {
+			t.Fatal(err)
+		}
+		u, err := h.svc.userByEmail(h.ctx, tc.next)
+		finds := err == nil && u.ID == sam.ID
+		if err != nil && !store.ErrNotFound.Is(err) {
+			t.Fatal(err)
+		}
+		obj, err := UserKind.Get(h.ctx, h.resources, sam.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, after := obj.Spec, obj.Spec
+		after.Email = tc.next
+		if changed := SignInMatchChanged(before, after); changed == finds {
+			t.Errorf("%q after %q: changed = %t, but it finds sam = %t", tc.next, tc.has, changed, finds)
+		}
 	}
 }
 
@@ -653,6 +730,7 @@ func TestImpersonation(t *testing.T) {
 	bob := h.user("bob", store.AccountScope(acct), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(acct)})
 	viewer := h.user("vic", store.ServerScope(), auth.Grant{Role: auth.RoleReadOnly, Scope: store.ServerScope()})
 
+	bobsOwn, _ := h.signIn("bob")
 	issued, err := h.svc.Impersonate(ctx, admin, bob.ID, client)
 	if err != nil {
 		t.Fatal(err)
@@ -666,6 +744,37 @@ func TestImpersonation(t *testing.T) {
 	}
 	if err := h.svc.ChangePassword(ctx, as, PasswordInput{Current: password, New: "something else long"}); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("changing their password = %v", err)
+	}
+	// Signing bob out is out of reach too, one session at a time as much as
+	// all of them.
+	if err := h.svc.EndMySession(ctx, as, store.ID(bobsOwn.SessionID)); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("ending one of their sessions = %v", err)
+	}
+	if _, err := h.svc.EndOtherSessions(ctx, as); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("signing them out elsewhere = %v", err)
+	}
+	if err := h.svc.ForgetDevice(ctx, as, ""); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("forgetting their browsers = %v", err)
+	}
+	// So is everything else of how bob signs in, his passkeys' names
+	// included.
+	if _, err := h.svc.RenamePasskey(ctx, as, store.NewID(PrefixPasskey), "mine now"); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("renaming one of their passkeys = %v", err)
+	}
+	if err := h.svc.SetAlertChannel(ctx, as, AlertChannelInput{}); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("changing where their alerts go = %v", err)
+	}
+	if _, err := h.svc.NewRecoveryCodes(ctx, as); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("making them recovery codes = %v", err)
+	}
+	if err := h.svc.UnlinkMine(ctx, as, store.NewID(ProviderKind.Info().Prefix)); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("unlinking their outside sign-in = %v", err)
+	}
+	if err := h.svc.DisableMFA(ctx, as, store.NewID(ProviderKind.Info().Prefix)); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("turning off their second step = %v", err)
+	}
+	if _, err := h.svc.SessionOf(ctx, bobsOwn); err != nil {
+		t.Errorf("bob's own session = %v", err)
 	}
 	if _, err := h.svc.Impersonate(ctx, as, viewer.ID, client); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("impersonating twice = %v", err)

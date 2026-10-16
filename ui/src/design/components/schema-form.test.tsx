@@ -11,6 +11,7 @@ import {
   setAt,
   withoutEmptyObjects,
 } from "@/lib/forms/model";
+import { shellMessages } from "@/lib/i18n";
 import type { JSONSchema } from "@/lib/schema";
 import { renderWithProviders } from "@/test/render";
 import { SchemaForm } from "./schema-form";
@@ -156,6 +157,17 @@ describe("the schema form", () => {
       },
       secrets: { password: "s3cret-pass" },
     });
+  });
+
+  it("names a list's items with a message that says where the number goes", async () => {
+    renderWithProviders(
+      <SchemaForm schema={schema} hints={hints} submitLabel="Create site" onSubmit={() => {}} />,
+      { messages: { ...shellMessages, "design.form.item": "No. {n, number} of {item}" } },
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Add to Aliases" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add to Aliases" }));
+    expect(screen.getByRole("textbox", { name: "No. 2 of Aliases" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove No. 1 of Aliases" })).toBeInTheDocument();
   });
 
   it("keeps advanced settings folded away until needed", async () => {

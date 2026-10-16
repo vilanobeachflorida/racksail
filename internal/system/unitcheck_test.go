@@ -230,10 +230,30 @@ func TestCheckDropIn(t *testing.T) {
 	for _, good := range []string{
 		"[Service]\nMemoryMax=1G\nCPUQuota=50%\nLimitNOFILE=65536\nRestart=on-failure\n",
 		"[Unit]\nRequiresMountsFor=/mnt/racksail/data\nAfter=mnt-racksail-data.mount\n",
-		"[Slice]\nMemoryHigh=512M\n",
 	} {
 		if err := CheckDropIn("mariadb.service", []byte(good), testUnitRules()); err != nil {
 			t.Errorf("CheckDropIn(%q): %v", good, err)
+		}
+	}
+	// Each type of unit takes the sections systemd reads for it.
+	for unit, good := range map[string]string{
+		"racksail-accounts-blog.slice": "[Slice]\nMemoryHigh=512M\n",
+		"racksail-site-blog.socket":    "[Unit]\nAfter=mnt-racksail-data.mount\n[Socket]\nTasksMax=16\n",
+		"racksail-backup.timer":        "[Unit]\nAfter=mnt-racksail-data.mount\n",
+	} {
+		if err := CheckDropIn(unit, []byte(good), testUnitRules()); err != nil {
+			t.Errorf("CheckDropIn(%s, %q): %v", unit, good, err)
+		}
+	}
+	for unit, bad := range map[string]string{
+		"mariadb.service":              "[Slice]\nMemoryHigh=512M\n",
+		"racksail-accounts-blog.slice": "[Service]\nMemoryHigh=512M\n",
+		"racksail-site-blog.socket":    "[Service]\nRestart=always\n",
+		"racksail-backup.timer":        "[Timer]\nOnCalendar=daily\n",
+		"swap.swap":                    "[Unit]\nAfter=local-fs.target\n",
+	} {
+		if err := CheckDropIn(unit, []byte(bad), testUnitRules()); !errors.Is(err, ErrInvalid) {
+			t.Errorf("CheckDropIn(%s, %q) should be refused: %v", unit, bad, err)
 		}
 	}
 	for _, bad := range []string{
@@ -283,6 +303,49 @@ func TestCheckMount(t *testing.T) {
 			t.Errorf("CheckMount(%+v) should be refused: %v", bad, err)
 		}
 	}
+}
+
+func TestCanonicalLimit(t *testing.T) {
+	for _, tc := range [][3]string{
+		{"MemoryMax", "1G", "1073741824"},
+		{"MemoryMax", "1073741824", "1073741824"},
+		{"MemoryHigh", "512M", "536870912"},
+		{"MemoryMax", "infinity", "infinity"},
+		{"TasksMax", "512", "512"},
+		{"TasksMax", "infinity", "infinity"},
+		{"CPUQuota", "200%", "2000000"},
+		{"CPUQuota", "50%", "500000"},
+		{"CPUQuota", "12.5%", "125000"},
+		{"CPUWeight", "100", "100"},
+		{"IOWeight", "500", "500"},
+	} {
+		if got, ok := CanonicalLimit(tc[0], tc[1]); !ok || got != tc[2] {
+			t.Errorf("CanonicalLimit(%s, %s) = %q, %v; want %q", tc[0], tc[1], got, ok, tc[2])
+		}
+	}
+	// Two spellings of the same limit reduce to the same canonical form.
+	if a, _ := CanonicalLimit("MemoryMax", "2G"); a != mustCanon(t, "MemoryMax", "2048M") {
+		t.Errorf("2G and 2048M differ: %q", a)
+	}
+	// Values that can't be reduced with certainty, so a caller never takes
+	// two of them for equal.
+	for _, tc := range [][2]string{
+		{"AllowedCPUs", "0-3"}, {"CPUWeight", "idle"}, {"MemoryMax", "50%"}, {"MemoryMax", ""},
+		{"CPUQuota", "200"}, {"TasksMax", "lots"}, {"CPUWeight", "0"}, {"CPUWeight", "20000"}, {"UMask", "0022"},
+	} {
+		if got, ok := CanonicalLimit(tc[0], tc[1]); ok {
+			t.Errorf("CanonicalLimit(%s, %s) = %q, want it to be left uncertain", tc[0], tc[1], got)
+		}
+	}
+}
+
+func mustCanon(t *testing.T, name, value string) string {
+	t.Helper()
+	got, ok := CanonicalLimit(name, value)
+	if !ok {
+		t.Fatalf("CanonicalLimit(%s, %s) couldn't be reduced", name, value)
+	}
+	return got
 }
 
 func TestUnitNameForPath(t *testing.T) {

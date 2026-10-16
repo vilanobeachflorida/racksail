@@ -341,6 +341,7 @@ describe("the rules page", () => {
     renderShell({ modules: [], messages: shellMessages, api, path: "/settings/rules" });
     expect(await screen.findByRole("heading", { level: 1, name: "Rules" })).toBeInTheDocument();
     expect(await screen.findByText("No test domains")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Server rules" })).toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Try");
     await user.type(screen.getByRole("textbox", { name: "Kind" }), "web.site");
     await user.type(
@@ -437,6 +438,7 @@ describe("the rules page", () => {
 
     const hooks = await screen.findByRole("region", { name: "Hooks" });
     expect(await within(hooks).findByText("Site guard 1.2.0")).toBeInTheDocument();
+    expect(within(hooks).getByRole("table", { name: "Hooks" })).toBeInTheDocument();
     expect(within(hooks).getByText("Patches configuration")).toBeInTheDocument();
     expect(within(hooks).getByText("Switched off")).toBeInTheDocument();
     await user.click(
@@ -646,6 +648,7 @@ describe("the notifications page", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Ops on ntfy")).toBeInTheDocument();
     expect(screen.getByText("the server answered 401 Unauthorized")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Channels" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("switch", { name: "Email me" }));
     const [events] = screen.getAllByRole("textbox", { name: "Events" });
@@ -928,6 +931,7 @@ describe("the notifications page, live", () => {
       live,
     });
     expect(await screen.findByText("Held for quiet hours")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Sent" })).toBeInTheDocument();
     log = [delivery("ntf_1", "Backup failed", "merged", { finishedAt: ago(0) })];
     expect(await screen.findByText("In a summary", {}, { timeout: 3000 })).toBeInTheDocument();
 

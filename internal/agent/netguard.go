@@ -115,6 +115,22 @@ func (rt *Runtime) applyNetwork(ctx context.Context, files map[string][]byte, wi
 	return NetworkChange{Token: p.Token, Deadline: p.Deadline}, nil
 }
 
+// applyNetworkForGood applies files without a rollback timer. It refuses
+// while an earlier change still waits for confirmation, since that change's
+// rollback would otherwise fire later and silently undo this one.
+func (rt *Runtime) applyNetworkForGood(ctx context.Context, files map[string][]byte) error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	pending, err := rt.loadPending(ctx)
+	if err != nil {
+		return err
+	}
+	if pending != nil {
+		return ErrConflict.New("op", "ApplyNetworkConfig", "reason", "a network change is waiting to be confirmed until "+pending.Deadline.Format(time.RFC3339))
+	}
+	return rt.backend.Network.ApplyConfig(ctx, files)
+}
+
 // maxRollbackRetry is the longest wait between attempts at putting the
 // previous network configuration back.
 const maxRollbackRetry = 5 * time.Minute

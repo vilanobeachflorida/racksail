@@ -116,8 +116,8 @@ type CatalogStatus struct {
 
 // SyncOutput is what fetching a catalog found.
 type SyncOutput struct {
-	Items int       `json:"items"`
-	Built time.Time `json:"built"`
+	Items int       `json:"items" doc:"How many items the index lists"`
+	Built time.Time `json:"built" doc:"When the index was built"`
 }
 
 // CatalogKind is core.catalog.
@@ -462,12 +462,12 @@ func (c *Catalogs) Forget(id store.ID) {
 // ListedItem is an item of a catalog, as the marketplace lists it.
 type ListedItem struct {
 	IndexItem
-	Catalog      store.ID `json:"catalog"`
-	CatalogName  string   `json:"catalogName"`
-	CatalogTitle string   `json:"catalogTitle"`
+	Catalog      store.ID `json:"catalog" doc:"The ID of the catalog that offers it"`
+	CatalogName  string   `json:"catalogName" doc:"That catalog's name, such as official"`
+	CatalogTitle string   `json:"catalogTitle" doc:"What that catalog is called"`
 	// Official items are from Racksail's own catalog; the rest are
 	// third-party and labelled so.
-	Official bool `json:"official"`
+	Official bool `json:"official" doc:"Whether it comes from Racksail's own catalog; the rest are third-party"`
 }
 
 // ItemFilter selects items.

@@ -168,7 +168,7 @@ type SettingsStatus struct {
 
 // CheckOutput is what a check found.
 type CheckOutput struct {
-	Running   string     `json:"running"`
+	Running   string     `json:"running" doc:"The version running now"`
 	Available *Available `json:"available,omitempty" doc:"The release to update to; empty when the server is up to date"`
 }
 
@@ -191,10 +191,10 @@ func (in UpdateInput) Validate() error {
 
 // UpdateOutput is what installing a release did.
 type UpdateOutput struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From string `json:"from" doc:"The version that was running"`
+	To   string `json:"to" doc:"The version installed"`
 	// RestartsAt is when Racksail restarts onto the new release.
-	RestartsAt time.Time `json:"restartsAt"`
+	RestartsAt time.Time `json:"restartsAt" doc:"When Racksail restarts onto the new release"`
 }
 
 // RollbackInput says why.
@@ -220,8 +220,8 @@ func (in UpgradeOSInput) Validate() error {
 
 // UpgradeOSOutput is what the upgrade did.
 type UpgradeOSOutput struct {
-	From           string   `json:"from"`
-	To             string   `json:"to"`
+	From           string   `json:"from" doc:"The Debian release before the upgrade, such as trixie"`
+	To             string   `json:"to" doc:"The Debian release it moved to, such as forky"`
 	Snapshots      []string `json:"snapshots,omitempty" doc:"The snapshots taken first"`
 	RebootRequired bool     `json:"rebootRequired" doc:"Whether the server needs a reboot to finish"`
 	RebootReasons  []string `json:"rebootReasons,omitempty" doc:"Why the server needs a reboot: the new release, and whatever else wants one, such as its kernel"`

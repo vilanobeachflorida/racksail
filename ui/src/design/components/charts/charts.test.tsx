@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/render";
 import { Sparkline } from "./sparkline";
 import { TimeSeries } from "./time-series";
@@ -63,7 +63,7 @@ describe("the time series chart", () => {
     await waitFor(() => expect(figure.querySelector(".uplot")).not.toBeNull());
 
     await user.click(within(figure).getByRole("button", { name: "Show the data as a table" }));
-    const table = within(figure).getByRole("table");
+    const table = within(figure).getByRole("table", { name: "Requests per minute" });
     const rows = within(table).getAllByRole("row");
     expect(rows).toHaveLength(5);
     expect(
@@ -84,6 +84,33 @@ describe("the time series chart", () => {
       <TimeSeries title="CPU" times={times} series={[{ label: "CPU", values: [1, 2, 3, 4] }]} />,
     );
     expect(screen.queryByRole("list", { name: "Series" })).not.toBeInTheDocument();
+  });
+
+  it("moves an event's flag when new data moves the time axis", async () => {
+    // jsdom lays nothing out, so the plotting area gets the width uPlot
+    // gives it.
+    const width = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains("u-over") ? Number.parseFloat(this.style.width) || 0 : 0;
+      });
+    // The same events as data arrives, as a live chart keeps them.
+    const events = [{ time: times[2] as number, label: "Deployed" }];
+    const series = (values: number[]) => [{ label: "Load", values }];
+    const { rerender } = renderWithProviders(
+      <TimeSeries title="Load" times={times} series={series([1, 2, 3, 4])} events={events} />,
+    );
+    const flag = () => screen.getByRole("button", { name: /Deployed$/ });
+    await waitFor(() => expect(flag().style.left).not.toBe(""));
+    const before = Number.parseFloat(flag().style.left);
+    // A minute later the chart starts a minute later, so the event sits
+    // further left, with nothing else happening on the page.
+    const later = times.map((t) => t + 60_000);
+    rerender(
+      <TimeSeries title="Load" times={later} series={series([2, 3, 4, 5])} events={events} />,
+    );
+    await waitFor(() => expect(Number.parseFloat(flag().style.left)).toBeLessThan(before));
+    width.mockRestore();
   });
 
   it("keeps each series' color when others are filtered out", async () => {

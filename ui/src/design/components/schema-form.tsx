@@ -341,8 +341,9 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
           const child: FieldNode = {
             ...item,
             path,
-            key: `${field.key} ${i + 1}`,
-            // Items are named after their list, in the person's language.
+            key: field.key,
+            // Items are named after their list, in the person's language,
+            // by a message that says where the number goes.
             schema: { ...item.schema, title: itemLabel },
             required: false,
             children: item.children?.map((c) => rebase(c, item.path, path)),

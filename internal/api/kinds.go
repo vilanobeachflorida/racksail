@@ -32,24 +32,41 @@ var (
 // KindPath returns where the operations of a kind live:
 // /api/v1/<module>/<plural>, such as /api/v1/web/sites.
 func KindPath(info *store.KindInfo) string {
-	return Prefix + "/" + info.Module() + "/" + info.Plural
+	return Prefix + "/" + info.Path()
 }
 
 // reservedModules are the first path segments of the core's own
 // operations, which no module's kinds may use.
 var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream", "metrics", "search", "inbox"}
 
-// registerKinds generates the operations of every registered kind. Kinds
-// described by JSON Schema come and go while the panel runs, and are served
-// by the operations registerSchemaKinds adds instead.
+// registerKinds generates the operations of every registered kind. The
+// registry keeps kinds from sharing paths and operation IDs with each other;
+// here they are kept from those of the core's and modules' own operations,
+// which a mistake in a module could otherwise take. Kinds described by JSON
+// Schema come and go while the panel runs, and are served by the operations
+// registerSchemaKinds adds instead.
 func (s *Server) registerKinds() {
 	reserved := append(slices.Clone(reservedModules), reservedByExtensions()...)
+	taken := map[string]string{}
+	for path, item := range s.api.OpenAPI().Paths {
+		for _, op := range []*huma.Operation{item.Get, item.Post, item.Put, item.Patch, item.Delete} {
+			if op != nil {
+				taken[op.OperationID] = path
+			}
+		}
+	}
 	for _, k := range s.kinds.All() {
 		if _, ok := k.(store.SchemaKind); ok {
 			continue
 		}
-		if slices.Contains(reserved, k.Info().Module()) {
-			panic(fmt.Sprintf("api: kind %s uses %s, a path the core's own operations need", k.Info().Name, KindPath(k.Info())))
+		info := k.Info()
+		if slices.Contains(reserved, info.Module()) {
+			panic(fmt.Sprintf("api: kind %s uses %s, a path the core's own operations need", info.Name, KindPath(info)))
+		}
+		for _, id := range info.OperationIDs() {
+			if path, ok := taken[id]; ok {
+				panic(fmt.Sprintf("api: kind %s would generate operation %s, which %s already has", info.Name, id, path))
+			}
 		}
 		s.registerKind(k)
 	}
@@ -76,7 +93,7 @@ func (s *Server) registerKind(k store.Kind) {
 	base := KindPath(info)
 	title := sentenceTitle(info)
 	many := plural(info)
-	listID := "list" + camel(info.Module(), info.Plural)
+	listID := info.OperationID("list")
 	idParam := pathParam("id", "The "+title+"'s ID, which starts with "+info.Prefix+"_")
 	changeSet := s.schemaOf(typeOfChangeSet, "ChangeSet")
 	changeResponses := func(applied string) map[string]*huma.Response {
@@ -100,7 +117,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// Get.
 	op = &huma.Operation{
-		OperationID: "get" + d.name, Method: http.MethodGet, Path: base + "/{id}", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("get"), Method: http.MethodGet, Path: base + "/{id}", Tags: tags, Security: Protected,
 		Summary:     "Get " + withArticle(title),
 		Description: "Returns one " + title + ": its settings (spec), and what Racksail last saw of it (status). " + info.Description,
 		Parameters:  []*huma.Param{idParam, fieldsParam()},
@@ -111,7 +128,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// Create.
 	op = &huma.Operation{
-		OperationID: "create" + d.name, Method: http.MethodPost, Path: base, Tags: tags, Security: Protected,
+		OperationID: info.OperationID("create"), Method: http.MethodPost, Path: base, Tags: tags, Security: Protected,
 		Summary: "Create " + withArticle(title),
 		Description: info.Description + " Creating one is a change like any other: with dryRun=true the answer is the change set, " +
 			"what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
@@ -124,7 +141,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// Update.
 	op = &huma.Operation{
-		OperationID: "update" + d.name, Method: http.MethodPut, Path: base + "/{id}", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("update"), Method: http.MethodPut, Path: base + "/{id}", Tags: tags, Security: Protected,
 		Summary: "Change " + withArticle(title),
 		Description: "Replaces the " + title + "'s settings with new ones, previewed and applied like any change. " +
 			"Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
@@ -138,7 +155,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// Delete.
 	revision := queryParam("revision", huma.TypeInteger, "The revision you read; when someone changed the "+title+" since, the delete fails with a conflict")
 	op = &huma.Operation{
-		OperationID: "delete" + d.name, Method: http.MethodDelete, Path: base + "/{id}", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("delete"), Method: http.MethodDelete, Path: base + "/{id}", Tags: tags, Security: Protected,
 		Summary: "Delete " + withArticle(title),
 		Description: "Deletes the " + title + " and removes what it set up on the server, previewed and applied like any change. " +
 			"Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
@@ -150,7 +167,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// History.
 	op = &huma.Operation{
-		OperationID: "get" + d.name + "History", Method: http.MethodGet, Path: base + "/{id}/history", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("history"), Method: http.MethodGet, Path: base + "/{id}/history", Tags: tags, Security: Protected,
 		Summary:     "Show " + withArticle(title) + "'s history",
 		Description: "Returns every recorded version of the " + title + "'s settings, oldest first, with the change set that wrote it and who made the change.",
 		Parameters:  []*huma.Param{idParam},
@@ -171,7 +188,7 @@ func (s *Server) registerKind(k store.Kind) {
 			description += fmt.Sprintf(" The answer comes when it is done, with what it returned in the change set's output; after %s it is 202 and the job carries on.", actionWait)
 		}
 		op = &huma.Operation{
-			OperationID: lowerFirst(camel(a.Name)) + d.name, Method: http.MethodPost, Path: base + "/{id}/actions/" + a.Name, Tags: tags, Security: Protected,
+			OperationID: info.OperationID(a.Name), Method: http.MethodPost, Path: base + "/{id}/actions/" + a.Name, Tags: tags, Security: Protected,
 			Summary:     strings.TrimSuffix(a.Summary, "."),
 			Description: description,
 			Parameters:  append([]*huma.Param{idParam}, changeParams()...),
@@ -229,7 +246,7 @@ func (s *Server) listParams(info *store.KindInfo) []*huma.Param {
 
 // listBody is a page of resources.
 type listBody struct {
-	Items []any  `json:"items"`
+	Items []any  `json:"items" doc:"The resources on this page"`
 	Next  string `json:"next,omitempty"`
 }
 
@@ -295,13 +312,23 @@ func (s *Server) listKind(k store.Kind) handler {
 	}
 }
 
+// kindID reads the ID of a resource of a kind from a path. An ID that can't
+// be one of the kind's is reported as not found.
+func kindID(info *store.KindInfo, raw string) (store.ID, error) {
+	id, err := store.ParseID(raw)
+	if err != nil || id.Prefix() != info.Prefix {
+		return "", store.ErrNotFound.New("what", raw)
+	}
+	return id, nil
+}
+
 // readable reads a resource of a kind the signed-in actor may read. Others
 // are reported as not found, so other accounts' resources don't reveal that
 // they exist.
 func (s *Server) readable(ctx context.Context, info *store.KindInfo, raw string) (*store.Resource, error) {
-	id, err := store.ParseID(raw)
-	if err != nil || id.Prefix() != info.Prefix {
-		return nil, store.ErrNotFound.New("what", raw)
+	id, err := kindID(info, raw)
+	if err != nil {
+		return nil, err
 	}
 	r, err := s.store().Get(ctx, id)
 	if err != nil {
@@ -387,6 +414,12 @@ type updateBody struct {
 	Revision int64             `json:"revision"`
 }
 
+// Updates, deletes and actions don't read the resource first: the change
+// pipeline looks up the request's idempotency key before it reads anything,
+// so a retry gets the first answer even once the resource is gone, as after
+// a delete, and it answers for a resource the caller may not read as a read
+// would.
+
 func (s *Server) updateKind(k store.Kind) handler {
 	info := k.Info()
 	return func(hc huma.Context) (int, any, error) {
@@ -394,7 +427,7 @@ func (s *Server) updateKind(k store.Kind) handler {
 		if err != nil {
 			return 0, nil, err
 		}
-		r, err := s.readable(hc.Context(), info, hc.Param("id"))
+		id, err := kindID(info, hc.Param("id"))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -406,7 +439,7 @@ func (s *Server) updateKind(k store.Kind) handler {
 			return 0, nil, i18n.Invalid(i18n.Field("body.spec", i18n.ErrRequired))
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
-			Op: changeset.OpUpdate, Kind: info.Name, ID: r.ID, Spec: body.Spec, Labels: body.Labels,
+			Op: changeset.OpUpdate, Kind: info.Name, ID: id, Spec: body.Spec, Labels: body.Labels,
 			Secrets: body.Secrets, Revision: body.Revision,
 		}}}, false)
 	}
@@ -423,12 +456,12 @@ func (s *Server) deleteKind(k store.Kind) handler {
 		if err != nil {
 			return 0, nil, err
 		}
-		r, err := s.readable(hc.Context(), info, hc.Param("id"))
+		id, err := kindID(info, hc.Param("id"))
 		if err != nil {
 			return 0, nil, err
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
-			Op: changeset.OpDelete, Kind: info.Name, ID: r.ID, Revision: int64(revision),
+			Op: changeset.OpDelete, Kind: info.Name, ID: id, Revision: int64(revision),
 		}}}, false)
 	}
 }
@@ -440,7 +473,7 @@ func (s *Server) kindAction(k store.Kind, a store.Action) handler {
 		if err != nil {
 			return 0, nil, err
 		}
-		r, err := s.readable(hc.Context(), info, hc.Param("id"))
+		id, err := kindID(info, hc.Param("id"))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -449,7 +482,7 @@ func (s *Server) kindAction(k store.Kind, a store.Action) handler {
 			return 0, nil, err
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
-			Op: changeset.OpAction, Kind: info.Name, ID: r.ID, Action: a.Name, Input: input,
+			Op: changeset.OpAction, Kind: info.Name, ID: id, Action: a.Name, Input: input,
 		}}}, !a.Long)
 	}
 }
@@ -491,7 +524,7 @@ func (s *Server) awaitJob(ctx context.Context, id store.ID) bool {
 
 // historyBody is a resource's recorded versions.
 type historyBody struct {
-	Versions []store.Version `json:"versions"`
+	Versions []store.Version `json:"versions" doc:"Every recorded version of the settings, oldest first"`
 }
 
 func (s *Server) kindHistory(k store.Kind) handler {
@@ -513,10 +546,10 @@ func (s *Server) kindHistory(k store.Kind) handler {
 // commands from it.
 type KindDescription struct {
 	Name        string           `json:"name" doc:"<module>.<name>"`
-	Module      string           `json:"module"`
-	Title       string           `json:"title"`
-	Plural      string           `json:"plural"`
-	Description string           `json:"description"`
+	Module      string           `json:"module" doc:"The module the kind belongs to"`
+	Title       string           `json:"title" doc:"What one resource of the kind is called"`
+	Plural      string           `json:"plural" doc:"What several are called, as their path names them"`
+	Description string           `json:"description" doc:"What the kind is, in English"`
 	Prefix      string           `json:"prefix" doc:"What its IDs start with, before the underscore"`
 	Scope       store.ScopeLevel `json:"scope" enum:"server,reseller,account" doc:"Who owns resources of the kind"`
 	// Levels are where else its resources may belong.
@@ -524,12 +557,12 @@ type KindDescription struct {
 	Path      string             `json:"path" doc:"Where its operations are"`
 	Singleton bool               `json:"singleton,omitempty" doc:"At most one per owner"`
 	Confirm   bool               `json:"confirm,omitempty" doc:"Whether changing one asks people in the panel to confirm it's them"`
-	Risks     KindRisks          `json:"risks"`
-	Actions   []ActionInfo       `json:"actions"`
-	Indexes   []IndexInfo        `json:"indexes"`
+	Risks     KindRisks          `json:"risks" doc:"How much harm creating, changing and deleting one can do"`
+	Actions   []ActionInfo       `json:"actions" doc:"The kind's actions"`
+	Indexes   []IndexInfo        `json:"indexes" doc:"The fields lists filter and sort on"`
 	Events    []string           `json:"events" doc:"The event types the kind emits"`
-	UI        store.UIHints      `json:"ui"`
-	Backup    BackupInfo         `json:"backup"`
+	UI        store.UIHints      `json:"ui" doc:"How the panel's generic screens show the kind"`
+	Backup    BackupInfo         `json:"backup" doc:"Whether backups cover the kind"`
 	// Schemas are filled in when one kind is asked for.
 	Spec    json.RawMessage            `json:"spec,omitempty" doc:"The JSON Schema of the settings"`
 	Status  json.RawMessage            `json:"status,omitempty" doc:"The JSON Schema of the status"`
@@ -539,35 +572,35 @@ type KindDescription struct {
 
 // KindRisks are the risks of a kind's operations.
 type KindRisks struct {
-	Create store.Risk `json:"create"`
-	Update store.Risk `json:"update"`
-	Delete store.Risk `json:"delete"`
+	Create store.Risk `json:"create" doc:"The risk of creating one"`
+	Update store.Risk `json:"update" doc:"The risk of changing one"`
+	Delete store.Risk `json:"delete" doc:"The risk of deleting one"`
 }
 
 // ActionInfo describes an action.
 type ActionInfo struct {
-	Name        string     `json:"name"`
-	Title       string     `json:"title,omitempty"`
-	Summary     string     `json:"summary"`
-	Description string     `json:"description,omitempty"`
-	Risk        store.Risk `json:"risk" enum:"read,low,medium,high,critical"`
+	Name        string     `json:"name" doc:"The action's name, as its path and permission use it"`
+	Title       string     `json:"title,omitempty" doc:"What the action is called"`
+	Summary     string     `json:"summary" doc:"What it does, in a few words"`
+	Description string     `json:"description,omitempty" doc:"What it does, in full"`
+	Risk        store.Risk `json:"risk" enum:"read,low,medium,high,critical" doc:"How much harm it can do"`
 	Event       string     `json:"event" doc:"The event it emits once it is done"`
-	Long        bool       `json:"long,omitempty"`
-	Destructive bool       `json:"destructive,omitempty"`
-	Reversible  bool       `json:"reversible,omitempty"`
-	HasInput    bool       `json:"hasInput,omitempty"`
+	Long        bool       `json:"long,omitempty" doc:"Whether it runs as a job the answer names, rather than answering when it's done"`
+	Destructive bool       `json:"destructive,omitempty" doc:"Whether it removes data"`
+	Reversible  bool       `json:"reversible,omitempty" doc:"Whether it can be undone"`
+	HasInput    bool       `json:"hasInput,omitempty" doc:"Whether it takes input"`
 }
 
 // IndexInfo describes an index, which lists filter and sort on.
 type IndexInfo struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Unique bool   `json:"unique,omitempty"`
+	Name   string `json:"name" doc:"The filter's and sort's name"`
+	Path   string `json:"path" doc:"The field it reads, as a path into the settings"`
+	Unique bool   `json:"unique,omitempty" doc:"Whether two resources can't have the same value"`
 }
 
 // BackupInfo says whether backups cover a kind.
 type BackupInfo struct {
-	Covered bool   `json:"covered"`
+	Covered bool   `json:"covered" doc:"Whether backups, restores and the portable account archive cover the kind"`
 	Reason  string `json:"reason,omitempty" doc:"Why the kind isn't backed up"`
 }
 
@@ -606,7 +639,7 @@ func describeKind(k store.Kind) KindDescription {
 
 type kindsOutput struct {
 	Body struct {
-		Kinds []KindDescription `json:"kinds"`
+		Kinds []KindDescription `json:"kinds" doc:"Every kind, sorted by name"`
 	}
 }
 

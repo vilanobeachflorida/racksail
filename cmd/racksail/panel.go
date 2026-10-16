@@ -54,6 +54,13 @@ func newPanelCommand() *cobra.Command {
 			if len(cfg.Panel.AllowFrom) > 0 {
 				log.Info("the panel only accepts requests from panel.allow_from", "networks", cfg.Panel.AllowFrom)
 			}
+			// The edge reaches the panel over the Unix socket systemd passes
+			// in, where requests carry a forwarded client address the panel
+			// believes. Started by hand, there is no such socket and the panel
+			// only serves its own port.
+			if err := servePanelSocket(ctx, apiServer, log); err != nil {
+				return err
+			}
 			srv := newHTTPServer(cfg.Panel.Listen, apiServer, log)
 			if cfg.Panel.Insecure {
 				return serveUntilDone(ctx, srv, false)
@@ -69,6 +76,48 @@ func newPanelCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &configPath)
 	return cmd
+}
+
+// servePanelSocket answers the panel's API on the Unix socket systemd passes
+// in for the edge, if there is one. Requests that arrive there are the only
+// ones whose forwarded client address the panel believes, since account
+// sandboxes can't reach /run/racksail. The socket server shuts down with ctx.
+func servePanelSocket(ctx context.Context, apiServer *api.Server, log *slog.Logger) error {
+	passed, err := passedListeners()
+	if err != nil {
+		return err
+	}
+	var ln net.Listener
+	for _, l := range passed {
+		if _, ok := l.Addr().(*net.UnixAddr); ok {
+			ln = l
+			break
+		}
+	}
+	if ln == nil {
+		log.Info("no edge socket from systemd; the panel serves its own port only")
+		return nil
+	}
+	srv := &http.Server{
+		Handler:           apiServer.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	}
+	log.Info("panel answering the edge", "socket", ln.Addr())
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("serving the panel's edge socket", "error", err)
+		}
+	}()
+	context.AfterFunc(ctx, func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdown); err != nil {
+			srv.Close()
+		}
+	})
+	return nil
 }
 
 // edgeLink is how the panel reaches the edge, which systemd starts on the
@@ -94,7 +143,9 @@ func edgeLink(ctx context.Context, cfg config.Config, agentClient agent.Client, 
 		},
 	}
 	if hostname := cfg.Panel.Hostname; hostname != "" && hostname != "localhost" {
-		route, err := edge.PanelRoute(hostname, cfg.Panel.Listen, !cfg.Panel.Insecure)
+		// The edge reaches the panel over the Unix socket systemd creates, so
+		// the panel can tell the edge's requests from a site's.
+		route, err := edge.PanelRoute(hostname, cfg.Panel.Listen, system.PanelSocket, !cfg.Panel.Insecure)
 		if err != nil {
 			log.Warn("the edge won't serve the panel under its hostname", "hostname", hostname, "error", err)
 		} else {

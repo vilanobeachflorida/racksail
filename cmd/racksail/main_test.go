@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +101,7 @@ func TestInstallDryRun(t *testing.T) {
 	}
 	// The simulated server has Racksail where its package puts it.
 	out, err = run(t, "install", "--answers", answers, "--sim")
-	if err != nil || !strings.Contains(out, "[5/5] Start the agent, the panel and the edge's socket") {
+	if err != nil || !strings.Contains(out, "[5/5] Start the agent, the panel and their sockets") {
 		t.Errorf("simulated conversion = %s, %v", out, err)
 	}
 	if _, err := run(t, "install", "--answers", answers, "--sim", "--binary", "/srv/racksail/racksail"); err == nil {
@@ -167,6 +168,21 @@ func TestSimulatedAgent(t *testing.T) {
 		t.Errorf("agent = %v", err)
 	}
 
+	// A real agent listens where the panel and the add-ons' sandboxes
+	// expect it, so --socket is only for a simulated one; the check comes
+	// before anything that needs root.
+	if _, err := run(t, "agent", "--socket", sock, "--config", filepath.Join(dir, "missing.toml")); err == nil || !strings.Contains(err.Error(), "--socket goes with --sim") {
+		t.Errorf("a real agent on another socket: %v", err)
+	}
+	// Nor can racksail.toml move the socket.
+	config := filepath.Join(dir, "racksail.toml")
+	if err := os.WriteFile(config, []byte("[agent]\nsocket = \""+sock+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "agent", "--sim", "--config", config); err == nil || !strings.Contains(err.Error(), "can't set agent.socket") {
+		t.Errorf("a socket in racksail.toml: %v", err)
+	}
+
 	t.Setenv("XDG_RUNTIME_DIR", dir)
 	path, err := simSocket()
 	if err != nil || path != filepath.Join(dir, "racksail", "agent.sock") {
@@ -202,6 +218,33 @@ func TestStatus(t *testing.T) {
 	out, err := run(t, "status", "--server", srv.URL)
 	if err != nil || !strings.Contains(out, "racksail 1.2.3 (stable), ok") {
 		t.Errorf("status = %q, %v", out, err)
+	}
+
+	// The checks' states line up after the longest name, however long.
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/health":
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"degraded","checks":[{"name":"agent","status":"ok"},{"name":"notifications","status":"ok"},` +
+				`{"name":"backups.destinations","status":"failing","message":"The destination doesn't answer."}]}`))
+		case "/api/v1/version":
+			w.Write([]byte(`{"version":"1.2.3","channel":"stable","goVersion":"go1.27","os":"linux","arch":"amd64"}`))
+		}
+	}))
+	defer failing.Close()
+	out, err = run(t, "status", "--server", failing.URL)
+	var exit exitError
+	if !errors.As(err, &exit) || exit.code != 2 {
+		t.Errorf("a degraded server = %v", err)
+	}
+	want := []string{
+		"  agent                ok",
+		"  notifications        ok",
+		"  backups.destinations failing: The destination doesn't answer.",
+	}
+	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 4 || !slices.Equal(lines[1:], want) {
+		t.Errorf("status of a degraded server =\n%s", out)
 	}
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/problem+json")

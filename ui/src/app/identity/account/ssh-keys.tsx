@@ -20,19 +20,20 @@ import { toast } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
 import { addMySSHKey, listMySSHKeys, removeMySSHKey, type SSHKey } from "../api";
 import { useAskedToAdd } from "../asked";
-import { Item, ItemList, ListSkeleton, PageHeader } from "../components";
+import { Item, ItemList, ListSkeleton, PageHeader, ViewingNote } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
+import { useViewing } from "../session";
 import { useStepUp } from "../step-up";
 import { failureMessage } from "../util";
 
-/** SSH keys, with a way to remove each. */
+/** SSH keys, with a way to remove each when onRemove is given. */
 export function KeyList({
   keys,
   onRemove,
 }: {
   keys: readonly SSHKey[];
-  onRemove: (key: SSHKey) => Promise<void>;
+  onRemove?: (key: SSHKey) => Promise<void>;
 }) {
   const intl = useIntl();
   return (
@@ -52,17 +53,19 @@ export function KeyList({
             />
           }
           actions={
-            <ConfirmDialog
-              trigger={
-                <Button variant="ghost" size="sm">
-                  {intl.formatMessage(t.remove)}
-                </Button>
-              }
-              title={intl.formatMessage(t.sshKeyRemoveTitle, { name: k.name })}
-              description={intl.formatMessage(t.sshKeyRemoveDescription)}
-              confirmLabel={intl.formatMessage(t.remove)}
-              onConfirm={() => onRemove(k)}
-            />
+            onRemove ? (
+              <ConfirmDialog
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    {intl.formatMessage(t.remove)}
+                  </Button>
+                }
+                title={intl.formatMessage(t.sshKeyRemoveTitle, { name: k.name })}
+                description={intl.formatMessage(t.sshKeyRemoveDescription)}
+                confirmLabel={intl.formatMessage(t.remove)}
+                onConfirm={() => onRemove(k)}
+              />
+            ) : null
           }
         />
       ))}
@@ -138,7 +141,9 @@ function Keys() {
   const client = useQueryClient();
   const keys = useQuery({ queryKey: ["me", "ssh-keys"], queryFn: () => listMySSHKeys(api) });
   const [adding, setAdding] = useState(false);
-  useAskedToAdd(() => setAdding(true));
+  // Someone viewing the panel as the person can't add or remove their keys.
+  const viewing = useViewing();
+  useAskedToAdd(() => setAdding(!viewing));
   const reload = () => client.invalidateQueries({ queryKey: ["me", "ssh-keys"] });
   const { guard } = useStepUp();
   const remove = async (k: SSHKey) => {
@@ -150,7 +155,7 @@ function Keys() {
       toast.error(failureMessage(intl, error));
     }
   };
-  const add = (
+  const add = viewing ? null : (
     <Button onClick={() => setAdding(true)}>
       <Plus aria-hidden="true" />
       {intl.formatMessage(t.sshKeyAdd)}
@@ -163,6 +168,7 @@ function Keys() {
         description={intl.formatMessage(t.sshKeysDescription)}
         actions={keys.data?.length ? add : null}
       />
+      <ViewingNote />
       {keys.isPending ? <ListSkeleton rows={2} /> : null}
       {keys.isError ? (
         <ErrorState
@@ -179,7 +185,9 @@ function Keys() {
           action={add}
         />
       ) : null}
-      {keys.data && keys.data.length > 0 ? <KeyList keys={keys.data} onRemove={remove} /> : null}
+      {keys.data && keys.data.length > 0 ? (
+        <KeyList keys={keys.data} {...(viewing ? {} : { onRemove: remove })} />
+      ) : null}
       <Dialog open={adding} onOpenChange={setAdding}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

@@ -43,7 +43,6 @@ export function createAppRouter(
   const root = createRootRouteWithContext<RouterContext>()({
     component: Shell,
     notFoundComponent: NotFound,
-    errorComponent: RouteError,
   });
   const settings = createRoute({
     getParentRoute: () => root,
@@ -333,6 +332,9 @@ export function createAppRouter(
   return createRouter({
     routeTree: root.addChildren(routes),
     context: { queryClient },
+    // Every route catches what its screen throws, so a screen that fails
+    // leaves the rest of the shell working.
+    defaultErrorComponent: RouteError,
     defaultPreload: "intent",
     scrollRestoration: true,
     ...(history ? { history } : {}),

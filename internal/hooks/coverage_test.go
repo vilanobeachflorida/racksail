@@ -45,7 +45,7 @@ var outsidePipeline = map[string]string{
 	"setUpFirstAdmin":           "adds the first admin through the change pipeline as the panel itself, which runs the user's hooks, after keeping the password",
 	"stepUp":                    "confirms it's the caller for the minutes the sign-in policy says, which their session remembers",
 	"stopImpersonating":         "ends viewing the panel as someone else, back to the caller's own session",
-	"saveSessionPreferences":    "keeps the caller's display preferences, which aren't part of their user's settings",
+	"saveSessionPreferences":    "keeps the caller's preferences for the web UI, which aren't part of their user's settings",
 	"changeMyPassword":          "changes the caller's password, a credential",
 	"beginTotp":                 "starts setting up the caller's authenticator app, a credential",
 	"confirmTotp":               "finishes setting up the caller's authenticator app, a credential",

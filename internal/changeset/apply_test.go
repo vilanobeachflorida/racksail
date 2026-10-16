@@ -101,7 +101,7 @@ func TestCanceledApplyEndsFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	running(t, e.jobs, cs.Job)
-	if err := e.jobs.Cancel(ctx, cs.Job); err != nil {
+	if _, err := e.jobs.Cancel(ctx, cs.Job); err != nil {
 		t.Fatal(err)
 	}
 	final := e.wait(t, cs)
@@ -155,7 +155,7 @@ func TestCanceledBeforeItStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.jobs.Cancel(ctx, cs.Job); err != nil {
+	if _, err := e.jobs.Cancel(ctx, cs.Job); err != nil {
 		t.Fatal(err)
 	}
 	final := e.wait(t, cs)
@@ -175,6 +175,58 @@ func TestCanceledBeforeItStarts(t *testing.T) {
 	}
 	if got := e.file(pagesDir + "/later.html"); got != "later" {
 		t.Errorf("page = %q", got)
+	}
+}
+
+// A delete whose resource the resync removed and purged before the delete's
+// job got to it is done, not failed: the resource is gone, as it asked.
+func TestDeletesTheResyncGotToFirst(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	page := e.submit(t, false, e.createPage(pageSpec{Path: "racing.html", Content: "x"})).Changes[0].ID
+	label := e.submit(t, false, e.create("test.label", labelSpec{Name: "racing"})).Changes[0].ID
+	hold := make(chan struct{})
+	defer close(hold)
+	if err := e.jobs.Handle(jobs.Type{Name: "test.hold", Run: func(ctx context.Context, job *jobs.Job, args json.RawMessage, r jobs.Reporter) (any, error) {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+		}
+		return nil, nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// Both workers are busy, so the delete's job waits.
+	for range 2 {
+		j, _ := e.jobs.Enqueue(ctx, "test.hold", nil, jobs.Options{})
+		running(t, e.jobs, j.ID)
+	}
+	cs, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{
+		{Op: OpDelete, Kind: "test.page", ID: page}, {Op: OpDelete, Kind: "test.label", ID: label},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The resync, or anything else that reconciles them, gets there first.
+	runner := e.engine.opts.Runner
+	if err := runner.Reconcile(ctx, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Reconcile(ctx, label, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []store.ID{page, label} {
+		if _, err := e.store.Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("%s should be purged by now: %v", id, err)
+		}
+	}
+	hold <- struct{}{}
+	hold <- struct{}{}
+	if final := e.wait(t, cs); final.State != StateApplied || final.Changes[0].State != ChangeDone || final.Changes[1].State != ChangeDone {
+		t.Errorf("the delete = %+v", final)
+	}
+	if e.file(pagesDir+"/racing.html") != "" {
+		t.Error("the page is gone from the machine")
 	}
 }
 
@@ -429,7 +481,7 @@ func TestPurgedIDsAreNotReused(t *testing.T) {
 		t.Fatalf("the page should be purged: %v", err)
 	}
 	other := e.owner.Clone()
-	otherAcct := store.NewID("acct")
+	otherAcct := e.account(t)
 	other.Grants[0].Scope = store.AccountScope(otherAcct)
 	for name, req := range map[string]Request{
 		"the same account": {Actor: e.owner, Changes: []Change{{Op: OpCreate, Kind: "test.page", ID: id, Scope: store.AccountScope(e.acct),

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
@@ -83,6 +84,19 @@ var labelKind = store.Define[labelSpec, store.Status](store.KindInfo{
 	Description: "A label, for kinds without a reconciler.",
 })
 
+// Resellers belong to themselves, as accounts do, the way a module that
+// keeps resellers defines them; offers are a reseller's.
+var (
+	resellerKind = store.Define[labelSpec, store.Status](store.KindInfo{
+		Name: "test.reseller", Prefix: "rsl", Scope: store.ScopeReseller, Title: "Reseller", Plural: "resellers",
+		Description: "A reseller, for the checks of who resources belong to.",
+	})
+	offerKind = store.Define[labelSpec, store.Status](store.KindInfo{
+		Name: "test.offer", Prefix: "offer", Scope: store.ScopeReseller, Title: "Offer", Plural: "offers",
+		Description: "Something a reseller offers, for the checks of who resources belong to.",
+	})
+)
+
 func (e *env) create(kind string, spec any) Change {
 	raw, _ := json.Marshal(spec)
 	return Change{Op: OpCreate, Kind: kind, Scope: store.AccountScope(e.acct), Spec: raw}
@@ -114,6 +128,210 @@ func TestApplyingAPreview(t *testing.T) {
 	}
 	if _, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: store.NewID("chg")}); !errors.Is(err, i18n.ErrNotFound) {
 		t.Errorf("a preview that doesn't exist: %v", err)
+	}
+}
+
+// A retry with the first request's idempotency key gets the first answer,
+// although by then the first request changed what it was about: the change
+// set it undid is undone, the resource it deleted is gone.
+func TestRetriesGetTheFirstAnswer(t *testing.T) {
+	ctx := context.Background()
+	for name, e := range map[string]*env{"memory": newEnv(t, Retention{}, nil), "sqlite": buildEnv(t, envConfig{db: openDB(t)})} {
+		t.Run(name, func(t *testing.T) {
+			id := e.submit(t, false, e.createPage(pageSpec{Path: "keyed.html", Content: "v1"})).Changes[0].ID
+			raw, _ := json.Marshal(pageSpec{Path: "keyed.html", Content: "v2"})
+			update := e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw})
+
+			undo := UndoRequest{Actor: e.owner, ChangeSet: update.ID, IdempotencyKey: "undo-1"}
+			first, err := e.engine.Undo(ctx, undo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.wait(t, first)
+			if again, err := e.engine.Undo(ctx, undo); err != nil || again.ID != first.ID {
+				t.Errorf("undoing again with the key = %+v, %v", again, err)
+			}
+			if _, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: update.ID}); !errors.Is(err, ErrNotApplied) {
+				t.Errorf("undoing again without it = %v", err)
+			}
+			if replayed, err := e.engine.Replay(ctx, e.owner, CallUndo, "undo-1"); err != nil || replayed == nil || replayed.ID != first.ID {
+				t.Errorf("replaying the undo = %+v, %v", replayed, err)
+			}
+			stranger := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user")}
+			for who, replay := range map[string]func() (*ChangeSet, error){
+				"another actor": func() (*ChangeSet, error) { return e.engine.Replay(ctx, stranger, CallUndo, "undo-1") },
+				"another call":  func() (*ChangeSet, error) { return e.engine.Replay(ctx, e.owner, CallSubmit, "undo-1") },
+				"no key":        func() (*ChangeSet, error) { return e.engine.Replay(ctx, e.owner, CallUndo, "") },
+			} {
+				if cs, err := replay(); err != nil || cs != nil {
+					t.Errorf("%s: %+v, %v", who, cs, err)
+				}
+			}
+
+			del := Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}, IdempotencyKey: "del-1"}
+			gone, err := e.engine.Submit(ctx, del)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.wait(t, gone)
+			if _, err := e.store.Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("the page should be purged: %v", err)
+			}
+			if again, err := e.engine.Submit(ctx, del); err != nil || again.ID != gone.ID {
+				t.Errorf("deleting again with the key once the page is gone = %+v, %v", again, err)
+			}
+
+			// While the first request is still going, a retry is told so.
+			if _, _, err := e.engine.storage.ReserveKey(ctx, idempotencyKey(CallApply, e.owner, "busy"), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.engine.Replay(ctx, e.owner, CallApply, "busy"); !errors.Is(err, ErrDuplicateRequest) {
+				t.Errorf("replaying a request still going = %v", err)
+			}
+		})
+	}
+}
+
+// A dry run of applying a preview plans it again and applies nothing: the
+// answer is the preview while applying it would still do what it shows.
+func TestCheckingAPreview(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	preview := e.submit(t, true, e.createPage(pageSpec{Path: "checked.html", Content: "x"}))
+	checked, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID, DryRun: true, IdempotencyKey: "check-1"})
+	if err != nil || checked.ID != preview.ID || !checked.DryRun || checked.Job != "" {
+		t.Fatalf("checking the preview = %+v, %v", checked, err)
+	}
+	if kept, _ := e.engine.Get(ctx, preview.ID); !kept.DryRun {
+		t.Error("checking a preview applies nothing")
+	}
+	if page, _ := e.store.List(ctx, store.Query{Kind: "test.page"}); len(page.Items) != 0 {
+		t.Error("nothing is written")
+	}
+	// A dry run keeps no key, so applying with the same one goes ahead.
+	applied, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID, IdempotencyKey: "check-1"})
+	if err != nil || applied.DryRun || applied.Job == "" {
+		t.Fatalf("applying after the check = %+v, %v", applied, err)
+	}
+	id := e.wait(t, applied).Changes[0].ID
+
+	// Once something else changed the page, the check says the preview is
+	// stale, and names the new one.
+	raw, _ := json.Marshal(pageSpec{Path: "checked.html", Content: "v2"})
+	stale := e.submit(t, true, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw})
+	current, _ := e.store.Get(ctx, id)
+	e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: current.Spec, Labels: map[string]string{"team": "web"}})
+	_, err = e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: stale.ID, DryRun: true})
+	if !errors.Is(err, ErrPreviewStale) {
+		t.Fatalf("checking a stale preview = %v", err)
+	}
+	if fresh, err := e.engine.Get(ctx, store.ID(i18n.From(err).Params["preview"].(string))); err != nil || !fresh.DryRun {
+		t.Errorf("the new preview = %+v, %v", fresh, err)
+	}
+	if got, _ := e.store.Get(ctx, id); strings.Contains(string(got.Spec), "v2") {
+		t.Error("checking applied the stale preview")
+	}
+}
+
+// A new resource belongs to an account or reseller that exists: one that is
+// stored and not being removed, or one an earlier change of the same change
+// set creates. Otherwise it would sit outside every account, and an account
+// made later with that ID would inherit it.
+func TestOwnersMustExist(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	admin := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}
+	refused := func(err error, path string) bool {
+		t.Helper()
+		var coded *i18n.Error
+		if !errors.As(err, &coded) || coded.Code != i18n.ErrInvalid.Code {
+			return false
+		}
+		return slices.ContainsFunc(coded.Fields, func(f i18n.FieldError) bool { return f.Path == path && f.Code == i18n.ErrNotFound.Code })
+	}
+	nowhere := store.NewID("acct")
+	page := e.createPage(pageSpec{Path: "lost.html", Content: "lost"})
+	page.Scope = store.AccountScope(nowhere)
+	for _, dry := range []bool{true, false} {
+		if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: dry, Changes: []Change{page}}); !refused(err, "scope.id") {
+			t.Errorf("an account that doesn't exist (dry run %v): %v", dry, err)
+		}
+	}
+	if list, _ := e.store.List(ctx, store.Query{Kind: "test.page"}); len(list.Items) != 0 {
+		t.Error("nothing is created for it")
+	}
+
+	// An account opened in the same change set, before its resources.
+	acct := store.NewID("acct")
+	spec, _ := json.Marshal(account.AccountSpec{Slug: "newcomer", Name: "Newcomer"})
+	open := Change{Op: OpCreate, Kind: account.Kind.Name(), ID: acct, Scope: store.AccountScope(acct), Spec: spec}
+	page.Scope = store.AccountScope(acct)
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{page, open}}); !refused(err, "changes[0].scope.id") {
+		t.Errorf("an account opened after its page: %v", err)
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{open, page}}); err != nil {
+		t.Errorf("an account opened with its page: %v", err)
+	}
+	opened, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{open}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened = e.wait(t, opened); opened.State != StateApplied {
+		t.Fatalf("opening the account = %+v", opened)
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{page}}); err != nil {
+		t.Errorf("a page of an account that exists: %v", err)
+	}
+	// An account being deleted takes nothing new.
+	del := Change{Op: OpDelete, Kind: account.Kind.Name(), ID: acct}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{del, page}}); !refused(err, "changes[1].scope.id") {
+		t.Errorf("a page of an account deleted before it: %v", err)
+	}
+	// Nor can a resource of another kind name itself as its account.
+	self := e.createPage(pageSpec{Path: "self.html", Content: "self"})
+	self.ID = store.NewID("page")
+	self.Scope = store.AccountScope(self.ID)
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{self}}); !refused(err, "scope.id") {
+		t.Errorf("a page that names itself as its account: %v", err)
+	}
+
+	// A reseller is a resource of its own kind too.
+	rsl := store.NewID("rsl")
+	offer := Change{Op: OpCreate, Kind: "test.offer", Scope: store.ResellerScope(rsl), Spec: json.RawMessage(`{"name":"hosting"}`)}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{offer}}); !refused(err, "scope.id") {
+		t.Errorf("a reseller that doesn't exist: %v", err)
+	}
+	reseller := Change{Op: OpCreate, Kind: "test.reseller", ID: rsl, Scope: store.ResellerScope(rsl), Spec: json.RawMessage(`{"name":"Resold"}`)}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{reseller, offer}}); err != nil {
+		t.Errorf("a reseller and its offer: %v", err)
+	}
+
+	// Hooks can't add resources of an owner that doesn't exist either.
+	e.hooks.rewrite = func(cs *ChangeSet, _ []int) {
+		cs.Changes = append(cs.Changes, ResourceChange{Op: OpCreate, Kind: "test.label", Scope: store.AccountScope(nowhere), After: json.RawMessage(`{"name":"stray"}`),
+			Source: Source{Type: "addon", Name: "stray"}})
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: admin, DryRun: true, Changes: []Change{e.createPage(pageSpec{Path: "home.html", Content: "home"})}}); !refused(err, "changes[1].scope.id") {
+		t.Errorf("a hook's change in an account that doesn't exist: %v", err)
+	}
+	e.hooks.rewrite = nil
+
+	// Undoing the delete of a resource whose account is gone since can't
+	// bring it back into nothing.
+	asAdmin := func(changes ...Change) *ChangeSet {
+		t.Helper()
+		cs, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: changes})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.wait(t, cs)
+	}
+	gone := e.account(t)
+	label := asAdmin(Change{Op: OpCreate, Kind: "test.label", Scope: store.AccountScope(gone), Spec: json.RawMessage(`{"name":"orphan"}`)})
+	removed := asAdmin(Change{Op: OpDelete, Kind: "test.label", ID: label.Changes[0].ID})
+	asAdmin(Change{Op: OpDelete, Kind: account.Kind.Name(), ID: gone})
+	if _, err := e.engine.Undo(ctx, UndoRequest{Actor: admin, ChangeSet: removed.ID}); !refused(err, "scope.id") {
+		t.Errorf("undoing a delete into an account that is gone: %v", err)
 	}
 }
 
@@ -237,7 +455,7 @@ func testListingChangeSets(t *testing.T, e *env) {
 		t.Fatal(err)
 	}
 	e.wait(t, label)
-	otherAcct := store.AccountScope(store.NewID("acct"))
+	otherAcct := store.AccountScope(e.account(t))
 	elsewhere, err := e.engine.Submit(ctx, Request{Actor: admin, Changes: []Change{{Op: OpCreate, Kind: "test.label", Scope: otherAcct, Spec: json.RawMessage(`{"name":"y"}`)}}})
 	if err != nil {
 		t.Fatal(err)

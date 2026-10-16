@@ -25,9 +25,9 @@ const (
 
 // ProfileInfo describes a profile in the setup wizard.
 type ProfileInfo struct {
-	ID          Profile `json:"id" enum:"all-in-one,web-hosting,home-server,virtualization-host,mail-server,dns-server,minimal"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
+	ID          Profile `json:"id" enum:"all-in-one,web-hosting,home-server,virtualization-host,mail-server,dns-server,minimal" doc:"The profile's id"`
+	Name        string  `json:"name" doc:"What the panel calls the profile"`
+	Description string  `json:"description" doc:"What a server set up with it is for"`
 }
 
 // Profiles lists the profiles in the order the wizard shows them.
@@ -100,8 +100,8 @@ func (m *Manager) ProfileModules(p Profile) []string {
 
 // Skipped is a module a profile would turn on but doesn't, with why.
 type Skipped struct {
-	Module string `json:"module"`
-	Reason string `json:"reason"`
+	Module string `json:"module" doc:"The module's id"`
+	Reason string `json:"reason" doc:"Why it isn't turned on, such as hardware the server lacks"`
 }
 
 // ProfileRequest builds the change set that turns on a profile's modules:
@@ -109,19 +109,41 @@ type Skipped struct {
 // hardware requirements the machine doesn't meet, such as virtual machines
 // without hardware virtualization, are left out and returned with why.
 func (m *Manager) ProfileRequest(ctx context.Context, p Profile) (changeset.Request, []Skipped, error) {
+	turnOn, skipped, err := m.profilePlan(ctx, p)
+	if err != nil {
+		return changeset.Request{}, skipped, err
+	}
+	if len(turnOn) == 0 {
+		return changeset.Request{}, skipped, ErrNothingToTurnOn.New("profile", profileName(p))
+	}
+	req, err := m.turnOnRequest(ctx, turnOn)
+	if err != nil {
+		return changeset.Request{}, skipped, err
+	}
+	req.Title = "Turn on the " + profileName(p) + " profile"
+	return req, skipped, nil
+}
+
+// ProfileSkipped returns the modules of a profile that ProfileRequest
+// leaves out, with why, whichever are on: what a retry of turning the
+// profile on answers with beside the first change set.
+func (m *Manager) ProfileSkipped(ctx context.Context, p Profile) ([]Skipped, error) {
+	_, skipped, err := m.profilePlan(ctx, p)
+	return skipped, err
+}
+
+// profilePlan sorts a profile's modules into those to turn on, the ones
+// that are off and can run here, and those the machine can't run.
+func (m *Manager) profilePlan(ctx context.Context, p Profile) (turnOn []string, skipped []Skipped, err error) {
 	if !ValidProfile(p) {
-		return changeset.Request{}, nil, ErrUnknownProfile.New("profile", string(p))
+		return nil, nil, ErrUnknownProfile.New("profile", string(p))
 	}
 	var facts system.MachineFacts
 	if m.opts.Facts != nil {
-		f, err := m.opts.Facts(ctx)
-		if err != nil {
-			return changeset.Request{}, nil, err
+		if facts, err = m.opts.Facts(ctx); err != nil {
+			return nil, nil, err
 		}
-		facts = f
 	}
-	var skipped []Skipped
-	var turnOn []string
 	out := map[string]bool{}
 	for _, id := range m.ProfileModules(p) {
 		mod, _ := m.reg.Get(id)
@@ -142,15 +164,7 @@ func (m *Manager) ProfileRequest(ctx context.Context, p Profile) (changeset.Requ
 		}
 		turnOn = append(turnOn, id)
 	}
-	if len(turnOn) == 0 {
-		return changeset.Request{}, skipped, ErrNothingToTurnOn.New("profile", profileName(p))
-	}
-	req, err := m.turnOnRequest(ctx, turnOn)
-	if err != nil {
-		return changeset.Request{}, skipped, err
-	}
-	req.Title = "Turn on the " + profileName(p) + " profile"
-	return req, skipped, nil
+	return turnOn, skipped, nil
 }
 
 func profileName(p Profile) string {

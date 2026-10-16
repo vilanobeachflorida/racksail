@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -32,7 +34,7 @@ type FieldProblem struct {
 	Location string         `json:"location,omitempty" example:"body.spec.domains[0]" doc:"Where the problem is"`
 	Code     i18n.Code      `json:"code" doc:"Stable error code"`
 	Message  string         `json:"message" doc:"English explanation"`
-	Params   map[string]any `json:"params,omitempty"`
+	Params   map[string]any `json:"params,omitempty" doc:"The values the code's message is filled in with"`
 	Value    any            `json:"value,omitempty" doc:"The offending value, when it's safe to show"`
 }
 
@@ -90,7 +92,9 @@ var statusCodes = map[int]*i18n.Def{
 
 // NewError builds the problem Huma returns for errors it detects itself,
 // such as malformed requests, and for errors handlers return. Errors with a
-// code keep it; everything else gets the code for its status.
+// code keep it; everything else gets the code for its status. What Huma
+// found wrong with a request's fields becomes field errors of the catalog,
+// worded as the panel's own (i18n.SchemaField), never the validator's.
 func NewError(status int, msg string, errs ...error) huma.StatusError {
 	for _, err := range errs {
 		var e *i18n.Error
@@ -117,27 +121,84 @@ func NewError(status int, msg string, errs ...error) huma.StatusError {
 		}
 	}
 	p := &Problem{Title: http.StatusText(status), Status: status, Code: def.Code, Detail: msg}
-	switch def {
-	case i18n.ErrInternal:
-		p.Detail = i18n.ErrInternal.Message
-	case i18n.ErrBadRequest:
-		p.Params = map[string]any{"reason": msg}
-		p.Detail = i18n.Format(def.Message, p.Params)
-	case i18n.ErrInvalid:
-		p.Detail = def.Message
-	}
+	var fields []i18n.FieldError
 	for _, err := range errs {
 		if err == nil {
 			continue
 		}
 		var detail *huma.ErrorDetail
-		if errors.As(err, &detail) {
-			p.Errors = append(p.Errors, FieldProblem{Location: detail.Location, Code: i18n.ErrBadValue.Code, Message: detail.Message, Params: map[string]any{"reason": detail.Message}, Value: detail.Value})
-		} else if def != i18n.ErrInternal {
-			p.Errors = append(p.Errors, FieldProblem{Code: i18n.ErrBadValue.Code, Message: err.Error()})
+		var value any
+		var f i18n.FieldError
+		switch {
+		case errors.As(err, &detail) && detail.Location == "body" && status == http.StatusBadRequest:
+			// The body couldn't be read as JSON at all.
+			f = i18n.Field(detail.Location, i18n.ErrBadValue, "reason", "the body isn't valid JSON")
+		case detail != nil:
+			f, value = i18n.SchemaField(detail.Location, detail.Message), detail.Value
+		case def != i18n.ErrInternal:
+			f = i18n.SchemaField("", err.Error())
+		default:
+			continue
 		}
+		fields = append(fields, f)
+		p.Errors = append(p.Errors, FieldProblem{Location: f.Path, Code: f.Code, Message: f.Message, Params: f.Params, Value: value})
+	}
+	switch def {
+	case i18n.ErrInternal:
+		p.Detail = i18n.ErrInternal.Message
+	case i18n.ErrBadRequest:
+		p.Params = map[string]any{"reason": badRequestReason(msg, fields)}
+		p.Detail = i18n.Format(def.Message, p.Params)
+	case i18n.ErrInvalid:
+		p.Detail = def.Message
+	case i18n.ErrTooLarge:
+		p.Params = map[string]any{"limit": sizeLimit(msg)}
+		p.Detail = i18n.Format(def.Message, p.Params)
 	}
 	return p
+}
+
+// badRequestReason says why a request couldn't be read, in plain words:
+// what Huma said about the request as a whole, or about its first field
+// when it only said that checking it failed.
+func badRequestReason(msg string, fields []i18n.FieldError) string {
+	switch msg {
+	case "request body is required":
+		return "the request has no body; send JSON"
+	case "request body read timeout":
+		return "the body took too long to arrive"
+	case "validation failed", "":
+		if len(fields) > 0 {
+			if reason, ok := fields[0].Params["reason"].(string); ok {
+				return reason
+			}
+			return fields[0].Message
+		}
+		return "it doesn't have the form the operation takes"
+	}
+	return msg
+}
+
+var sizeLimitPattern = regexp.MustCompile(`limit=(\d+) bytes`)
+
+// sizeLimit says how large a request may be, from what Huma said when one
+// was larger.
+func sizeLimit(msg string) string {
+	m := sizeLimitPattern.FindStringSubmatch(msg)
+	if m == nil {
+		return "size"
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return "size"
+	}
+	switch {
+	case n >= 1<<20 && n%(1<<20) == 0:
+		return strconv.FormatInt(n>>20, 10) + " MiB"
+	case n >= 1<<10 && n%(1<<10) == 0:
+		return strconv.FormatInt(n>>10, 10) + " KiB"
+	}
+	return strconv.FormatInt(n, 10) + " bytes"
 }
 
 func init() {

@@ -44,7 +44,7 @@ func TestLimitedWriteScopes(t *testing.T) {
 		return grants.Actor(resource, man.ID)
 	}
 	actor := running()
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, Spec: spec(t, siteSpec{Domains: []string{"shop.example"}})})
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +409,7 @@ func TestModifyHooksChangeOnlyWhatTheyMayWrite(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
 	id := e.install(t)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct,
 		Spec:   spec(t, siteSpec{Domains: []string{"victim.example"}, Notes: "keep"}),
 		Labels: map[string]string{"racksail.dev/installation": "inst_real"}})
@@ -493,8 +493,8 @@ func TestAccountAddonsModifyOnlyTheirAccount(t *testing.T) {
 		"read: [{kind: web.site, fields: [domains]}]", "read: [{kind: web.site}]\n  write: [{kind: web.site}]",
 	).Replace(accountManifest)
 	e.publish(t, "acme", account(t, manifest))
-	mine := store.AccountScope(store.NewID("acct"))
-	theirs := store.AccountScope(store.NewID("acct"))
+	mine := e.newAccount(t)
+	theirs := e.newAccount(t)
 	e.places[mine.ID] = Placement{Slug: "mine", Limits: system.ResourceLimits{MemoryMaxBytes: 48 << 20, CPUQuotaPercent: 10}}
 	inst := Instance(AccountAddon.Name(), "site-guard", mine)
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: theirs, Spec: spec(t, siteSpec{Domains: []string{"theirs.example"}, Notes: "theirs"})})
@@ -547,7 +547,7 @@ func TestAddedChangesAreCheckedAsPlanned(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
 	e.install(t)
-	acct := store.AccountScope(store.NewID("acct"))
+	acct := e.newAccount(t)
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct,
 		Spec:   spec(t, siteSpec{Domains: []string{"victim.example"}, Notes: "keep"}),
 		Labels: map[string]string{"racksail.dev/installation": "inst_real"}})

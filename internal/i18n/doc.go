@@ -11,6 +11,11 @@
 // Codes follow the pattern <module>.<snake_case>. Core codes use the "core"
 // module name and are declared in this package.
 //
+// What the JSON Schema validators find wrong with a request becomes field
+// errors of these codes, in the panel's own words: SchemaField words the
+// findings of the API's validator, and JSONSchemaFields those of the
+// validator of the schemas in spec/schemas, which rules are checked with.
+//
 // Messages that are not errors (CLI output, notification text, installer
 // screens) go through a Catalog, which looks up a key for a locale and falls
 // back to English.

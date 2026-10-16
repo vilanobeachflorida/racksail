@@ -312,6 +312,113 @@ func TestUnitsAdapter(t *testing.T) {
 	}
 }
 
+// ResourceControl reads the effective limits from systemd's D-Bus properties
+// with runtime true: the base-unit values, infinity for an unset limit, and
+// never the AllowedCPUs bitmask, which can't be reduced with certainty. With
+// runtime false it reads the persistent configuration from the unit file and
+// its drop-ins instead, so a persistent change isn't fooled by a runtime
+// override.
+func TestUnitsResourceControl(t *testing.T) {
+	ctx := context.Background()
+	b, _, sd, _ := newTestBackend(t, nil)
+	name := "racksail-accounts-blog.slice"
+	sd.props[name] = map[string]any{
+		"LoadState": "loaded", "ActiveState": "active",
+		"MemoryMax":          uint64(2 << 30),
+		"MemoryHigh":         ^uint64(0),
+		"CPUQuotaPerSecUSec": uint64(500000),
+		"CPUWeight":          uint64(200),
+		"TasksMax":           uint64(512),
+		"AllowedCPUs":        []byte{0x3},
+	}
+	eff, err := b.Units.ResourceControl(ctx, name, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"MemoryMax": "2147483648", "MemoryHigh": "infinity", "CPUQuota": "500000", "CPUWeight": "200", "TasksMax": "512"}
+	for k, v := range want {
+		if eff[k] != v {
+			t.Errorf("effective %s = %q, want %q", k, eff[k], v)
+		}
+	}
+	if _, ok := eff["AllowedCPUs"]; ok {
+		t.Errorf("AllowedCPUs is a bitmask and must not be read: %v", eff)
+	}
+
+	// The persistent view reads the unit file and its drop-ins, last wins, and
+	// ignores the live D-Bus values.
+	if err := b.Units.WriteUnit(ctx, name, []byte("[Slice]\nMemoryMax=1G\nTasksMax=256\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Units.WriteDropIn(ctx, name, "50-racksail", []byte("[Slice]\nMemoryMax=3G\n")); err != nil {
+		t.Fatal(err)
+	}
+	persistent, err := b.Units.ResourceControl(ctx, name, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persistent["MemoryMax"] != "3221225472" || persistent["TasksMax"] != "256" {
+		t.Errorf("persistent limits = %v", persistent)
+	}
+	if persistent["CPUWeight"] != "" {
+		t.Errorf("persistent view must not carry the live CPUWeight: %v", persistent)
+	}
+}
+
+// The persistent view follows systemd's precedence, not a merge of every
+// file: only the unit file of the highest priority, drop-ins applied by name
+// across directories (so an admin drop-in named racksail-limits.conf beats
+// the 50-MemoryMax.conf set-property wrote under system.control), a drop-in
+// linked to /dev/null hiding its namesakes, the dash-prefix and type-wide
+// directories, and nothing from /run.
+func TestUnitsPersistentLimitsFollowSystemd(t *testing.T) {
+	ctx := context.Background()
+	b, _, _, root := newTestBackend(t, nil)
+	const slice = "racksail-accounts-blog.slice"
+	write(t, root, "/usr/lib/systemd/system/"+slice, "[Slice]\nMemoryMax=4G\nTasksMax=100\nIOWeight=10\n")
+	write(t, root, "/etc/systemd/system/"+slice, "[Slice]\nMemoryMax=512M\n")
+	write(t, root, "/etc/systemd/system/"+slice+".d/racksail-limits.conf", "[Slice]\nMemoryMax=1G\n")
+	write(t, root, "/etc/systemd/system.control/"+slice+".d/50-MemoryMax.conf", "[Slice]\nMemoryMax=2G\n")
+	write(t, root, "/run/systemd/system.control/"+slice+".d/50-CPUWeight.conf", "[Slice]\nCPUWeight=10\n")
+	write(t, root, "/usr/lib/systemd/system/"+slice+".d/60-tasks.conf", "[Slice]\nTasksMax=70\n")
+	if err := os.Symlink("/dev/null", filepath.Join(root, "etc/systemd/system", slice+".d", "60-tasks.conf")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "/etc/systemd/system/racksail-accounts-.slice.d/70-cpu.conf", "[Slice]\nCPUWeight=40\n")
+	write(t, root, "/etc/systemd/system/slice.d/80-io.conf", "[Slice]\nIOWeight=60\n")
+	got, err := b.Units.ResourceControl(ctx, slice, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"MemoryMax": "1073741824", "CPUWeight": "40", "IOWeight": "60"}
+	if len(got) != len(want) {
+		t.Errorf("persistent limits = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("persistent %s = %q, want %q (all: %v)", k, got[k], v, got)
+		}
+	}
+
+	// A unit file that can't be read as systemd reads it leaves the limits
+	// unknown rather than guessed.
+	write(t, root, "/etc/systemd/system/racksail-accounts-shop.slice", "[Slice\nMemoryMax=1G\n")
+	if _, err := b.Units.ResourceControl(ctx, "racksail-accounts-shop.slice", false); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a unit file systemd refuses: %v", err)
+	}
+
+	// Removing the unit takes the drop-ins set-property wrote with it, so a
+	// unit of the same name made later starts without its limits.
+	if err := b.Units.RemoveUnit(ctx, slice); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"etc/systemd/system", "etc/systemd/system.control", "run/systemd/system.control"} {
+		if _, err := os.Stat(filepath.Join(root, dir, slice+".d")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s/%s.d is still there: %v", dir, slice, err)
+		}
+	}
+}
+
 func TestPackagesParsing(t *testing.T) {
 	installed := parseDpkgQuery([]byte("knot\t3.4.7-1\tamd64\t4096\tinstalled\nold\t1.0\tamd64\t10\tconfig-files\n"))
 	if len(installed) != 1 || installed[0].InstalledBytes != 4096*1024 {

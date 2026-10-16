@@ -117,51 +117,51 @@ type Index struct {
 // ships a custom screen.
 type UIHints struct {
 	// Icon is a lucide icon name, for example "globe".
-	Icon string `json:"icon,omitempty"`
+	Icon string `json:"icon,omitempty" doc:"The Lucide icon the screens show the kind with, such as globe"`
 	// TitleField is the spec path shown as the resource's title.
-	TitleField string `json:"titleField,omitempty"`
+	TitleField string `json:"titleField,omitempty" doc:"The spec field that names a resource in lists and headings"`
 	// SubtitleField is the spec path shown under the title.
-	SubtitleField string               `json:"subtitleField,omitempty"`
-	Columns       []Column             `json:"columns,omitempty"`
-	Groups        []FieldGroup         `json:"groups,omitempty"`
-	Fields        map[string]FieldHint `json:"fields,omitempty"`
+	SubtitleField string               `json:"subtitleField,omitempty" doc:"The spec field shown under the title"`
+	Columns       []Column             `json:"columns,omitempty" doc:"The columns of the list screen, in order"`
+	Groups        []FieldGroup         `json:"groups,omitempty" doc:"Fields the form shows together, under a heading"`
+	Fields        map[string]FieldHint `json:"fields,omitempty" doc:"How the form shows each field, by its path in the spec"`
 	// Hidden kinds get no generic screen or navigation entry.
-	Hidden bool `json:"hidden,omitempty"`
+	Hidden bool `json:"hidden,omitempty" doc:"Whether the kind gets no generic screens, as when its module shows it on screens of its own"`
 }
 
 // Column is a column in the generic list screen.
 type Column struct {
-	Field string `json:"field"`
+	Field string `json:"field" doc:"What the column shows: a path into the resource, such as spec.domains or status.phase"`
 	// Format is one of text, date, bytes, duration, status, badge or link.
-	Format string `json:"format,omitempty"`
+	Format string `json:"format,omitempty" doc:"How the value is shown: text, date, bytes, duration, status, badge or link"`
 }
 
 // FieldGroup groups fields on the generic form.
 type FieldGroup struct {
-	Name     string   `json:"name"`
-	Fields   []string `json:"fields"`
-	Advanced bool     `json:"advanced,omitempty"`
+	Name     string   `json:"name" doc:"The group's heading on the form"`
+	Fields   []string `json:"fields" doc:"The paths of the fields in the group, in order"`
+	Advanced bool     `json:"advanced,omitempty" doc:"Whether the group starts folded away, as settings few people change"`
 }
 
 // FieldHint adjusts how one field is shown on the generic form.
 type FieldHint struct {
 	// Widget overrides the default input, for example textarea, code, password,
 	// select, toggle, size, duration or resource.
-	Widget      string `json:"widget,omitempty"`
-	Placeholder string `json:"placeholder,omitempty"`
-	Advanced    bool   `json:"advanced,omitempty"`
+	Widget      string `json:"widget,omitempty" doc:"The input the form uses instead of the type's own, such as textarea, code, password, select, toggle, size, duration or resource"`
+	Placeholder string `json:"placeholder,omitempty" doc:"What the empty input shows as an example"`
+	Advanced    bool   `json:"advanced,omitempty" doc:"Whether the field starts folded away, as a setting few people change"`
 	// Sensitive fields hold secrets. Their value is a reference to one of
 	// the resource's own secrets (a secrets.Ref), never the secret itself:
 	// values arrive in a change's Secrets, and change sets show the field
 	// redacted.
-	Sensitive bool `json:"sensitive,omitempty"`
+	Sensitive bool `json:"sensitive,omitempty" doc:"Whether the field holds a secret: its value is a reference to one of the resource's secrets, set through a change's secrets and never shown"`
 	// CreateOnly fields can be set on create and are read-only afterwards.
-	CreateOnly bool `json:"createOnly,omitempty"`
-	Order      int  `json:"order,omitempty"`
+	CreateOnly bool `json:"createOnly,omitempty" doc:"Whether the field is only set when the resource is created, and read-only after"`
+	Order      int  `json:"order,omitempty" doc:"Where the field comes on the form; lower first"`
 	// Kind is the kind of the resources a field with the resource widget
 	// names by ID, such as databases.database, so forms can offer them to
 	// choose from. Without it, forms take the ID as text.
-	Kind string `json:"kind,omitempty"`
+	Kind string `json:"kind,omitempty" doc:"For the resource widget, the kind of the resources the field names by ID, which the form offers to choose from"`
 }
 
 // Backup says whether resources of the kind are covered by backups, restores
@@ -234,6 +234,64 @@ func (k *KindInfo) levelsText() string {
 func (k *KindInfo) Module() string {
 	module, _, _ := strings.Cut(k.Name, ".")
 	return module
+}
+
+// Path is where the API serves the kind's operations, below /api/v1:
+// <module>/<plural>, such as web/sites.
+func (k *KindInfo) Path() string { return k.Module() + "/" + k.Plural }
+
+// TypeName names the kind's schemas and operations: web.site gives WebSite
+// and mail.mailbox_alias gives MailMailboxAlias.
+func (k *KindInfo) TypeName() string {
+	return camel(strings.FieldsFunc(k.Name, func(r rune) bool { return r == '.' || r == '_' || r == '-' })...)
+}
+
+// OperationID is the ID of an operation the API generates for the kind:
+// list, get, create, update, delete or history, or the name of one of its
+// actions. web.site's are listWebSites, getWebSite, createWebSite,
+// updateWebSite, deleteWebSite, getWebSiteHistory and, for its deploy
+// action, deployWebSite.
+func (k *KindInfo) OperationID(operation string) string {
+	name := k.TypeName()
+	switch operation {
+	case "list":
+		return "list" + camel(k.Module(), k.Plural)
+	case "get", "create", "update", "delete":
+		return operation + name
+	case "history":
+		return "get" + name + "History"
+	}
+	id := camel(operation)
+	if id == "" {
+		return name
+	}
+	return strings.ToLower(id[:1]) + id[1:] + name
+}
+
+// OperationIDs lists the IDs of every operation the API generates for the
+// kind, which no other kind's may share.
+func (k *KindInfo) OperationIDs() []string {
+	ops := []string{"list", "get", "create", "update", "delete", "history"}
+	for _, a := range k.Actions {
+		ops = append(ops, a.Name)
+	}
+	out := make([]string, len(ops))
+	for i, op := range ops {
+		out[i] = k.OperationID(op)
+	}
+	return out
+}
+
+// camel joins words, each starting with a capital letter, splitting them
+// further at dots, underscores, hyphens and spaces.
+func camel(words ...string) string {
+	var b strings.Builder
+	for _, w := range words {
+		for _, part := range strings.FieldsFunc(w, func(r rune) bool { return r == '.' || r == '_' || r == '-' || r == ' ' }) {
+			b.WriteString(strings.ToUpper(part[:1]) + part[1:])
+		}
+	}
+	return b.String()
 }
 
 // Action returns the declared action with the given name.

@@ -72,12 +72,12 @@ describe("findHardCodedColors", () => {
 });
 
 describe("filesToCheck", () => {
-  it("checks tracked files only, outside hidden directories, generated files and tests", () => {
+  it("checks the files git tracks, leaving out hidden directories, generated files and tests", () => {
     const dir = mkdtempSync(join(tmpdir(), "tokens-"));
-    for (const sub of [".hidden", "design", "lib/api", "app", ".worktrees/other/app"]) {
+    for (const sub of [".hidden", "design", "lib/api", "app/.wip"]) {
       mkdirSync(join(dir, sub), { recursive: true });
     }
-    const tracked = [
+    for (const file of [
       ".hidden/a.tsx",
       "design/theme.css",
       "design/globals.css",
@@ -85,17 +85,19 @@ describe("filesToCheck", () => {
       "app/shell.tsx",
       "app/shell.test.tsx",
       "app/logo.png",
+      "app/.wip/b.tsx",
       "app/gone.tsx",
-    ];
-    for (const file of [...tracked, "app/draft.tsx", ".worktrees/other/app/shell.tsx"]) {
+    ]) {
       writeFileSync(join(dir, file), "");
     }
-    /** @param {...string} args */
-    const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
-    git("init", "--quiet");
-    git("add", "--force", ...tracked);
-    // A file deleted in the working tree is still tracked until committed.
+    execFileSync("git", ["init", "--quiet"], { cwd: dir });
+    execFileSync("git", ["add", "--", "."], { cwd: dir });
+    // Deleted but still tracked until committed, and not tracked at all,
+    // as another checkout inside the directory would be.
     rmSync(join(dir, "app/gone.tsx"));
+    writeFileSync(join(dir, "app/untracked.tsx"), "");
+    mkdirSync(join(dir, "other-checkout/src"), { recursive: true });
+    writeFileSync(join(dir, "other-checkout/src/x.tsx"), "");
     expect(filesToCheck(dir).map((f) => f.slice(dir.length + 1))).toEqual([
       "app/shell.tsx",
       "design/globals.css",

@@ -7,6 +7,32 @@ import { isModuleId, loadModules, moduleIds, moduleRegistry } from "./registry";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
+/**
+ * The modules' directories among files, by their paths in the repository:
+ * every directory under modules/ but all, which imports them. Hidden
+ * directories, such as another checkout's, aren't modules.
+ */
+function moduleDirectories(files: readonly string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of files) {
+    const [top, dir, ...rest] = file.split("/");
+    if (top === "modules" && dir && rest.length > 0 && dir !== "all" && !dir.startsWith(".")) {
+      dirs.add(dir);
+    }
+  }
+  return [...dirs].sort();
+}
+
+/** The files git tracks under modules/, so directories it doesn't track don't count either. */
+function trackedModuleFiles(): string[] {
+  return execFileSync("git", ["ls-files", "-z", "--cached", "--", "modules"], {
+    cwd: repo,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter((file) => file !== "");
+}
+
 function catalog(id: string): Record<string, string> {
   return JSON.parse(readFileSync(join(repo, "ui/src/modules", id, "messages/en.json"), "utf8"));
 }
@@ -23,24 +49,22 @@ describe("module registry", () => {
       ...(allGo.match(/var IDs = \[\]string\{([^}]*)\}/)?.[1] ?? "").matchAll(/"([a-z]+)"/g),
     ].map((m) => m[1]);
     expect(moduleIds).toEqual(goIds);
-    // The modules are the directories git tracks under modules/, so a
-    // checkout or a stray directory that isn't committed counts for nothing.
-    const tracked = execFileSync("git", ["ls-files", "-z", "--", "modules"], {
-      cwd: repo,
-      encoding: "utf8",
-    });
-    const dirs = [
-      ...new Set(
-        tracked
-          .split("\0")
-          .map((path) => path.split("/"))
-          .filter((parts) => parts.length > 2)
-          .map((parts) => parts[1] ?? "")
-          .filter((name) => name !== "all" && !name.startsWith(".")),
-      ),
-    ].sort();
-    expect([...moduleIds].sort()).toEqual(dirs);
+    expect([...moduleIds].sort()).toEqual(moduleDirectories(trackedModuleFiles()));
     expect(Object.keys(moduleRegistry)).toEqual([...moduleIds]);
+  });
+
+  it("counts the directories git tracks under modules/, not hidden or stray ones", () => {
+    expect(
+      moduleDirectories([
+        "modules/web/manifest.yaml",
+        "modules/web/web.go",
+        "modules/dns/manifest.yaml",
+        "modules/all/all.go",
+        "modules/README.md",
+        "modules/.wip/manifest.yaml",
+        "ui/src/modules/web/index.ts",
+      ]),
+    ).toEqual(["dns", "web"]);
   });
 
   it("knows which ids are modules", () => {

@@ -318,7 +318,7 @@ type unitJSON struct {
 	PID      int               `json:"pid,omitempty"`
 	Since    time.Time         `json:"since,omitzero"`
 	Restarts int               `json:"restarts,omitempty"`
-	Props    map[string]string `json:"props,omitempty"`
+	Applied  map[string]string `json:"applied,omitempty"`
 }
 
 type btrfsJSON struct {
@@ -343,7 +343,7 @@ func (m *Machine) snapshot() snapshot {
 		s.Files[p] = fileJSON{Mode: n.mode, UID: n.uid, GID: n.gid, Data: n.data, Target: n.target, ModTime: n.modTime, NoCOW: n.noCOW}
 	}
 	for name, rt := range m.units {
-		s.Units[name] = unitJSON{Active: rt.active, Sub: rt.sub, PID: rt.pid, Since: rt.since, Restarts: rt.restarts, Props: rt.props}
+		s.Units[name] = unitJSON{Active: rt.active, Sub: rt.sub, PID: rt.pid, Since: rt.since, Restarts: rt.restarts, Applied: rt.applied}
 	}
 	for dev, b := range m.btrfsFS {
 		s.BtrfsFS[dev] = btrfsJSON{Devices: b.devices, Profiles: b.profiles, Quotas: b.quotas, Scrub: b.scrub}
@@ -385,7 +385,7 @@ func load(data []byte, opts Options) (*Machine, error) {
 		m.files[p] = &node{mode: f.Mode, uid: f.UID, gid: f.GID, data: f.Data, target: f.Target, modTime: f.ModTime, noCOW: f.NoCOW}
 	}
 	for name, u := range s.Units {
-		m.units[name] = &unitRuntime{active: u.Active, sub: u.Sub, pid: u.PID, since: u.Since, restarts: u.Restarts, props: u.Props}
+		m.units[name] = &unitRuntime{active: u.Active, sub: u.Sub, pid: u.PID, since: u.Since, restarts: u.Restarts, applied: u.Applied}
 	}
 	for dev, b := range s.BtrfsFS {
 		m.btrfsFS[dev] = &btrfsFS{devices: b.Devices, profiles: b.Profiles, quotas: b.Quotas, scrub: b.Scrub}

@@ -140,6 +140,7 @@ func (a testAuth) Authenticate(ctx context.Context, r *http.Request) (*auth.Acto
 // database and a simulated server, with in-process test hooks.
 type stack struct {
 	t        *testing.T
+	db       *store.DB
 	server   *Server
 	http     *httptest.Server
 	store    store.Store
@@ -177,6 +178,13 @@ func (o owners) AccountsOf(ctx context.Context, reseller store.ID) ([]store.ID, 
 }
 
 func newStack(t *testing.T, limits RateLimit) *stack {
+	t.Helper()
+	return newStackWith(t, limits, modules.NewRegistry())
+}
+
+// newStackWith is newStack with modules whose operations the server serves
+// too.
+func newStackWith(t *testing.T, limits RateLimit, mods *modules.Registry) *stack {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -221,13 +229,14 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	recs := reconcile.NewRegistry()
 	for _, r := range []reconcile.Reconciler{
 		reconcile.Typed(siteKind, siteReconciler{}), webhook.Reconciler(dispatcher), account.Reconciler(kinds),
-		identity.PolicyReconciler(), identity.ProviderReconciler(),
+		identity.PolicyReconciler(),
 	} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}
 	}
-	s := &stack{t: t, store: st, log: log, jobs: q, machine: machine, kinds: kinds, account: store.NewID("acct"), reseller: store.NewID("rsl")}
+	s := &stack{t: t, db: db, store: st, log: log, jobs: q, machine: machine, kinds: kinds, reseller: store.NewID("rsl")}
+	s.account = s.newAccount(s.reseller)
 	registry := hooks.NewRegistry()
 	for _, k := range kinds.All() {
 		registry.DeclareKind(k)
@@ -289,12 +298,14 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 		Hooks: &hooks.Runner{Registry: registry, Events: log}, Authorizer: authz, Hostname: "localhost",
 		Log: slog.New(slog.DiscardHandler),
 	})
-	if err := recs.Register(s.identity.UserReconciler()); err != nil {
-		t.Fatal(err)
+	for _, r := range []reconcile.Reconciler{s.identity.UserReconciler(), s.identity.ProviderReconciler()} {
+		if err := recs.Register(r); err != nil {
+			t.Fatal(err)
+		}
 	}
 	go runner.Run(ctx, time.Hour)
 	s.server = New(Options{
-		Auth: testAuth{actors: s.actors, identity: s.identity}, Modules: modules.NewRegistry(), Identity: s.identity, Accounts: s.owners,
+		Auth: testAuth{actors: s.actors, identity: s.identity}, Modules: mods, Identity: s.identity, Accounts: s.owners,
 		Services: &modules.Services{
 			Store: st, Kinds: kinds, Pipeline: engine, Jobs: q, Events: log, Audit: log, Agent: agentClient, Secrets: vault, Authorizer: authz,
 		},
@@ -303,6 +314,21 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	s.http = httptest.NewServer(s.server.Handler())
 	t.Cleanup(s.http.Close)
 	return s
+}
+
+// newAccount puts an account straight in the store, a customer of reseller
+// when it isn't empty, for resources to belong to, and returns its ID.
+func (s *stack) newAccount(reseller store.ID) store.ID {
+	s.t.Helper()
+	id := store.NewID("acct")
+	spec, _ := json.Marshal(account.AccountSpec{Slug: "a" + strings.ToLower(string(id[len(id)-8:])), Name: "Test", Reseller: reseller})
+	ctx := context.Background()
+	if err := s.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: spec})
+	}); err != nil {
+		s.t.Fatal(err)
+	}
+	return id
 }
 
 // call makes a request as an actor and decodes a JSON answer into out,

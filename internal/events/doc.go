@@ -15,7 +15,11 @@
 // much as a change, and a change a validate hook stopped. A change that was
 // allowed but couldn't be made, such as one whose settings aren't valid, is
 // there as failed; previews that fail are left out, since they change
-// nothing.
+// nothing. So that a caller who keeps being refused can't push everyone
+// else's records out, a refusal the same as one of the actor's recorded
+// within the hour only counts on that record (Repeats and LastTime), and an
+// actor's different refusals past a hundred in the hour count together on
+// one record of the action RefusalsAction (see Denials).
 //
 // Log is the bus, the timeline and the audit log in one. It stores every
 // event before subscribers see it, numbering them with a sequence that is

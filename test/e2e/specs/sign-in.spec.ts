@@ -1,15 +1,17 @@
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import AxeBuilder from "@axe-core/playwright";
 import { type CDPSession, expect, type Page, test } from "@playwright/test";
+import { violations, violationsInEachMode } from "../axe";
 
 // These run against a panel that signs people in the way a server does:
 // racksail dev --sign-in, at RACKSAIL_E2E_SIGNIN_URL, started fresh with its
 // data in RACKSAIL_E2E_SIGNIN_DATA, where it keeps the setup code until the
 // first admin is made. test/e2e/local.sh starts one. They go one after the
 // other, as one person: making the first admin, adding a second step and a
-// passkey, and signing in with each.
+// passkey, and signing in with each. The screens of signing in, and the
+// pages that need people and accounts, are checked with axe here, in light
+// and dark mode.
 const panel = process.env.RACKSAIL_E2E_SIGNIN_URL;
 const data = process.env.RACKSAIL_E2E_SIGNIN_DATA;
 
@@ -117,6 +119,7 @@ test("makes the first admin with the setup code", async ({ page }) => {
   await page.getByLabel("New password", { exact: true }).fill(admin.password);
   await page.getByRole("button", { name: "Make the admin and sign in" }).click();
   await expect(page.getByText("The setup code isn't right")).toBeVisible();
+  expect(await violationsInEachMode(page), "the first admin's setup").toEqual([]);
 
   await page.getByLabel("Setup code", { exact: true }).fill(code);
   await page.getByRole("button", { name: "Make the admin and sign in" }).click();
@@ -134,6 +137,7 @@ test("signs in with a password, and refuses a wrong one", async ({ page }) => {
   await page.getByLabel("Password", { exact: true }).fill("not the password at all");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByText("The username or password isn't right.")).toBeVisible();
+  expect(await violationsInEachMode(page), "the sign-in screen").toEqual([]);
 });
 
 test("adds an authenticator app, which signing in then asks for", async ({ page }) => {
@@ -157,6 +161,7 @@ test("adds an authenticator app, which signing in then asks for", async ({ page 
   await page.getByLabel("Code", { exact: true }).fill("000000");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("That code isn't right, or it was used already.")).toBeVisible();
+  expect(await violationsInEachMode(page), "the second step of signing in").toEqual([]);
   await page.getByLabel("Code", { exact: true }).fill(await freshCode(page));
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
@@ -253,14 +258,8 @@ test("views the panel as an account's owner, under a banner every mode shows cle
     await expect(banner).toHaveCSS("background-color", warning);
     await expect(stop).toHaveCSS("background-color", warningText);
     await expect(stop).toHaveCSS("color", warning);
-    const results = await new AxeBuilder({ page })
-      .include("section[aria-label='Viewing the panel as someone else']")
-      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-      .analyze();
     expect(
-      results.violations.map(
-        (v) => `${v.id}: ${v.nodes.map((n) => `${n.target.join(" ")} (${n.any[0]?.message ?? ""})`).join(", ")}`,
-      ),
+      await violations(page, "section[aria-label='Viewing the panel as someone else']"),
       `the banner in ${colorScheme} mode, contrast ${contrast}`,
     ).toEqual([]);
   }
@@ -268,4 +267,38 @@ test("views the panel as an account's owner, under a banner every mode shows cle
   await expect(banner).toBeHidden();
   const session = await (await page.request.get("/api/v1/session")).json();
   expect(session.user.username).toBe(admin.username);
+});
+
+test("has nothing axe finds on the pages of your account and of people and access", async ({ page }) => {
+  test.setTimeout(120_000);
+  await signInWithPassword(page);
+  await page.getByLabel("Code", { exact: true }).fill(await freshCode(page));
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+
+  // The account and its owner the test before opened.
+  const accounts = await (await page.request.get("/api/v1/core/accounts")).json();
+  const account: string = accounts.items.find((a: { spec: { slug: string } }) => a.spec.slug === "acme").id;
+  const users = await (await page.request.get("/api/v1/core/users")).json();
+  const owner: string = users.items.find((u: { spec: { username: string } }) => u.spec.username === "owen").id;
+  for (const path of [
+    "/settings/profile",
+    "/settings/security",
+    "/settings/sessions",
+    "/settings/tokens",
+    "/settings/ssh-keys",
+    "/settings/sign-in",
+    "/roles",
+    "/users",
+    `/users/${owner}`,
+    "/accounts",
+    `/accounts/${account}`,
+  ]) {
+    await test.step(path, async () => {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      expect.soft(await violationsInEachMode(page), path).toEqual([]);
+    });
+  }
 });

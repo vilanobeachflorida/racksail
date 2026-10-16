@@ -435,9 +435,12 @@ func (m *Machine) Reboot() {
 
 // rebootLocked does the reboot. The caller holds m.mu.
 func (m *Machine) rebootLocked() {
-	for name := range m.units {
+	for name, rt := range m.units {
 		m.stopUnit(name)
+		rt.applied = nil
 	}
+	// /run is empty again, and with it what a runtime set-property kept.
+	m.removeTree(system.RuntimeControlDir)
 	for pid := range m.procs {
 		if pid != 1 {
 			delete(m.procs, pid)

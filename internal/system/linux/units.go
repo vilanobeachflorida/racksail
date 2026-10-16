@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +69,9 @@ func (u *units) ReadUnit(ctx context.Context, name string) ([]byte, error) {
 	return u.fs().ReadFile(ctx, path.Join(system.UnitDir, name), 1<<20)
 }
 
+// RemoveUnit removes the unit file with its drop-ins, the ones set-property
+// wrote included, so a unit of the same name made later doesn't inherit
+// the limits of this one.
 func (u *units) RemoveUnit(ctx context.Context, name string) error {
 	if err := checkUnit(name); err != nil {
 		return err
@@ -73,11 +79,13 @@ func (u *units) RemoveUnit(ctx context.Context, name string) error {
 	if err := u.fs().Remove(ctx, path.Join(system.UnitDir, name)); err != nil {
 		return err
 	}
-	err := u.fs().RemoveAll(ctx, path.Join(system.UnitDir, name+".d"))
-	if errors.Is(err, system.ErrNotFound) {
-		return nil
+	for _, dir := range []string{system.UnitDir, system.ControlDir, system.RuntimeControlDir} {
+		err := u.fs().RemoveAll(ctx, path.Join(dir, name+".d"))
+		if err != nil && !errors.Is(err, system.ErrNotFound) {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 var dropInPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
@@ -208,6 +216,114 @@ func (u *units) SetProperties(ctx context.Context, name string, runtime bool, pr
 		return fmt.Errorf("setting properties of %s: %w", name, err)
 	}
 	return nil
+}
+
+// d-Bus property names of the resource-control limits, in the order of
+// system.ResourceControlProperties. CPU quota is kept as microseconds of CPU
+// per second, and AllowedCPUs as a bitmask that CanonicalLimit won't reduce,
+// so it isn't read here.
+var resourceControlProps = map[string]string{
+	"MemoryMin": "MemoryMin", "MemoryLow": "MemoryLow", "MemoryHigh": "MemoryHigh",
+	"MemoryMax": "MemoryMax", "MemorySwapMax": "MemorySwapMax", "CPUQuota": "CPUQuotaPerSecUSec",
+	"CPUWeight": "CPUWeight", "IOWeight": "IOWeight", "TasksMax": "TasksMax",
+}
+
+func (u *units) ResourceControl(ctx context.Context, name string, runtime bool) (map[string]string, error) {
+	if err := checkUnit(name); err != nil {
+		return nil, err
+	}
+	if !runtime {
+		return u.persistentLimits(ctx, name)
+	}
+	props, err := u.systemd.Properties(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("resource limits of %s: %w", name, err)
+	}
+	out := map[string]string{}
+	for limit, prop := range resourceControlProps {
+		v, ok := props[prop]
+		if !ok {
+			continue
+		}
+		raw := num(v)
+		// systemd reports an unset limit as the maximum of a uint64, and a
+		// set one in the base unit CanonicalLimit produces: bytes for memory
+		// and tasks, microseconds of CPU per second for the quota, a plain
+		// number for the weights.
+		if raw == ^uint64(0) {
+			out[limit] = "infinity"
+		} else {
+			out[limit] = strconv.FormatUint(raw, 10)
+		}
+	}
+	return out, nil
+}
+
+// persistentLimits reads the resource-control limits a unit keeps across a
+// reboot: its configuration as systemd loads it from the directories a
+// reboot leaves in place, so not the /run overrides a runtime set-property
+// writes. Only the unit file of the highest priority counts, and its
+// drop-ins, the set-property ones under system.control included, apply in
+// the order of their names (system.LoadUnitConfig).
+func (u *units) persistentLimits(ctx context.Context, name string) (map[string]string, error) {
+	files, err := system.LoadUnitConfig(name, system.PersistentUnitSearchPath(), unitTree{ctx: ctx, h: u.h})
+	if err != nil {
+		return nil, err
+	}
+	return system.UnitResourceLimits(name, files)
+}
+
+// unitTree reads unit files and drop-ins under the machine's root for
+// system.LoadUnitConfig.
+type unitTree struct {
+	ctx context.Context
+	h   *host
+}
+
+func (t unitTree) Lstat(p string) (system.FileInfo, error) {
+	if err := checkPath(p); err != nil {
+		return system.FileInfo{}, err
+	}
+	fi, err := os.Lstat(t.h.path(p))
+	if err != nil {
+		return system.FileInfo{}, mapErr("stat", p, err)
+	}
+	return t.info(p, fi), nil
+}
+
+func (t unitTree) ReadDir(p string) ([]system.FileInfo, error) {
+	if err := checkPath(p); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(t.h.path(p))
+	if err != nil {
+		return nil, mapErr("readdir", p, err)
+	}
+	out := make([]system.FileInfo, 0, len(entries))
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil {
+			// Removed while the directory was read.
+			continue
+		}
+		out = append(out, t.info(path.Join(p, e.Name()), fi))
+	}
+	return out, nil
+}
+
+func (t unitTree) ReadFile(p string) ([]byte, error) {
+	return (&files{t.h}).ReadFile(t.ctx, p, 1<<20)
+}
+
+// info describes a unit file by what loading it needs: its type and, for
+// a link, its target. Owners don't matter here, so the account files
+// aren't read for every entry of a large unit directory.
+func (t unitTree) info(p string, fi fs.FileInfo) system.FileInfo {
+	info := system.FileInfo{Path: p, Mode: fi.Mode(), Size: fi.Size(), ModTime: fi.ModTime().UTC()}
+	if fi.Mode()&fs.ModeSymlink != 0 {
+		info.Target, _ = os.Readlink(t.h.path(p))
+	}
+	return info
 }
 
 func (u *units) Kill(ctx context.Context, name string, signal system.Signal) error {

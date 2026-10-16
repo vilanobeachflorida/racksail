@@ -77,13 +77,13 @@ type pointsInput struct {
 
 type pointList struct {
 	Body struct {
-		Points []hooks.PointInfo `json:"points"`
+		Points []hooks.PointInfo `json:"points" doc:"The hook points, with the hooks attached to each"`
 	}
 }
 
 type hookList struct {
 	Body struct {
-		Hooks []hooks.HookInfo `json:"hooks"`
+		Hooks []hooks.HookInfo `json:"hooks" doc:"Every hook, with its failures in a row and whether the circuit breaker switched it off"`
 	}
 }
 
@@ -116,8 +116,8 @@ type enterSafeModeInput struct {
 type UIEntry struct {
 	Addon string            `json:"addon" doc:"The add-on, as it runs: its id, and the account for account add-ons"`
 	Label string            `json:"label" doc:"The add-on's name and version"`
-	Point hooks.Point       `json:"point" enum:"ui.nav,ui.tab,ui.card,ui.command,ui.settings,ui.column"`
-	UI    hooks.UIExtension `json:"ui"`
+	Point hooks.Point       `json:"point" enum:"ui.nav,ui.tab,ui.card,ui.command,ui.settings,ui.column" doc:"Where in the panel the entry goes"`
+	UI    hooks.UIExtension `json:"ui" doc:"The entry: what it is called and shows, and where it leads"`
 }
 
 type entriesInput struct {
@@ -126,7 +126,7 @@ type entriesInput struct {
 
 type entryList struct {
 	Body struct {
-		Entries []UIEntry `json:"entries"`
+		Entries []UIEntry `json:"entries" doc:"The screen entries add-ons declare"`
 	}
 }
 
@@ -250,8 +250,8 @@ func register(a huma.API, svc *modules.Services) {
 	op = huma.Operation{
 		OperationID: "getSafeMode", Method: http.MethodGet, Path: api.Prefix + "/safe-mode", Tags: tags, Security: api.Protected,
 		Summary: "Say whether safe mode is on",
-		Description: "Whether safe mode keeps every add-on out of the pipeline, and what turned it on: the boot option, the console, the panel, " +
-			"or an add-on that crashed as it started, with when and why.",
+		Description: "Says whether safe mode is on and what turned it on: the boot option, the console, the panel, " +
+			"or an add-on that crashed as it started, with when and why. While it is on no add-on runs, so a broken one can't keep the panel from working.",
 	}
 	api.Describe(&op, api.Info{Permission: string(PermSafeModeRead), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *struct{}) (*safeModeOutput, error) {
@@ -329,9 +329,8 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		out := &entryList{Body: struct {
-			Entries []UIEntry `json:"entries"`
-		}{Entries: []UIEntry{}}}
+		out := &entryList{}
+		out.Body.Entries = []UIEntry{}
 		points := uiPoints
 		if in.Point != "" {
 			points = []hooks.Point{in.Point}

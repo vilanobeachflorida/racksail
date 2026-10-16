@@ -87,7 +87,7 @@ func ParseScope(text string) (Scope, error) {
 type Meta struct {
 	ID    ID     `json:"id" doc:"Immutable TypeID"`
 	Kind  string `json:"kind" doc:"Kind name, <module>.<name>"`
-	Scope Scope  `json:"scope"`
+	Scope Scope  `json:"scope" doc:"Who the resource belongs to: the server, a reseller or an account"`
 	// Server is the cluster server the resource is placed on. Empty means the
 	// server running the panel.
 	Server     ID                `json:"server,omitempty" doc:"Cluster server the resource is placed on; empty for the panel's own server"`
@@ -96,8 +96,8 @@ type Meta struct {
 	// Revision increases on every write to the spec, labels or placement and
 	// guards against lost updates. Status writes don't change it.
 	Revision  int64      `json:"revision" doc:"Increases on every write except status updates; send it back to detect conflicting edits"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	CreatedAt time.Time  `json:"createdAt" doc:"When the resource was created"`
+	UpdatedAt time.Time  `json:"updatedAt" doc:"When its settings, labels or placement last changed"`
 	DeletedAt *time.Time `json:"deletedAt,omitempty" doc:"Set when the resource has been deleted and its system state is being removed"`
 }
 
@@ -109,8 +109,8 @@ func (m *Meta) Deleted() bool { return m.DeletedAt != nil }
 // its kind's Decode.
 type Resource struct {
 	Meta
-	Spec   json.RawMessage `json:"spec"`
-	Status json.RawMessage `json:"status,omitempty"`
+	Spec   json.RawMessage `json:"spec" doc:"What the resource should be: its settings, as its kind's schema describes them"`
+	Status json.RawMessage `json:"status,omitempty" doc:"What Racksail last saw of it, as its reconciler reports"`
 }
 
 // Object is the typed view of a resource of a kind with spec S and status T.
@@ -176,13 +176,13 @@ const (
 // "CertificateIssued".
 type Condition struct {
 	Type    string          `json:"type" doc:"What the condition is about, in CamelCase"`
-	Status  ConditionStatus `json:"status" enum:"true,false,unknown"`
+	Status  ConditionStatus `json:"status" enum:"true,false,unknown" doc:"Whether the condition holds, doesn't, or isn't known yet"`
 	Reason  string          `json:"reason,omitempty" doc:"Machine-readable reason in CamelCase"`
 	Message string          `json:"message,omitempty" doc:"English explanation"`
 	// Code lets the UI translate Message.
-	Code               i18n.Code `json:"code,omitempty"`
-	ObservedGeneration int64     `json:"observedGeneration,omitempty"`
-	LastTransitionTime time.Time `json:"lastTransitionTime"`
+	Code               i18n.Code `json:"code,omitempty" doc:"The error code that translates the message, when it has one"`
+	ObservedGeneration int64     `json:"observedGeneration,omitempty" doc:"The generation of the settings the condition was found for"`
+	LastTransitionTime time.Time `json:"lastTransitionTime" doc:"When the condition last turned from holding to not, or back"`
 }
 
 // Status is the part of a status every kind shares. Kind status types embed
@@ -193,12 +193,12 @@ type Condition struct {
 //		URL string `json:"url,omitempty"`
 //	}
 type Status struct {
-	Phase   Phase  `json:"phase,omitempty" enum:"pending,applying,ready,degraded,failed,deleting"`
+	Phase   Phase  `json:"phase,omitempty" enum:"pending,applying,ready,degraded,failed,deleting" doc:"Where the resource is: waiting, being carried out, ready, working in part, failed, or being removed"`
 	Message string `json:"message,omitempty" doc:"English summary of the current state"`
 	// Code lets the UI translate Message.
-	Code               i18n.Code   `json:"code,omitempty"`
+	Code               i18n.Code   `json:"code,omitempty" doc:"The error code that translates the message, when it has one"`
 	ObservedGeneration int64       `json:"observedGeneration,omitempty" doc:"The generation the reconciler last acted on"`
-	Conditions         []Condition `json:"conditions,omitempty"`
+	Conditions         []Condition `json:"conditions,omitempty" doc:"What the reconciler found about each aspect of the resource, such as whether it is Ready"`
 }
 
 // CommonStatus returns s. Through embedding it gives generic code access to

@@ -102,7 +102,9 @@ func (db *DB) Reader() *sql.DB { return db.reader }
 // Write runs fn in a write transaction, committing it when fn returns nil.
 // Writes are serialized, so fn must not call Write itself. Inside Atomic,
 // with its context, fn runs in Atomic's transaction instead, as a savepoint
-// that is undone on its own when fn fails.
+// that is undone on its own when fn fails. A panic in fn rolls the
+// transaction back before it goes on up, so the writing connection is free
+// again for whoever recovers it.
 func (db *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	if st := db.joined(ctx); st != nil {
 		return st.savepoint(ctx, fn)
@@ -111,6 +113,7 @@ func (db *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("store: starting a transaction: %w", err)
 	}
+	defer rollbackOnPanic(tx)
 	if err := fn(tx); err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
 			return errors.Join(err, rbErr)
@@ -121,6 +124,17 @@ func (db *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 		return fmt.Errorf("store: committing: %w", err)
 	}
 	return nil
+}
+
+// rollbackOnPanic undoes the transaction of a function that panicked and
+// lets the panic go on. Recovered further up, as the API and the job queue
+// recover their handlers, it would otherwise leave the transaction holding
+// the only writing connection, and every later write would wait for it.
+func rollbackOnPanic(tx *sql.Tx) {
+	if p := recover(); p != nil {
+		tx.Rollback()
+		panic(p)
+	}
 }
 
 // Exec runs one statement in a write transaction of its own, or in Atomic's
@@ -191,7 +205,8 @@ func (db *DB) joined(ctx context.Context) *txState {
 // must use its context: one made with another context would wait for the
 // transaction to end, which never happens. For the same reason fn must not
 // publish events, since publishing takes a lock that a writer waiting for
-// the connection may hold.
+// the connection may hold. A panic in fn rolls the transaction back, drops
+// what waited for its commit and goes on up.
 func (db *DB) Atomic(ctx context.Context, fn func(ctx context.Context) error) error {
 	if st := current(ctx); st != nil {
 		if st.db != db {
@@ -204,6 +219,15 @@ func (db *DB) Atomic(ctx context.Context, fn func(ctx context.Context) error) er
 		return fmt.Errorf("store: starting a transaction: %w", err)
 	}
 	st := &txState{db: db, tx: tx}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			st.mu.Lock()
+			st.after, st.done = nil, true
+			st.mu.Unlock()
+			panic(p)
+		}
+	}()
 	err = fn(context.WithValue(ctx, txKey{}, st))
 	if err == nil {
 		if err = tx.Commit(); err != nil {
@@ -258,6 +282,15 @@ func (st *txState) savepoint(ctx context.Context, fn func(tx *sql.Tx) error) err
 	}
 	// Undoing goes ahead even when ctx has ended.
 	cleanup := context.WithoutCancel(ctx)
+	defer func() {
+		// What a write that panicked got to is undone, so a caller that
+		// recovers and goes on doesn't commit half of it.
+		if p := recover(); p != nil {
+			st.tx.ExecContext(cleanup, "ROLLBACK TO "+name)
+			st.tx.ExecContext(cleanup, "RELEASE "+name)
+			panic(p)
+		}
+	}()
 	if err := fn(st.tx); err != nil {
 		if _, rbErr := st.tx.ExecContext(cleanup, "ROLLBACK TO "+name); rbErr != nil {
 			return errors.Join(err, rbErr)

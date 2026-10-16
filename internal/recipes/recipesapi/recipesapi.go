@@ -16,6 +16,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/recipes"
@@ -44,7 +45,7 @@ type itemsInput struct {
 
 type itemList struct {
 	Body struct {
-		Items []recipes.ListedItem `json:"items"`
+		Items []recipes.ListedItem `json:"items" doc:"The items of every catalog that is on, featured first and then by name"`
 	}
 }
 
@@ -155,7 +156,7 @@ func register(a huma.API, svc *modules.Services) {
 	op = huma.Operation{
 		OperationID: "getCatalogItemIcon", Method: http.MethodGet, Path: api.Prefix + "/catalog/items/{catalog}/{item}/icon", Tags: tags, Security: api.Protected,
 		Summary: "Fetch an item's icon",
-		Description: "The item's icon, an SVG or PNG file checked against the catalog's signed index, served so that it can't run or load anything. " +
+		Description: "Returns the item's icon, a PNG or an SVG checked against the catalog's signed index, served so that it can't run or load anything. " +
 			"It is fetched from the catalog the first time, while the marketplace module is on, and kept after that.",
 	}
 	api.Describe(&op, api.Info{Risk: store.RiskRead})
@@ -199,19 +200,17 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		kind, err := recipes.InstallationKindFor(in.Body.Scope)
-		if err != nil {
-			return nil, err
-		}
-		// Who may install there is settled before the recipe is read.
-		if err := api.Authorize(ctx, svc.Authorizer, auth.KindPermission(kind.Info().Name, "create"), auth.Target{Scope: in.Body.Scope}); err != nil {
-			return nil, err
-		}
-		req, err := engine.InstallRequest(ctx, in.Body)
-		if err != nil {
-			return nil, err
-		}
-		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+		return api.SubmitFunc(ctx, svc.Pipeline, in.ChangeParams, func() (changeset.Request, error) {
+			kind, err := recipes.InstallationKindFor(in.Body.Scope)
+			if err != nil {
+				return changeset.Request{}, err
+			}
+			// Who may install there is settled before the recipe is read.
+			if err := api.Authorize(ctx, svc.Authorizer, auth.KindPermission(kind.Info().Name, "create"), auth.Target{Scope: in.Body.Scope}); err != nil {
+				return changeset.Request{}, err
+			}
+			return engine.InstallRequest(ctx, in.Body)
+		})
 	})
 
 	op = huma.Operation{
@@ -226,14 +225,14 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		if err := mayChange(ctx, svc, engine, in.ID, "update"); err != nil {
-			return nil, err
-		}
-		req, err := engine.UpgradeRequest(ctx, in.ID, in.Body)
-		if err != nil {
-			return nil, err
-		}
-		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+		// A retry gets the first change set before the installation is
+		// read: by then it is at the newest version already.
+		return api.SubmitFunc(ctx, svc.Pipeline, in.ChangeParams, func() (changeset.Request, error) {
+			if err := mayChange(ctx, svc, engine, in.ID, "update"); err != nil {
+				return changeset.Request{}, err
+			}
+			return engine.UpgradeRequest(ctx, in.ID, in.Body)
+		})
 	})
 
 	op = huma.Operation{
@@ -248,14 +247,14 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		if err := mayChange(ctx, svc, engine, in.ID, "delete"); err != nil {
-			return nil, err
-		}
-		req, err := engine.UninstallRequest(ctx, in.ID, in.Body)
-		if err != nil {
-			return nil, err
-		}
-		return api.Submit(ctx, svc.Pipeline, in.ChangeParams, req)
+		// A retry gets the first change set before the installation is
+		// read: by then the uninstall may have removed it.
+		return api.SubmitFunc(ctx, svc.Pipeline, in.ChangeParams, func() (changeset.Request, error) {
+			if err := mayChange(ctx, svc, engine, in.ID, "delete"); err != nil {
+				return changeset.Request{}, err
+			}
+			return engine.UninstallRequest(ctx, in.ID, in.Body)
+		})
 	})
 }
 

@@ -63,6 +63,7 @@ Requests that change something must come from the panel's own pages: the panel r
 Sensitive changes ask the person to confirm it's them, with their password, an authenticator code or a passkey, unless they did in the last 10 minutes. They are:
 
 - changes to how someone signs in: second steps, passkeys, API tokens, SSH keys, outside sign-ins and where security alerts go;
+- a new email address for anyone, your own included, since outside sign-in may match people by it the first time they sign in; a new name or language doesn't ask;
 - adding, changing and deleting users, opening an account with an owner, and helping users back in;
 - viewing the panel as someone else;
 - changes the change pipeline rates critical, such as deleting an account.
@@ -73,7 +74,7 @@ API tokens never ask either, since they can only do what they were given. A toke
 
 ## Lockouts and rate limits
 
-Ten failed sign-ins in a row lock a user out for 15 minutes, and the person gets an alert. Wrong passwords count the same whether the panel checks them or an outside directory does, and a lockout stops the directory's password too. Failed sign-ins at the same moment each count, so guessing in parallel doesn't get more tries. Passkeys still sign a locked-out user in, so someone guessing at a password can't keep its owner out. Each address may also try to sign in, use a sign-in link or confirm it's someone only so often: 20 tries at once, then one every six seconds. Past that, the panel answers `core.rate_limited` with the seconds to wait, in the answer and in its `Retry-After` header, as the API's own rate limit does. Signing in as someone who has no password, or with a name nobody has, takes as long as a wrong password does, so how long the answer takes doesn't say which names exist. An admin can end a lockout early by helping the user back in.
+Ten failed sign-ins in a row lock a user out for 15 minutes, and the person gets an alert. Until it ends, signing in with a password answers `auth.locked`, with the minutes left in its message and the seconds in its `Retry-After` header. Wrong passwords count the same whether the panel checks them or an outside directory does, and a lockout stops the directory's password too. Failed sign-ins at the same moment each count, so guessing in parallel doesn't get more tries. Passkeys still sign a locked-out user in, so someone guessing at a password can't keep its owner out. Each address may also try to sign in, use a sign-in link or confirm it's someone only so often: 20 tries at once, then one every six seconds. Past that, the panel answers `core.rate_limited` with the seconds to wait, in the answer and in its `Retry-After` header, as the API's own rate limit does. Signing in as someone who has no password, or with a name nobody has, takes as long as a wrong password does, so how long the answer takes doesn't say which names exist. An admin can end a lockout early by helping the user back in.
 
 ## Alerts
 

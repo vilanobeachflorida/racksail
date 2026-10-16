@@ -35,7 +35,7 @@ type Effect struct {
 	DiskBytes     int64  `json:"diskBytes,omitempty" doc:"Estimated disk use in bytes"`
 	MemoryBytes   int64  `json:"memoryBytes,omitempty" doc:"Estimated memory use in bytes"`
 	// Destructive effects remove data.
-	Destructive bool `json:"destructive,omitempty"`
+	Destructive bool `json:"destructive,omitempty" doc:"Whether it removes data"`
 	// Contributor labels effects added by something other than the requested
 	// change, such as "hook:backups.second-copy" or "addon:cdn".
 	Contributor string `json:"contributor,omitempty" doc:"Who added this effect when it wasn't the requested change itself"`

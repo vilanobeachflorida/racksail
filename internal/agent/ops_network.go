@@ -233,6 +233,11 @@ var ApplyNetworkConfig = Register(Def[NetworkConfigInput, NetworkApplyResult]{
 			return NetworkApplyResult{Result: Changed(effects...)}, nil
 		}
 		if in.ConfirmWithin == 0 {
+			// Applying for good still has to refuse while a change waits to be
+			// confirmed, or that change's rollback would undo this one later.
+			if env.Runtime != nil {
+				return NetworkApplyResult{Result: Changed(effects...)}, env.Runtime.applyNetworkForGood(ctx, want)
+			}
 			return NetworkApplyResult{Result: Changed(effects...)}, env.System.Network.ApplyConfig(ctx, want)
 		}
 		if env.Runtime == nil {

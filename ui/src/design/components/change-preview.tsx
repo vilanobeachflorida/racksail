@@ -517,8 +517,16 @@ export function ChangePreview({
           <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
             {withKeys(destructive, (e) => `${e.action}:${e.target}`).map(([key, e]) => (
               <li key={key}>
-                {intl.formatMessage(m.previewEffect, { action: e.action })}{" "}
-                <code className="font-mono text-xs">{e.target}</code>
+                {intl.formatMessage(m.previewEffectLine, {
+                  action: intl.formatMessage(m.previewEffect, { action: e.action }),
+                  target: (
+                    <code key="target" className="font-mono text-xs">
+                      {e.target}
+                    </code>
+                  ),
+                  hasDetail: "no",
+                  detail: "",
+                })}
               </li>
             ))}
           </ul>

@@ -42,6 +42,19 @@ func (c *clock) add(d time.Duration) {
 	c.t = c.t.Add(d)
 }
 
+// resellerSpec is what the tests' resellers keep.
+type resellerSpec struct {
+	Name string `json:"name"`
+}
+
+// resellerKind stands for the kind the module that keeps resellers defines,
+// for the users who belong to a reseller: resources only belong to
+// resellers that exist.
+var resellerKind = store.Define[resellerSpec, store.Status](store.KindInfo{
+	Name: "test.reseller", Prefix: "rsl", Scope: store.ScopeReseller, Title: "Reseller", Plural: "resellers",
+	Description: "A reseller, for the tests of users who belong to one.",
+})
+
 // harness is the identity service as the panel runs it: users are
 // core.user resources changed through the change pipeline, whose apply
 // jobs run their reconciler, and credentials are in a store of their own.
@@ -67,7 +80,7 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(cancel)
 	discard := slog.New(slog.DiscardHandler)
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{account.Kind, PolicyKind, ProviderKind, UserKind} {
+	for _, k := range []store.Kind{account.Kind, PolicyKind, ProviderKind, UserKind, resellerKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +116,7 @@ func newHarness(t *testing.T) *harness {
 		Store: st, Resources: resources, Pipeline: engine, Refresh: runner.Enqueue, Secrets: vault, Events: log, Audit: log,
 		Hooks: runHooks, Authorizer: authz, Hostname: "panel.example.test", Log: discard, Now: c.now,
 	})
-	for _, r := range []reconcile.Reconciler{account.Reconciler(kinds), PolicyReconciler(), ProviderReconciler(), svc.UserReconciler()} {
+	for _, r := range []reconcile.Reconciler{account.Reconciler(kinds), PolicyReconciler(), svc.ProviderReconciler(), svc.UserReconciler()} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}
@@ -167,9 +180,11 @@ func specJSON(t *testing.T, spec UserSpec) json.RawMessage {
 	return raw
 }
 
-// create adds a user through the change pipeline as actor.
+// create adds a user through the change pipeline as actor, after putting
+// the account or reseller they belong to in the store when it isn't there.
 func (h *harness) create(actor *auth.Actor, home store.Scope, spec UserSpec) (store.ID, error) {
 	h.t.Helper()
+	h.owner(home)
 	id := store.NewID(PrefixUser)
 	_, err := h.submit(actor, "Add "+spec.Username, changeset.Change{Op: changeset.OpCreate, Kind: KindUser, ID: id, Scope: home, Spec: specJSON(h.t, spec)})
 	return id, err
@@ -238,6 +253,27 @@ func (h *harness) status(id store.ID) UserStatus {
 		h.t.Fatal(err)
 	}
 	return obj.Status
+}
+
+// owner puts the account or reseller a scope names straight in the resource
+// store, unless it is there already.
+func (h *harness) owner(scope store.Scope) {
+	h.t.Helper()
+	if scope.Level != store.ScopeAccount && scope.Level != store.ScopeReseller {
+		return
+	}
+	if _, err := h.resources.Get(h.ctx, scope.ID); err == nil {
+		return
+	}
+	kind, spec := resellerKind.Name(), json.RawMessage(`{"name":"Reseller"}`)
+	if scope.Level == store.ScopeAccount {
+		kind = account.Kind.Name()
+		spec, _ = json.Marshal(account.AccountSpec{Slug: "a" + strings.ToLower(string(scope.ID[len(scope.ID)-8:])), Name: "Account"})
+	}
+	r := &store.Resource{Meta: store.Meta{ID: scope.ID, Kind: kind, Scope: scope}, Spec: spec}
+	if err := h.resources.Write(h.ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(h.ctx, r) }); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 // createAccount puts an account straight in the resource store.

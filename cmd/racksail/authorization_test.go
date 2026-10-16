@@ -323,17 +323,17 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		}
 		if generatedForKind(op) {
 			// Their handlers are the same code for every kind, which the
-			// API's own tests call with kinds and bodies of their own;
-			// here, what needs no body is called for each kind.
+			// API's own tests call with resources and bodies of their own;
+			// here every one is called for each kind: a create where the
+			// kind's resources belong, the rest on one that doesn't exist.
 			path := strings.ReplaceAll(op.Path, "{id}", ids["id"])
-			if resp := do("", op.Method, path, nil); resp.StatusCode != http.StatusUnauthorized {
+			body := generatedBody(op)
+			if resp := do("", op.Method, path, body); resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("%s without signing in = %d", op.ID, resp.StatusCode)
 			}
-			if op.Operation == "list" || op.Operation == "get" || op.Operation == "history" || op.Operation == "delete" {
-				if resp := do("nobody", op.Method, path+"?dryRun=true", nil); resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusNotFound {
-					code, body := problem(resp)
-					t.Errorf("%s without a grant = %d %s %s", op.ID, resp.StatusCode, code, body)
-				}
+			resp := do("nobody", op.Method, path+"?dryRun=true", body)
+			if code, body := problem(resp); code != "core.forbidden" && code != "core.not_found" {
+				t.Errorf("%s without a grant = %d %s %s", op.ID, resp.StatusCode, code, body)
 			}
 			continue
 		}
@@ -417,6 +417,32 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		code, body := problem(resp)
 		t.Errorf("the admin upgrading the installation = %d %s %s", resp.StatusCode, code, body)
 	}
+}
+
+// generatedBody is a body a generated operation takes: for a create, an
+// empty spec owned where resources of the kind belong, in an account or at
+// a reseller nobody holds a grant on; for an update, an empty spec; for an
+// action that takes input, empty input.
+func generatedBody(op api.Operation) any {
+	k, _ := store.Kinds().Get(op.Kind)
+	info := k.Info()
+	switch op.Operation {
+	case "create":
+		scope := map[string]any{"level": string(info.Scope)}
+		switch info.Scope {
+		case store.ScopeAccount:
+			scope["id"] = store.NewID("acct")
+		case store.ScopeReseller:
+			scope["id"] = store.NewID("rsl")
+		}
+		return map[string]any{"scope": scope, "spec": map[string]any{}}
+	case "update":
+		return map[string]any{"spec": map[string]any{}}
+	}
+	if a, ok := info.Action(op.Operation); ok && a.Input != nil {
+		return map[string]any{}
+	}
+	return nil
 }
 
 // generatedForKind reports whether the API generated an operation for a

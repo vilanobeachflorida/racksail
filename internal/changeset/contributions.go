@@ -96,8 +96,9 @@ func contributor(s Source) string {
 // from their specs, and the effects planned for them must still be there. A
 // change whose spec a hook rewrote, and every change a hook added, is
 // authorized for the actor, validated, run past the validate hooks and diffed
-// again; added changes are also planned, so the preview lists what they do to
-// the machine.
+// again. Requested changes are planned again from the first one a hook
+// rewrote, and added changes are planned too, so the preview lists what the
+// change set as the hooks left it does to the machine.
 func (e *Engine) recheck(ctx context.Context, p *draft, actor *auth.Actor, requested []ResourceChange, effects []system.Effect) error {
 	cs := p.cs
 	if len(cs.Changes) < len(requested) {
@@ -111,6 +112,7 @@ func (e *Engine) recheck(ctx context.Context, p *draft, actor *auth.Actor, reque
 	for i, c := range requested {
 		last[c.ID] = i
 	}
+	rewritten := -1
 	for i := range cs.Changes {
 		c := &cs.Changes[i]
 		var err error
@@ -121,9 +123,56 @@ func (e *Engine) recheck(ctx context.Context, p *draft, actor *auth.Actor, reque
 			return ErrHookTampered.New("what", fmt.Sprintf("the %s of change %d", ChangedPart(requested[i], *c), i))
 		case !bytes.Equal(requested[i].After, c.After):
 			err = e.recheckChange(ctx, p, actor, c, last[c.ID] == i)
+			if rewritten < 0 {
+				rewritten = i
+			}
 		}
 		if err != nil {
 			return atChange(err, i, len(cs.Changes))
+		}
+	}
+	if rewritten >= 0 {
+		return e.replan(ctx, p, rewritten, len(effects))
+	}
+	return nil
+}
+
+// replan plans the requested changes again from the one at first on, after
+// modify hooks rewrote its spec: each against the state the change set
+// leaves at that point, as they were planned to begin with, so the preview
+// lists what the specs the hooks wrote do to the machine rather than what
+// was asked for. base is where the requested changes' effects ended; what
+// follows them, the effects hooks added and those of the changes they added,
+// stays after them, and contributions keep pointing at their own.
+func (e *Engine) replan(ctx context.Context, p *draft, first, base int) error {
+	cs := p.cs
+	view := store.NewOverlay(e.opts.Store, e.opts.Kinds)
+	var effects []system.Effect
+	for i := range p.planned {
+		pc, c := &p.planned[i], cs.Changes[i]
+		if i >= first {
+			pc.state.Spec = bytes.Clone(c.After)
+		}
+		view.Put(pc.state)
+		if i >= first {
+			pc.plan = nil
+			if reconciles(pc.rec, c) {
+				planned, err := e.planEffects(ctx, p, view, pc.rec, pc.state)
+				if err != nil {
+					return atChange(err, i, len(cs.Changes))
+				}
+				pc.plan = planned
+			}
+		}
+		effects = append(effects, pc.effects()...)
+	}
+	shift := len(effects) - base
+	cs.Effects = append(effects, cs.Effects[base:]...)
+	for i := range cs.Contributions {
+		for j, k := range cs.Contributions[i].Effects {
+			if k >= base {
+				cs.Contributions[i].Effects[j] = k + shift
+			}
 		}
 	}
 	return nil
@@ -246,11 +295,10 @@ func (e *Engine) addContribution(ctx context.Context, p *draft, actor *auth.Acto
 	if !ok {
 		return nil
 	}
-	plan, err := rec.Plan(ctx, e.request(ctx, p, next))
+	effects, err := e.planEffects(ctx, p, p.view, rec, next)
 	if err != nil {
 		return err
 	}
-	effects := append(slices.Clone(plan.Effects), e.stepEffects(ctx, plan.Steps, next.ID)...)
 	for i := range effects {
 		effects[i].Contributor = source
 	}
@@ -290,6 +338,11 @@ func (e *Engine) recheckAccess(ctx context.Context, p *draft, actor *auth.Actor,
 	}()
 	if c.Op != OpDelete {
 		if err := validate(ctx, kind, next, old); err != nil {
+			return err
+		}
+	}
+	if c.Op == OpCreate {
+		if err := e.checkOwner(ctx, p.view, next); err != nil {
 			return err
 		}
 	}

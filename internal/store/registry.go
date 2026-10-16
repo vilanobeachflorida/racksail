@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -12,15 +13,22 @@ type KindRegistry struct {
 	mu       sync.RWMutex
 	byName   map[string]Kind
 	byPrefix map[string]string // prefix -> kind name or reserved purpose
+	// byPath and byOperation say which kind has each API path and operation
+	// ID, which no two kinds may share.
+	byPath      map[string]string
+	byOperation map[string]string
 }
 
 // NewKindRegistry returns an empty registry.
 func NewKindRegistry() *KindRegistry {
-	return &KindRegistry{byName: map[string]Kind{}, byPrefix: map[string]string{}}
+	return &KindRegistry{byName: map[string]Kind{}, byPrefix: map[string]string{}, byPath: map[string]string{}, byOperation: map[string]string{}}
 }
 
-// Register adds a kind. It fails when the kind's definition has problems or
-// its name or prefix is already taken.
+// Register adds a kind. It fails when the kind's definition has problems, or
+// its name, its prefix, its API path or the ID of one of the operations the
+// API generates for it is another kind's: two kinds of a module with the
+// same plural, or a kind named site_history beside a kind site, whose history
+// operation would have its get operation's ID.
 func (r *KindRegistry) Register(k Kind) error {
 	if err := k.Err(); err != nil {
 		return err
@@ -34,8 +42,21 @@ func (r *KindRegistry) Register(k Kind) error {
 	if owner, ok := r.byPrefix[info.Prefix]; ok {
 		return fmt.Errorf("kind %q: prefix %q is already used by %s", info.Name, info.Prefix, owner)
 	}
+	if owner, ok := r.byPath[info.Path()]; ok {
+		return fmt.Errorf("kind %q: its operations would be served at %s, which are %s's; give it another plural", info.Name, info.Path(), owner)
+	}
+	ids := info.OperationIDs()
+	for _, id := range ids {
+		if owner, ok := r.byOperation[id]; ok {
+			return fmt.Errorf("kind %q: its operation %s would have the ID of an operation of %s; rename the kind or the action", info.Name, id, owner)
+		}
+	}
 	r.byName[info.Name] = k
 	r.byPrefix[info.Prefix] = info.Name
+	r.byPath[info.Path()] = info.Name
+	for _, id := range ids {
+		r.byOperation[id] = info.Name
+	}
 	return nil
 }
 
@@ -109,6 +130,28 @@ func (r *KindRegistry) ForID(id ID) (Kind, bool) {
 	}
 	k, ok := r.byName[name]
 	return k, ok
+}
+
+// OwnerKind returns the kind whose resources own the resources of a scope
+// level: core.account owns accounts' resources, and core.reseller, or a
+// module's kind named reseller that isn't an account's, as the module that
+// keeps resellers defines it, owns resellers'. The panel's screens choose
+// owners by the same rule. An owner belongs to itself, as an account's scope
+// is the account.
+func (r *KindRegistry) OwnerKind(level ScopeLevel) (Kind, bool) {
+	if level != ScopeAccount && level != ScopeReseller {
+		return nil, false
+	}
+	if k, ok := r.Get("core." + string(level)); ok {
+		return k, true
+	}
+	for _, k := range r.All() {
+		info := k.Info()
+		if strings.HasSuffix(info.Name, "."+string(level)) && info.Scope != ScopeAccount {
+			return k, true
+		}
+	}
+	return nil, false
 }
 
 // All returns every registered kind sorted by name.

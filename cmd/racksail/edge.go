@@ -17,7 +17,7 @@ import (
 )
 
 func newEdgeCommand() *cobra.Command {
-	var configPath, stateDir string
+	var configPath, stateDir, socket string
 	cmd := &cobra.Command{
 		Use:   "edge",
 		Short: "Run the edge, the web server in front of every site and app",
@@ -25,8 +25,8 @@ func newEdgeCommand() *cobra.Command {
 			"over /run/racksail/edge.sock, which systemd holds for it through racksail-edge.socket and starts it on. " +
 			"It listens on ports 80 and 443 from the first route, obtains certificates through ACME, and keeps its " +
 			"certificates, settings and the last routing table in its state directory, so a restarted edge serves " +
-			"its sites before the panel gets in touch. Started by hand, it creates edge.socket from racksail.toml " +
-			"itself, reachable only by the user running it.",
+			"its sites before the panel gets in touch. Started by hand, without a socket from systemd, it creates " +
+			"the socket itself, at --socket, reachable only by the user running it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig(configPath)
@@ -34,7 +34,7 @@ func newEdgeCommand() *cobra.Command {
 				return err
 			}
 			log := newLogger(os.Stderr, cfg.Log)
-			admin, activated, err := adminListener(cfg.Edge.Socket, log)
+			admin, activated, err := adminListener(socket, log)
 			if err != nil {
 				return err
 			}
@@ -58,6 +58,7 @@ func newEdgeCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &configPath)
 	cmd.Flags().StringVar(&stateDir, "state", system.EdgeStateDir, "directory for certificates, settings and the last routing table")
+	cmd.Flags().StringVar(&socket, "socket", system.EdgeSocket, "the admin socket to create when systemd passes none; the panel calls the default one")
 	return cmd
 }
 

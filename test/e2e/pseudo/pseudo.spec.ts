@@ -114,18 +114,18 @@ test("every screen reads and fits in the pseudo-locale", async ({ page }, testIn
   const locale = testInfo.project.use.locale ?? "";
   const rightToLeft = locale.startsWith("ar");
   const data = recordData(page);
-  for (const path of await screens(page)) {
-    await test.step(path, async () => {
+  for (const { path, name } of await screens(page)) {
+    await test.step(name, async () => {
       await waitForQuota(page.request);
       await show(page, path);
       const root = page.locator("html");
       await expect(root).toHaveAttribute("lang", locale);
       await expect(root).toHaveAttribute("dir", rightToLeft ? "rtl" : "ltr");
-      await testInfo.attach(`${path} in ${locale}`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+      await testInfo.attach(`${name} in ${locale}`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 
-      expect.soft(await overflow(page), `${path} doesn't fit`).toEqual([]);
+      expect.soft(await overflow(page), `${name} doesn't fit`).toEqual([]);
       if (!rightToLeft) {
-        expect.soft(await untranslated(page, data), `${path} shows text that isn't from a message catalog`).toEqual([]);
+        expect.soft(await untranslated(page, data), `${name} shows text that isn't from a message catalog`).toEqual([]);
         return;
       }
 
@@ -135,7 +135,7 @@ test("every screen reads and fits in the pseudo-locale", async ({ page }, testIn
       await page.evaluate(() => document.documentElement.setAttribute("dir", "ltr"));
       const ltr = await landmarks(page);
       await page.evaluate(() => document.documentElement.setAttribute("dir", "rtl"));
-      expect(rtl.map((b) => b.name), `${path} has other landmarks right to left`).toEqual(ltr.map((b) => b.name));
+      expect(rtl.map((b) => b.name), `${name} has other landmarks right to left`).toEqual(ltr.map((b) => b.name));
       const unmirrored = rtl.flatMap((box, i) => {
         const other = ltr[i];
         if (!other) {
@@ -146,7 +146,7 @@ test("every screen reads and fits in the pseudo-locale", async ({ page }, testIn
           ? [`${box.name} spans ${Math.round(box.x)}px to ${Math.round(box.x + box.width)}px right to left, not ${Math.round(mirrored)}px to ${Math.round(mirrored + other.width)}px`]
           : [];
       });
-      expect.soft(unmirrored, `${path} doesn't mirror right to left`).toEqual([]);
+      expect.soft(unmirrored, `${name} doesn't mirror right to left`).toEqual([]);
     });
   }
 });
