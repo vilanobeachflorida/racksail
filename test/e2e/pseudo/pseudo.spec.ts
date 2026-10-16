@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { waitForQuota } from "../quota";
 import { screens } from "../screens";
 
 // Every screen of a panel built with the pseudo-locales in pseudo.mjs, shown
@@ -115,6 +116,7 @@ test("every screen reads and fits in the pseudo-locale", async ({ page }, testIn
   const data = recordData(page);
   for (const path of await screens(page)) {
     await test.step(path, async () => {
+      await waitForQuota(page.request);
       await show(page, path);
       const root = page.locator("html");
       await expect(root).toHaveAttribute("lang", locale);
