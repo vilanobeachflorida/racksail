@@ -13,6 +13,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
+	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
@@ -752,6 +753,53 @@ func TestProfiles(t *testing.T) {
 	}
 	if _, _, err := e.Manager.ProfileRequest(context.Background(), "everything"); !errors.Is(err, modules.ErrUnknownProfile) {
 		t.Errorf("an unknown profile: %v", err)
+	}
+}
+
+// Turning a module on or off is a change set like any other: it is
+// authorized for whoever asks, a preview changes nothing, and the audit
+// log records it, and every refusal, with the change set.
+func TestTransitionsAreAuditedChangeSets(t *testing.T) {
+	ctx := context.Background()
+	e := modulestest.New(t, modulestest.Options{}, newNet(), newWeb())
+	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "owner", Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(store.NewID("acct"))}}}
+	req, err := e.Manager.TurnOnRequest(ctx, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Actor = owner
+	if _, err := e.Submit(t, req); !i18n.ErrForbidden.Is(err) && !store.ErrNotFound.Is(err) {
+		t.Fatalf("an account owner turning a module on: %v", err)
+	}
+	if e.Manager.Enabled("web") || e.Manager.State("web") != modules.StateOff {
+		t.Fatal("a refused transition changed the module")
+	}
+	records := func(outcome events.Outcome) []events.AuditRecord {
+		t.Helper()
+		list, _, err := e.Events.QueryAudit(ctx, events.Query{Types: []string{"core.module.*"}, Outcome: outcome, Limit: store.MaxLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return list
+	}
+	if denied := records(events.OutcomeDenied); len(denied) != 1 || denied[0].Actor.ID != owner.ID || denied[0].Action != "core.module.turn_on" {
+		t.Errorf("the refusal is recorded: %+v", denied)
+	}
+
+	req.Actor, req.DryRun = nil, true
+	preview, err := e.Submit(t, req)
+	if err != nil || !preview.DryRun || preview.State != changeset.StatePlanned || e.Manager.Enabled("web") {
+		t.Fatalf("a preview of turning web on = %+v, %v, enabled %v", preview, err, e.Manager.Enabled("web"))
+	}
+	on := e.TurnOn(t, "web")
+	off := e.TurnOff(t, "web")
+	done := records(events.OutcomeSuccess)
+	byChangeSet := map[store.ID]string{}
+	for _, r := range done {
+		byChangeSet[r.ChangeSet] = r.Action
+	}
+	if byChangeSet[on.ID] != "core.module.turn_on" || byChangeSet[off.ID] != "core.module.turn_off" {
+		t.Errorf("turning web on and off is recorded with its change sets: %+v", done)
 	}
 }
 
