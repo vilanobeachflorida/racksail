@@ -644,6 +644,10 @@ type Runner struct {
 	// circuit breaker switched off. It may be nil.
 	Audit events.AuditLog
 	Log   *slog.Logger
+
+	mu sync.Mutex
+	// overrides are the loosenings with core.override already recorded.
+	overrides map[string]bool
 }
 
 var _ changeset.Hooks = (*Runner)(nil)

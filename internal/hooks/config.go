@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -356,23 +355,20 @@ func changedSettings(before, after map[string]any) ([]string, error) {
 	return out, nil
 }
 
-// overrides remembers which loosenings were recorded, so a patch that is
-// planned again and again, as at every resync, is recorded once.
-var overrides = struct {
-	sync.Mutex
-	seen map[string]bool
-}{seen: map[string]bool{}}
-
 // overridden logs and records a patch that loosened invariants with
-// core.override.
+// core.override. A patch that is planned again and again, as at every
+// resync, is recorded once.
 func (r *Runner) overridden(ctx context.Context, reg Registration, point Point, loosened []string, doc map[string]any) {
 	raw, _ := json.Marshal(doc)
 	sum := sha256.Sum256(append([]byte(reg.Owner+"\x00"+string(point)+"\x00"), raw...))
 	key := hex.EncodeToString(sum[:])
-	overrides.Lock()
-	first := !overrides.seen[key]
-	overrides.seen[key] = true
-	overrides.Unlock()
+	r.mu.Lock()
+	if r.overrides == nil {
+		r.overrides = map[string]bool{}
+	}
+	first := !r.overrides[key]
+	r.overrides[key] = true
+	r.mu.Unlock()
 	if !first {
 		return
 	}
