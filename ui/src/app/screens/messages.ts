@@ -273,6 +273,7 @@ export const generalMessages = {
   timeZoneBrowser: m("app.generalSettings.timeZoneBrowser"),
   timeZoneSearch: m("app.generalSettings.timeZoneSearch"),
   timeZoneNone: m("app.generalSettings.timeZoneNone"),
+  languageProfile: m("app.generalSettings.languageProfile"),
   clock: m("app.generalSettings.clock"),
   clockHelp: m("app.generalSettings.clockHelp"),
   clockLanguage: m("app.generalSettings.clockLanguage"),

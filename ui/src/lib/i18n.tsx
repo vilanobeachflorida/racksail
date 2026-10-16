@@ -58,6 +58,20 @@ export const locales: readonly string[] = [
 export const shellMessages: Messages = appEnglish;
 
 /**
+ * The available locale for a language tag: the same tag, or else the same
+ * language, such as pt for pt-BR; null when there's none.
+ */
+export function matchLocale(tag: string, available: readonly string[] = locales): string | null {
+  const wanted = tag.toLowerCase();
+  const language = wanted.split("-")[0];
+  return (
+    available.find((l) => l.toLowerCase() === wanted) ??
+    available.find((l) => l.toLowerCase() === language) ??
+    null
+  );
+}
+
+/**
  * Picks the best available locale for the user's preferred languages, as in
  * navigator.languages: an exact match first, then the same language.
  */
@@ -66,18 +80,36 @@ export function pickLocale(
   available: readonly string[] = locales,
 ): string {
   for (const tag of preferred) {
-    const wanted = tag.toLowerCase();
-    const exact = available.find((l) => l.toLowerCase() === wanted);
-    if (exact) {
-      return exact;
-    }
-    const language = wanted.split("-")[0];
-    const sameLanguage = available.find((l) => l.toLowerCase() === language);
-    if (sameLanguage) {
-      return sameLanguage;
+    const match = matchLocale(tag, available);
+    if (match) {
+      return match;
     }
   }
   return defaultLocale;
+}
+
+/**
+ * The locale a profile's language stands for in the panel, as a
+ * pseudo-locale development offers does too; null when the panel doesn't
+ * have the language, or the profile names none.
+ */
+export function profileLocale(profile: string | undefined): string | null {
+  if (!profile) {
+    return null;
+  }
+  return isPseudoLocale(profile) ? profile : matchLocale(profile);
+}
+
+/**
+ * The locale to show when this browser has no choice of its own: the
+ * language of the person's profile when the panel has it, or the best match
+ * for the browser's languages.
+ */
+export function preferredLocale(profile?: string): string {
+  return (
+    profileLocale(profile) ??
+    pickLocale(typeof navigator === "undefined" ? [] : navigator.languages)
+  );
 }
 
 const rightToLeft = new Set(["ar", "ckb", "dv", "fa", "he", "ps", "sd", "ug", "ur", "yi"]);
@@ -169,7 +201,7 @@ export function storedLocale(): string | null {
 
 /** The locale to show: the one chosen in this browser, or the best match for its languages. */
 export function initialLocale(): string {
-  return storedLocale() ?? pickLocale(typeof navigator === "undefined" ? [] : navigator.languages);
+  return storedLocale() ?? preferredLocale();
 }
 
 /**

@@ -3761,7 +3761,7 @@ export interface paths {
         };
         /**
          * See who is signed in
-         * @description Says who is signed in and what they may do, which modules are on, their display preferences, who is viewing the panel as them, what they must do first and how long confirming it's them lasts. The web UI reads it before anything else; `racksail whoami` shows it.
+         * @description Says who is signed in and what they may do, which modules are on, their preferences for the panel, who is viewing the panel as them, what they must do first and how long confirming it's them lasts. The web UI reads it before anything else; `racksail whoami` shows it.
          */
         get: operations["getSession"];
         put?: never;
@@ -3801,8 +3801,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Keep display preferences
-         * @description Keeps the person's display preferences with their user, so they follow them to other browsers: light or dark, contrast, density, text size and motion.
+         * Keep your preferences
+         * @description Keeps the person's preferences for the panel with their user, so they follow them to other browsers: light or dark, contrast, density, text size and motion, the time zone and clock times show in, single-key shortcuts and whether the command bar remembers what was opened. They replace the ones kept before.
          */
         put: operations["saveSessionPreferences"];
         post?: never;
@@ -7061,19 +7061,42 @@ export interface components {
             protocol: "tcp" | "udp";
         };
         Preferences: {
-            /** @enum {string} */
+            /**
+             * @description Standard or high contrast, or the system's
+             * @enum {string}
+             */
             contrast?: "system" | "standard" | "high";
-            /** @enum {string} */
+            /**
+             * @description How tall controls and table rows are: the theme's, comfortable or compact
+             * @enum {string}
+             */
             density?: "theme" | "comfortable" | "compact";
+            /**
+             * @description A 12-hour or a 24-hour clock; left out, as the language writes times
+             * @enum {string}
+             */
+            hourCycle?: "h12" | "h23";
+            /** @description Whether shortcuts made of letters alone, such as G then H, work; they do unless this is false */
+            letterShortcuts?: boolean;
             /**
              * @description Light, dark or the system's
              * @enum {string}
              */
             mode?: "system" | "light" | "dark";
-            /** @enum {string} */
+            /**
+             * @description Reduced or all motion, or the system's
+             * @enum {string}
+             */
             motion?: "system" | "reduce" | "full";
-            /** @enum {string} */
+            /** @description Whether the command bar offers what was opened recently; it does unless this is false */
+            rememberRecent?: boolean;
+            /**
+             * @description How large text is
+             * @enum {string}
+             */
             textSize?: "default" | "small" | "large" | "larger" | "largest";
+            /** @description The time zone times show in, such as Europe/Lisbon or UTC; left out, the browser's */
+            timeZone?: string;
         };
         PreferencesSpec: {
             /** @description Send notifications to my email address */
@@ -7627,6 +7650,8 @@ export interface components {
             /** @description Where the person belongs */
             home: components["schemas"]["Scope"];
             id: string;
+            /** @description The panel's language for the person, such as en or pt-BR; left out, their browser's */
+            locale?: string;
             /** @description The person's name, or their username */
             name: string;
             username?: string;

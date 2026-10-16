@@ -59,8 +59,10 @@ function Details({ me }: { me: Me }) {
         locale: chosen,
       });
       await client.invalidateQueries({ queryKey: ["me"] });
-      setLocaleChoice(chosen === "" ? null : chosen);
+      // The profile's language is every browser's that has no other choice,
+      // this one's included from now on.
       await refresh();
+      setLocaleChoice(null);
       toast.success(intl.formatMessage(t.profileSaved));
     } catch (e) {
       setError(e);

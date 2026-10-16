@@ -57,7 +57,7 @@ export async function getSession(api: ApiClient): Promise<PanelSession> {
   return normalizeSession(await unwrap(api.GET("/api/v1/session")));
 }
 
-/** Keeps the person's display preferences with their account. */
+/** Keeps the person's preferences with their account, in place of those kept before. */
 export async function savePreferences(
   api: ApiClient,
   preferences: SessionPreferences,
