@@ -246,6 +246,11 @@ func TestLiveSystemFiles(t *testing.T) {
 		if !strings.Contains(text, "ExecStart=\nExecStart=-/usr/local/bin/racksail install\n") || !strings.Contains(text, "RACKSAIL_CONSOLE=%I") {
 			t.Errorf("%s must replace the login prompt with racksail install:\n%s", unit, text)
 		}
+		// Why the installer stopped shows on its console, which is all a
+		// person or the end-to-end harness has.
+		if !strings.Contains(text, "\nStandardOutput=tty\nStandardError=tty\n") {
+			t.Errorf("%s must show the installer's output and errors on its console:\n%s", unit, text)
+		}
 	}
 	hook, _ := os.ReadFile("config/hooks/normal/9000-racksail.hook.chroot")
 	if !strings.Contains(string(hook), "plymouth-set-default-theme racksail") || !strings.Contains(string(hook), "racksail-console.service") {
