@@ -484,6 +484,46 @@ describe("viewing the panel as someone", () => {
     await waitFor(() => expect(load).toHaveBeenCalledWith("/"));
     expect(stopped).toBe(true);
   });
+
+  it("shows the person's sessions without a way to sign them out", async () => {
+    const session = (id: string, device: string, current: boolean) => ({
+      id,
+      current,
+      device,
+      method: "password",
+      ip: "198.51.100.7",
+      createdAt: "2026-10-15T09:00:00Z",
+      lastSeenAt: "2026-10-15T10:00:00Z",
+      expiresAt: "2026-10-15T21:00:00Z",
+    });
+    const viewed: PanelSession = {
+      ...ada,
+      user: { id: "user_2", name: "Bea" },
+      impersonation: {
+        by: "user_1",
+        name: "Ada",
+        startedAt: "2026-10-15T10:00:00Z",
+        endsAt: "2026-10-15T11:00:00Z",
+      },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me/sessions": () =>
+        json({
+          sessions: [
+            session("ses_1", "Firefox on Linux", true),
+            session("ses_2", "Safari on iPhone", false),
+          ],
+        }),
+    });
+    renderApp(api, "/settings/sessions");
+    expect(await screen.findByText("Safari on iPhone")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Sign out everywhere else" }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("the command bar", () => {

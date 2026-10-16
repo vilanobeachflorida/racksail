@@ -11,6 +11,7 @@ import { endMyOtherSessions, endMySession, listMySessions, type SessionView } fr
 import { Item, ItemList, ListSkeleton, PageHeader, Section, TimeText } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
+import { useSession } from "../session";
 import { failureMessage } from "../util";
 
 /** How someone signed in, for people: "a password and an authenticator app". */
@@ -108,9 +109,13 @@ function Sessions() {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
+  const { session } = useSession();
+  // Someone viewing the panel as the person sees their sessions but can't
+  // sign them out anywhere.
+  const viewing = Boolean(session?.impersonation);
   const sessions = useQuery({ queryKey: ["me", "sessions"], queryFn: () => listMySessions(api) });
   const reload = () => client.invalidateQueries({ queryKey: ["me", "sessions"] });
-  const others = (sessions.data ?? []).filter((s) => !s.current).length;
+  const others = viewing ? 0 : (sessions.data ?? []).filter((s) => !s.current).length;
   const end = async (s: SessionView) => {
     try {
       await endMySession(api, s.id);
@@ -161,7 +166,12 @@ function Sessions() {
             onRetry={() => void sessions.refetch()}
           />
         ) : null}
-        {sessions.data ? <SessionList sessions={sessions.data} onEnd={(s) => void end(s)} /> : null}
+        {sessions.data ? (
+          <SessionList
+            sessions={sessions.data}
+            {...(viewing ? {} : { onEnd: (s: SessionView) => void end(s) })}
+          />
+        ) : null}
       </Section>
     </div>
   );
