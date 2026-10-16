@@ -64,9 +64,12 @@ func (c cbor) text(s string) cbor  { return append(c.head(3, len(s)), s...) }
 func (c cbor) mapOf(n int) cbor    { return c.head(5, n) }
 
 func (a *authenticator) coseKey() []byte {
-	x, y := make([]byte, 32), make([]byte, 32)
-	a.key.PublicKey.X.FillBytes(x)
-	a.key.PublicKey.Y.FillBytes(y)
+	// The uncompressed point is 0x04, then X and Y.
+	point, err := a.key.PublicKey.Bytes()
+	if err != nil {
+		panic(err)
+	}
+	x, y := point[1:33], point[33:65]
 	return cbor(nil).mapOf(5).int(1).int(2).int(3).int(-7).int(-1).int(1).int(-2).bytes(x).int(-3).bytes(y)
 }
 

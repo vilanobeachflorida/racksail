@@ -2,10 +2,10 @@ package identity
 
 import (
 	"context"
-	"crypto/dsa"
-	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"slices"
 	"strings"
 	"testing"
@@ -373,19 +373,17 @@ func TestDirectory(t *testing.T) {
 }
 
 func TestSSHKeys(t *testing.T) {
-	var params dsa.Parameters
-	if err := dsa.GenerateParameters(&params, rand.Reader, dsa.L1024N160); err != nil {
-		t.Fatal(err)
+	// A DSA key, written out by hand: only its type matters, and SSH reads
+	// any key with a 1024-bit p and a 160-bit q.
+	bits := func(n uint) *big.Int {
+		v := new(big.Int).Lsh(big.NewInt(1), n-1)
+		return v.Add(v, big.NewInt(1))
 	}
-	priv := &dsa.PrivateKey{PublicKey: dsa.PublicKey{Parameters: params}}
-	if err := dsa.GenerateKey(priv, rand.Reader); err != nil {
-		t.Fatal(err)
-	}
-	pub, err := ssh.NewPublicKey(&priv.PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dsaLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) + " old"
+	blob := ssh.Marshal(struct {
+		Name       string
+		P, Q, G, Y *big.Int
+	}{"ssh-dss", bits(1024), bits(160), big.NewInt(2), big.NewInt(5)})
+	dsaLine := "ssh-dss " + base64.StdEncoding.EncodeToString(blob) + " old"
 	for _, tc := range []struct {
 		key    string
 		ok     bool
