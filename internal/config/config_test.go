@@ -70,6 +70,34 @@ channel = "beta"
 	}
 }
 
+// Where Racksail keeps its files is fixed on a server: the agent's allowed
+// roots, the installer and the systemd units would never follow a path the
+// file moved, so the file can't move any.
+func TestPathsAreFixed(t *testing.T) {
+	for _, key := range []string{"config", "generated", "state", "accounts", "runtimes", "modules", "run", "data_disks"} {
+		_, err := Parse([]byte("[paths]\n" + key + " = \"/srv/elsewhere\"\n"))
+		if err == nil || !strings.Contains(err.Error(), "paths."+key) || !strings.Contains(err.Error(), "can't set") {
+			t.Errorf("paths.%s: %v", key, err)
+		}
+	}
+	if _, err := Parse([]byte("[paths]\n")); err == nil {
+		t.Error("an empty [paths] table is refused too")
+	}
+	// Both kinds of problems are named at once.
+	_, err := Parse([]byte("[paths]\nstate = \"/srv/state\"\n[panel]\nlistne = \":8443\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "paths.state") || !strings.Contains(err.Error(), "panel.listne") {
+		t.Errorf("a moved path and an unknown setting: %v", err)
+	}
+	c, err := Parse([]byte("[log]\nlevel = \"warn\"\n"))
+	if err != nil || c.Paths != Default().Paths || c.Paths.State != "/var/lib/racksail" {
+		t.Errorf("a file without paths keeps the standard ones: %+v, %v", c.Paths, err)
+	}
+	dev, err := Dev(t.TempDir(), DevAddresses{})
+	if err != nil || dev.Paths.State == Default().Paths.State {
+		t.Errorf("racksail dev keeps its files in its data directory: %+v, %v", dev.Paths, err)
+	}
+}
+
 func TestAPIAndRetention(t *testing.T) {
 	c := Default()
 	if c.API.RateLimit != 600 || c.API.AnonymousRateLimit != 120 || time.Duration(c.Retention.Audit) != 400*24*time.Hour {

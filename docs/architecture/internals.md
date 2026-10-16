@@ -114,7 +114,7 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/jobs` | The job queue with progress, logs, cancel, retry and history |
 | `internal/i18n` | Error codes and their English messages, and the catalog's words for what the JSON Schema validator finds |
 | `internal/edge` | The routing table and the embedded Caddy that serves it, certificates, the edge's admin API and the wake proxy |
-| `internal/config` | `racksail.toml` |
+| `internal/config` | `racksail.toml`, which refuses settings nothing would honour, such as `[paths]`: the agent's roots, the installer and the units only know the standard locations |
 | `internal/secrets` | Secret storage, encrypted at rest with a key sealed by systemd-creds |
 | `internal/theme` | Themes: parsing and checks (schema, WCAG contrast in both palettes and the console palette, status hues, translucency, fonts), packages, layering, CSS rendering, templates, custom CSS and the terminal mark. Templates are read with a spec-following HTML tokenizer, SVG files as namespaced XML against an allowlist of drawing elements, and every style with a spec-following CSS tokenizer, so checks see what browsers see |
 | `internal/notify` | Notifications: channel types (email through the mail relay, webhooks, Matrix, ntfy, Telegram, Discord and Slack), `core.notification_channel`, `core.smtp_relay` and `core.notification_preferences`, routing events to channels and people, quiet hours, retries and the delivery log, and messages laid out with the theme's email template |

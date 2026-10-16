@@ -22,11 +22,12 @@ import (
 
 // Config is the contents of racksail.toml.
 type Config struct {
-	Panel     Panel     `toml:"panel"`
-	API       API       `toml:"api"`
-	Agent     Agent     `toml:"agent"`
-	Edge      Edge      `toml:"edge"`
-	Paths     Paths     `toml:"paths"`
+	Panel Panel `toml:"panel"`
+	API   API   `toml:"api"`
+	Agent Agent `toml:"agent"`
+	Edge  Edge  `toml:"edge"`
+	// Paths aren't read from the file: see Paths.
+	Paths     Paths     `toml:"-"`
 	Retention Retention `toml:"retention"`
 	Webhooks  Webhooks  `toml:"webhooks"`
 	Updates   Updates   `toml:"updates"`
@@ -156,7 +157,12 @@ type Edge struct {
 	Socket string `toml:"socket"`
 }
 
-// Paths are where Racksail keeps its files.
+// Paths are where Racksail keeps its files. On a server they are always the
+// standard locations of decision D1, because the agent's allowed roots, the
+// installer, the add-ons' sandboxes and the systemd units are fixed there
+// when the binary is built: a path racksail.toml moved would only move the
+// panel's half of it, so the file can't set them. racksail dev puts them
+// under its data directory (Dev).
 type Paths struct {
 	Config    string `toml:"config"`
 	Generated string `toml:"generated"`
@@ -285,12 +291,30 @@ func Parse(data []byte) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("reading racksail.toml: %w", err)
 	}
-	if undecoded := md.Undecoded(); len(undecoded) > 0 {
-		keys := make([]string, len(undecoded))
-		for i, k := range undecoded {
-			keys[i] = k.String()
+	var unknown, paths []string
+	for _, k := range md.Undecoded() {
+		switch {
+		case len(k) > 0 && k[0] == "paths":
+			if len(k) > 1 {
+				paths = append(paths, k.String())
+			}
+		default:
+			unknown = append(unknown, k.String())
 		}
-		return Config{}, fmt.Errorf("racksail.toml has unknown settings: %s", strings.Join(keys, ", "))
+	}
+	var errs []error
+	if len(unknown) > 0 {
+		errs = append(errs, fmt.Errorf("racksail.toml has unknown settings: %s", strings.Join(unknown, ", ")))
+	}
+	if len(paths) > 0 || md.IsDefined("paths") {
+		if len(paths) == 0 {
+			paths = []string{"paths"}
+		}
+		errs = append(errs, fmt.Errorf("racksail.toml can't set %s: Racksail keeps its files where the agent, the installer and the systemd units expect them, such as %s; remove the setting",
+			strings.Join(paths, ", "), system.StateDir))
+	}
+	if len(errs) > 0 {
+		return Config{}, errors.Join(errs...)
 	}
 	return c, c.Validate()
 }
