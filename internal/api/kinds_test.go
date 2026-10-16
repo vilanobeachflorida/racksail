@@ -386,6 +386,44 @@ func TestKindValidationAndHooks(t *testing.T) {
 	}
 }
 
+// What the schema validator finds, in a request's parameters or a kind's
+// spec, comes back in the catalog's words, never the validator's.
+func TestValidationSaysWhatFieldsTake(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	type problem struct {
+		Code   i18n.Code `json:"code"`
+		Errors []struct {
+			Location string    `json:"location"`
+			Code     i18n.Code `json:"code"`
+			Message  string    `json:"message"`
+		} `json:"errors"`
+	}
+	for _, tc := range []struct {
+		name, method, path string
+		body               any
+		location, message  string
+	}{
+		{"a value of a list", "GET", "/api/v1/audit/export?format=jsonl", nil, "query.format", "This value isn't valid: use csv or json."},
+		{"a number out of range", "GET", "/api/v1/jobs?limit=5000", nil, "query.limit", "This value isn't valid: use 1000 or less."},
+		{"a URL without its scheme", "POST", "/api/v1/core/webhooks?dryRun=true",
+			map[string]any{"spec": map[string]any{"url": "hooks.example.com", "events": []string{"*"}}}, "spec.url",
+			"This value isn't valid: use a full URL with its scheme, such as https://example.com/."},
+		{"a field no site has", "POST", "/api/v1/test/sites?dryRun=true",
+			map[string]any{"scope": map[string]any{"level": "account", "id": s.account}, "spec": map[string]any{"domains": []string{"a.test"}, "content": "x", "colour": "red"}},
+			"spec.colour", "There is no field called colour."},
+	} {
+		var p problem
+		resp := s.call("admin", tc.method, tc.path, tc.body, &p)
+		if resp.StatusCode != http.StatusUnprocessableEntity || p.Code != i18n.ErrInvalid.Code || len(p.Errors) != 1 {
+			t.Errorf("%s = %d %s", tc.name, resp.StatusCode, bodyOf(resp))
+			continue
+		}
+		if p.Errors[0].Location != tc.location || p.Errors[0].Message != tc.message {
+			t.Errorf("%s: %+v", tc.name, p.Errors[0])
+		}
+	}
+}
+
 func TestListingKinds(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	sites := "/api/v1/test/sites"

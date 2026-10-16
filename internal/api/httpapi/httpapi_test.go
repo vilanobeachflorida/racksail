@@ -63,8 +63,28 @@ func TestNewErrorFromHuma(t *testing.T) {
 	if !ok {
 		t.Fatalf("huma.NewError returned %T", err)
 	}
-	if p.Code != i18n.ErrInvalid.Code || len(p.Errors) != 1 || p.Errors[0].Location != "body.name" {
+	if p.Code != i18n.ErrInvalid.Code || len(p.Errors) != 1 || p.Errors[0].Location != "body.name" || p.Errors[0].Value != 3 {
 		t.Errorf("validation problem = %+v", p)
+	}
+	// What the validator found is said in the catalog's words.
+	if f := p.Errors[0]; f.Code != i18n.ErrBadValue.Code || f.Message != "This value isn't valid: use text." || f.Params["reason"] != "use text" {
+		t.Errorf("the field's problem = %+v", f)
+	}
+	enum := NewError(http.StatusUnprocessableEntity, "validation failed", &huma.ErrorDetail{Location: "query.format", Message: `expected value to be one of "csv, json"`, Value: "jsonl"}).(*Problem)
+	if len(enum.Errors) != 1 || enum.Errors[0].Message != "This value isn't valid: use csv or json." {
+		t.Errorf("a value of a list = %+v", enum.Errors)
+	}
+	missing := NewError(http.StatusUnprocessableEntity, "validation failed", &huma.ErrorDetail{Location: "body", Message: "expected required property name to be present"}).(*Problem)
+	if len(missing.Errors) != 1 || missing.Errors[0].Location != "body.name" || missing.Errors[0].Code != i18n.ErrRequired.Code || missing.Errors[0].Message != i18n.ErrRequired.Message {
+		t.Errorf("a missing property = %+v", missing.Errors)
+	}
+	notJSON := NewError(http.StatusBadRequest, "validation failed", &huma.ErrorDetail{Location: "body", Message: "invalid character 'x' looking for beginning of value", Value: "x"}).(*Problem)
+	if notJSON.Code != i18n.ErrBadRequest.Code || notJSON.Detail != "The request couldn't be read: the body isn't valid JSON." {
+		t.Errorf("a body that isn't JSON = %+v", notJSON)
+	}
+	large := NewError(http.StatusRequestEntityTooLarge, "request body is too large limit=4194304 bytes").(*Problem)
+	if large.Code != i18n.ErrTooLarge.Code || large.Detail != "The request is larger than the 4 MiB limit." {
+		t.Errorf("a body over the limit = %+v", large)
 	}
 	unexpected := NewError(http.StatusInternalServerError, "unexpected error occurred", errors.New("secret detail"))
 	if up := unexpected.(*Problem); up.Detail != i18n.ErrInternal.Message || len(up.Errors) != 0 {
