@@ -97,7 +97,7 @@ To see what a customer sees, someone with `core.impersonate` opens the customer'
 
 - a banner across the top of every screen says whose panel it is, in colors no theme can change, its button included;
 - everything done is recorded with both names;
-- what the person signs in with, their password, second steps, passkeys, tokens, SSH keys and email address, stays out of reach, and so do their sessions and trusted browsers: none of them can be ended or forgotten from there;
+- what the person signs in with, their password, second steps, recovery codes, passkeys, outside sign-ins, tokens, SSH keys and email address, stays out of reach, and so do where their security alerts go, their sessions and their trusted browsers: none of them can be changed, ended or forgotten from there, so their screens show them without offering to, and helping others back in waits until the viewing ends;
 - it ends after an hour at most, or with **Stop viewing as** in the banner or the command bar.
 
 ## The audit log

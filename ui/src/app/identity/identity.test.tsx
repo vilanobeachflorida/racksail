@@ -523,6 +523,185 @@ describe("viewing the panel as someone", () => {
     expect(
       screen.queryByRole("button", { name: "Sign out everywhere else" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+  });
+
+  const viewed: PanelSession = {
+    ...ada,
+    user: { id: "user_2", name: "Bea", username: "bea" },
+    impersonation: {
+      by: "user_1",
+      name: "Ada",
+      startedAt: "2026-10-15T10:00:00Z",
+      endsAt: "2026-10-15T11:00:00Z",
+    },
+  };
+  const bea = {
+    id: "user_2",
+    username: "bea",
+    name: "Bea",
+    email: "bea@example.com",
+    home: { level: "account", id: "acct_1" },
+    grants: [{ role: "owner", scope: { level: "account", id: "acct_1" } }],
+    allowFrom: [],
+    passwordSet: true,
+    twoFactor: true,
+    createdAt: "2026-10-01T10:00:00Z",
+    updatedAt: "2026-10-15T10:00:00Z",
+    revision: 3,
+    security: {
+      totp: true,
+      passkeys: 1,
+      recoveryCodes: 8,
+      methods: ["signprov_1"],
+      devices: 2,
+      links: ["signprov_2"],
+      alertChannel: "ntfy",
+      required: false,
+    },
+  };
+  const absent = (...names: string[]) => {
+    for (const name of names) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  };
+
+  it("shows how the person signs in without a way to change it", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me": () => json(bea),
+      "GET /api/v1/me/passkeys": () =>
+        json({
+          passkeys: [
+            {
+              id: "passkey_1",
+              name: "Bea's phone",
+              synced: true,
+              createdAt: "2026-10-02T10:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/me/mfa": () =>
+        json({ methods: [{ id: "signprov_1", title: "Push approval", enabled: true }] }),
+      "GET /api/v1/me/links": () =>
+        json({
+          links: [
+            {
+              provider: "signprov_2",
+              title: "Company directory",
+              username: "bea",
+              linkedAt: "2026-10-03T10:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/auth/options": () =>
+        json({
+          passkeys: true,
+          setupRequired: false,
+          providers: [
+            { id: "signprov_2", title: "Company directory", method: "password" },
+            { id: "signprov_3", title: "Keycloak", method: "redirect" },
+          ],
+        }),
+      "GET /api/v1/me/devices": () =>
+        json({
+          devices: [1, 2].map((n) => ({
+            id: `device_${n}`,
+            name: n === 1 ? "Firefox on Linux" : "Safari on iPhone",
+            current: n === 1,
+            createdAt: "2026-10-04T10:00:00Z",
+            lastUsedAt: "2026-10-15T10:00:00Z",
+            expiresAt: "2026-11-04T10:00:00Z",
+          })),
+        }),
+      "GET /api/v1/me/alerts": () =>
+        json({
+          channel: "ntfy",
+          types: [{ id: "ntfy", title: "ntfy", settings: { type: "object" } }],
+        }),
+    });
+    renderApp(api, "/settings/security");
+    expect(await screen.findByText("Safari on iPhone")).toBeInTheDocument();
+    expect(await screen.findByText("Bea's phone")).toBeInTheDocument();
+    expect(await screen.findByText("Company directory")).toBeInTheDocument();
+    expect(await screen.findByText("Push approval")).toBeInTheDocument();
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+    absent(
+      "Set up",
+      "Remove",
+      "Add a passkey",
+      "Rename Bea's phone",
+      "Remove Bea's phone",
+      "Make new codes",
+      "Turn off",
+      "Stop signing in with it",
+      "Link",
+      "Stop trusting",
+      "Stop trusting all",
+      "Change its settings",
+    );
+    // Nothing is offered to link, and where alerts go shows without
+    // changing.
+    expect(screen.queryByText("Keycloak")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Send them to" })).toBeDisabled();
+  });
+
+  it("shows the person's tokens and keys without a way to change them", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me/tokens": () =>
+        json({
+          tokens: [
+            {
+              id: "tok_1",
+              user: "user_2",
+              name: "Deploys",
+              hint: "rsk_abcd",
+              permissions: ["*.read"],
+              accounts: null,
+              allowFrom: null,
+              createdAt: "2026-10-15T10:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/me/ssh-keys": () =>
+        json({
+          keys: [
+            {
+              id: "sshkey_1",
+              name: "Laptop",
+              type: "ssh-ed25519",
+              fingerprint: "SHA256:abc",
+              publicKey: "ssh-ed25519 AAAA laptop",
+            },
+          ],
+        }),
+    });
+    const { unmount } = renderApp(api, "/settings/tokens");
+    expect(await screen.findByText("Deploys")).toBeInTheDocument();
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+    absent("Make a token", "Revoke");
+    unmount();
+    renderApp(api, "/settings/ssh-keys");
+    expect(await screen.findByText("Laptop")).toBeInTheDocument();
+    absent("Add a key", "Remove");
+  });
+
+  it("changes the person's name but not their address or password", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me": () => json(bea),
+    });
+    renderApp(api, "/settings/profile");
+    const address = await screen.findByLabelText("Email address");
+    expect(address).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Name")).not.toHaveAttribute("readonly");
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+    absent("Change the password");
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
   });
 });
 

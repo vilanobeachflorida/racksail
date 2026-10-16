@@ -153,6 +153,71 @@ describe("users", () => {
     });
   });
 
+  it("offers no help back in while viewing the panel as someone", async () => {
+    // Owen, an account's owner, viewed by an admin, opens one of his users.
+    const owen: PanelSession = {
+      user: {
+        id: "user_2",
+        name: "Owen",
+        username: "owen",
+        home: { level: "account", id: "acct_1" },
+      },
+      permissions: ["*"],
+      modules: {},
+      stepUpMethods: ["password"],
+      accounts: [],
+      impersonation: {
+        by: "user_1",
+        name: "Ada",
+        startedAt: "2026-10-15T10:00:00Z",
+        endsAt: "2026-10-15T11:00:00Z",
+      },
+    };
+    const cleo: UserResource = {
+      ...adaResource,
+      id: "user_3",
+      scope: { level: "account", id: "acct_1" },
+      spec: {
+        username: "cleo",
+        name: "Cleo",
+        grants: [{ role: "collaborator", scope: { level: "account", id: "acct_1" } }],
+        sshKeys: null,
+      },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(owen),
+      "GET /api/v1/core/users/user_3": () => json(cleo),
+      "GET /api/v1/core/users/user_3/sessions": () => json({ sessions: [] }),
+      "GET /api/v1/core/users/user_3/ssh-keys": () => json({ keys: [] }),
+      "GET /api/v1/core/users/user_3/tokens": () =>
+        json({
+          tokens: [
+            {
+              id: "tok_1",
+              user: "user_3",
+              name: "Backups",
+              hint: "rsk_abcd",
+              permissions: ["*.read"],
+              accounts: null,
+              allowFrom: null,
+              createdAt: "2026-10-15T10:00:00Z",
+            },
+          ],
+        }),
+    });
+    renderApp(api, "/users/user_3");
+    expect(await screen.findByRole("heading", { name: "Cleo" })).toBeInTheDocument();
+    for (const name of ["Help them back in", "Make a sign-in link", "View as them"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    await userEvent.click(screen.getByRole("tab", { name: "Signing in" }));
+    expect(await screen.findByText("Backups")).toBeInTheDocument();
+    for (const name of ["Set a password", "Revoke"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  });
+
   it("names users in previews that ask for a typed confirmation", () => {
     expect(resourceName({ id: "user_9", before: { username: "bea" } })).toBe("bea");
     expect(resourceName({ id: "acct_1", after: { slug: "acme" } })).toBe("acme");

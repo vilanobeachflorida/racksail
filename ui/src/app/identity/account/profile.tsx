@@ -18,11 +18,11 @@ import { toast } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
 import { availableLocales, useLocaleChoice } from "@/lib/i18n";
 import { changeMyPassword, getMe, type Me, updateMe } from "../api";
-import { ListSkeleton, PageHeader, PasswordInput, Section } from "../components";
+import { ListSkeleton, PageHeader, PasswordInput, Section, ViewingNote } from "../components";
 import { GrantSummary } from "../grants";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
-import { useSession } from "../session";
+import { useSession, useViewing } from "../session";
 import { useStepUp } from "../step-up";
 import { failureMessage, ownerLabel } from "../util";
 
@@ -34,6 +34,9 @@ function Details({ me }: { me: Me }) {
   const api = useApi();
   const client = useQueryClient();
   const { refresh } = useSession();
+  // Someone viewing the panel as the person may change their name and
+  // language, but not their address, which outside sign-in may match by.
+  const viewing = useViewing();
   const { guard } = useStepUp();
   const [, setLocaleChoice] = useLocaleChoice();
   const [name, setName] = useState(me.name);
@@ -104,6 +107,7 @@ function Details({ me }: { me: Me }) {
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
             maxLength={254}
+            readOnly={viewing}
             className="max-w-sm"
           />
         </Field>
@@ -277,6 +281,7 @@ function Access({ me }: { me: Me }) {
 function Profile() {
   const intl = useIntl();
   const api = useApi();
+  const viewing = useViewing();
   const me = useQuery({ queryKey: ["me"], queryFn: () => getMe(api) });
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -284,6 +289,7 @@ function Profile() {
         title={intl.formatMessage(t.profileTitle)}
         description={intl.formatMessage(t.profileDescription)}
       />
+      <ViewingNote />
       {me.isPending ? <ListSkeleton rows={4} /> : null}
       {me.isError ? (
         <ErrorState
@@ -295,7 +301,7 @@ function Profile() {
       {me.data ? (
         <>
           <Details me={me.data} />
-          <Password me={me.data} />
+          {viewing ? null : <Password me={me.data} />}
           <Access me={me.data} />
         </>
       ) : null}

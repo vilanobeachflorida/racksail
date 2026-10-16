@@ -756,6 +756,23 @@ func TestImpersonation(t *testing.T) {
 	if err := h.svc.ForgetDevice(ctx, as, ""); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("forgetting their browsers = %v", err)
 	}
+	// So is everything else of how bob signs in, his passkeys' names
+	// included.
+	if _, err := h.svc.RenamePasskey(ctx, as, store.NewID(PrefixPasskey), "mine now"); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("renaming one of their passkeys = %v", err)
+	}
+	if err := h.svc.SetAlertChannel(ctx, as, AlertChannelInput{}); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("changing where their alerts go = %v", err)
+	}
+	if _, err := h.svc.NewRecoveryCodes(ctx, as); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("making them recovery codes = %v", err)
+	}
+	if err := h.svc.UnlinkMine(ctx, as, store.NewID(ProviderKind.Info().Prefix)); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("unlinking their outside sign-in = %v", err)
+	}
+	if err := h.svc.DisableMFA(ctx, as, store.NewID(ProviderKind.Info().Prefix)); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("turning off their second step = %v", err)
+	}
 	if _, err := h.svc.SessionOf(ctx, bobsOwn); err != nil {
 		t.Errorf("bob's own session = %v", err)
 	}

@@ -548,5 +548,6 @@
   "identity.usersFailed": "The users couldn't load",
   "identity.usersNone": "No users yet",
   "identity.usersNoneHelp": "Add the people who manage this server or its accounts.",
-  "identity.usersTitle": "Users"
+  "identity.usersTitle": "Users",
+  "identity.viewingSignIns": "You're viewing the panel as {user}, so how they sign in can only be looked at here."
 }

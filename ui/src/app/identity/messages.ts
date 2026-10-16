@@ -555,4 +555,5 @@ export const t = {
   usersNone: m("identity.usersNone"),
   usersNoneHelp: m("identity.usersNoneHelp"),
   usersTitle: m("identity.usersTitle"),
+  viewingSignIns: m("identity.viewingSignIns"),
 };

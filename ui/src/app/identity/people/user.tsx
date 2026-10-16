@@ -40,6 +40,7 @@ import {
   resetUser,
   revokeUserToken,
   setUserPassword,
+  type TokenView,
   type UserResource,
   type UserSpec,
   type UserView,
@@ -332,7 +333,18 @@ function Password({ user }: { user: UserView }) {
   );
 }
 
-function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; self: boolean }) {
+function SignIns({
+  user,
+  canReset,
+  canHelp,
+  self,
+}: {
+  user: UserView;
+  canReset: boolean;
+  /** Whether setting their password and revoking their tokens is in reach. */
+  canHelp: boolean;
+  self: boolean;
+}) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -362,7 +374,7 @@ function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; 
   };
   return (
     <div className="flex flex-col gap-6">
-      {canReset && !self ? (
+      {canHelp && !self ? (
         <Section
           title={intl.formatMessage(t.userPasswordTitle)}
           description={intl.formatMessage(t.userPasswordDescription)}
@@ -400,13 +412,16 @@ function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; 
           {tokens.data && tokens.data.length > 0 ? (
             <TokenList
               tokens={tokens.data}
-              onRevoke={(tok) =>
-                act(
-                  () => revokeUserToken(api, user.id, tok.id),
-                  "tokens",
-                  intl.formatMessage(t.tokenRevoked, { name: tok.name }),
-                )
-              }
+              {...(canHelp
+                ? {
+                    onRevoke: (tok: TokenView) =>
+                      act(
+                        () => revokeUserToken(api, user.id, tok.id),
+                        "tokens",
+                        intl.formatMessage(t.tokenRevoked, { name: tok.name }),
+                      ),
+                  }
+                : {})}
             />
           ) : null}
         </Section>
@@ -569,6 +584,9 @@ function User({ id }: { id: string }) {
   const self = session?.user.id === u.id;
   const canUpdate = can("core.user.update");
   const canReset = can("core.user.reset");
+  // Helping people back in is out of reach while viewing the panel as
+  // someone, as is how they sign in.
+  const canHelp = canReset && !session?.impersonation;
   const makeLink = async () => {
     try {
       setLink(await guard(() => issueSignInLink(api, u.id)));
@@ -605,8 +623,8 @@ function User({ id }: { id: string }) {
         }
         actions={
           <>
-            {canReset && !self ? <HelpBackIn user={u} onLink={setLink} /> : null}
-            {canReset && !self ? (
+            {canHelp && !self ? <HelpBackIn user={u} onLink={setLink} /> : null}
+            {canHelp && !self ? (
               <Button variant="outline" onClick={() => void makeLink()}>
                 <Link2 aria-hidden="true" />
                 {intl.formatMessage(t.linkMake)}
@@ -663,7 +681,7 @@ function User({ id }: { id: string }) {
           <Roles user={resource} editable={canUpdate && !self} />
         </TabsContent>
         <TabsContent value="access">
-          <SignIns user={u} canReset={canReset} self={self} />
+          <SignIns user={u} canReset={canReset} canHelp={canHelp} self={self} />
         </TabsContent>
       </Tabs>
       <SignInLink link={link} user={u.username} onClose={() => setLink(null)} />

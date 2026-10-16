@@ -25,6 +25,15 @@ export function useSession(): SessionValue {
   return useContext(SessionContext);
 }
 
+/**
+ * Whether someone is viewing the panel as the signed-in person. How that
+ * person signs in is out of their reach then, so screens leave out what
+ * would change it rather than offer what the panel refuses.
+ */
+export function useViewing(): boolean {
+  return Boolean(useContext(SessionContext).session?.impersonation);
+}
+
 /** Codes that say the person isn't signed in any more. */
 const signedOutCodes = new Set([
   "core.unauthenticated",
