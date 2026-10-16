@@ -61,6 +61,12 @@ type Env struct {
 type Options struct {
 	// Machine is the simulated server; a new one when nil.
 	Machine *sim.Machine
+	// Kinds are core kinds the panel has besides the modules', such as
+	// catalogs or notification channels.
+	Kinds []store.Kind
+	// Reconcilers builds the reconcilers of those kinds from the services,
+	// once the store and the agent are there; it may fill in services too.
+	Reconcilers func(svc *modules.Services) []reconcile.Reconciler
 }
 
 // New builds a panel with the given modules registered, and boots the
@@ -73,8 +79,10 @@ func New(t testing.TB, opts Options, mods ...modules.Module) *Env {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	reg := modules.NewRegistry()
 	kinds := store.NewKindRegistry()
-	if err := kinds.Register(modules.Kind); err != nil {
-		t.Fatal(err)
+	for _, k := range append([]store.Kind{modules.Kind}, opts.Kinds...) {
+		if err := kinds.Register(k); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, m := range mods {
 		if err := reg.Add(m, kinds); err != nil {
@@ -114,6 +122,7 @@ func New(t testing.TB, opts Options, mods ...modules.Module) *Env {
 		Facts: func(ctx context.Context, server store.ID) (system.MachineFacts, error) { return facts(ctx) },
 	}
 	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Enqueue: runner.Enqueue, Log: log})
+	svc.Modules = manager
 	if err := runner.Registry.Register(manager.Reconciler()); err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +132,13 @@ func New(t testing.TB, opts Options, mods ...modules.Module) *Env {
 				if err := runner.Registry.Register(manager.Gate(r)); err != nil {
 					t.Fatal(err)
 				}
+			}
+		}
+	}
+	if opts.Reconcilers != nil {
+		for _, r := range opts.Reconcilers(svc) {
+			if err := runner.Registry.Register(r); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
+	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -67,7 +68,7 @@ func newRootCommand() *cobra.Command {
 // codes, operations, kinds, event and job types, notification channels and
 // modules. A binary with such problems refuses to run.
 func checkRegistries() error {
-	return errors.Join(i18n.Err(), agent.Err(), store.Err(), events.Err(), jobs.Err(), notify.Err(), modules.Default().Err())
+	return errors.Join(i18n.Err(), agent.Err(), store.Err(), events.Err(), jobs.Err(), notify.Err(), api.ExtensionErr(), modules.Default().Err())
 }
 
 // newLogger builds the logger for a role from its configuration.

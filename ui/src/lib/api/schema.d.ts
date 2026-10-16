@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/addons/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List add-ons' UI entries
+         * @description The navigation entries, tabs, cards, commands, settings pages and columns the add-ons you may use declare.
+         */
+        get: operations["listAddonEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -36,6 +56,123 @@ export interface paths {
          * @description Downloads the audit records the filters select, newest first, as CSV or as JSON with one record per line, up to 100,000 records, or as many as limit says; narrow the time window, or start after a cursor, for more. In the CSV, text that starts like a spreadsheet formula gets a leading apostrophe, so opening the file never runs it.
          */
         get: operations["exportAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install an item
+         * @description Installs an item from a catalog, or a recipe a module ships, into an account or onto the server, as one change set: its resources and the installation that records where it came from. Software that isn't open source needs its license accepted.
+         */
+        post: operations["installCatalogItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/installations/{id}/uninstall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Uninstall an installation
+         * @description Removes what an installation created, in reverse order, as one change set. What holds data, such as databases and site files, is kept unless you choose otherwise, or the recipe does.
+         */
+        post: operations["uninstallInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/installations/{id}/upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upgrade an installation
+         * @description Moves an installation to the newest version its catalog or module offers, as one change set: the data is snapshotted first when the recipe asks, resources both versions have are updated, new ones created, and dropped ones that hold no data removed.
+         */
+        post: operations["upgradeInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List what catalogs offer
+         * @description The items of every catalog that is on, featured items and the official catalog's first, each with its license class and requirements.
+         */
+        get: operations["listCatalogItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/items/{catalog}/{item}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe an item
+         * @description An item with its recipe, checked against the catalog's signed index: the inputs the install wizard asks for, what it needs and whether it fits this server.
+         */
+        get: operations["getCatalogItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/items/{catalog}/{item}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch an item's icon */
+        get: operations["getCatalogItemIcon"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1464,6 +1601,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the hooks
+         * @description Every hook attached, in the order hooks run, with whether the circuit breaker switched it off.
+         */
+        get: operations["listHooks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hooks/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch a hook back on
+         * @description Switches a hook the circuit breaker turned off back on, after it failed too many times in a row. The audit log records who did.
+         */
+        post: operations["enableHook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hooks/points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the hook points
+         * @description Every point hooks can attach to: those of the change pipeline for every kind and its actions, and those modules declare.
+         */
+        get: operations["listHookPoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -1644,6 +1841,184 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/modules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the modules
+         * @description Every module the panel has, with its state, what it needs and costs, the hardware it can't run without and what uses it.
+         */
+        get: operations["listModules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the profiles
+         * @description The bundles of modules the setup wizard offers, with the modules each turns on.
+         */
+        get: operations["listProfiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/profiles/{profile}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a profile's modules on
+         * @description Turns on every module of the profile that is off and can run on this server, dependencies first, as one change set. Modules the hardware can't run are left off and listed.
+         */
+        post: operations["applyProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/modules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Describe a module */
+        get: operations["getModule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List what was sent
+         * @description Notifications sent, being sent, held back by quiet hours or given up on, newest first, without their messages.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show your notification preferences
+         * @description What you hear about by email and when: the events, how urgent they have to be and your quiet hours.
+         */
+        get: operations["getNotificationPreferences"];
+        /**
+         * Change your notification preferences
+         * @description Replaces your notification preferences. They are yours alone, so they take effect at once rather than through a change set.
+         */
+        put: operations["setNotificationPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/preferences/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email yourself a test notification
+         * @description Sends a test notification to your email address, as your preferences send them, quiet hours aside.
+         */
+        post: operations["sendTestNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the channel types
+         * @description The channel types built into the panel and the notifiers modules and add-ons provide, each with the JSON Schema of its settings.
+         */
+        get: operations["listChannelTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Show a notification and its message */
+        get: operations["getNotification"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations": {
         parameters: {
             query?: never;
@@ -1699,6 +2074,51 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Try a rule
+         * @description Runs a rule on a change you describe, as the hook pipeline would, without saving the rule or making the change: whether it applies, what a validate rule decides, what a default rule fills in and what the evaluation cost.
+         */
+        post: operations["testRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/safe-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Say whether safe mode is on */
+        get: operations["getSafeMode"];
+        put?: never;
+        /**
+         * Turn safe mode on
+         * @description Stops every add-on and keeps them out of every change until safe mode is turned off.
+         */
+        post: operations["enterSafeMode"];
+        /**
+         * Turn safe mode off
+         * @description Lets add-ons run again, unless the server was started with the racksail.safe_mode boot option, which keeps it on until the next boot without it.
+         */
+        delete: operations["leaveSafeMode"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1865,6 +2285,10 @@ export interface components {
              * @example 1.0.0
              */
             version: string;
+        };
+        Capabilities: {
+            needs?: string[] | null;
+            provides?: string[] | null;
         };
         CatalogOutputBody: {
             operations: components["schemas"]["Operation"][] | null;
@@ -2045,6 +2469,16 @@ export interface components {
         };
         ChannelTestOutput: {
             notification: components["schemas"]["Notification"];
+        };
+        ChannelType: {
+            description?: string;
+            name: string;
+            /** @description The module or add-on that provides the notifier */
+            provider?: string;
+            /** @description The JSON Schema of the type's settings */
+            schema?: unknown;
+            secrets?: string[] | null;
+            title: string;
         };
         Check: {
             message?: string;
@@ -3062,6 +3496,15 @@ export interface components {
             };
             spec: components["schemas"]["WebhookSpec"];
         };
+        Cost: {
+            /** Format: int64 */
+            activeMemoryMB: number;
+            /** Format: int64 */
+            diskMB: number;
+            /** Format: int64 */
+            idleMemoryMB: number;
+            notes?: string;
+        };
         DataScope: {
             fields?: string[] | null;
             kind: string;
@@ -3128,6 +3571,17 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        DeliveryListBody: {
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+            notifications: components["schemas"]["Notification"][] | null;
+        };
+        Dependencies: {
+            note?: string;
+            requires?: string[] | null;
+            requiresAny?: string[] | null;
+            uses?: string[] | null;
+        };
         Effect: {
             /** @description What happens, for example install, open, start or write */
             action: string;
@@ -3157,6 +3611,22 @@ export interface components {
             target: string;
             /** @description What kind of change this is */
             type: string;
+        };
+        EnableInputBody: {
+            /** @description Who registered the hook, such as addon:site-guard */
+            owner: string;
+            /** @description The point it is attached to */
+            point: string;
+        };
+        EnterSafeModeInputBody: {
+            /**
+             * @description Why, for the audit log and whoever turns it off
+             * @example An add-on keeps the panel from saving changes.
+             */
+            reason: string;
+        };
+        EntryListBody: {
+            entries: components["schemas"]["UIEntry"][] | null;
         };
         Estimate: {
             /** Format: int64 */
@@ -3248,6 +3718,20 @@ export interface components {
             /** @description The offending value, when it's safe to show */
             value?: unknown;
         };
+        FieldResult: {
+            field: string;
+            set: boolean;
+            value?: unknown;
+        };
+        Hardware: {
+            arch: string[] | null;
+            features?: string[] | null;
+            /** Format: int64 */
+            minDiskGB?: number;
+            /** Format: int64 */
+            minMemoryMB?: number;
+            notes?: string;
+        };
         HealthCheck: {
             /** @description The expected status code, unit state, address or certificate name */
             expect?: string;
@@ -3286,16 +3770,78 @@ export interface components {
         HistoryBody: {
             versions: components["schemas"]["Version"][] | null;
         };
+        HookInfo: {
+            /**
+             * Format: int64
+             * @description How long the hook has to answer, in nanoseconds
+             */
+            deadline?: number;
+            /** @description Whether the circuit breaker switched it off */
+            disabled?: boolean;
+            /**
+             * @description What happens when it fails or runs out of time
+             * @enum {string}
+             */
+            failureMode?: "block" | "allow";
+            /**
+             * Format: int64
+             * @description How many times in a row it failed
+             */
+            failures?: number;
+            /** @enum {string} */
+            kind: "observe" | "validate" | "modify" | "system" | "provide" | "extend";
+            label?: string;
+            /** @description Whether it holds core.override */
+            override?: boolean;
+            /** @description Who registered the hook: module:<id>, addon:<id>, rule:<id> or core:<part> */
+            owner: string;
+            /** @description The point or pattern the hook is attached to */
+            point: string;
+            /** Format: int64 */
+            priority: number;
+            provider?: string;
+            security?: boolean;
+            ui?: string;
+        };
+        HookListBody: {
+            hooks: components["schemas"]["HookInfo"][] | null;
+        };
+        HookPoint: {
+            description: string;
+            point: string;
+        };
         Host: {
             /** @description The addresses or networks the add-on may reach for it */
             addresses: string[] | null;
             /** @description The host's name, as the add-on's manifest declares it */
             name?: string;
         };
+        IndexFile: {
+            path: string;
+            sha256: string;
+            /** Format: int64 */
+            size: number;
+        };
         IndexInfo: {
             name: string;
             path: string;
             unique?: boolean;
+        };
+        InstallInput: {
+            /** @description Accept the license of software that isn't open source */
+            acceptLicense?: boolean;
+            /** @description The catalog the item is from */
+            catalog?: string;
+            /** @description Values for the recipe's inputs */
+            inputs?: {
+                [key: string]: unknown;
+            };
+            /** @description The item's id */
+            item: string;
+            /** @description Or the module that ships its recipe */
+            module?: string;
+            /** @description The account to install into, or the server */
+            scope: components["schemas"]["Scope"];
         };
         InstallationHealth: {
             health: components["schemas"]["HealthResult"][] | null;
@@ -3356,6 +3902,36 @@ export interface components {
             id: string;
             kind: string;
             name: string;
+        };
+        ItemDetail: {
+            broken?: boolean;
+            catalog: string;
+            catalogName: string;
+            catalogTitle: string;
+            categories?: string[] | null;
+            featured?: boolean;
+            files?: components["schemas"]["IndexFile"][] | null;
+            /** @description Why the item can't be installed on this server, when it can't */
+            fits?: string;
+            icon?: string;
+            id: string;
+            kind: string;
+            licenseClass: string;
+            name: string;
+            /** @description What installing it means, for software that isn't open source */
+            notice?: string;
+            official: boolean;
+            path: string;
+            /** @description The item's recipe, as spec/schemas/recipe.schema.json describes it */
+            recipe: unknown;
+            requires?: components["schemas"]["Requirements"];
+            sha256: string;
+            summary: string;
+            unmaintained?: boolean;
+            version: string;
+        };
+        ItemListBody: {
+            items: components["schemas"]["ListedItem"][] | null;
         };
         Job: {
             actor?: components["schemas"]["Actor"];
@@ -3438,6 +4014,27 @@ export interface components {
         KindsOutputBody: {
             kinds: components["schemas"]["KindDescription"][] | null;
         };
+        ListedItem: {
+            broken?: boolean;
+            catalog: string;
+            catalogName: string;
+            catalogTitle: string;
+            categories?: string[] | null;
+            featured?: boolean;
+            files?: components["schemas"]["IndexFile"][] | null;
+            icon?: string;
+            id: string;
+            kind: string;
+            licenseClass: string;
+            name: string;
+            official: boolean;
+            path: string;
+            requires?: components["schemas"]["Requirements"];
+            sha256: string;
+            summary: string;
+            unmaintained?: boolean;
+            version: string;
+        };
         LogLine: {
             attrs?: {
                 [key: string]: unknown;
@@ -3449,6 +4046,29 @@ export interface components {
             seq: number;
             /** Format: date-time */
             time: string;
+        };
+        Manifest: {
+            capabilities?: components["schemas"]["Capabilities"];
+            category: string;
+            cost: components["schemas"]["Cost"];
+            dependencies: components["schemas"]["Dependencies"];
+            description: string;
+            hardware: components["schemas"]["Hardware"];
+            hooks?: components["schemas"]["HookPoint"][] | null;
+            id: string;
+            license: string;
+            name: string;
+            permissions?: components["schemas"]["Permission"][] | null;
+            ports?: components["schemas"]["Port"][] | null;
+            profiles: string[] | null;
+            recipes?: string[] | null;
+            required?: boolean;
+            services?: components["schemas"]["Service"][] | null;
+            settings?: {
+                [key: string]: unknown;
+            };
+            upstream: components["schemas"]["Upstream"][] | null;
+            version: string;
         };
         Message: {
             actionLabel?: string;
@@ -3464,6 +4084,32 @@ export interface components {
             title: string;
             /** @description Where in the panel to look */
             url?: string;
+        };
+        ModuleInfo: {
+            /** @description Modules that are on and need it */
+            dependents?: string[] | null;
+            /** @description Whether the module is meant to be on */
+            enabled: boolean;
+            /** @description Why the module didn't start */
+            error?: string;
+            /** @description Whether the module's data can be exported before removing it, which needs the backups module */
+            exportable?: boolean;
+            /** @description Why the module can't be turned on on this server */
+            hardwareProblems?: string[] | null;
+            installed?: string[] | null;
+            manifest: components["schemas"]["Manifest"];
+            /** @description Modules it needs that are off */
+            needs?: string[] | null;
+            /** @description The module's core.module resource */
+            resource?: string;
+            /** @enum {string} */
+            state: "off" | "on" | "active" | "stopping" | "removing";
+            /** @description Whether the module can be turned off while resources use it, keeping them */
+            suspends?: boolean;
+            usage: components["schemas"]["Usage"];
+        };
+        ModuleListBody: {
+            modules: components["schemas"]["ModuleInfo"][] | null;
         };
         ModuleSpec: {
             /** @description Whether the module is on */
@@ -3562,6 +4208,23 @@ export interface components {
             test?: boolean;
             title: string;
         };
+        NotificationPreferences: {
+            /** @description Send notifications to my email address */
+            email: boolean;
+            /** @description Event types to send, as patterns such as *.failed; failures, security events and safe mode when empty */
+            events?: string[] | null;
+            /**
+             * @description Only send events at least this urgent; warning when empty
+             * @enum {string}
+             */
+            minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description Event types never to send, as patterns */
+            muted?: string[] | null;
+            /** @description Hold back what can wait, and send it as one summary when quiet hours end */
+            quietHours?: components["schemas"]["QuietHours"];
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         OSStatus: {
             codename: string;
             /** @description The Debian release an upgrade would move to */
@@ -3630,6 +4293,10 @@ export interface components {
              */
             url: string;
         };
+        Permission: {
+            description: string;
+            name: string;
+        };
         Permissions: {
             hooks?: string[] | null;
             network?: string[] | null;
@@ -3638,6 +4305,30 @@ export interface components {
             resources?: components["schemas"]["Resources"];
             secrets?: boolean;
             write?: components["schemas"]["DataScope"][] | null;
+        };
+        PointInfo: {
+            /** @description Whether patches pass the service's own configuration test before they are kept */
+            checked?: boolean;
+            /** @description Whether system hooks patch generated configuration here */
+            config?: boolean;
+            description?: string;
+            hooks?: components["schemas"]["HookInfo"][] | null;
+            /** @description Settings hooks can only make stricter, unless they hold core.override */
+            invariants?: string[] | null;
+            /** @description The kind the point is about, for points of the change pipeline */
+            kind?: string;
+            /** @description The operation: create, update, delete or an action's name */
+            operation?: string;
+            /** @description The hook point, such as web.site.create.validate */
+            point: string;
+            /**
+             * @description The stage of the change pipeline
+             * @enum {string}
+             */
+            stage?: "validate" | "plan" | "applied";
+        };
+        PointListBody: {
+            points: components["schemas"]["PointInfo"][] | null;
         };
         PolicySpec: {
             defaults?: components["schemas"]["FieldDefault"][] | null;
@@ -3652,6 +4343,13 @@ export interface components {
             priority?: number;
             /** @enum {string} */
             type: "validate" | "default";
+        };
+        Port: {
+            description: string;
+            /** Format: int64 */
+            port: number;
+            /** @enum {string} */
+            protocol: "tcp" | "udp";
         };
         Problem: {
             /**
@@ -3692,6 +4390,22 @@ export interface components {
              * @default about:blank
              */
             type: string;
+        };
+        Profile: {
+            description: string;
+            /** @enum {string} */
+            id: "all-in-one" | "web-hosting" | "home-server" | "virtualization-host" | "mail-server" | "dns-server" | "minimal";
+            /** @description The modules it turns on, dependencies first */
+            modules: string[] | null;
+            name: string;
+        };
+        ProfileChange: {
+            changeSet: components["schemas"]["ChangeSet"];
+            /** @description Modules of the profile that can't run on this server, with why */
+            skipped?: components["schemas"]["Skipped"][] | null;
+        };
+        ProfileListBody: {
+            profiles: components["schemas"]["Profile"][] | null;
         };
         Progress: {
             /**
@@ -3810,6 +4524,15 @@ export interface components {
             /** @description Uninstall the software but keep the module's resources and their data */
             keepData?: boolean;
         };
+        Requirements: {
+            arch?: string[] | null;
+            /** Format: int64 */
+            diskMB?: number;
+            features?: string[] | null;
+            /** Format: int64 */
+            memoryMB?: number;
+            modules?: string[] | null;
+        };
         Resource: {
             /** Format: date-time */
             createdAt: string;
@@ -3890,6 +4613,26 @@ export interface components {
         RollbackInput: {
             reason?: string;
         };
+        SafeModeSource: {
+            /**
+             * @description What turned safe mode on
+             * @enum {string}
+             */
+            kind: "boot" | "console" | "automatic";
+            /** @description Why, in plain words */
+            reason?: string;
+            /**
+             * Format: date-time
+             * @description When it was turned on
+             */
+            since?: string;
+        };
+        SafeModeStatus: {
+            /** @description Whether safe mode is on, so no add-on runs */
+            active: boolean;
+            /** @description What turned it on; it stays on until every one is gone */
+            sources?: components["schemas"]["SafeModeSource"][] | null;
+        };
         Scope: {
             /** @description The owning reseller or account; empty for server-wide resources */
             id?: string;
@@ -3898,6 +4641,10 @@ export interface components {
              * @enum {string}
              */
             level: "server" | "reseller" | "account";
+        };
+        Service: {
+            description: string;
+            unit: string;
         };
         SettingsSpec: {
             /** @description Install new releases on the channel by themselves, during the window */
@@ -3941,6 +4688,10 @@ export interface components {
             reported?: string;
             /** @description The version running now */
             running: string;
+        };
+        Skipped: {
+            module: string;
+            reason: string;
         };
         Snapshot: {
             /** @description Where the snapshot is */
@@ -3991,6 +4742,75 @@ export interface components {
             /** Format: int64 */
             items: number;
         };
+        TestRequest: {
+            /**
+             * @description The kind of the resource
+             * @example web.site
+             */
+            kind: string;
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description The resource's settings before the change; leave out for a create */
+            oldSpec?: unknown;
+            /**
+             * @description create, update, delete or an action's name
+             * @example create
+             */
+            operation: string;
+            /** @description Who the rule would belong to; it only applies to what its owner owns */
+            owner: components["schemas"]["Scope"];
+            /** @description The rule to try, as it would be saved */
+            rule: components["schemas"]["PolicySpec"];
+            /** @description Who the resource belongs to */
+            scope: components["schemas"]["Scope"];
+            /** @description The resource's settings as the change leaves them */
+            spec?: unknown;
+        };
+        TestResult: {
+            /** @description Whether the rule would run for this change */
+            applies: boolean;
+            /**
+             * Format: int64
+             * @description How much the evaluation cost, in CEL's cost units
+             */
+            cost: number;
+            /**
+             * Format: int64
+             * @description The most one evaluation may cost
+             */
+            costLimit: number;
+            /** @description Why evaluating the rule failed */
+            error?: string;
+            fields?: components["schemas"]["FieldResult"][] | null;
+            /** @description What the person making the change would be told */
+            message?: string;
+            /** @description The hook points the rule would be attached to */
+            points?: string[] | null;
+            /** @description Whether a validate rule would refuse the change */
+            refused?: boolean;
+            /** @description The resource's settings after a default rule filled them in */
+            spec?: unknown;
+        };
+        TypeListBody: {
+            types: components["schemas"]["ChannelType"][] | null;
+        };
+        UIEntry: {
+            /** @description The add-on, as it runs: its id, and the account for account add-ons */
+            addon: string;
+            /** @description The add-on's name and version */
+            label: string;
+            /** @enum {string} */
+            point: "ui.nav" | "ui.tab" | "ui.card" | "ui.command" | "ui.settings" | "ui.column";
+            ui: components["schemas"]["UIExtension"];
+        };
+        UIExtension: {
+            icon?: string;
+            kind?: string;
+            label: string;
+            path?: string;
+            type: string;
+        };
         UIHints: {
             columns?: components["schemas"]["Column"][] | null;
             fields?: {
@@ -4001,6 +4821,10 @@ export interface components {
             icon?: string;
             subtitleField?: string;
             titleField?: string;
+        };
+        UninstallInput: {
+            /** @description Keep what holds data, such as databases and site files; the recipe decides when left out */
+            keepData?: boolean;
         };
         UpdateInput: {
             /** @description The version the last check found; empty takes it */
@@ -4034,6 +4858,13 @@ export interface components {
             to: string;
             unprotected?: string[] | null;
         };
+        UpgradeInput: {
+            acceptLicense?: boolean;
+            /** @description Values for inputs the new version adds or that should change */
+            inputs?: {
+                [key: string]: unknown;
+            };
+        };
         UpgradeOSInput: {
             /** @description The code name of the next Debian release, such as forky */
             to: string;
@@ -4045,6 +4876,26 @@ export interface components {
             /** @description The snapshots taken first */
             snapshots?: string[] | null;
             to: string;
+        };
+        Upstream: {
+            /** Format: int64 */
+            diskMB?: number;
+            /** Format: int64 */
+            downloadMB?: number;
+            homepage?: string;
+            id: string;
+            install: string;
+            license: string;
+            name: string;
+            optIn?: boolean;
+            source: components["schemas"]["UpstreamSource"];
+        };
+        UpstreamSource: {
+            packages?: string[] | null;
+            repository?: string;
+            type: string;
+            url?: string;
+            verification?: string;
         };
         Usage: {
             /** @description How many resources of each kind exist */
@@ -4171,6 +5022,38 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAddonEntries: {
+        parameters: {
+            query?: {
+                /** @description Only entries at this place */
+                point?: "ui.nav" | "ui.tab" | "ui.card" | "ui.command" | "ui.settings" | "ui.column";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listAudit: {
         parameters: {
             query?: {
@@ -4265,6 +5148,238 @@ export interface operations {
                 content: {
                     "application/x-ndjson": string;
                     "text/csv": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    installCatalogItem: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    uninstallInstallation: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The installation's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UninstallInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    upgradeInstallation: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The installation's ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpgradeInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCatalogItems: {
+        parameters: {
+            query?: {
+                /** @description Only items of this kind */
+                kind?: "app" | "runtime" | "service" | "stack" | "dns-template" | "automation" | "tuning-preset" | "model" | "theme" | "addon";
+                /** @description Only items in this category */
+                category?: string;
+                /** @description Words the name, id or summary contains */
+                q?: string;
+                /** @description Also list items marked broken or unmaintained */
+                hidden?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCatalogItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The catalog's ID */
+                catalog: string;
+                /** @description The item's id */
+                item: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCatalogItemIcon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The catalog's ID */
+                catalog: string;
+                /** @description The item's id */
+                item: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    "Content-Security-Policy"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
                 };
             };
             /** @description Error */
@@ -8862,6 +9977,98 @@ export interface operations {
             };
         };
     };
+    listHooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HookListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    enableHook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnableInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listHookPoints: {
+        parameters: {
+            query?: {
+                /** @description Only points that start with this, such as web.site. */
+                prefix?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PointListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listJobs: {
         parameters: {
             query?: {
@@ -9186,6 +10393,323 @@ export interface operations {
             };
         };
     };
+    listModules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModuleListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    applyProfile: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                profile: "all-in-one" | "web-hosting" | "home-server" | "virtualization-host" | "mail-server" | "dns-server" | "minimal";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getModule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The module's id, such as web */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModuleInfo"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /** @description Only what went through this channel */
+                channel?: string;
+                /** @description Only notifications in this state */
+                state?: "pending" | "held" | "sent" | "failed" | "dropped" | "merged";
+                /** @description Continues a list where the page before it ended */
+                cursor?: string;
+                /** @description How many to return; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getNotificationPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPreferences"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setNotificationPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationPreferences"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPreferences"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    sendTestNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notification"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listChannelTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeListBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notification's ID, which starts with ntf_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notification"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listOperations: {
         parameters: {
             query?: never;
@@ -9291,6 +10815,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Resource"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    testRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSafeMode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SafeModeStatus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    enterSafeMode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnterSafeModeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SafeModeStatus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    leaveSafeMode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SafeModeStatus"];
                 };
             };
             /** @description Error */

@@ -392,6 +392,30 @@
         ],
         "type": "object"
       },
+      "Capabilities": {
+        "additionalProperties": false,
+        "properties": {
+          "needs": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "provides": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "CatalogOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -874,6 +898,41 @@
         },
         "required": [
           "notification"
+        ],
+        "type": "object"
+      },
+      "ChannelType": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "description": "The module or add-on that provides the notifier",
+            "type": "string"
+          },
+          "schema": {
+            "description": "The JSON Schema of the type's settings"
+          },
+          "secrets": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title"
         ],
         "type": "object"
       },
@@ -3096,6 +3155,32 @@
         ],
         "type": "object"
       },
+      "Cost": {
+        "additionalProperties": false,
+        "properties": {
+          "activeMemoryMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "diskMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "idleMemoryMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "idleMemoryMB",
+          "activeMemoryMB",
+          "diskMB"
+        ],
+        "type": "object"
+      },
       "DataScope": {
         "additionalProperties": false,
         "properties": {
@@ -3258,6 +3343,64 @@
         ],
         "type": "object"
       },
+      "DeliveryListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          },
+          "notifications": {
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "notifications"
+        ],
+        "type": "object"
+      },
+      "Dependencies": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "type": "string"
+          },
+          "requires": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "requiresAny": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "uses": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Effect": {
         "additionalProperties": false,
         "properties": {
@@ -3308,6 +3451,60 @@
           "type",
           "action",
           "target"
+        ],
+        "type": "object"
+      },
+      "EnableInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "owner": {
+            "description": "Who registered the hook, such as addon:site-guard",
+            "type": "string"
+          },
+          "point": {
+            "description": "The point it is attached to",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "point"
+        ],
+        "type": "object"
+      },
+      "EnterSafeModeInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "Why, for the audit log and whoever turns it off",
+            "examples": [
+              "An add-on keeps the panel from saving changes."
+            ],
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
+      "EntryListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/UIEntry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
         ],
         "type": "object"
       },
@@ -3606,6 +3803,61 @@
         ],
         "type": "object"
       },
+      "FieldResult": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "set": {
+            "type": "boolean"
+          },
+          "value": {}
+        },
+        "required": [
+          "field",
+          "set"
+        ],
+        "type": "object"
+      },
+      "Hardware": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "minDiskGB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "minMemoryMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arch"
+        ],
+        "type": "object"
+      },
       "HealthCheck": {
         "additionalProperties": false,
         "properties": {
@@ -3721,6 +3973,113 @@
         ],
         "type": "object"
       },
+      "HookInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "deadline": {
+            "description": "How long the hook has to answer, in nanoseconds",
+            "format": "int64",
+            "type": "integer"
+          },
+          "disabled": {
+            "description": "Whether the circuit breaker switched it off",
+            "type": "boolean"
+          },
+          "failureMode": {
+            "description": "What happens when it fails or runs out of time",
+            "enum": [
+              "block",
+              "allow"
+            ],
+            "type": "string"
+          },
+          "failures": {
+            "description": "How many times in a row it failed",
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "observe",
+              "validate",
+              "modify",
+              "system",
+              "provide",
+              "extend"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "override": {
+            "description": "Whether it holds core.override",
+            "type": "boolean"
+          },
+          "owner": {
+            "description": "Who registered the hook: module:\u003cid\u003e, addon:\u003cid\u003e, rule:\u003cid\u003e or core:\u003cpart\u003e",
+            "type": "string"
+          },
+          "point": {
+            "description": "The point or pattern the hook is attached to",
+            "type": "string"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "security": {
+            "type": "boolean"
+          },
+          "ui": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "kind",
+          "point",
+          "priority"
+        ],
+        "type": "object"
+      },
+      "HookListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "hooks": {
+            "items": {
+              "$ref": "#/components/schemas/HookInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "hooks"
+        ],
+        "type": "object"
+      },
+      "HookPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "point": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "point",
+          "description"
+        ],
+        "type": "object"
+      },
       "Host": {
         "additionalProperties": false,
         "properties": {
@@ -3744,6 +4103,27 @@
         ],
         "type": "object"
       },
+      "IndexFile": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "size"
+        ],
+        "type": "object"
+      },
       "IndexInfo": {
         "additionalProperties": false,
         "properties": {
@@ -3760,6 +4140,41 @@
         "required": [
           "name",
           "path"
+        ],
+        "type": "object"
+      },
+      "InstallInput": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptLicense": {
+            "description": "Accept the license of software that isn't open source",
+            "type": "boolean"
+          },
+          "catalog": {
+            "description": "The catalog the item is from",
+            "type": "string"
+          },
+          "inputs": {
+            "additionalProperties": {},
+            "description": "Values for the recipe's inputs",
+            "type": "object"
+          },
+          "item": {
+            "description": "The item's id",
+            "type": "string"
+          },
+          "module": {
+            "description": "Or the module that ships its recipe",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "The account to install into, or the server"
+          }
+        },
+        "required": [
+          "scope",
+          "item"
         ],
         "type": "object"
       },
@@ -3972,6 +4387,125 @@
           "name",
           "kind",
           "id"
+        ],
+        "type": "object"
+      },
+      "ItemDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "broken": {
+            "type": "boolean"
+          },
+          "catalog": {
+            "type": "string"
+          },
+          "catalogName": {
+            "type": "string"
+          },
+          "catalogTitle": {
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "featured": {
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/IndexFile"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "fits": {
+            "description": "Why the item can't be installed on this server, when it can't",
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "licenseClass": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notice": {
+            "description": "What installing it means, for software that isn't open source",
+            "type": "string"
+          },
+          "official": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "recipe": {
+            "description": "The item's recipe, as spec/schemas/recipe.schema.json describes it"
+          },
+          "requires": {
+            "$ref": "#/components/schemas/Requirements"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "unmaintained": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipe",
+          "catalog",
+          "catalogName",
+          "catalogTitle",
+          "official",
+          "id",
+          "kind",
+          "name",
+          "version",
+          "summary",
+          "licenseClass",
+          "path",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "ItemListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ListedItem"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
         ],
         "type": "object"
       },
@@ -4244,6 +4778,95 @@
         ],
         "type": "object"
       },
+      "ListedItem": {
+        "additionalProperties": false,
+        "properties": {
+          "broken": {
+            "type": "boolean"
+          },
+          "catalog": {
+            "type": "string"
+          },
+          "catalogName": {
+            "type": "string"
+          },
+          "catalogTitle": {
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "featured": {
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/IndexFile"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "licenseClass": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "official": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "requires": {
+            "$ref": "#/components/schemas/Requirements"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "unmaintained": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "catalog",
+          "catalogName",
+          "catalogTitle",
+          "official",
+          "id",
+          "kind",
+          "name",
+          "version",
+          "summary",
+          "licenseClass",
+          "path",
+          "sha256"
+        ],
+        "type": "object"
+      },
       "LogLine": {
         "additionalProperties": false,
         "properties": {
@@ -4277,6 +4900,125 @@
           "time",
           "level",
           "message"
+        ],
+        "type": "object"
+      },
+      "Manifest": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "category": {
+            "type": "string"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/Cost"
+          },
+          "dependencies": {
+            "$ref": "#/components/schemas/Dependencies"
+          },
+          "description": {
+            "type": "string"
+          },
+          "hardware": {
+            "$ref": "#/components/schemas/Hardware"
+          },
+          "hooks": {
+            "items": {
+              "$ref": "#/components/schemas/HookPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/components/schemas/Port"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "recipes": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "settings": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "upstream": {
+            "items": {
+              "$ref": "#/components/schemas/Upstream"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "version",
+          "license",
+          "category",
+          "dependencies",
+          "profiles",
+          "hardware",
+          "cost",
+          "upstream"
         ],
         "type": "object"
       },
@@ -4329,6 +5071,111 @@
           "title",
           "body",
           "severity"
+        ],
+        "type": "object"
+      },
+      "ModuleInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "dependents": {
+            "description": "Modules that are on and need it",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "Whether the module is meant to be on",
+            "type": "boolean"
+          },
+          "error": {
+            "description": "Why the module didn't start",
+            "type": "string"
+          },
+          "exportable": {
+            "description": "Whether the module's data can be exported before removing it, which needs the backups module",
+            "type": "boolean"
+          },
+          "hardwareProblems": {
+            "description": "Why the module can't be turned on on this server",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/Manifest"
+          },
+          "needs": {
+            "description": "Modules it needs that are off",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "resource": {
+            "description": "The module's core.module resource",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "off",
+              "on",
+              "active",
+              "stopping",
+              "removing"
+            ],
+            "type": "string"
+          },
+          "suspends": {
+            "description": "Whether the module can be turned off while resources use it, keeping them",
+            "type": "boolean"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "required": [
+          "manifest",
+          "enabled",
+          "state",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "ModuleListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/ModuleInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "modules"
         ],
         "type": "object"
       },
@@ -4602,6 +5449,61 @@
         ],
         "type": "object"
       },
+      "NotificationPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Send notifications to my email address",
+            "type": "boolean"
+          },
+          "events": {
+            "description": "Event types to send, as patterns such as *.failed; failures, security events and safe mode when empty",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "minSeverity": {
+            "description": "Only send events at least this urgent; warning when empty",
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "muted": {
+            "description": "Event types never to send, as patterns",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "quietHours": {
+            "$ref": "#/components/schemas/QuietHours",
+            "description": "Hold back what can wait, and send it as one summary when quiet hours end"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "type": "object"
+      },
       "OSStatus": {
         "additionalProperties": false,
         "properties": {
@@ -4771,6 +5673,22 @@
         ],
         "type": "object"
       },
+      "Permission": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "type": "object"
+      },
       "Permissions": {
         "additionalProperties": false,
         "properties": {
@@ -4820,6 +5738,84 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "PointInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "checked": {
+            "description": "Whether patches pass the service's own configuration test before they are kept",
+            "type": "boolean"
+          },
+          "config": {
+            "description": "Whether system hooks patch generated configuration here",
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "hooks": {
+            "items": {
+              "$ref": "#/components/schemas/HookInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "invariants": {
+            "description": "Settings hooks can only make stricter, unless they hold core.override",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "The kind the point is about, for points of the change pipeline",
+            "type": "string"
+          },
+          "operation": {
+            "description": "The operation: create, update, delete or an action's name",
+            "type": "string"
+          },
+          "point": {
+            "description": "The hook point, such as web.site.create.validate",
+            "type": "string"
+          },
+          "stage": {
+            "description": "The stage of the change pipeline",
+            "enum": [
+              "validate",
+              "plan",
+              "applied"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "point"
+        ],
+        "type": "object"
+      },
+      "PointListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PointInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "points"
+        ],
         "type": "object"
       },
       "PolicySpec": {
@@ -4885,6 +5881,31 @@
         ],
         "type": "object"
       },
+      "Port": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "port": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "protocol": {
+            "enum": [
+              "tcp",
+              "udp"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "port",
+          "protocol",
+          "description"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "properties": {
@@ -4946,6 +5967,86 @@
         },
         "required": [
           "code"
+        ],
+        "type": "object"
+      },
+      "Profile": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "enum": [
+              "all-in-one",
+              "web-hosting",
+              "home-server",
+              "virtualization-host",
+              "mail-server",
+              "dns-server",
+              "minimal"
+            ],
+            "type": "string"
+          },
+          "modules": {
+            "description": "The modules it turns on, dependencies first",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "modules",
+          "id",
+          "name",
+          "description"
+        ],
+        "type": "object"
+      },
+      "ProfileChange": {
+        "additionalProperties": false,
+        "properties": {
+          "changeSet": {
+            "$ref": "#/components/schemas/ChangeSet"
+          },
+          "skipped": {
+            "description": "Modules of the profile that can't run on this server, with why",
+            "items": {
+              "$ref": "#/components/schemas/Skipped"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "changeSet"
+        ],
+        "type": "object"
+      },
+      "ProfileListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/Profile"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "profiles"
         ],
         "type": "object"
       },
@@ -5233,6 +6334,47 @@
         ],
         "type": "object"
       },
+      "Requirements": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "diskMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "memoryMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "modules": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Resource": {
         "additionalProperties": false,
         "properties": {
@@ -5432,6 +6574,56 @@
         },
         "type": "object"
       },
+      "SafeModeSource": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "What turned safe mode on",
+            "enum": [
+              "boot",
+              "console",
+              "automatic"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why, in plain words",
+            "type": "string"
+          },
+          "since": {
+            "description": "When it was turned on",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "SafeModeStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "description": "Whether safe mode is on, so no add-on runs",
+            "type": "boolean"
+          },
+          "sources": {
+            "description": "What turned it on; it stays on until every one is gone",
+            "items": {
+              "$ref": "#/components/schemas/SafeModeSource"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "active"
+        ],
+        "type": "object"
+      },
       "Scope": {
         "additionalProperties": false,
         "properties": {
@@ -5451,6 +6643,22 @@
         },
         "required": [
           "level"
+        ],
+        "type": "object"
+      },
+      "Service": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "description"
         ],
         "type": "object"
       },
@@ -5562,6 +6770,22 @@
         },
         "required": [
           "running"
+        ],
+        "type": "object"
+      },
+      "Skipped": {
+        "additionalProperties": false,
+        "properties": {
+          "module": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "reason"
         ],
         "type": "object"
       },
@@ -5731,6 +6955,197 @@
         ],
         "type": "object"
       },
+      "TestRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "The kind of the resource",
+            "examples": [
+              "web.site"
+            ],
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "oldSpec": {
+            "description": "The resource's settings before the change; leave out for a create"
+          },
+          "operation": {
+            "description": "create, update, delete or an action's name",
+            "examples": [
+              "create"
+            ],
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who the rule would belong to; it only applies to what its owner owns"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/PolicySpec",
+            "description": "The rule to try, as it would be saved"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who the resource belongs to"
+          },
+          "spec": {
+            "description": "The resource's settings as the change leaves them"
+          }
+        },
+        "required": [
+          "rule",
+          "owner",
+          "operation",
+          "kind",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "TestResult": {
+        "additionalProperties": false,
+        "properties": {
+          "applies": {
+            "description": "Whether the rule would run for this change",
+            "type": "boolean"
+          },
+          "cost": {
+            "description": "How much the evaluation cost, in CEL's cost units",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "costLimit": {
+            "description": "The most one evaluation may cost",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "error": {
+            "description": "Why evaluating the rule failed",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "What the person making the change would be told",
+            "type": "string"
+          },
+          "points": {
+            "description": "The hook points the rule would be attached to",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "refused": {
+            "description": "Whether a validate rule would refuse the change",
+            "type": "boolean"
+          },
+          "spec": {
+            "description": "The resource's settings after a default rule filled them in"
+          }
+        },
+        "required": [
+          "applies",
+          "cost",
+          "costLimit"
+        ],
+        "type": "object"
+      },
+      "TypeListBody": {
+        "additionalProperties": false,
+        "properties": {
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelType"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "types"
+        ],
+        "type": "object"
+      },
+      "UIEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "addon": {
+            "description": "The add-on, as it runs: its id, and the account for account add-ons",
+            "type": "string"
+          },
+          "label": {
+            "description": "The add-on's name and version",
+            "type": "string"
+          },
+          "point": {
+            "enum": [
+              "ui.nav",
+              "ui.tab",
+              "ui.card",
+              "ui.command",
+              "ui.settings",
+              "ui.column"
+            ],
+            "type": "string"
+          },
+          "ui": {
+            "$ref": "#/components/schemas/UIExtension"
+          }
+        },
+        "required": [
+          "addon",
+          "label",
+          "point",
+          "ui"
+        ],
+        "type": "object"
+      },
+      "UIExtension": {
+        "additionalProperties": false,
+        "properties": {
+          "icon": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label"
+        ],
+        "type": "object"
+      },
       "UIHints": {
         "additionalProperties": false,
         "properties": {
@@ -5769,6 +7184,16 @@
           },
           "titleField": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UninstallInput": {
+        "additionalProperties": false,
+        "properties": {
+          "keepData": {
+            "description": "Keep what holds data, such as databases and site files; the recipe decides when left out",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -5876,6 +7301,20 @@
         ],
         "type": "object"
       },
+      "UpgradeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptLicense": {
+            "type": "boolean"
+          },
+          "inputs": {
+            "additionalProperties": {},
+            "description": "Values for inputs the new version adds or that should change",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "UpgradeOSInput": {
         "additionalProperties": false,
         "properties": {
@@ -5917,6 +7356,78 @@
           "from",
           "to",
           "rebootRequired"
+        ],
+        "type": "object"
+      },
+      "Upstream": {
+        "additionalProperties": false,
+        "properties": {
+          "diskMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloadMB": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "homepage": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "install": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "optIn": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/UpstreamSource"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "license",
+          "source",
+          "install"
+        ],
+        "type": "object"
+      },
+      "UpstreamSource": {
+        "additionalProperties": false,
+        "properties": {
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "repository": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "verification": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       },
@@ -6197,6 +7708,67 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/addons/entries": {
+      "get": {
+        "description": "The navigation entries, tabs, cards, commands, settings pages and columns the add-ons you may use declare.",
+        "operationId": "listAddonEntries",
+        "parameters": [
+          {
+            "description": "Only entries at this place",
+            "explode": false,
+            "in": "query",
+            "name": "point",
+            "schema": {
+              "description": "Only entries at this place",
+              "enum": [
+                "ui.nav",
+                "ui.tab",
+                "ui.card",
+                "ui.command",
+                "ui.settings",
+                "ui.column"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List add-ons' UI entries",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-risk": "read"
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "description": "Lists who did what, newest first, with the person, what acted for them (the panel, the racksail command, an API token, an automation, an add-on or the assistant) and the request it came through. Every change is there, as success. So is every attempt that was refused, as denied: a change, a read or a job's cancel or retry the person wasn't allowed, or a change a policy hook stopped. A change that was allowed but couldn't be made, such as one with settings that aren't valid, is failed.",
@@ -6554,6 +8126,499 @@
           "Events"
         ],
         "x-racksail-permission": "core.audit.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/catalog/install": {
+      "post": {
+        "description": "Installs an item from a catalog, or a recipe a module ships, into an account or onto the server, as one change set: its resources and the installation that records where it came from. Software that isn't open source needs its license accepted.",
+        "operationId": "installCatalogItem",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install an item",
+        "tags": [
+          "Catalog"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.installation",
+        "x-racksail-long": true,
+        "x-racksail-operation": "create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/catalog/installations/{id}/uninstall": {
+      "post": {
+        "description": "Removes what an installation created, in reverse order, as one change set. What holds data, such as databases and site files, is kept unless you choose otherwise, or the recipe does.",
+        "operationId": "uninstallInstallation",
+        "parameters": [
+          {
+            "description": "The installation's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The installation's ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UninstallInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Uninstall an installation",
+        "tags": [
+          "Catalog"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.installation",
+        "x-racksail-long": true,
+        "x-racksail-operation": "delete",
+        "x-racksail-risk": "high"
+      }
+    },
+    "/api/v1/catalog/installations/{id}/upgrade": {
+      "post": {
+        "description": "Moves an installation to the newest version its catalog or module offers, as one change set: the data is snapshotted first when the recipe asks, resources both versions have are updated, new ones created, and dropped ones that hold no data removed.",
+        "operationId": "upgradeInstallation",
+        "parameters": [
+          {
+            "description": "The installation's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The installation's ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Upgrade an installation",
+        "tags": [
+          "Catalog"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.installation",
+        "x-racksail-long": true,
+        "x-racksail-operation": "update",
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/catalog/items": {
+      "get": {
+        "description": "The items of every catalog that is on, featured items and the official catalog's first, each with its license class and requirements.",
+        "operationId": "listCatalogItems",
+        "parameters": [
+          {
+            "description": "Only items of this kind",
+            "explode": false,
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "description": "Only items of this kind",
+              "enum": [
+                "app",
+                "runtime",
+                "service",
+                "stack",
+                "dns-template",
+                "automation",
+                "tuning-preset",
+                "model",
+                "theme",
+                "addon"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only items in this category",
+            "explode": false,
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "description": "Only items in this category",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Words the name, id or summary contains",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Words the name, id or summary contains",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list items marked broken or unmaintained",
+            "explode": false,
+            "in": "query",
+            "name": "hidden",
+            "schema": {
+              "description": "Also list items marked broken or unmaintained",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List what catalogs offer",
+        "tags": [
+          "Catalog"
+        ],
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/catalog/items/{catalog}/{item}": {
+      "get": {
+        "description": "An item with its recipe, checked against the catalog's signed index: the inputs the install wizard asks for, what it needs and whether it fits this server.",
+        "operationId": "getCatalogItem",
+        "parameters": [
+          {
+            "description": "The catalog's ID",
+            "in": "path",
+            "name": "catalog",
+            "required": true,
+            "schema": {
+              "description": "The catalog's ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The item's id",
+            "in": "path",
+            "name": "item",
+            "required": true,
+            "schema": {
+              "description": "The item's id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Describe an item",
+        "tags": [
+          "Catalog"
+        ],
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/catalog/items/{catalog}/{item}/icon": {
+      "get": {
+        "operationId": "getCatalogItemIcon",
+        "parameters": [
+          {
+            "description": "The catalog's ID",
+            "in": "path",
+            "name": "catalog",
+            "required": true,
+            "schema": {
+              "description": "The catalog's ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The item's id",
+            "in": "path",
+            "name": "item",
+            "required": true,
+            "schema": {
+              "description": "The item's id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "contentEncoding": "base64",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Fetch an item's icon",
+        "tags": [
+          "Catalog"
+        ],
         "x-racksail-risk": "read"
       }
     },
@@ -15598,6 +17663,148 @@
         "x-racksail-risk": "read"
       }
     },
+    "/api/v1/hooks": {
+      "get": {
+        "description": "Every hook attached, in the order hooks run, with whether the circuit breaker switched it off.",
+        "operationId": "listHooks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HookListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the hooks",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.hook.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/hooks/enable": {
+      "post": {
+        "description": "Switches a hook the circuit breaker turned off back on, after it failed too many times in a row. The audit log records who did.",
+        "operationId": "enableHook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnableInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Switch a hook back on",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.hook.enable",
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/hooks/points": {
+      "get": {
+        "description": "Every point hooks can attach to: those of the change pipeline for every kind and its actions, and those modules declare.",
+        "operationId": "listHookPoints",
+        "parameters": [
+          {
+            "description": "Only points that start with this, such as web.site.",
+            "explode": false,
+            "in": "query",
+            "name": "prefix",
+            "schema": {
+              "description": "Only points that start with this, such as web.site.",
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PointListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the hook points",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.hook.read",
+        "x-racksail-risk": "read"
+      }
+    },
     "/api/v1/jobs": {
       "get": {
         "description": "Lists the background work you can see, newest first: applying changes, backups, installs. Each job reports its progress, how it ended and, when it failed, why. You see the jobs you started, and those of the owners you hold core.job.read on.",
@@ -16220,6 +18427,553 @@
         "x-racksail-risk": "read"
       }
     },
+    "/api/v1/modules": {
+      "get": {
+        "description": "Every module the panel has, with its state, what it needs and costs, the hardware it can't run without and what uses it.",
+        "operationId": "listModules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the modules",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/modules/profiles": {
+      "get": {
+        "description": "The bundles of modules the setup wizard offers, with the modules each turns on.",
+        "operationId": "listProfiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the profiles",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/modules/profiles/{profile}": {
+      "post": {
+        "description": "Turns on every module of the profile that is off and can run on this server, dependencies first, as one change set. Modules the hardware can't run are left off and listed.",
+        "operationId": "applyProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile",
+            "required": true,
+            "schema": {
+              "enum": [
+                "all-in-one",
+                "web-hosting",
+                "home-server",
+                "virtualization-host",
+                "mail-server",
+                "dns-server",
+                "minimal"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn a profile's modules on",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.module",
+        "x-racksail-long": true,
+        "x-racksail-operation": "turn_on",
+        "x-racksail-permission": "core.module.turn_on",
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/modules/{id}": {
+      "get": {
+        "operationId": "getModule",
+        "parameters": [
+          {
+            "description": "The module's id, such as web",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The module's id, such as web",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleInfo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Describe a module",
+        "tags": [
+          "Modules"
+        ],
+        "x-racksail-kind": "core.module",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "description": "Notifications sent, being sent, held back by quiet hours or given up on, newest first, without their messages.",
+        "operationId": "listNotifications",
+        "parameters": [
+          {
+            "description": "Only what went through this channel",
+            "explode": false,
+            "in": "query",
+            "name": "channel",
+            "schema": {
+              "description": "Only what went through this channel",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only notifications in this state",
+            "explode": false,
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "description": "Only notifications in this state",
+              "enum": [
+                "pending",
+                "held",
+                "sent",
+                "failed",
+                "dropped",
+                "merged"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Continues a list where the page before it ended",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return; 50 when left out",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "How many to return; 50 when left out",
+              "format": "int64",
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List what was sent",
+        "tags": [
+          "Notifications"
+        ],
+        "x-racksail-permission": "core.notification_channel.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "description": "What you hear about by email and when: the events, how urgent they have to be and your quiet hours.",
+        "operationId": "getNotificationPreferences",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show your notification preferences",
+        "tags": [
+          "Notifications"
+        ],
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces your notification preferences. They are yours alone, so they take effect at once rather than through a change set.",
+        "operationId": "setNotificationPreferences",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferences"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change your notification preferences",
+        "tags": [
+          "Notifications"
+        ],
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/notifications/preferences/test": {
+      "post": {
+        "description": "Sends a test notification to your email address, as your preferences send them, quiet hours aside.",
+        "operationId": "sendTestNotification",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Email yourself a test notification",
+        "tags": [
+          "Notifications"
+        ],
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/notifications/types": {
+      "get": {
+        "description": "The channel types built into the panel and the notifiers modules and add-ons provide, each with the JSON Schema of its settings.",
+        "operationId": "listChannelTypes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeListBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the channel types",
+        "tags": [
+          "Notifications"
+        ],
+        "x-racksail-permission": "core.notification_channel.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/notifications/{id}": {
+      "get": {
+        "operationId": "getNotification",
+        "parameters": [
+          {
+            "description": "The notification's ID, which starts with ntf_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The notification's ID, which starts with ntf_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a notification and its message",
+        "tags": [
+          "Notifications"
+        ],
+        "x-racksail-permission": "core.notification_channel.read",
+        "x-racksail-risk": "read"
+      }
+    },
     "/api/v1/operations": {
       "get": {
         "description": "Lists every operation of the API with the kind it is about, the permission it needs, how risky it is and how it behaves. The racksail command and the assistant build their commands and tools from it; the same details are in the API document as x-racksail extensions.",
@@ -16458,6 +19212,189 @@
           "System"
         ],
         "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/rules/test": {
+      "post": {
+        "description": "Runs a rule on a change you describe, as the hook pipeline would, without saving the rule or making the change: whether it applies, what a validate rule decides, what a default rule fills in and what the evaluation cost.",
+        "operationId": "testRule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Try a rule",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.policy.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/safe-mode": {
+      "delete": {
+        "description": "Lets add-ons run again, unless the server was started with the racksail.safe_mode boot option, which keeps it on until the next boot without it.",
+        "operationId": "leaveSafeMode",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SafeModeStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn safe mode off",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.safe_mode.update",
+        "x-racksail-risk": "high"
+      },
+      "get": {
+        "operationId": "getSafeMode",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SafeModeStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Say whether safe mode is on",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.safe_mode.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "Stops every add-on and keeps them out of every change until safe mode is turned off.",
+        "operationId": "enterSafeMode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnterSafeModeInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SafeModeStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn safe mode on",
+        "tags": [
+          "Extensions"
+        ],
+        "x-racksail-permission": "core.safe_mode.update",
+        "x-racksail-risk": "high"
       }
     },
     "/api/v1/version": {

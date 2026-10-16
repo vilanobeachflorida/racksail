@@ -76,11 +76,11 @@ type Cost struct {
 
 // Upstream is software a module installs the first time something needs it.
 type Upstream struct {
-	ID       string `yaml:"id" json:"id"`
-	Name     string `yaml:"name" json:"name"`
-	License  string `yaml:"license" json:"license"`
-	Homepage string `yaml:"homepage,omitempty" json:"homepage,omitempty"`
-	Source   Source `yaml:"source" json:"source"`
+	ID       string         `yaml:"id" json:"id"`
+	Name     string         `yaml:"name" json:"name"`
+	License  string         `yaml:"license" json:"license"`
+	Homepage string         `yaml:"homepage,omitempty" json:"homepage,omitempty"`
+	Source   UpstreamSource `yaml:"source" json:"source"`
 	// Install says when it is installed, in plain words.
 	Install string `yaml:"install" json:"install"`
 	OptIn   bool   `yaml:"optIn,omitempty" json:"optIn,omitempty"`
@@ -103,8 +103,8 @@ type Service struct {
 	Description string `yaml:"description" json:"description"`
 }
 
-// Source says where upstream software comes from.
-type Source struct {
+// UpstreamSource says where upstream software comes from.
+type UpstreamSource struct {
 	// Type is debian, apt-repository, vendor-archive, racksail-build,
 	// embedded or present.
 	Type         string   `yaml:"type" json:"type"`
