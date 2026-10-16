@@ -402,7 +402,8 @@ type Hooks interface {
 	// in cs.Changes of the changes the point is about. Hooks may change the
 	// specs of those, add changes and add effects, and nothing else; each
 	// contribution is recorded and conflicts are reported in cs. The engine
-	// authorizes, validates and diffs whatever they changed or added again.
+	// authorizes, validates, diffs and plans whatever they changed or added
+	// again.
 	Modify(ctx context.Context, point string, cs *ChangeSet, changes []int) error
 	// Applied runs observe hooks after a change set has been applied, for
 	// the changes at the given indexes.

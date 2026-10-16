@@ -17,7 +17,8 @@
 //
 // Modify hooks may rewrite the specs of the changes they're given and add
 // changes and effects. Whatever they rewrote or added is authorized for the
-// actor, validated and run past the validate hooks again, and they can't
+// actor, validated, run past the validate hooks and planned again, so the
+// preview lists what the specs they wrote do to the machine, and they can't
 // change anything else.
 //
 // Applying a change set that removes data first takes read-only snapshots of

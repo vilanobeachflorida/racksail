@@ -179,6 +179,20 @@ type draft struct {
 	// recorded says the audit log already has why the request didn't go
 	// through.
 	recorded bool
+	// planned is what was planned for each requested change, in order, so
+	// a change whose spec a modify hook rewrote can be planned again.
+	planned []plannedChange
+}
+
+// plannedChange is what planning one requested change found: the state it
+// leaves its resource in, and the effects of the action's own plan, of the
+// resource's reconcile and of the action's steps, which the change set lists
+// in that order.
+type plannedChange struct {
+	state *store.Resource
+	// rec is the kind's reconciler, nil for kinds without one.
+	rec                   reconcile.Reconciler
+	action, plan, actions []system.Effect
 }
 
 func (p *draft) reader(base secrets.Store) secrets.Reader {
@@ -405,8 +419,11 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 			change.Revision = old.Revision
 		}
 	}
-	var effects []system.Effect
+	var pc plannedChange
 	rec, hasReconciler := e.reconciler(info.Name)
+	if hasReconciler {
+		pc.rec = rec
+	}
 	if planner, ok := rec.(reconcile.ActionPlanner); ok && hasReconciler && ch.Op == OpAction {
 		actionPlan, err := planner.PlanAction(ctx, reconcile.ActionRequest{Request: e.request(ctx, p, old), Action: ch.Action, Input: ch.Input})
 		if err != nil {
@@ -421,7 +438,7 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		}
 		change.Steps = actionPlan.Plan.Steps
 		change.Checks = actionPlan.Plan.Checks
-		effects = append(effects, actionPlan.Plan.Effects...)
+		pc.action = slices.Clone(actionPlan.Plan.Effects)
 	}
 	if ch.Op != OpDelete {
 		diff, err := Diff(change.Before, change.After)
@@ -439,19 +456,42 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		}
 	}
 	p.view.Put(next)
-	if hasReconciler && (ch.Op != OpAction || !bytes.Equal(change.Before, change.After)) {
-		plan, err := rec.Plan(ctx, e.request(ctx, p, next))
-		if err != nil {
+	if reconciles(pc.rec, change) {
+		if pc.plan, err = e.planEffects(ctx, p, p.view, pc.rec, next); err != nil {
 			return err
 		}
-		effects = append(effects, plan.Effects...)
-		effects = append(effects, e.stepEffects(ctx, plan.Steps, next.ID)...)
 	}
-	effects = append(effects, e.stepEffects(ctx, change.Steps, next.ID)...)
-	cs.Effects = append(cs.Effects, effects...)
+	pc.actions = e.stepEffects(ctx, change.Steps, next.ID)
+	pc.state = next.Clone()
+	p.planned = append(p.planned, pc)
+	cs.Effects = append(cs.Effects, pc.effects()...)
 	cs.Risk = store.MaxRisk(cs.Risk, risk)
 	p.titles = append(p.titles, title)
 	return nil
+}
+
+// effects lists what a planned change does to the machine, in the order the
+// change set lists it.
+func (pc plannedChange) effects() []system.Effect {
+	return slices.Concat(pc.action, pc.plan, pc.actions)
+}
+
+// reconciles reports whether applying a change reconciles its resource: every
+// change of a kind with a reconciler, but an action that keeps the settings,
+// whose own plan says what it does.
+func reconciles(rec reconcile.Reconciler, c ResourceChange) bool {
+	return rec != nil && (c.Op != OpAction || !bytes.Equal(c.Before, c.After))
+}
+
+// planEffects asks a resource's reconciler what bringing the machine in line
+// with r does, with the steps' effects as the agent's check mode finds them.
+// view is the state the change set leaves when r is planned.
+func (e *Engine) planEffects(ctx context.Context, p *draft, view store.Reader, rec reconcile.Reconciler, r *store.Resource) ([]system.Effect, error) {
+	plan, err := rec.Plan(ctx, reconcile.Request{Resource: r, Read: view, Facts: e.facts(ctx, r.Server), Secrets: p.reader(e.opts.Secrets)})
+	if err != nil {
+		return nil, err
+	}
+	return append(slices.Clone(plan.Effects), e.stepEffects(ctx, plan.Steps, r.ID)...), nil
 }
 
 // planContext is the context a change is validated in. A kind's

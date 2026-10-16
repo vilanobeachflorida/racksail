@@ -964,6 +964,65 @@ func TestHookContributionsAreChecked(t *testing.T) {
 	}
 }
 
+// A modify hook that rewrites a spec changes what applying the change does
+// to the machine, and the preview shows that, not what the request alone
+// would have done; what the hook added keeps its label.
+func TestPreviewsShowWhatRewrittenSpecsDo(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	e.hooks.rewrite = func(cs *ChangeSet, changes []int) {
+		if cs.Changes[changes[0]].Kind != "test.page" {
+			return
+		}
+		cs.Changes[changes[0]].After = json.RawMessage(`{"path":"moved.html","content":"draft"}`)
+		cs.Effects = append(cs.Effects, system.Effect{Type: system.EffectFile, Action: "write", Target: "/etc/racksail/generated/redirects.conf", Contributor: "addon:mover"})
+		cs.Contributions = append(cs.Contributions, Contribution{Source: Source{Type: "addon", Name: "mover"}, Summary: "Move drafts", Effects: []int{len(cs.Effects) - 1}})
+	}
+	menuOf := func(pages ...store.ID) Change {
+		raw, _ := json.Marshal(menuSpec{Pages: pages})
+		return Change{Op: OpCreate, Kind: "test.menu", Scope: store.AccountScope(e.acct), Spec: raw}
+	}
+	pageID := store.NewID("page")
+	page := e.createPage(pageSpec{Path: "draft.html", Content: "draft"})
+	page.ID = pageID
+	req := Request{Actor: e.owner, DryRun: true, Changes: []Change{page, menuOf(pageID)}}
+	preview, err := e.engine.Submit(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]string{}
+	for _, eff := range preview.Effects {
+		targets[eff.Target] = eff.Contributor
+	}
+	if _, ok := targets[pagesDir+"/moved.html"]; !ok {
+		t.Errorf("the preview lists the page where the hook moved it: %+v", preview.Effects)
+	}
+	if _, ok := targets[pagesDir+"/draft.html"]; ok {
+		t.Errorf("the preview lists the page where it would have gone without the hook: %+v", preview.Effects)
+	}
+	if len(preview.Contributions) != 1 || len(preview.Contributions[0].Effects) != 1 {
+		t.Fatalf("contributions = %+v", preview.Contributions)
+	}
+	if got := preview.Effects[preview.Contributions[0].Effects[0]]; got.Contributor != "addon:mover" || got.Target != "/etc/racksail/generated/redirects.conf" {
+		t.Errorf("the contribution points at the hook's own effect: %+v", got)
+	}
+
+	// Applying the preview plans the same, and does what it showed.
+	applied, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done := e.wait(t, applied); done.State != StateApplied {
+		t.Fatalf("applied = %+v", done)
+	}
+	if e.file(pagesDir+"/moved.html") != "draft" || e.file(pagesDir+"/draft.html") != "" {
+		t.Error("the page went where the preview said")
+	}
+	if got := e.file(pagesDir + "/menu-" + string(applied.Changes[1].ID)); got != "moved.html" {
+		t.Errorf("the menu, planned after the page, lists it where the hook moved it: %q", got)
+	}
+}
+
 func mustSubmit(t *testing.T, engine *Engine, req Request) *ChangeSet {
 	t.Helper()
 	cs, err := engine.Submit(context.Background(), req)
