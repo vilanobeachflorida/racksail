@@ -309,7 +309,8 @@
             "type": "string"
           },
           "package": {
-            "$ref": "#/components/schemas/Package"
+            "$ref": "#/components/schemas/Package",
+            "description": "The add-on's program: an archive and the checksum it must match"
           }
         },
         "required": [
@@ -585,9 +586,11 @@
         "additionalProperties": false,
         "properties": {
           "asset": {
-            "$ref": "#/components/schemas/ReleaseAsset"
+            "$ref": "#/components/schemas/ReleaseAsset",
+            "description": "The binary for this server's architecture, as the release's signed manifest lists it"
           },
           "channel": {
+            "description": "The channel the release is on",
             "enum": [
               "stable",
               "beta",
@@ -600,13 +603,16 @@
             "type": "string"
           },
           "published": {
+            "description": "When the release was published",
             "format": "date-time",
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag on GitHub, such as v1.3.0",
             "type": "string"
           },
           "version": {
+            "description": "The release's version",
             "type": "string"
           }
         },
@@ -640,6 +646,7 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
+            "description": "The processor architecture it was built for, such as amd64 or arm64",
             "type": "string"
           },
           "channel": {
@@ -666,6 +673,7 @@
             "type": "string"
           },
           "os": {
+            "description": "The operating system it was built for, such as linux",
             "type": "string"
           },
           "version": {
@@ -689,6 +697,7 @@
         "additionalProperties": false,
         "properties": {
           "needs": {
+            "description": "What it needs other modules to provide, such as network.firewall",
             "items": {
               "type": "string"
             },
@@ -698,6 +707,7 @@
             ]
           },
           "provides": {
+            "description": "What the module offers other modules, such as backups.snapshots",
             "items": {
               "type": "string"
             },
@@ -816,9 +826,11 @@
             ]
           },
           "indexSha256": {
+            "description": "The SHA-256 of the index the panel keeps",
             "type": "string"
           },
           "items": {
+            "description": "How many items the index lists",
             "format": "int64",
             "type": "integer"
           },
@@ -832,6 +844,7 @@
             "type": "integer"
           },
           "official": {
+            "description": "Whether the catalog is Racksail's own, signed by a key built into the panel",
             "type": "boolean"
           },
           "phase": {
@@ -1225,7 +1238,8 @@
         "additionalProperties": false,
         "properties": {
           "notification": {
-            "$ref": "#/components/schemas/Notification"
+            "$ref": "#/components/schemas/Notification",
+            "description": "The test notification, with how sending it went"
           }
         },
         "required": [
@@ -1237,9 +1251,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "Where the type sends notifications and what it takes, in a sentence",
             "type": "string"
           },
           "name": {
+            "description": "The type's name, such as ntfy, which channels give as their type",
             "type": "string"
           },
           "provider": {
@@ -1250,6 +1266,7 @@
             "description": "The JSON Schema of the type's settings"
           },
           "secrets": {
+            "description": "The settings that hold secrets, which are kept apart and never shown again",
             "items": {
               "type": "string"
             },
@@ -1259,6 +1276,7 @@
             ]
           },
           "title": {
+            "description": "What the panel calls the type",
             "type": "string"
           }
         },
@@ -1318,6 +1336,7 @@
             "description": "The release to update to; empty when the server is up to date"
           },
           "running": {
+            "description": "The version running now",
             "type": "string"
           }
         },
@@ -4469,18 +4488,22 @@
         "additionalProperties": false,
         "properties": {
           "activeMemoryMB": {
+            "description": "Typical memory once its software runs, idle, in MB",
             "format": "int64",
             "type": "integer"
           },
           "diskMB": {
+            "description": "Disk its software takes once installed, in MB",
             "format": "int64",
             "type": "integer"
           },
           "idleMemoryMB": {
+            "description": "Memory used while it is on but nothing needs it yet, in MB",
             "format": "int64",
             "type": "integer"
           },
           "notes": {
+            "description": "More about what it costs, in plain words",
             "type": "string"
           }
         },
@@ -4581,6 +4604,7 @@
         "additionalProperties": false,
         "properties": {
           "fields": {
+            "description": "The spec fields it reaches, as dotted paths; every one when empty",
             "items": {
               "type": "string"
             },
@@ -4590,6 +4614,7 @@
             ]
           },
           "kind": {
+            "description": "The kind, such as web.site",
             "type": "string"
           }
         },
@@ -4757,6 +4782,7 @@
             "type": "string"
           },
           "notifications": {
+            "description": "The notifications on this page, newest first, without their messages",
             "items": {
               "$ref": "#/components/schemas/Notification"
             },
@@ -4775,9 +4801,11 @@
         "additionalProperties": false,
         "properties": {
           "note": {
+            "description": "Dependencies that can't be listed up front, in plain words",
             "type": "string"
           },
           "requires": {
+            "description": "Modules that must be on",
             "items": {
               "type": "string"
             },
@@ -4787,6 +4815,7 @@
             ]
           },
           "requiresAny": {
+            "description": "Modules of which at least one must be on",
             "items": {
               "type": "string"
             },
@@ -4796,6 +4825,7 @@
             ]
           },
           "uses": {
+            "description": "Modules it works with when they are on",
             "items": {
               "type": "string"
             },
@@ -4990,6 +5020,7 @@
         "additionalProperties": false,
         "properties": {
           "entries": {
+            "description": "The screen entries add-ons declare",
             "items": {
               "$ref": "#/components/schemas/UIEntry"
             },
@@ -5187,6 +5218,7 @@
             "type": "string"
           },
           "resources": {
+            "description": "Every resource of the module's kinds that isn't deleted",
             "items": {
               "$ref": "#/components/schemas/ExportedResource"
             },
@@ -5212,25 +5244,32 @@
         "additionalProperties": false,
         "properties": {
           "createdAt": {
+            "description": "When the resource was created",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The resource's kind",
             "type": "string"
           },
           "labels": {
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The resource's labels",
             "type": "object"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who the resource belongs to"
           },
-          "spec": {},
+          "spec": {
+            "description": "The resource's settings, without the fields that refer to secrets"
+          },
           "withheld": {
             "description": "Fields that refer to secrets, which the export leaves out",
             "items": {
@@ -5273,12 +5312,15 @@
         "additionalProperties": false,
         "properties": {
           "expression": {
+            "description": "A CEL expression whose value the field gets",
             "type": "string"
           },
           "field": {
+            "description": "The spec field filled in, as a dotted path such as headers.security",
             "type": "string"
           },
           "override": {
+            "description": "Replace a value the new resource already has, rather than only fill in an empty field",
             "type": "boolean"
           }
         },
@@ -5421,12 +5463,16 @@
         "additionalProperties": false,
         "properties": {
           "field": {
+            "description": "The field, as a dotted path such as headers.security",
             "type": "string"
           },
           "set": {
+            "description": "Whether the field was filled in or replaced; one the change already set, which the rule doesn't override, keeps its value",
             "type": "boolean"
           },
-          "value": {}
+          "value": {
+            "description": "The value its expression gave"
+          }
         },
         "required": [
           "field",
@@ -5438,10 +5484,12 @@
         "additionalProperties": false,
         "properties": {
           "diskBytes": {
+            "description": "How much disk it takes once installed, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "downloadBytes": {
+            "description": "How much installing it downloads, in bytes",
             "format": "int64",
             "type": "integer"
           },
@@ -5450,9 +5498,11 @@
             "type": "string"
           },
           "installed": {
+            "description": "Whether the server had it installed",
             "type": "boolean"
           },
           "packages": {
+            "description": "The Debian packages installing it brings in, with their sizes",
             "items": {
               "$ref": "#/components/schemas/SoftwarePackage"
             },
@@ -5521,6 +5571,7 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
+            "description": "The processor architectures it runs on, such as amd64 and arm64",
             "items": {
               "type": "string"
             },
@@ -5530,6 +5581,7 @@
             ]
           },
           "features": {
+            "description": "Hardware it can't run without: virtualization, kvm, iommu, tpm or uefi",
             "items": {
               "type": "string"
             },
@@ -5539,14 +5591,17 @@
             ]
           },
           "minDiskGB": {
+            "description": "The least disk space the server must have, in GB",
             "format": "int64",
             "type": "integer"
           },
           "minMemoryMB": {
+            "description": "The least memory the server must have, in MB",
             "format": "int64",
             "type": "integer"
           },
           "notes": {
+            "description": "More about what it needs, in plain words",
             "type": "string"
           }
         },
@@ -5629,19 +5684,24 @@
         "additionalProperties": false,
         "properties": {
           "checkedAt": {
+            "description": "When it ran",
             "format": "date-time",
             "type": "string"
           },
           "message": {
+            "description": "Why it didn't pass",
             "type": "string"
           },
           "ok": {
+            "description": "Whether it passed",
             "type": "boolean"
           },
           "target": {
+            "description": "What it checks: a URL, host and port, name, unit or resource",
             "type": "string"
           },
           "type": {
+            "description": "How the check works: http, tcp, tls, dns, unit or resource",
             "type": "string"
           }
         },
@@ -5698,6 +5758,7 @@
             "type": "integer"
           },
           "kind": {
+            "description": "What sort of hook it is: observe, validate, modify, system, provide or extend",
             "enum": [
               "observe",
               "validate",
@@ -5709,6 +5770,7 @@
             "type": "string"
           },
           "label": {
+            "description": "The hook's name for people, such as Backup policy 1.2; the owner when empty",
             "type": "string"
           },
           "override": {
@@ -5724,16 +5786,20 @@
             "type": "string"
           },
           "priority": {
+            "description": "Where it runs among the hooks of its point, lower first",
             "format": "int64",
             "type": "integer"
           },
           "provider": {
+            "description": "For a provide hook, the name of what it provides",
             "type": "string"
           },
           "security": {
+            "description": "Whether it is a validate hook that enforces a security policy, which blocks when it fails",
             "type": "boolean"
           },
           "ui": {
+            "description": "For an extend hook, the label of the screen entry it adds",
             "type": "string"
           }
         },
@@ -5749,6 +5815,7 @@
         "additionalProperties": false,
         "properties": {
           "hooks": {
+            "description": "Every hook, with its failures in a row and whether the circuit breaker switched it off",
             "items": {
               "$ref": "#/components/schemas/HookInfo"
             },
@@ -5767,9 +5834,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "When it runs and what hooks there can do",
             "type": "string"
           },
           "point": {
+            "description": "The hook point, such as system.knot.zone",
             "type": "string"
           }
         },
@@ -6111,12 +6180,15 @@
         "additionalProperties": false,
         "properties": {
           "path": {
+            "description": "Where the file is, relative to the index",
             "type": "string"
           },
           "sha256": {
+            "description": "The file's SHA-256",
             "type": "string"
           },
           "size": {
+            "description": "The file's size in bytes",
             "format": "int64",
             "type": "integer"
           }
@@ -6189,6 +6261,7 @@
         "additionalProperties": false,
         "properties": {
           "health": {
+            "description": "How each health check went",
             "items": {
               "$ref": "#/components/schemas/HealthResult"
             },
@@ -6198,6 +6271,7 @@
             ]
           },
           "healthy": {
+            "description": "Whether every health check passed",
             "type": "boolean"
           }
         },
@@ -6211,16 +6285,20 @@
         "additionalProperties": false,
         "properties": {
           "catalog": {
+            "description": "The ID of the catalog that offered the recipe",
             "type": "string"
           },
           "catalogName": {
+            "description": "That catalog's name, such as official",
             "type": "string"
           },
           "indexSha256": {
+            "description": "The SHA-256 of the catalog index that listed it",
             "type": "string"
           },
           "inputs": {
             "additionalProperties": {},
+            "description": "The values given for the recipe's inputs, without passwords and secrets",
             "type": "object"
           },
           "item": {
@@ -6228,6 +6306,7 @@
             "type": "string"
           },
           "itemKind": {
+            "description": "What sort of item it is",
             "enum": [
               "app",
               "runtime",
@@ -6243,9 +6322,11 @@
             "type": "string"
           },
           "license": {
+            "description": "The software's license, as an SPDX expression",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether the software is open source, free to use or proprietary",
             "enum": [
               "open-source",
               "free-to-use",
@@ -6254,9 +6335,11 @@
             "type": "string"
           },
           "module": {
+            "description": "The module that ships the recipe, when it didn't come from a catalog",
             "type": "string"
           },
           "name": {
+            "description": "The item's name",
             "type": "string"
           },
           "official": {
@@ -6264,13 +6347,16 @@
             "type": "boolean"
           },
           "recipe": {
+            "description": "The recipe as installed, so upgrading and uninstalling need nothing from the catalog",
             "maxLength": 262144,
             "type": "string"
           },
           "recipeSha256": {
+            "description": "The SHA-256 of the recipe installed",
             "type": "string"
           },
           "resources": {
+            "description": "The resources the installation created",
             "items": {
               "$ref": "#/components/schemas/InstalledResource"
             },
@@ -6280,6 +6366,7 @@
             ]
           },
           "revision": {
+            "description": "The revision of the recipe itself, which goes up when the recipe changes without a new version of the software",
             "format": "int64",
             "type": "integer"
           },
@@ -6292,6 +6379,7 @@
             "type": "string"
           },
           "version": {
+            "description": "The version installed",
             "type": "string"
           }
         },
@@ -6313,9 +6401,11 @@
         "additionalProperties": false,
         "properties": {
           "applied": {
+            "description": "The version the installation was last applied at",
             "type": "string"
           },
           "checkedAt": {
+            "description": "When the health checks last ran",
             "format": "date-time",
             "type": "string"
           },
@@ -6344,6 +6434,7 @@
             ]
           },
           "health": {
+            "description": "How the recipe's health checks went the last time they ran",
             "items": {
               "$ref": "#/components/schemas/HealthResult"
             },
@@ -6384,12 +6475,15 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The resource's kind, such as databases.database",
             "type": "string"
           },
           "name": {
+            "description": "The resource's name in the recipe, such as db",
             "type": "string"
           }
         },
@@ -6441,18 +6535,23 @@
         "additionalProperties": false,
         "properties": {
           "broken": {
+            "description": "Whether the catalog's maintainers found it doesn't work at the moment; the marketplace lists it only when asked to",
             "type": "boolean"
           },
           "catalog": {
+            "description": "The ID of the catalog that offers it",
             "type": "string"
           },
           "catalogName": {
+            "description": "That catalog's name, such as official",
             "type": "string"
           },
           "catalogTitle": {
+            "description": "What that catalog is called",
             "type": "string"
           },
           "categories": {
+            "description": "The marketplace's categories it is listed under",
             "items": {
               "type": "string"
             },
@@ -6462,9 +6561,11 @@
             ]
           },
           "featured": {
+            "description": "Whether the catalog's maintainers feature it",
             "type": "boolean"
           },
           "files": {
+            "description": "Every file of the item, its recipe included, with the checksums the signed index gives them",
             "items": {
               "$ref": "#/components/schemas/IndexFile"
             },
@@ -6478,18 +6579,23 @@
             "type": "string"
           },
           "icon": {
+            "description": "Where its icon is, relative to the index",
             "type": "string"
           },
           "id": {
+            "description": "The item's id in its catalog",
             "type": "string"
           },
           "kind": {
+            "description": "What sort of item it is: an app, a runtime, a service, a stack, a DNS template, an automation, a tuning preset, a model, a theme or an add-on",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether the software is open source, free to use or proprietary; anything but open source shows a notice before it is installed",
             "type": "string"
           },
           "name": {
+            "description": "The item's name",
             "type": "string"
           },
           "notice": {
@@ -6497,27 +6603,34 @@
             "type": "string"
           },
           "official": {
+            "description": "Whether it comes from Racksail's own catalog; the rest are third-party",
             "type": "boolean"
           },
           "path": {
+            "description": "Where its recipe is, relative to the catalog's index",
             "type": "string"
           },
           "recipe": {
             "description": "The item's recipe, as spec/schemas/recipe.schema.json describes it"
           },
           "requires": {
-            "$ref": "#/components/schemas/Requirements"
+            "$ref": "#/components/schemas/Requirements",
+            "description": "What the server must have before it can be installed"
           },
           "sha256": {
+            "description": "The SHA-256 of its recipe",
             "type": "string"
           },
           "summary": {
+            "description": "What it is, in a line",
             "type": "string"
           },
           "unmaintained": {
+            "description": "Whether nobody looks after it any more; the marketplace lists it only when asked to",
             "type": "boolean"
           },
           "version": {
+            "description": "The version of the software it installs",
             "type": "string"
           }
         },
@@ -6542,6 +6655,7 @@
         "additionalProperties": false,
         "properties": {
           "items": {
+            "description": "The items of every catalog that is on, featured first and then by name",
             "items": {
               "$ref": "#/components/schemas/ListedItem"
             },
@@ -7001,18 +7115,23 @@
         "additionalProperties": false,
         "properties": {
           "broken": {
+            "description": "Whether the catalog's maintainers found it doesn't work at the moment; the marketplace lists it only when asked to",
             "type": "boolean"
           },
           "catalog": {
+            "description": "The ID of the catalog that offers it",
             "type": "string"
           },
           "catalogName": {
+            "description": "That catalog's name, such as official",
             "type": "string"
           },
           "catalogTitle": {
+            "description": "What that catalog is called",
             "type": "string"
           },
           "categories": {
+            "description": "The marketplace's categories it is listed under",
             "items": {
               "type": "string"
             },
@@ -7022,9 +7141,11 @@
             ]
           },
           "featured": {
+            "description": "Whether the catalog's maintainers feature it",
             "type": "boolean"
           },
           "files": {
+            "description": "Every file of the item, its recipe included, with the checksums the signed index gives them",
             "items": {
               "$ref": "#/components/schemas/IndexFile"
             },
@@ -7034,39 +7155,51 @@
             ]
           },
           "icon": {
+            "description": "Where its icon is, relative to the index",
             "type": "string"
           },
           "id": {
+            "description": "The item's id in its catalog",
             "type": "string"
           },
           "kind": {
+            "description": "What sort of item it is: an app, a runtime, a service, a stack, a DNS template, an automation, a tuning preset, a model, a theme or an add-on",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether the software is open source, free to use or proprietary; anything but open source shows a notice before it is installed",
             "type": "string"
           },
           "name": {
+            "description": "The item's name",
             "type": "string"
           },
           "official": {
+            "description": "Whether it comes from Racksail's own catalog; the rest are third-party",
             "type": "boolean"
           },
           "path": {
+            "description": "Where its recipe is, relative to the catalog's index",
             "type": "string"
           },
           "requires": {
-            "$ref": "#/components/schemas/Requirements"
+            "$ref": "#/components/schemas/Requirements",
+            "description": "What the server must have before it can be installed"
           },
           "sha256": {
+            "description": "The SHA-256 of its recipe",
             "type": "string"
           },
           "summary": {
+            "description": "What it is, in a line",
             "type": "string"
           },
           "unmaintained": {
+            "description": "Whether nobody looks after it any more; the marketplace lists it only when asked to",
             "type": "boolean"
           },
           "version": {
+            "description": "The version of the software it installs",
             "type": "string"
           }
         },
@@ -7154,9 +7287,11 @@
         "additionalProperties": false,
         "properties": {
           "capabilities": {
-            "$ref": "#/components/schemas/Capabilities"
+            "$ref": "#/components/schemas/Capabilities",
+            "description": "What it offers to other modules and needs from them"
           },
           "category": {
+            "description": "Where the modules page groups it",
             "enum": [
               "core",
               "hosting",
@@ -7169,18 +7304,23 @@
             "type": "string"
           },
           "cost": {
-            "$ref": "#/components/schemas/Cost"
+            "$ref": "#/components/schemas/Cost",
+            "description": "Its estimated resource use, shown before it is turned on"
           },
           "dependencies": {
-            "$ref": "#/components/schemas/Dependencies"
+            "$ref": "#/components/schemas/Dependencies",
+            "description": "The modules it needs or works with"
           },
           "description": {
+            "description": "What the module does, in a sentence or two",
             "type": "string"
           },
           "hardware": {
-            "$ref": "#/components/schemas/Hardware"
+            "$ref": "#/components/schemas/Hardware",
+            "description": "What the server must have for the module to run"
           },
           "hooks": {
+            "description": "The hook points it adds beyond those of its kinds' operations",
             "items": {
               "$ref": "#/components/schemas/HookPoint"
             },
@@ -7190,15 +7330,19 @@
             ]
           },
           "id": {
+            "description": "The module's id, also the package name under modules/ and the prefix of its kinds",
             "type": "string"
           },
           "license": {
+            "description": "The SPDX license expression of the module's code",
             "type": "string"
           },
           "name": {
+            "description": "What the panel calls the module",
             "type": "string"
           },
           "permissions": {
+            "description": "The permissions it adds beyond those of its kinds' operations",
             "items": {
               "$ref": "#/components/schemas/Permission"
             },
@@ -7208,6 +7352,7 @@
             ]
           },
           "ports": {
+            "description": "The ports it opens in the firewall while it is active",
             "items": {
               "$ref": "#/components/schemas/Port"
             },
@@ -7217,6 +7362,7 @@
             ]
           },
           "profiles": {
+            "description": "The setup profiles that turn the module on",
             "items": {
               "type": "string"
             },
@@ -7226,6 +7372,7 @@
             ]
           },
           "recipes": {
+            "description": "The ids of the recipes the module ships",
             "items": {
               "type": "string"
             },
@@ -7235,9 +7382,11 @@
             ]
           },
           "required": {
+            "description": "Whether the module is always on and can't be turned off",
             "type": "boolean"
           },
           "services": {
+            "description": "The services it runs while it is active",
             "items": {
               "$ref": "#/components/schemas/Service"
             },
@@ -7248,9 +7397,11 @@
           },
           "settings": {
             "additionalProperties": {},
+            "description": "The JSON Schema of the module's settings",
             "type": "object"
           },
           "upstream": {
+            "description": "The software it installs, only when something first needs it",
             "items": {
               "$ref": "#/components/schemas/Upstream"
             },
@@ -7260,6 +7411,7 @@
             ]
           },
           "version": {
+            "description": "The module's version",
             "type": "string"
           }
         },
@@ -7421,6 +7573,7 @@
         "additionalProperties": false,
         "properties": {
           "actionLabel": {
+            "description": "What the link back to the panel says, such as Look at the backup",
             "type": "string"
           },
           "body": {
@@ -7428,6 +7581,7 @@
             "type": "string"
           },
           "digest": {
+            "description": "The messages a summary of quiet hours stands for",
             "items": {
               "$ref": "#/components/schemas/Message"
             },
@@ -7437,13 +7591,15 @@
             ]
           },
           "event": {
-            "$ref": "#/components/schemas/Event"
+            "$ref": "#/components/schemas/Event",
+            "description": "The event the message is about, when there is one"
           },
           "id": {
             "description": "The same on every attempt to deliver the message",
             "type": "string"
           },
           "severity": {
+            "description": "How serious it is: info, notice, warning, error or critical",
             "enum": [
               "info",
               "notice",
@@ -7582,6 +7738,7 @@
             ]
           },
           "installed": {
+            "description": "The ids of the module's software found installed on the server",
             "items": {
               "type": "string"
             },
@@ -7591,7 +7748,8 @@
             ]
           },
           "manifest": {
-            "$ref": "#/components/schemas/Manifest"
+            "$ref": "#/components/schemas/Manifest",
+            "description": "The module's manifest: what it is, needs, installs and costs"
           },
           "needs": {
             "description": "Modules it needs that are off",
@@ -7612,6 +7770,7 @@
             "type": "string"
           },
           "state": {
+            "description": "off, on, active (something uses it), stopping or removing",
             "enum": [
               "off",
               "on",
@@ -7626,7 +7785,8 @@
             "type": "boolean"
           },
           "usage": {
-            "$ref": "#/components/schemas/Usage"
+            "$ref": "#/components/schemas/Usage",
+            "description": "How many resources of the module's kinds there are"
           }
         },
         "required": [
@@ -7641,6 +7801,7 @@
         "additionalProperties": false,
         "properties": {
           "modules": {
+            "description": "Every module the panel has, with its state",
             "items": {
               "$ref": "#/components/schemas/ModuleInfo"
             },
@@ -7926,6 +8087,7 @@
             "type": "string"
           },
           "attemptCount": {
+            "description": "How many times sending it was tried",
             "format": "int64",
             "type": "integer"
           },
@@ -7934,20 +8096,25 @@
             "type": "string"
           },
           "createdAt": {
+            "description": "When it was made",
             "format": "date-time",
             "type": "string"
           },
           "event": {
+            "description": "The event it is about",
             "type": "string"
           },
           "eventType": {
+            "description": "That event's type, such as backups.run.failed",
             "type": "string"
           },
           "finishedAt": {
+            "description": "When it was sent or given up on",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The notification's ID, which starts with ntf_",
             "type": "string"
           },
           "lastError": {
@@ -7955,7 +8122,8 @@
             "type": "string"
           },
           "message": {
-            "$ref": "#/components/schemas/Message"
+            "$ref": "#/components/schemas/Message",
+            "description": "What is sent; lists leave it out"
           },
           "nextAttempt": {
             "description": "When it is sent, or sent again; for held deliveries, when quiet hours end",
@@ -7967,6 +8135,7 @@
             "type": "string"
           },
           "severity": {
+            "description": "How serious the message is",
             "enum": [
               "info",
               "notice",
@@ -7977,6 +8146,7 @@
             "type": "string"
           },
           "state": {
+            "description": "pending until it goes out, held during quiet hours, sent, failed once given up on, dropped by quiet hours that leave things out, or merged into a summary of them",
             "enum": [
               "pending",
               "held",
@@ -7992,9 +8162,11 @@
             "type": "string"
           },
           "test": {
+            "description": "Whether it is a test, which is sent once whatever the quiet hours",
             "type": "boolean"
           },
           "title": {
+            "description": "The message's title",
             "type": "string"
           }
         },
@@ -8062,6 +8234,7 @@
         "additionalProperties": false,
         "properties": {
           "codename": {
+            "description": "The Debian release's codename, such as trixie",
             "type": "string"
           },
           "next": {
@@ -8084,9 +8257,11 @@
             ]
           },
           "rebootRequired": {
+            "description": "Whether the server needs a reboot to finish installing updates",
             "type": "boolean"
           },
           "version": {
+            "description": "The Debian release's number, such as 13",
             "type": "string"
           }
         },
@@ -8543,9 +8718,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What the permission allows",
             "type": "string"
           },
           "name": {
+            "description": "The permission's name, which starts with the module's id",
             "type": "string"
           }
         },
@@ -8559,6 +8736,7 @@
         "additionalProperties": false,
         "properties": {
           "hooks": {
+            "description": "The hook levels the add-on may use: observe, validate, modify and system",
             "items": {
               "type": "string"
             },
@@ -8568,6 +8746,7 @@
             ]
           },
           "network": {
+            "description": "The hosts, addresses or networks the add-on may reach; none when empty",
             "items": {
               "type": "string"
             },
@@ -8577,9 +8756,11 @@
             ]
           },
           "override": {
+            "description": "core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve",
             "type": "boolean"
           },
           "read": {
+            "description": "The kinds, and the fields of them, the add-on may see",
             "items": {
               "$ref": "#/components/schemas/DataScope"
             },
@@ -8589,12 +8770,15 @@
             ]
           },
           "resources": {
-            "$ref": "#/components/schemas/Resources"
+            "$ref": "#/components/schemas/Resources",
+            "description": "The most CPU and memory the add-on's process may use"
           },
           "secrets": {
+            "description": "secrets.read: the add-on may read the secrets of the resources it may see",
             "type": "boolean"
           },
           "write": {
+            "description": "The kinds, and the fields of them, the add-on may change, which it may also see",
             "items": {
               "$ref": "#/components/schemas/DataScope"
             },
@@ -8618,9 +8802,11 @@
             "type": "boolean"
           },
           "description": {
+            "description": "What the point is for and what hooks there can do",
             "type": "string"
           },
           "hooks": {
+            "description": "The hooks that run here, in the order they run, those attached by patterns that name the point included",
             "items": {
               "$ref": "#/components/schemas/HookInfo"
             },
@@ -8670,6 +8856,7 @@
         "additionalProperties": false,
         "properties": {
           "points": {
+            "description": "The hook points, with the hooks attached to each",
             "items": {
               "$ref": "#/components/schemas/PointInfo"
             },
@@ -8688,6 +8875,7 @@
         "additionalProperties": false,
         "properties": {
           "defaults": {
+            "description": "For default rules: the fields filled in, each from a CEL expression",
             "items": {
               "$ref": "#/components/schemas/FieldDefault"
             },
@@ -8697,15 +8885,19 @@
             ]
           },
           "description": {
+            "description": "What the rule is for, in a sentence or two",
             "type": "string"
           },
           "enabled": {
+            "description": "Whether the rule takes part in changes",
             "type": "boolean"
           },
           "expression": {
+            "description": "For validate rules: a CEL expression that is true when the change must be refused",
             "type": "string"
           },
           "kinds": {
+            "description": "The kinds the rule applies to, such as web.site; every kind when empty",
             "items": {
               "type": "string"
             },
@@ -8715,12 +8907,15 @@
             ]
           },
           "message": {
+            "description": "For validate rules: what the person making a refused change is told",
             "type": "string"
           },
           "name": {
+            "description": "A short name for the rule, shown when it refuses a change",
             "type": "string"
           },
           "operations": {
+            "description": "The operations it applies to, such as create, update, delete or an action; every one when empty",
             "items": {
               "type": "string"
             },
@@ -8730,10 +8925,12 @@
             ]
           },
           "priority": {
+            "description": "Where the rule runs among hooks, lower first",
             "format": "int64",
             "type": "integer"
           },
           "type": {
+            "description": "validate rules refuse changes; default rules fill in or override fields of new resources",
             "enum": [
               "validate",
               "default"
@@ -8751,13 +8948,16 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What the port is for",
             "type": "string"
           },
           "port": {
+            "description": "The port number",
             "format": "int64",
             "type": "integer"
           },
           "protocol": {
+            "description": "tcp or udp",
             "enum": [
               "tcp",
               "udp"
@@ -8989,9 +9189,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What a server set up with it is for",
             "type": "string"
           },
           "id": {
+            "description": "The profile's id",
             "enum": [
               "all-in-one",
               "web-hosting",
@@ -9014,6 +9216,7 @@
             ]
           },
           "name": {
+            "description": "What the panel calls the profile",
             "type": "string"
           }
         },
@@ -9029,7 +9232,8 @@
         "additionalProperties": false,
         "properties": {
           "changeSet": {
-            "$ref": "#/components/schemas/ChangeSet"
+            "$ref": "#/components/schemas/ChangeSet",
+            "description": "The change set that turns the profile's modules on"
           },
           "skipped": {
             "description": "Modules of the profile that can't run on this server, with why",
@@ -9075,6 +9279,7 @@
         "additionalProperties": false,
         "properties": {
           "profiles": {
+            "description": "The setup profiles, in the order the setup wizard shows them",
             "items": {
               "$ref": "#/components/schemas/Profile"
             },
@@ -9456,6 +9661,7 @@
             "type": "string"
           },
           "sent": {
+            "description": "Whether the relay took the email",
             "type": "boolean"
           }
         },
@@ -9468,19 +9674,24 @@
         "additionalProperties": false,
         "properties": {
           "bundle": {
+            "description": "Where the Sigstore bundle that signs the file is downloaded from",
             "type": "string"
           },
           "name": {
+            "description": "The file's name, such as racksail-linux-amd64",
             "type": "string"
           },
           "sha256": {
+            "description": "The file's SHA-256, as the release's checksums list it",
             "type": "string"
           },
           "size": {
+            "description": "The file's size in bytes",
             "format": "int64",
             "type": "integer"
           },
           "url": {
+            "description": "Where the file is downloaded from",
             "type": "string"
           }
         },
@@ -9529,6 +9740,7 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
+            "description": "The processor architectures it runs on: amd64, arm64 or both",
             "items": {
               "type": "string"
             },
@@ -9538,10 +9750,12 @@
             ]
           },
           "diskMB": {
+            "description": "The least free disk space it must have, in MB",
             "format": "int64",
             "type": "integer"
           },
           "features": {
+            "description": "Hardware it can't run without, such as kvm",
             "items": {
               "type": "string"
             },
@@ -9551,10 +9765,12 @@
             ]
           },
           "memoryMB": {
+            "description": "The least memory the server must have, in MB",
             "format": "int64",
             "type": "integer"
           },
           "modules": {
+            "description": "The modules that must be on",
             "items": {
               "type": "string"
             },
@@ -9806,9 +10022,11 @@
         "additionalProperties": false,
         "properties": {
           "cpu": {
+            "description": "The most CPU time, in percent of one CPU, such as 20%",
             "type": "string"
           },
           "memoryMB": {
+            "description": "The most memory, in MB",
             "format": "int64",
             "type": "integer"
           }
@@ -9928,6 +10146,7 @@
         "additionalProperties": false,
         "properties": {
           "reason": {
+            "description": "Why the release is rolled back, for the timeline and the audit log",
             "maxLength": 500,
             "type": "string"
           }
@@ -10259,9 +10478,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What the service does",
             "type": "string"
           },
           "unit": {
+            "description": "The systemd unit, such as knot.service",
             "type": "string"
           }
         },
@@ -10569,12 +10790,15 @@
             "description": "The newest release on the channel, when it is newer"
           },
           "canRollBack": {
+            "description": "Whether the release before the running one is kept to roll back to",
             "type": "boolean"
           },
           "checkError": {
+            "description": "Why the last look for releases failed",
             "type": "string"
           },
           "checkedAt": {
+            "description": "When releases were last looked for",
             "format": "date-time",
             "type": "string"
           },
@@ -10606,7 +10830,8 @@
             "type": "integer"
           },
           "os": {
-            "$ref": "#/components/schemas/OSStatus"
+            "$ref": "#/components/schemas/OSStatus",
+            "description": "The server's Debian release and whether it needs a reboot"
           },
           "packages": {
             "$ref": "#/components/schemas/PackagesStatus",
@@ -10625,6 +10850,7 @@
             "type": "string"
           },
           "reported": {
+            "description": "The last update whose outcome was published",
             "type": "string"
           },
           "running": {
@@ -10958,9 +11184,11 @@
         "additionalProperties": false,
         "properties": {
           "module": {
+            "description": "The module's id",
             "type": "string"
           },
           "reason": {
+            "description": "Why it isn't turned on, such as hardware the server lacks",
             "type": "string"
           }
         },
@@ -10992,43 +11220,55 @@
         "additionalProperties": false,
         "properties": {
           "diskBytes": {
+            "description": "How much disk it takes once installed, in bytes, from the package index or the manifest",
             "format": "int64",
             "type": "integer"
           },
           "diskMB": {
+            "description": "About how much disk it takes once installed, in MB, for software whose size the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "downloadBytes": {
+            "description": "How much installing it downloads, in bytes: from the package index when it can tell, from the manifest otherwise",
             "format": "int64",
             "type": "integer"
           },
           "downloadMB": {
+            "description": "About how much is downloaded to install it, in MB, for software whose size the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "homepage": {
+            "description": "The software's home page",
             "type": "string"
           },
           "id": {
+            "description": "The software's id in the manifest",
             "type": "string"
           },
           "install": {
+            "description": "When it is installed, in plain words",
             "type": "string"
           },
           "installed": {
+            "description": "Whether it is installed already",
             "type": "boolean"
           },
           "license": {
+            "description": "The software's SPDX license expression",
             "type": "string"
           },
           "name": {
+            "description": "The software's name",
             "type": "string"
           },
           "optIn": {
+            "description": "Whether it is installed only when an admin asks for it",
             "type": "boolean"
           },
           "packages": {
+            "description": "The Debian packages installing it brings in, with their sizes, for software the manifest names exactly",
             "items": {
               "$ref": "#/components/schemas/SoftwarePackage"
             },
@@ -11038,7 +11278,8 @@
             ]
           },
           "source": {
-            "$ref": "#/components/schemas/UpstreamSource"
+            "$ref": "#/components/schemas/UpstreamSource",
+            "description": "Where the software comes from"
           }
         },
         "required": [
@@ -11055,6 +11296,7 @@
         "additionalProperties": false,
         "properties": {
           "software": {
+            "description": "What the module installs when something first needs it",
             "items": {
               "$ref": "#/components/schemas/Software"
             },
@@ -11073,20 +11315,25 @@
         "additionalProperties": false,
         "properties": {
           "downloadBytes": {
+            "description": "How much installing it downloads, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "installedBytes": {
+            "description": "How much disk it takes once installed, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "name": {
+            "description": "The package's name",
             "type": "string"
           },
           "origin": {
+            "description": "The repository the version comes from",
             "type": "string"
           },
           "version": {
+            "description": "The version that would be installed",
             "type": "string"
           }
         },
@@ -11292,10 +11539,12 @@
         "additionalProperties": false,
         "properties": {
           "built": {
+            "description": "When the index was built",
             "format": "date-time",
             "type": "string"
           },
           "items": {
+            "description": "How many items the index lists",
             "format": "int64",
             "type": "integer"
           }
@@ -11321,6 +11570,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The resource's labels as the change leaves them",
             "type": "object"
           },
           "oldSpec": {
@@ -11383,6 +11633,7 @@
             "type": "string"
           },
           "fields": {
+            "description": "What a default rule would fill in, field by field",
             "items": {
               "$ref": "#/components/schemas/FieldResult"
             },
@@ -11600,6 +11851,7 @@
         "additionalProperties": false,
         "properties": {
           "types": {
+            "description": "The channel types: those built in, then those modules and add-ons provide",
             "items": {
               "$ref": "#/components/schemas/ChannelType"
             },
@@ -11626,6 +11878,7 @@
             "type": "string"
           },
           "point": {
+            "description": "Where in the panel the entry goes",
             "enum": [
               "ui.nav",
               "ui.tab",
@@ -11637,7 +11890,8 @@
             "type": "string"
           },
           "ui": {
-            "$ref": "#/components/schemas/UIExtension"
+            "$ref": "#/components/schemas/UIExtension",
+            "description": "The entry: what it is called and shows, and where it leads"
           }
         },
         "required": [
@@ -11652,18 +11906,23 @@
         "additionalProperties": false,
         "properties": {
           "icon": {
+            "description": "The entry's icon, by its name in Lucide, such as shield",
             "type": "string"
           },
           "kind": {
+            "description": "The kind whose screens a tab or column goes on",
             "type": "string"
           },
           "label": {
+            "description": "What the panel calls the entry",
             "type": "string"
           },
           "path": {
+            "description": "For a column, the add-on's GET route that answers its values; otherwise the page under the add-on's /ui/ the entry shows",
             "type": "string"
           },
           "type": {
+            "description": "Where the entry goes: nav, tab, card, command, settings or column",
             "type": "string"
           }
         },
@@ -11746,13 +12005,16 @@
         "additionalProperties": false,
         "properties": {
           "from": {
+            "description": "The version that was running",
             "type": "string"
           },
           "restartsAt": {
+            "description": "When Racksail restarts onto the new release",
             "format": "date-time",
             "type": "string"
           },
           "to": {
+            "description": "The version installed",
             "type": "string"
           }
         },
@@ -11767,20 +12029,25 @@
         "additionalProperties": false,
         "properties": {
           "binary": {
+            "description": "The racksail binary the update replaced",
             "type": "string"
           },
           "confirmedAt": {
+            "description": "When the new release confirmed it works",
             "format": "date-time",
             "type": "string"
           },
           "from": {
+            "description": "The version before the update",
             "type": "string"
           },
           "installedAt": {
+            "description": "When the release was installed",
             "format": "date-time",
             "type": "string"
           },
           "panelBackup": {
+            "description": "The copy of the panel's database kept from before the update",
             "type": "string"
           },
           "reason": {
@@ -11788,10 +12055,12 @@
             "type": "string"
           },
           "rolledBackAt": {
+            "description": "When the update was rolled back",
             "format": "date-time",
             "type": "string"
           },
           "snapshots": {
+            "description": "The read-only snapshots of the system taken before the update",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -11810,12 +12079,15 @@
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag, such as v1.2.3",
             "type": "string"
           },
           "to": {
+            "description": "The version the update installed",
             "type": "string"
           },
           "unprotected": {
+            "description": "Paths no snapshot covers, because they aren't on Btrfs",
             "items": {
               "type": "string"
             },
@@ -11839,6 +12111,7 @@
         "additionalProperties": false,
         "properties": {
           "acceptLicense": {
+            "description": "Accept the license of software that isn't open source",
             "type": "boolean"
           },
           "inputs": {
@@ -11866,6 +12139,7 @@
         "additionalProperties": false,
         "properties": {
           "from": {
+            "description": "The Debian release before the upgrade, such as trixie",
             "type": "string"
           },
           "rebootRequired": {
@@ -11883,6 +12157,7 @@
             ]
           },
           "to": {
+            "description": "The Debian release it moved to, such as forky",
             "type": "string"
           }
         },
@@ -11897,33 +12172,42 @@
         "additionalProperties": false,
         "properties": {
           "diskMB": {
+            "description": "About how much disk it takes once installed, in MB, for software whose size the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "downloadMB": {
+            "description": "About how much is downloaded to install it, in MB, for software whose size the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "homepage": {
+            "description": "The software's home page",
             "type": "string"
           },
           "id": {
+            "description": "The software's id in the manifest",
             "type": "string"
           },
           "install": {
+            "description": "When it is installed, in plain words",
             "type": "string"
           },
           "license": {
+            "description": "The software's SPDX license expression",
             "type": "string"
           },
           "name": {
+            "description": "The software's name",
             "type": "string"
           },
           "optIn": {
+            "description": "Whether it is installed only when an admin asks for it",
             "type": "boolean"
           },
           "source": {
-            "$ref": "#/components/schemas/UpstreamSource"
+            "$ref": "#/components/schemas/UpstreamSource",
+            "description": "Where the software comes from"
           }
         },
         "required": [
@@ -11939,6 +12223,7 @@
         "additionalProperties": false,
         "properties": {
           "packages": {
+            "description": "The Debian packages that install it",
             "items": {
               "type": "string"
             },
@@ -11948,15 +12233,19 @@
             ]
           },
           "repository": {
+            "description": "The apt repository the packages come from",
             "type": "string"
           },
           "type": {
+            "description": "debian, apt-repository, vendor-archive, racksail-build, embedded or present",
             "type": "string"
           },
           "url": {
+            "description": "Where the software's releases or builds are published",
             "type": "string"
           },
           "verification": {
+            "description": "How a download is checked, such as against a checksum or a signature",
             "type": "string"
           }
         },
@@ -12293,6 +12582,7 @@
         "additionalProperties": false,
         "properties": {
           "sha256": {
+            "description": "The SHA-256 the file matched, as the recipe pins it",
             "type": "string"
           },
           "signature": {
@@ -12300,13 +12590,16 @@
             "type": "string"
           },
           "size": {
+            "description": "The file's size in bytes",
             "format": "int64",
             "type": "integer"
           },
           "url": {
+            "description": "Where the file was downloaded from",
             "type": "string"
           },
           "verifiedAt": {
+            "description": "When the file was checked",
             "format": "date-time",
             "type": "string"
           }

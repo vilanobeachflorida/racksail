@@ -10,7 +10,8 @@ import (
 
 // corePackages are the parts of Racksail whose types the core's own
 // operations take and answer with. The schemas of other parts' types, such
-// as modules' and the catalog's, are theirs to describe.
+// as modules' and the catalog's, only come with the whole binary, whose
+// TestEverySchemaFieldIsDescribed holds them to the same.
 var corePackages = []string{
 	"internal/api", "internal/api/httpapi", "internal/auth", "internal/auth/account", "internal/auth/identity",
 	"internal/changeset", "internal/events", "internal/events/webhook", "internal/jobs", "internal/store", "internal/system",

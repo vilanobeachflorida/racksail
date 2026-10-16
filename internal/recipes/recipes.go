@@ -92,11 +92,11 @@ type Maintainer struct {
 
 // Requirements must hold before a recipe can be installed.
 type Requirements struct {
-	Modules  []string `yaml:"modules,omitempty" json:"modules,omitempty"`
-	MemoryMB int      `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty"`
-	DiskMB   int      `yaml:"diskMB,omitempty" json:"diskMB,omitempty"`
-	Arch     []string `yaml:"arch,omitempty" json:"arch,omitempty"`
-	Features []string `yaml:"features,omitempty" json:"features,omitempty"`
+	Modules  []string `yaml:"modules,omitempty" json:"modules,omitempty" doc:"The modules that must be on"`
+	MemoryMB int      `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty" doc:"The least memory the server must have, in MB"`
+	DiskMB   int      `yaml:"diskMB,omitempty" json:"diskMB,omitempty" doc:"The least free disk space it must have, in MB"`
+	Arch     []string `yaml:"arch,omitempty" json:"arch,omitempty" doc:"The processor architectures it runs on: amd64, arm64 or both"`
+	Features []string `yaml:"features,omitempty" json:"features,omitempty" doc:"Hardware it can't run without, such as kvm"`
 }
 
 // Input is a value the install wizard asks for.
@@ -587,36 +587,36 @@ type Index struct {
 
 // IndexItem is one item in an index.
 type IndexItem struct {
-	ID           string       `json:"id"`
-	Kind         ItemKind     `json:"kind"`
-	Name         string       `json:"name"`
-	Version      string       `json:"version"`
-	Summary      string       `json:"summary"`
-	LicenseClass LicenseClass `json:"licenseClass"`
-	Categories   []string     `json:"categories,omitempty"`
+	ID           string       `json:"id" doc:"The item's id in its catalog"`
+	Kind         ItemKind     `json:"kind" doc:"What sort of item it is: an app, a runtime, a service, a stack, a DNS template, an automation, a tuning preset, a model, a theme or an add-on"`
+	Name         string       `json:"name" doc:"The item's name"`
+	Version      string       `json:"version" doc:"The version of the software it installs"`
+	Summary      string       `json:"summary" doc:"What it is, in a line"`
+	LicenseClass LicenseClass `json:"licenseClass" doc:"Whether the software is open source, free to use or proprietary; anything but open source shows a notice before it is installed"`
+	Categories   []string     `json:"categories,omitempty" doc:"The marketplace's categories it is listed under"`
 	// Path locates the recipe file relative to the index.
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path   string `json:"path" doc:"Where its recipe is, relative to the catalog's index"`
+	SHA256 string `json:"sha256" doc:"The SHA-256 of its recipe"`
 	// Icon locates the item's icon relative to the index.
-	Icon string `json:"icon,omitempty"`
+	Icon string `json:"icon,omitempty" doc:"Where its icon is, relative to the index"`
 	// Requires repeats the recipe's requirements, so a fit check needs no
 	// other file.
-	Requires Requirements `json:"requires,omitzero"`
+	Requires Requirements `json:"requires,omitzero" doc:"What the server must have before it can be installed"`
 	// Files lists every file of the item, the recipe included, so whatever
 	// a panel fetches can be checked against the signed index.
-	Files []IndexFile `json:"files,omitempty"`
+	Files []IndexFile `json:"files,omitempty" doc:"Every file of the item, its recipe included, with the checksums the signed index gives them"`
 	// Featured, Broken and Unmaintained come from catalog maintenance.
-	Featured     bool `json:"featured,omitempty"`
-	Broken       bool `json:"broken,omitempty"`
-	Unmaintained bool `json:"unmaintained,omitempty"`
+	Featured     bool `json:"featured,omitempty" doc:"Whether the catalog's maintainers feature it"`
+	Broken       bool `json:"broken,omitempty" doc:"Whether the catalog's maintainers found it doesn't work at the moment; the marketplace lists it only when asked to"`
+	Unmaintained bool `json:"unmaintained,omitempty" doc:"Whether nobody looks after it any more; the marketplace lists it only when asked to"`
 }
 
 // IndexFile is one file of a catalog item.
 type IndexFile struct {
 	// Path locates the file relative to the index.
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
+	Path   string `json:"path" doc:"Where the file is, relative to the index"`
+	SHA256 string `json:"sha256" doc:"The file's SHA-256"`
+	Size   int64  `json:"size" doc:"The file's size in bytes"`
 }
 
 // VerifyIndex checks an index's Ed25519 signature with the key the admin

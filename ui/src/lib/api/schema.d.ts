@@ -4021,6 +4021,7 @@ export interface components {
             item?: string;
             /** @description The add-on's addon.yaml */
             manifest: string;
+            /** @description The add-on's program: an archive and the checksum it must match */
             package: components["schemas"]["Package"];
         };
         AddonStatus: {
@@ -4140,14 +4141,23 @@ export interface components {
             time: string;
         };
         Available: {
+            /** @description The binary for this server's architecture, as the release's signed manifest lists it */
             asset: components["schemas"]["ReleaseAsset"];
-            /** @enum {string} */
+            /**
+             * @description The channel the release is on
+             * @enum {string}
+             */
             channel: "stable" | "beta" | "nightly";
             /** @description The release notes */
             notesUrl?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the release was published
+             */
             published: string;
+            /** @description The release's tag on GitHub, such as v1.3.0 */
             tag: string;
+            /** @description The release's version */
             version: string;
         };
         BackupInfo: {
@@ -4157,6 +4167,7 @@ export interface components {
             reason?: string;
         };
         BuildInfo: {
+            /** @description The processor architecture it was built for, such as amd64 or arm64 */
             arch: string;
             /**
              * @description Release channel the binary belongs to
@@ -4172,6 +4183,7 @@ export interface components {
             commitTime?: string;
             /** @description Go version used to build it */
             goVersion: string;
+            /** @description The operating system it was built for, such as linux */
             os: string;
             /**
              * @description Racksail version
@@ -4180,7 +4192,9 @@ export interface components {
             version: string;
         };
         Capabilities: {
+            /** @description What it needs other modules to provide, such as network.firewall */
             needs?: string[] | null;
+            /** @description What the module offers other modules, such as backups.snapshots */
             provides?: string[] | null;
         };
         CatalogOutputBody: {
@@ -4221,8 +4235,12 @@ export interface components {
             code?: string;
             /** @description What the reconciler found about each aspect of the resource, such as whether it is Ready */
             conditions?: components["schemas"]["Condition"][] | null;
+            /** @description The SHA-256 of the index the panel keeps */
             indexSha256?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many items the index lists
+             */
             items?: number;
             /** @description English summary of the current state */
             message?: string;
@@ -4231,6 +4249,7 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
+            /** @description Whether the catalog is Racksail's own, signed by a key built into the panel */
             official?: boolean;
             /**
              * @description Where the resource is: waiting, being carried out, ready, working in part, failed, or being removed
@@ -4403,16 +4422,21 @@ export interface components {
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         ChannelTestOutput: {
+            /** @description The test notification, with how sending it went */
             notification: components["schemas"]["Notification"];
         };
         ChannelType: {
+            /** @description Where the type sends notifications and what it takes, in a sentence */
             description?: string;
+            /** @description The type's name, such as ntfy, which channels give as their type */
             name: string;
             /** @description The module or add-on that provides the notifier */
             provider?: string;
             /** @description The JSON Schema of the type's settings */
             schema?: unknown;
+            /** @description The settings that hold secrets, which are kept apart and never shown again */
             secrets?: string[] | null;
+            /** @description What the panel calls the type */
             title: string;
         };
         Check: {
@@ -4437,6 +4461,7 @@ export interface components {
         CheckOutput: {
             /** @description The release to update to; empty when the server is up to date */
             available?: components["schemas"]["Available"];
+            /** @description The version running now */
             running: string;
         };
         CodeInputBody: {
@@ -6055,12 +6080,22 @@ export interface components {
             spec: components["schemas"]["WebhookSpec"];
         };
         Cost: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Typical memory once its software runs, idle, in MB
+             */
             activeMemoryMB: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Disk its software takes once installed, in MB
+             */
             diskMB: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Memory used while it is on but nothing needs it yet, in MB
+             */
             idleMemoryMB: number;
+            /** @description More about what it costs, in plain words */
             notes?: string;
         };
         CreatedToken: {
@@ -6099,7 +6134,9 @@ export interface components {
             user: string;
         };
         DataScope: {
+            /** @description The spec fields it reaches, as dotted paths; every one when empty */
             fields?: string[] | null;
+            /** @description The kind, such as web.site */
             kind: string;
         };
         DeliveriesOutputBody: {
@@ -6187,12 +6224,17 @@ export interface components {
         DeliveryListBody: {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
+            /** @description The notifications on this page, newest first, without their messages */
             notifications: components["schemas"]["Notification"][] | null;
         };
         Dependencies: {
+            /** @description Dependencies that can't be listed up front, in plain words */
             note?: string;
+            /** @description Modules that must be on */
             requires?: string[] | null;
+            /** @description Modules of which at least one must be on */
             requiresAny?: string[] | null;
+            /** @description Modules it works with when they are on */
             uses?: string[] | null;
         };
         DeviceView: {
@@ -6283,6 +6325,7 @@ export interface components {
             reason: string;
         };
         EntryListBody: {
+            /** @description The screen entries add-ons declare */
             entries: components["schemas"]["UIEntry"][] | null;
         };
         Estimate: {
@@ -6365,19 +6408,28 @@ export interface components {
             exported: string;
             /** @description The module's id */
             module: string;
+            /** @description Every resource of the module's kinds that isn't deleted */
             resources: components["schemas"]["ExportedResource"][] | null;
             /** @description The module's version */
             version: string;
         };
         ExportedResource: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was created
+             */
             createdAt: string;
+            /** @description The resource's ID */
             id: string;
+            /** @description The resource's kind */
             kind: string;
+            /** @description The resource's labels */
             labels?: {
                 [key: string]: string;
             };
+            /** @description Who the resource belongs to */
             scope: components["schemas"]["Scope"];
+            /** @description The resource's settings, without the fields that refer to secrets */
             spec: unknown;
             /** @description Fields that refer to secrets, which the export leaves out */
             withheld?: string[] | null;
@@ -6389,8 +6441,11 @@ export interface components {
             message: string;
         };
         FieldDefault: {
+            /** @description A CEL expression whose value the field gets */
             expression: string;
+            /** @description The spec field filled in, as a dotted path such as headers.security */
             field: string;
+            /** @description Replace a value the new resource already has, rather than only fill in an empty field */
             override?: boolean;
         };
         FieldDiff: {
@@ -6453,18 +6508,29 @@ export interface components {
             value?: unknown;
         };
         FieldResult: {
+            /** @description The field, as a dotted path such as headers.security */
             field: string;
+            /** @description Whether the field was filled in or replaced; one the change already set, which the rule doesn't override, keeps its value */
             set: boolean;
+            /** @description The value its expression gave */
             value?: unknown;
         };
         FoundSoftware: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes once installed, in bytes
+             */
             diskBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much installing it downloads, in bytes
+             */
             downloadBytes?: number;
             /** @description The software's id in the module's manifest */
             id: string;
+            /** @description Whether the server had it installed */
             installed: boolean;
+            /** @description The Debian packages installing it brings in, with their sizes */
             packages?: components["schemas"]["SoftwarePackage"][] | null;
         };
         Grant: {
@@ -6483,12 +6549,21 @@ export interface components {
             scope: components["schemas"]["Scope"];
         };
         Hardware: {
+            /** @description The processor architectures it runs on, such as amd64 and arm64 */
             arch: string[] | null;
+            /** @description Hardware it can't run without: virtualization, kvm, iommu, tpm or uefi */
             features?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The least disk space the server must have, in GB
+             */
             minDiskGB?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The least memory the server must have, in MB
+             */
             minMemoryMB?: number;
+            /** @description More about what it needs, in plain words */
             notes?: string;
         };
         HealthCheck: {
@@ -6520,11 +6595,18 @@ export interface components {
             status: "ok" | "degraded";
         };
         HealthResult: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it ran
+             */
             checkedAt: string;
+            /** @description Why it didn't pass */
             message?: string;
+            /** @description Whether it passed */
             ok: boolean;
+            /** @description What it checks: a URL, host and port, name, unit or resource */
             target: string;
+            /** @description How the check works: http, tcp, tls, dns, unit or resource */
             type: string;
         };
         HistoryBody: {
@@ -6549,8 +6631,12 @@ export interface components {
              * @description How many times in a row it failed
              */
             failures?: number;
-            /** @enum {string} */
+            /**
+             * @description What sort of hook it is: observe, validate, modify, system, provide or extend
+             * @enum {string}
+             */
             kind: "observe" | "validate" | "modify" | "system" | "provide" | "extend";
+            /** @description The hook's name for people, such as Backup policy 1.2; the owner when empty */
             label?: string;
             /** @description Whether it holds core.override */
             override?: boolean;
@@ -6558,17 +6644,26 @@ export interface components {
             owner: string;
             /** @description The point or pattern the hook is attached to */
             point: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where it runs among the hooks of its point, lower first
+             */
             priority: number;
+            /** @description For a provide hook, the name of what it provides */
             provider?: string;
+            /** @description Whether it is a validate hook that enforces a security policy, which blocks when it fails */
             security?: boolean;
+            /** @description For an extend hook, the label of the screen entry it adds */
             ui?: string;
         };
         HookListBody: {
+            /** @description Every hook, with its failures in a row and whether the circuit breaker switched it off */
             hooks: components["schemas"]["HookInfo"][] | null;
         };
         HookPoint: {
+            /** @description When it runs and what hooks there can do */
             description: string;
+            /** @description The hook point, such as system.knot.zone */
             point: string;
         };
         Host: {
@@ -6707,9 +6802,14 @@ export interface components {
             restored: boolean;
         };
         IndexFile: {
+            /** @description Where the file is, relative to the index */
             path: string;
+            /** @description The file's SHA-256 */
             sha256: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The file's size in bytes
+             */
             size: number;
         };
         IndexInfo: {
@@ -6737,42 +6837,68 @@ export interface components {
             scope: components["schemas"]["Scope"];
         };
         InstallationHealth: {
+            /** @description How each health check went */
             health: components["schemas"]["HealthResult"][] | null;
+            /** @description Whether every health check passed */
             healthy: boolean;
         };
         InstallationSpec: {
+            /** @description The ID of the catalog that offered the recipe */
             catalog?: string;
+            /** @description That catalog's name, such as official */
             catalogName?: string;
+            /** @description The SHA-256 of the catalog index that listed it */
             indexSha256?: string;
+            /** @description The values given for the recipe's inputs, without passwords and secrets */
             inputs?: {
                 [key: string]: unknown;
             };
             /** @description The item's id */
             item: string;
-            /** @enum {string} */
+            /**
+             * @description What sort of item it is
+             * @enum {string}
+             */
             itemKind: "app" | "runtime" | "service" | "stack" | "dns-template" | "automation" | "tuning-preset" | "model" | "theme" | "addon";
+            /** @description The software's license, as an SPDX expression */
             license: string;
-            /** @enum {string} */
+            /**
+             * @description Whether the software is open source, free to use or proprietary
+             * @enum {string}
+             */
             licenseClass: "open-source" | "free-to-use" | "proprietary";
+            /** @description The module that ships the recipe, when it didn't come from a catalog */
             module?: string;
+            /** @description The item's name */
             name: string;
             /** @description Whether it came from Racksail's own catalog */
             official?: boolean;
+            /** @description The recipe as installed, so upgrading and uninstalling need nothing from the catalog */
             recipe: string;
+            /** @description The SHA-256 of the recipe installed */
             recipeSha256: string;
+            /** @description The resources the installation created */
             resources: components["schemas"]["InstalledResource"][] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The revision of the recipe itself, which goes up when the recipe changes without a new version of the software
+             */
             revision?: number;
             /**
              * @description Where the recipe came from
              * @enum {string}
              */
             source: "catalog" | "module";
+            /** @description The version installed */
             version: string;
         };
         InstallationStatus: {
+            /** @description The version the installation was last applied at */
             applied?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the health checks last ran
+             */
             checkedAt?: string;
             /** @description The error code that translates the message, when it has one */
             code?: string;
@@ -6780,6 +6906,7 @@ export interface components {
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description Upstream files checked against the recipe */
             downloads?: components["schemas"]["VerifiedDownload"][] | null;
+            /** @description How the recipe's health checks went the last time they ran */
             health?: components["schemas"]["HealthResult"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -6797,8 +6924,11 @@ export interface components {
             upgrade?: string;
         };
         InstalledResource: {
+            /** @description The resource's ID */
             id: string;
+            /** @description The resource's kind, such as databases.database */
             kind: string;
+            /** @description The resource's name in the recipe, such as db */
             name: string;
         };
         IssuedLink: {
@@ -6820,33 +6950,53 @@ export interface components {
             url?: string;
         };
         ItemDetail: {
+            /** @description Whether the catalog's maintainers found it doesn't work at the moment; the marketplace lists it only when asked to */
             broken?: boolean;
+            /** @description The ID of the catalog that offers it */
             catalog: string;
+            /** @description That catalog's name, such as official */
             catalogName: string;
+            /** @description What that catalog is called */
             catalogTitle: string;
+            /** @description The marketplace's categories it is listed under */
             categories?: string[] | null;
+            /** @description Whether the catalog's maintainers feature it */
             featured?: boolean;
+            /** @description Every file of the item, its recipe included, with the checksums the signed index gives them */
             files?: components["schemas"]["IndexFile"][] | null;
             /** @description Why the item can't be installed on this server, when it can't */
             fits?: string;
+            /** @description Where its icon is, relative to the index */
             icon?: string;
+            /** @description The item's id in its catalog */
             id: string;
+            /** @description What sort of item it is: an app, a runtime, a service, a stack, a DNS template, an automation, a tuning preset, a model, a theme or an add-on */
             kind: string;
+            /** @description Whether the software is open source, free to use or proprietary; anything but open source shows a notice before it is installed */
             licenseClass: string;
+            /** @description The item's name */
             name: string;
             /** @description What installing it means, for software that isn't open source */
             notice?: string;
+            /** @description Whether it comes from Racksail's own catalog; the rest are third-party */
             official: boolean;
+            /** @description Where its recipe is, relative to the catalog's index */
             path: string;
             /** @description The item's recipe, as spec/schemas/recipe.schema.json describes it */
             recipe: unknown;
+            /** @description What the server must have before it can be installed */
             requires?: components["schemas"]["Requirements"];
+            /** @description The SHA-256 of its recipe */
             sha256: string;
+            /** @description What it is, in a line */
             summary: string;
+            /** @description Whether nobody looks after it any more; the marketplace lists it only when asked to */
             unmaintained?: boolean;
+            /** @description The version of the software it installs */
             version: string;
         };
         ItemListBody: {
+            /** @description The items of every catalog that is on, featured first and then by name */
             items: components["schemas"]["ListedItem"][] | null;
         };
         Job: {
@@ -7027,24 +7177,43 @@ export interface components {
             links: components["schemas"]["LinkView"][] | null;
         };
         ListedItem: {
+            /** @description Whether the catalog's maintainers found it doesn't work at the moment; the marketplace lists it only when asked to */
             broken?: boolean;
+            /** @description The ID of the catalog that offers it */
             catalog: string;
+            /** @description That catalog's name, such as official */
             catalogName: string;
+            /** @description What that catalog is called */
             catalogTitle: string;
+            /** @description The marketplace's categories it is listed under */
             categories?: string[] | null;
+            /** @description Whether the catalog's maintainers feature it */
             featured?: boolean;
+            /** @description Every file of the item, its recipe included, with the checksums the signed index gives them */
             files?: components["schemas"]["IndexFile"][] | null;
+            /** @description Where its icon is, relative to the index */
             icon?: string;
+            /** @description The item's id in its catalog */
             id: string;
+            /** @description What sort of item it is: an app, a runtime, a service, a stack, a DNS template, an automation, a tuning preset, a model, a theme or an add-on */
             kind: string;
+            /** @description Whether the software is open source, free to use or proprietary; anything but open source shows a notice before it is installed */
             licenseClass: string;
+            /** @description The item's name */
             name: string;
+            /** @description Whether it comes from Racksail's own catalog; the rest are third-party */
             official: boolean;
+            /** @description Where its recipe is, relative to the catalog's index */
             path: string;
+            /** @description What the server must have before it can be installed */
             requires?: components["schemas"]["Requirements"];
+            /** @description The SHA-256 of its recipe */
             sha256: string;
+            /** @description What it is, in a line */
             summary: string;
+            /** @description Whether nobody looks after it any more; the marketplace lists it only when asked to */
             unmaintained?: boolean;
+            /** @description The version of the software it installs */
             version: string;
         };
         LogLine: {
@@ -7079,27 +7248,48 @@ export interface components {
             title: string;
         };
         Manifest: {
+            /** @description What it offers to other modules and needs from them */
             capabilities?: components["schemas"]["Capabilities"];
-            /** @enum {string} */
+            /**
+             * @description Where the modules page groups it
+             * @enum {string}
+             */
             category: "core" | "hosting" | "apps" | "storage" | "operations" | "home" | "assistant";
+            /** @description Its estimated resource use, shown before it is turned on */
             cost: components["schemas"]["Cost"];
+            /** @description The modules it needs or works with */
             dependencies: components["schemas"]["Dependencies"];
+            /** @description What the module does, in a sentence or two */
             description: string;
+            /** @description What the server must have for the module to run */
             hardware: components["schemas"]["Hardware"];
+            /** @description The hook points it adds beyond those of its kinds' operations */
             hooks?: components["schemas"]["HookPoint"][] | null;
+            /** @description The module's id, also the package name under modules/ and the prefix of its kinds */
             id: string;
+            /** @description The SPDX license expression of the module's code */
             license: string;
+            /** @description What the panel calls the module */
             name: string;
+            /** @description The permissions it adds beyond those of its kinds' operations */
             permissions?: components["schemas"]["Permission"][] | null;
+            /** @description The ports it opens in the firewall while it is active */
             ports?: components["schemas"]["Port"][] | null;
+            /** @description The setup profiles that turn the module on */
             profiles: string[] | null;
+            /** @description The ids of the recipes the module ships */
             recipes?: string[] | null;
+            /** @description Whether the module is always on and can't be turned off */
             required?: boolean;
+            /** @description The services it runs while it is active */
             services?: components["schemas"]["Service"][] | null;
+            /** @description The JSON Schema of the module's settings */
             settings?: {
                 [key: string]: unknown;
             };
+            /** @description The software it installs, only when something first needs it */
             upstream: components["schemas"]["Upstream"][] | null;
+            /** @description The module's version */
             version: string;
         };
         MatrixEntry: {
@@ -7168,14 +7358,20 @@ export interface components {
             username: string;
         };
         Message: {
+            /** @description What the link back to the panel says, such as Look at the backup */
             actionLabel?: string;
             /** @description What happened and what to do, in plain text */
             body: string;
+            /** @description The messages a summary of quiet hours stands for */
             digest?: components["schemas"]["Message"][] | null;
+            /** @description The event the message is about, when there is one */
             event?: components["schemas"]["Event"];
             /** @description The same on every attempt to deliver the message */
             id?: string;
-            /** @enum {string} */
+            /**
+             * @description How serious it is: info, notice, warning, error or critical
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
             /** @description What happened, in a few words */
             title: string;
@@ -7217,7 +7413,9 @@ export interface components {
             exportable?: boolean;
             /** @description Why the module can't be turned on on this server */
             hardwareProblems?: string[] | null;
+            /** @description The ids of the module's software found installed on the server */
             installed?: string[] | null;
+            /** @description The module's manifest: what it is, needs, installs and costs */
             manifest: components["schemas"]["Manifest"];
             /** @description Modules it needs that are off */
             needs?: string[] | null;
@@ -7225,13 +7423,18 @@ export interface components {
             removed?: boolean;
             /** @description The module's core.module resource */
             resource?: string;
-            /** @enum {string} */
+            /**
+             * @description off, on, active (something uses it), stopping or removing
+             * @enum {string}
+             */
             state: "off" | "on" | "active" | "stopping" | "removing";
             /** @description Whether the module can be turned off while resources use it, keeping them */
             suspends?: boolean;
+            /** @description How many resources of the module's kinds there are */
             usage: components["schemas"]["Usage"];
         };
         ModuleListBody: {
+            /** @description Every module the panel has, with its state */
             modules: components["schemas"]["ModuleInfo"][] | null;
         };
         ModuleSpec: {
@@ -7344,19 +7547,32 @@ export interface components {
         Notification: {
             /** @description The address it is emailed to */
             address?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many times sending it was tried
+             */
             attemptCount: number;
             /** @description The channel it goes through */
             channel?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was made
+             */
             createdAt: string;
+            /** @description The event it is about */
             event?: string;
+            /** @description That event's type, such as backups.run.failed */
             eventType?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was sent or given up on
+             */
             finishedAt?: string;
+            /** @description The notification's ID, which starts with ntf_ */
             id: string;
             /** @description Why the last attempt failed */
             lastError?: string;
+            /** @description What is sent; lists leave it out */
             message?: components["schemas"]["Message"];
             /**
              * Format: date-time
@@ -7365,13 +7581,21 @@ export interface components {
             nextAttempt?: string;
             /** @description The person it is emailed to */
             person?: string;
-            /** @enum {string} */
+            /**
+             * @description How serious the message is
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
-            /** @enum {string} */
+            /**
+             * @description pending until it goes out, held during quiet hours, sent, failed once given up on, dropped by quiet hours that leave things out, or merged into a summary of them
+             * @enum {string}
+             */
             state: "pending" | "held" | "sent" | "failed" | "dropped" | "merged";
             /** @description The summary it went out in */
             summary?: string;
+            /** @description Whether it is a test, which is sent once whatever the quiet hours */
             test?: boolean;
+            /** @description The message's title */
             title: string;
         };
         NotificationPreferences: {
@@ -7390,6 +7614,7 @@ export interface components {
             quietHours?: components["schemas"]["QuietHours"];
         };
         OSStatus: {
+            /** @description The Debian release's codename, such as trixie */
             codename: string;
             /** @description The Debian release an upgrade would move to */
             next?: string;
@@ -7400,7 +7625,9 @@ export interface components {
             rebootAt?: string;
             /** @description Why the server needs a reboot */
             rebootReasons?: string[] | null;
+            /** @description Whether the server needs a reboot to finish installing updates */
             rebootRequired?: boolean;
+            /** @description The Debian release's number, such as 13 */
             version: string;
         };
         OpenAccountInput: {
@@ -7595,16 +7822,25 @@ export interface components {
             password?: string;
         };
         Permission: {
+            /** @description What the permission allows */
             description: string;
+            /** @description The permission's name, which starts with the module's id */
             name: string;
         };
         Permissions: {
+            /** @description The hook levels the add-on may use: observe, validate, modify and system */
             hooks?: string[] | null;
+            /** @description The hosts, addresses or networks the add-on may reach; none when empty */
             network?: string[] | null;
+            /** @description core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve */
             override?: boolean;
+            /** @description The kinds, and the fields of them, the add-on may see */
             read?: components["schemas"]["DataScope"][] | null;
+            /** @description The most CPU and memory the add-on's process may use */
             resources?: components["schemas"]["Resources"];
+            /** @description secrets.read: the add-on may read the secrets of the resources it may see */
             secrets?: boolean;
+            /** @description The kinds, and the fields of them, the add-on may change, which it may also see */
             write?: components["schemas"]["DataScope"][] | null;
         };
         PointInfo: {
@@ -7612,7 +7848,9 @@ export interface components {
             checked?: boolean;
             /** @description Whether system hooks patch generated configuration here */
             config?: boolean;
+            /** @description What the point is for and what hooks there can do */
             description?: string;
+            /** @description The hooks that run here, in the order they run, those attached by patterns that name the point included */
             hooks?: components["schemas"]["HookInfo"][] | null;
             /** @description Settings hooks can only make stricter, unless they hold core.override */
             invariants?: string[] | null;
@@ -7629,27 +7867,49 @@ export interface components {
             stage?: "validate" | "plan" | "applied";
         };
         PointListBody: {
+            /** @description The hook points, with the hooks attached to each */
             points: components["schemas"]["PointInfo"][] | null;
         };
         PolicySpec: {
+            /** @description For default rules: the fields filled in, each from a CEL expression */
             defaults?: components["schemas"]["FieldDefault"][] | null;
+            /** @description What the rule is for, in a sentence or two */
             description?: string;
+            /** @description Whether the rule takes part in changes */
             enabled?: boolean;
+            /** @description For validate rules: a CEL expression that is true when the change must be refused */
             expression?: string;
+            /** @description The kinds the rule applies to, such as web.site; every kind when empty */
             kinds?: string[] | null;
+            /** @description For validate rules: what the person making a refused change is told */
             message?: string;
+            /** @description A short name for the rule, shown when it refuses a change */
             name: string;
+            /** @description The operations it applies to, such as create, update, delete or an action; every one when empty */
             operations?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where the rule runs among hooks, lower first
+             */
             priority?: number;
-            /** @enum {string} */
+            /**
+             * @description validate rules refuse changes; default rules fill in or override fields of new resources
+             * @enum {string}
+             */
             type: "validate" | "default";
         };
         Port: {
+            /** @description What the port is for */
             description: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The port number
+             */
             port: number;
-            /** @enum {string} */
+            /**
+             * @description tcp or udp
+             * @enum {string}
+             */
             protocol: "tcp" | "udp";
         };
         Preferences: {
@@ -7755,14 +8015,20 @@ export interface components {
             type: string;
         };
         Profile: {
+            /** @description What a server set up with it is for */
             description: string;
-            /** @enum {string} */
+            /**
+             * @description The profile's id
+             * @enum {string}
+             */
             id: "all-in-one" | "web-hosting" | "home-server" | "virtualization-host" | "mail-server" | "dns-server" | "minimal";
             /** @description The modules it turns on, dependencies first */
             modules: string[] | null;
+            /** @description What the panel calls the profile */
             name: string;
         };
         ProfileChange: {
+            /** @description The change set that turns the profile's modules on */
             changeSet: components["schemas"]["ChangeSet"];
             /** @description Modules of the profile that can't run on this server, with why */
             skipped?: components["schemas"]["Skipped"][] | null;
@@ -7776,6 +8042,7 @@ export interface components {
             name: string;
         };
         ProfileListBody: {
+            /** @description The setup profiles, in the order the setup wizard shows them */
             profiles: components["schemas"]["Profile"][] | null;
         };
         Progress: {
@@ -7940,14 +8207,22 @@ export interface components {
         RelayTestOutput: {
             /** @description Why the relay didn't take the email */
             error?: string;
+            /** @description Whether the relay took the email */
             sent: boolean;
         };
         ReleaseAsset: {
+            /** @description Where the Sigstore bundle that signs the file is downloaded from */
             bundle?: string;
+            /** @description The file's name, such as racksail-linux-amd64 */
             name: string;
+            /** @description The file's SHA-256, as the release's checksums list it */
             sha256: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The file's size in bytes
+             */
             size: number;
+            /** @description Where the file is downloaded from */
             url: string;
         };
         RemoveInput: {
@@ -7961,12 +8236,21 @@ export interface components {
             name: string;
         };
         Requirements: {
+            /** @description The processor architectures it runs on: amd64, arm64 or both */
             arch?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The least free disk space it must have, in MB
+             */
             diskMB?: number;
+            /** @description Hardware it can't run without, such as kvm */
             features?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The least memory the server must have, in MB
+             */
             memoryMB?: number;
+            /** @description The modules that must be on */
             modules?: string[] | null;
         };
         ResetInput: {
@@ -8090,8 +8374,12 @@ export interface components {
             steps?: components["schemas"]["Step"][] | null;
         };
         Resources: {
+            /** @description The most CPU time, in percent of one CPU, such as 20% */
             cpu?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The most memory, in MB
+             */
             memoryMB?: number;
         };
         ResyncNotice: {
@@ -8125,6 +8413,7 @@ export interface components {
             self: string[] | null;
         };
         RollbackInput: {
+            /** @description Why the release is rolled back, for the timeline and the audit log */
             reason?: string;
         };
         SSHKey: {
@@ -8253,7 +8542,9 @@ export interface components {
             totp: boolean;
         };
         Service: {
+            /** @description What the service does */
             description: string;
+            /** @description The systemd unit, such as knot.service */
             unit: string;
         };
         Session: {
@@ -8377,9 +8668,14 @@ export interface components {
         SettingsStatus: {
             /** @description The newest release on the channel, when it is newer */
             available?: components["schemas"]["Available"];
+            /** @description Whether the release before the running one is kept to roll back to */
             canRollBack?: boolean;
+            /** @description Why the last look for releases failed */
             checkError?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When releases were last looked for
+             */
             checkedAt?: string;
             /** @description The error code that translates the message, when it has one */
             code?: string;
@@ -8394,6 +8690,7 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
+            /** @description The server's Debian release and whether it needs a reboot */
             os?: components["schemas"]["OSStatus"];
             /** @description The last upgrade of the server's packages */
             packages?: components["schemas"]["PackagesStatus"];
@@ -8402,6 +8699,7 @@ export interface components {
              * @enum {string}
              */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The last update whose outcome was published */
             reported?: string;
             /** @description The version running now */
             running: string;
@@ -8543,7 +8841,9 @@ export interface components {
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         Skipped: {
+            /** @description The module's id */
             module: string;
+            /** @description Why it isn't turned on, such as hardware the server lacks */
             reason: string;
         };
         Snapshot: {
@@ -8553,34 +8853,65 @@ export interface components {
             source: string;
         };
         Software: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes once installed, in bytes, from the package index or the manifest
+             */
             diskBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description About how much disk it takes once installed, in MB, for software whose size the package index can't tell
+             */
             diskMB?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much installing it downloads, in bytes: from the package index when it can tell, from the manifest otherwise
+             */
             downloadBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description About how much is downloaded to install it, in MB, for software whose size the package index can't tell
+             */
             downloadMB?: number;
+            /** @description The software's home page */
             homepage?: string;
+            /** @description The software's id in the manifest */
             id: string;
+            /** @description When it is installed, in plain words */
             install: string;
+            /** @description Whether it is installed already */
             installed: boolean;
+            /** @description The software's SPDX license expression */
             license: string;
+            /** @description The software's name */
             name: string;
+            /** @description Whether it is installed only when an admin asks for it */
             optIn?: boolean;
+            /** @description The Debian packages installing it brings in, with their sizes, for software the manifest names exactly */
             packages?: components["schemas"]["SoftwarePackage"][] | null;
+            /** @description Where the software comes from */
             source: components["schemas"]["UpstreamSource"];
         };
         SoftwareOutputBody: {
+            /** @description What the module installs when something first needs it */
             software: components["schemas"]["Software"][] | null;
         };
         SoftwarePackage: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much installing it downloads, in bytes
+             */
             downloadBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes once installed, in bytes
+             */
             installedBytes?: number;
+            /** @description The package's name */
             name: string;
+            /** @description The repository the version comes from */
             origin?: string;
+            /** @description The version that would be installed */
             version: string;
         };
         Source: {
@@ -8652,9 +8983,15 @@ export interface components {
             title?: string;
         };
         SyncOutput: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the index was built
+             */
             built: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many items the index lists
+             */
             items: number;
         };
         TestRequest: {
@@ -8663,6 +9000,7 @@ export interface components {
              * @example web.site
              */
             kind: string;
+            /** @description The resource's labels as the change leaves them */
             labels?: {
                 [key: string]: string;
             };
@@ -8697,6 +9035,7 @@ export interface components {
             costLimit: number;
             /** @description Why evaluating the rule failed */
             error?: string;
+            /** @description What a default rule would fill in, field by field */
             fields?: components["schemas"]["FieldResult"][] | null;
             /** @description What the person making the change would be told */
             message?: string;
@@ -8771,6 +9110,7 @@ export interface components {
             uri: string;
         };
         TypeListBody: {
+            /** @description The channel types: those built in, then those modules and add-ons provide */
             types: components["schemas"]["ChannelType"][] | null;
         };
         UIEntry: {
@@ -8778,15 +9118,24 @@ export interface components {
             addon: string;
             /** @description The add-on's name and version */
             label: string;
-            /** @enum {string} */
+            /**
+             * @description Where in the panel the entry goes
+             * @enum {string}
+             */
             point: "ui.nav" | "ui.tab" | "ui.card" | "ui.command" | "ui.settings" | "ui.column";
+            /** @description The entry: what it is called and shows, and where it leads */
             ui: components["schemas"]["UIExtension"];
         };
         UIExtension: {
+            /** @description The entry's icon, by its name in Lucide, such as shield */
             icon?: string;
+            /** @description The kind whose screens a tab or column goes on */
             kind?: string;
+            /** @description What the panel calls the entry */
             label: string;
+            /** @description For a column, the add-on's GET route that answers its values; otherwise the page under the add-on's /ui/ the entry shows */
             path?: string;
+            /** @description Where the entry goes: nav, tab, card, command, settings or column */
             type: string;
         };
         UIHints: {
@@ -8816,34 +9165,56 @@ export interface components {
             version?: string;
         };
         UpdateOutput: {
+            /** @description The version that was running */
             from: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When Racksail restarts onto the new release
+             */
             restartsAt: string;
+            /** @description The version installed */
             to: string;
         };
         UpdateState: {
+            /** @description The racksail binary the update replaced */
             binary: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the new release confirmed it works
+             */
             confirmedAt?: string;
+            /** @description The version before the update */
             from: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the release was installed
+             */
             installedAt: string;
+            /** @description The copy of the panel's database kept from before the update */
             panelBackup?: string;
             /** @description Why the release was rolled back */
             reason?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the update was rolled back
+             */
             rolledBackAt?: string;
+            /** @description The read-only snapshots of the system taken before the update */
             snapshots?: components["schemas"]["Snapshot"][] | null;
             /**
              * @description installed until the new release confirms it works, then confirmed; rolled-back when it didn't
              * @enum {string}
              */
             state: "installed" | "confirmed" | "rolled-back";
+            /** @description The release's tag, such as v1.2.3 */
             tag: string;
+            /** @description The version the update installed */
             to: string;
+            /** @description Paths no snapshot covers, because they aren't on Btrfs */
             unprotected?: string[] | null;
         };
         UpgradeInput: {
+            /** @description Accept the license of software that isn't open source */
             acceptLicense?: boolean;
             /** @description Values for inputs the new version adds or that should change */
             inputs?: {
@@ -8855,31 +9226,51 @@ export interface components {
             to: string;
         };
         UpgradeOSOutput: {
+            /** @description The Debian release before the upgrade, such as trixie */
             from: string;
             /** @description Whether the server needs a reboot to finish */
             rebootRequired: boolean;
             /** @description The snapshots taken first */
             snapshots?: string[] | null;
+            /** @description The Debian release it moved to, such as forky */
             to: string;
         };
         Upstream: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description About how much disk it takes once installed, in MB, for software whose size the package index can't tell
+             */
             diskMB?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description About how much is downloaded to install it, in MB, for software whose size the package index can't tell
+             */
             downloadMB?: number;
+            /** @description The software's home page */
             homepage?: string;
+            /** @description The software's id in the manifest */
             id: string;
+            /** @description When it is installed, in plain words */
             install: string;
+            /** @description The software's SPDX license expression */
             license: string;
+            /** @description The software's name */
             name: string;
+            /** @description Whether it is installed only when an admin asks for it */
             optIn?: boolean;
+            /** @description Where the software comes from */
             source: components["schemas"]["UpstreamSource"];
         };
         UpstreamSource: {
+            /** @description The Debian packages that install it */
             packages?: string[] | null;
+            /** @description The apt repository the packages come from */
             repository?: string;
+            /** @description debian, apt-repository, vendor-archive, racksail-build, embedded or present */
             type: string;
+            /** @description Where the software's releases or builds are published */
             url?: string;
+            /** @description How a download is checked, such as against a checksum or a signature */
             verification?: string;
         };
         Usage: {
@@ -9024,13 +9415,21 @@ export interface components {
             username: string;
         };
         VerifiedDownload: {
+            /** @description The SHA-256 the file matched, as the recipe pins it */
             sha256: string;
             /** @description The kind of signature that was checked too, if any */
             signature?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The file's size in bytes
+             */
             size: number;
+            /** @description Where the file was downloaded from */
             url: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the file was checked
+             */
             verifiedAt: string;
         };
         Version: {
