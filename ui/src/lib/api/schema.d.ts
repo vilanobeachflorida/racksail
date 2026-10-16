@@ -10320,7 +10320,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10329,7 +10329,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings; its job installs the item */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -10362,7 +10371,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10371,7 +10380,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings; its job removes what the installation created */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -10404,7 +10422,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10413,7 +10431,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings; its job carries out the upgrade */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -17983,6 +18010,15 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getMyAlerts: {
@@ -18785,6 +18821,15 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     removeMySSHKey: {
@@ -18821,6 +18866,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -19111,7 +19165,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run, and the modules it leaves off */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19120,7 +19174,16 @@ export interface operations {
                     "application/json": components["schemas"]["ProfileChange"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings, and the modules it leaves off; its job turns the modules on */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileChange"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -19185,7 +19248,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19194,7 +19257,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings; its job removes the module */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -19223,7 +19295,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19232,7 +19304,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings; its job turns the module off */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -19261,7 +19342,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19270,7 +19351,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to the settings; its job turns the modules on */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -19432,7 +19522,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19441,7 +19531,16 @@ export interface operations {
                     "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
+            /** @description The change set, applied to your preferences */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
             default: {
                 headers: {
                     [name: string]: unknown;

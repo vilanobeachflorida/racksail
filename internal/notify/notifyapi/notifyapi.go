@@ -198,6 +198,7 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Change your notification preferences",
 		Description: "Replaces your notification preferences, as a change set like any other: previewed with dryRun, recorded in the audit log " +
 			"and undone by an admin. Your preferences are a core.notification_preferences resource that only you change.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to your preferences"),
 	}
 	api.Describe(&op, api.Info{
 		Kind: notify.PreferencesKind.Name(), Operation: "update", Permission: string(auth.KindPermission(notify.PreferencesKind.Name(), "update")),

@@ -10,6 +10,7 @@ package modulesapi
 import (
 	"context"
 	"net/http"
+	"reflect"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -183,6 +184,9 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Turn a profile's modules on",
 		Description: "Turns on every module of the profile that is off and can run on this server, dependencies first, as one change set. " +
 			"Modules the hardware can't run are left off and listed.",
+		Responses: api.ChangeResponses(a, reflect.TypeFor[ProfileChange](),
+			"The change set without applying it, for a dry run, and the modules it leaves off",
+			"The change set, applied to the settings, and the modules it leaves off; its job turns the modules on"),
 	}
 	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionTurnOn, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionTurnOn)), Risk: store.RiskMedium, DryRun: true, Long: true})
 	huma.Register(a, op, func(ctx context.Context, in *applyProfileInput) (*applyProfileOutput, error) {
@@ -223,6 +227,7 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Turn a module on, with the modules it needs",
 		Description: "Turns on a module and the modules it needs that are off, dependencies first, as one change set. The preview lists what the module " +
 			"does once something uses it: the software it downloads then, from where and how large, its packages, services and ports, and its memory and disk.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to the settings; its job turns the modules on"),
 	}
 	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionTurnOn, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionTurnOn)), Risk: store.RiskLow, DryRun: true, Reversible: true})
 	huma.Register(a, op, func(ctx context.Context, in *changeModuleInput) (*api.ChangeSetOutput, error) {
@@ -243,6 +248,7 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Turn a module off",
 		Description: "Stops a module and hides it, keeping its software, resources, settings and data, as a change set. A module that resources use " +
 			"can only be turned off when it can keep them dormant.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to the settings; its job turns the module off"),
 	}
 	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionTurnOff, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionTurnOff)), Risk: store.RiskMedium, DryRun: true, Reversible: true})
 	huma.Register(a, op, func(ctx context.Context, in *changeModuleInput) (*api.ChangeSetOutput, error) {
@@ -264,6 +270,7 @@ func register(a huma.API, svc *modules.Services) {
 		Description: "Turns a module off and uninstalls its software, as one change set. With keepData its resources and their data stay, and come " +
 			"back when it is turned on again; without it they are deleted in the same change set, after a snapshot. The person removing it types " +
 			"its name to confirm, and GET /api/v1/modules/{id}/export keeps a copy of its resources first.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to the settings; its job removes the module"),
 	}
 	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: modules.ActionRemove, Permission: string(auth.KindPermission(modules.Kind.Name(), modules.ActionRemove)), Risk: store.RiskHigh, DryRun: true, Destructive: true})
 	huma.Register(a, op, func(ctx context.Context, in *removeModuleInput) (*api.ChangeSetOutput, error) {

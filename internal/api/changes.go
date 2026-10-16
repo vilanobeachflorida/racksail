@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"net/http"
+	"reflect"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -23,6 +26,28 @@ type ChangeParams struct {
 type ChangeSetOutput struct {
 	Status int
 	Body   *changeset.ChangeSet
+}
+
+// ChangeSetResponses documents the answers of an operation that answers
+// with a ChangeSetOutput: the change set a dry run plans, with 200, with
+// 202 the change set once it is applied, as applied describes, and the
+// problem details of a refusal. An operation registered with huma.Register
+// outside this package needs them, since huma only documents the status it
+// answers with by default.
+func ChangeSetResponses(a huma.API, applied string) map[string]*huma.Response {
+	return ChangeResponses(a, typeOfChangeSet, "The change set without applying it, for a dry run", applied)
+}
+
+// ChangeResponses is ChangeSetResponses for an operation that answers with
+// the change set inside a body of its own, of type body: the preview of a
+// dry run with 200, and with 202 what it answers once the change is applied.
+func ChangeResponses(a huma.API, body reflect.Type, preview, applied string) map[string]*huma.Response {
+	schema := a.OpenAPI().Components.Schemas.Schema(body, true, "")
+	return map[string]*huma.Response{
+		"200":     jsonResponse(preview, schema),
+		"202":     jsonResponse(applied, schema),
+		"default": problemResponse(a),
+	}
 }
 
 // Submit sends a request through the change pipeline for the signed-in

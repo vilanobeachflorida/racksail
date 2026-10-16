@@ -193,6 +193,7 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Install an item",
 		Description: "Installs an item from a catalog, or a recipe a module ships, into an account or onto the server, as one change set: " +
 			"its resources and the installation that records where it came from. Software that isn't open source needs its license accepted.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to the settings; its job installs the item"),
 	}
 	api.Describe(&op, api.Info{Kind: recipes.InstallationKind.Name(), Operation: "create", Risk: store.RiskMedium, DryRun: true, Long: true, Reversible: true})
 	huma.Register(a, op, func(ctx context.Context, in *installInput) (*api.ChangeSetOutput, error) {
@@ -218,6 +219,7 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Upgrade an installation",
 		Description: "Moves an installation to the newest version its catalog or module offers, as one change set: the data is snapshotted first " +
 			"when the recipe asks, resources both versions have are updated, new ones created, and dropped ones that hold no data removed.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to the settings; its job carries out the upgrade"),
 	}
 	api.Describe(&op, api.Info{Kind: recipes.InstallationKind.Name(), Operation: "update", Risk: store.RiskMedium, DryRun: true, Long: true})
 	huma.Register(a, op, func(ctx context.Context, in *upgradeInput) (*api.ChangeSetOutput, error) {
@@ -240,6 +242,7 @@ func register(a huma.API, svc *modules.Services) {
 		Summary: "Uninstall an installation",
 		Description: "Removes what an installation created, in reverse order, as one change set. What holds data, such as databases and " +
 			"site files, is kept unless you choose otherwise, or the recipe does.",
+		Responses: api.ChangeSetResponses(a, "The change set, applied to the settings; its job removes what the installation created"),
 	}
 	api.Describe(&op, api.Info{Kind: recipes.InstallationKind.Name(), Operation: "delete", Risk: store.RiskHigh, DryRun: true, Long: true, Destructive: true})
 	huma.Register(a, op, func(ctx context.Context, in *uninstallInput) (*api.ChangeSetOutput, error) {

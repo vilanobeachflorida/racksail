@@ -766,11 +766,7 @@ func nonNilStrings(v []string) []string {
 // changeSetResponses documents the answers of an operation that answers
 // with a change set: the preview of a dry run, or the applied change set.
 func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
-	changeSet := s.schemaOf(typeOfChangeSet, "ChangeSet")
-	return map[string]*huma.Response{
-		"200": jsonResponse("The change set without applying it, for a dry run", changeSet),
-		"202": jsonResponse(applied, changeSet),
-	}
+	return ChangeSetResponses(s.api, applied)
 }
 
 // submitOwn sends a change of the person's own user through the change

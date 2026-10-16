@@ -94,6 +94,61 @@ func TestEveryOperationIsDescribed(t *testing.T) {
 	}
 }
 
+// Every operation that takes dryRun answers with what the change would do,
+// with 200, with 202 once it is applied, while its job carries out the
+// rest, and with problem details when it's refused. The document says all
+// three, the first two with the same body, so clients generated from it,
+// the command line and the assistant expect the answer they get.
+func TestChangesDocumentBothAnswers(t *testing.T) {
+	out, err := run(t, "openapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	type answer struct {
+		Content map[string]struct {
+			Schema map[string]any `json:"schema"`
+		} `json:"content"`
+	}
+	changes := 0
+	var wrong []string
+	for path, item := range doc.Paths {
+		for method, raw := range item {
+			var op struct {
+				ID        string            `json:"operationId"`
+				DryRun    bool              `json:"x-racksail-dry-run"`
+				Responses map[string]answer `json:"responses"`
+			}
+			if json.Unmarshal(raw, &op) != nil || !op.DryRun {
+				continue
+			}
+			changes++
+			name := fmt.Sprintf("%s (%s %s)", op.ID, strings.ToUpper(method), path)
+			preview, applied := op.Responses["200"].Content["application/json"], op.Responses["202"].Content["application/json"]
+			switch {
+			case preview.Schema == nil || applied.Schema == nil:
+				wrong = append(wrong, name+" doesn't document both 200 and 202")
+			case fmt.Sprint(preview.Schema) != fmt.Sprint(applied.Schema):
+				wrong = append(wrong, name+" answers 200 and 202 with different bodies")
+			case op.Responses["default"].Content["application/problem+json"].Schema == nil:
+				wrong = append(wrong, name+" doesn't document the problem details of a refusal")
+			}
+		}
+	}
+	if changes < 20 {
+		t.Fatalf("only %d operations take dryRun", changes)
+	}
+	if len(wrong) > 0 {
+		slices.Sort(wrong)
+		t.Errorf("give these operations Responses, such as api.ChangeSetResponses:\n%s", strings.Join(wrong, "\n"))
+	}
+}
+
 // describedSchemas walks the schemas of requests and answers for fields
 // without a description. A field of a schema in the document's components is
 // named by its schema, so each is listed once however many operations use it.

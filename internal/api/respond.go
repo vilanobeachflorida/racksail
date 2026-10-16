@@ -60,10 +60,16 @@ func (s *Server) withProblems(op *huma.Operation) {
 		op.Responses = map[string]*huma.Response{}
 	}
 	if op.Responses["default"] == nil {
-		op.Responses["default"] = &huma.Response{
-			Description: "A problem; its code says what went wrong",
-			Content:     map[string]*huma.MediaType{"application/problem+json": {Schema: s.schemaOf(reflect.TypeFor[httpapi.Problem](), "Problem")}},
-		}
+		op.Responses["default"] = problemResponse(s.api)
+	}
+}
+
+// problemResponse documents the problem details an operation answers with
+// when something goes wrong.
+func problemResponse(a huma.API) *huma.Response {
+	return &huma.Response{
+		Description: "A problem; its code says what went wrong",
+		Content:     map[string]*huma.MediaType{"application/problem+json": {Schema: a.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[httpapi.Problem](), true, "Problem")}},
 	}
 }
 

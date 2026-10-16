@@ -14085,7 +14085,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job installs the item"
           },
           "default": {
             "content": {
@@ -14095,7 +14105,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -14173,7 +14183,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job removes what the installation created"
           },
           "default": {
             "content": {
@@ -14183,7 +14203,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -14261,7 +14281,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the upgrade"
           },
           "default": {
             "content": {
@@ -14271,7 +14301,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -29076,6 +29106,16 @@
               }
             },
             "description": "The change set, applied to your user"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -30319,6 +30359,16 @@
               }
             },
             "description": "The change set, applied to your user"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -30396,6 +30446,16 @@
               }
             },
             "description": "The change set, applied to your user"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -30867,7 +30927,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run, and the modules it leaves off"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileChange"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings, and the modules it leaves off; its job turns the modules on"
           },
           "default": {
             "content": {
@@ -30877,7 +30947,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -31011,7 +31081,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job removes the module"
           },
           "default": {
             "content": {
@@ -31021,7 +31101,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -31089,7 +31169,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job turns the module off"
           },
           "default": {
             "content": {
@@ -31099,7 +31189,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -31167,7 +31257,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job turns the modules on"
           },
           "default": {
             "content": {
@@ -31177,7 +31277,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
@@ -31498,7 +31598,17 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to your preferences"
           },
           "default": {
             "content": {
@@ -31508,7 +31618,7 @@
                 }
               }
             },
-            "description": "Error"
+            "description": "A problem; its code says what went wrong"
           }
         },
         "security": [
