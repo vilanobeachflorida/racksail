@@ -569,9 +569,10 @@ export default function ThemeEditor() {
   const trying = preview !== null;
   const problems = useMemo(() => checkTheme(theme), [theme]);
   const schemaIssues = useMemo(() => readThemeDocument(theme).issues, [theme]);
-  // Free-text lengths and shadows go straight into the page's CSS, so a
-  // theme with problems could make the whole panel unreadable, the button
-  // that stops it included.
+  // A theme with problems could make the whole panel unreadable, the button
+  // that stops it included, so it's only tried on the panel once it has
+  // none. The previews show it as it is, without the values the stylesheet
+  // leaves out (renderScopedCSS).
   const blocked = problems.length > 0 || schemaIssues.length > 0;
   const [stoppedTrying, setStoppedTrying] = useState(false);
 

@@ -289,6 +289,27 @@ describe("the theme editor", () => {
     expect(await exported(user)).not.toHaveProperty("console");
   });
 
+  it("keeps what's typed into a length out of the previews' styles until it's one", async () => {
+    const user = userEvent.setup();
+    await editor();
+    await user.click(screen.getByRole("tab", { name: "Shape and motion" }));
+    const corners = screen.getByRole("textbox", { name: "Small corners" });
+    await user.clear(corners);
+    // {{ types a {.
+    await user.type(corners, "4px}main{{display:none}x{{");
+    const styles = () =>
+      [...document.head.querySelectorAll("style")].map((s) => s.textContent ?? "").join("\n");
+    expect(styles()).not.toContain("main{");
+    expect(styles()).not.toContain("--rs-radius-sm");
+    expect(screen.getByText(/^tokens\.radius\.sm: /)).toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: /^Preview in (light|dark) mode$/ })).toHaveLength(
+      2,
+    );
+    await user.clear(corners);
+    await user.type(corners, "3px");
+    await waitFor(() => expect(styles()).toContain("--rs-radius-sm: 3px;"));
+  });
+
   it("asks for the files of a font the panel doesn't have", async () => {
     const user = userEvent.setup();
     await editor();
