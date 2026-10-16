@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -178,14 +179,45 @@ func (s *Server) eventTypes() []events.Type {
 	return events.Catalog(s.kinds.All(), extra...)
 }
 
-// describeEventTypes describes every event type with a standalone schema of
-// its data. Kinds and modules are fixed once the server is built, so New
-// does it once, in a registry of its own, and requests never add schemas to
+// eventCatalog is the answer of GET /events/types, described again only
+// when the event types change, as they do when an add-on adds or drops a
+// kind while the panel runs.
+type eventCatalog struct {
+	mu sync.Mutex
+	// key says which event types the list describes.
+	key   string
+	types []EventType
+}
+
+// eventTypeList describes every event type there is now, from the last
+// description when the types are the same.
+func (s *Server) eventTypeList() ([]EventType, error) {
+	types := s.eventTypes()
+	var key strings.Builder
+	for _, t := range types {
+		fmt.Fprintf(&key, "%s\x00%s\x00%s\x00%v\n", t.Name, t.Description, t.Severity, reflect.TypeOf(t.Data))
+	}
+	c := &s.catalog
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.types != nil && c.key == key.String() {
+		return c.types, nil
+	}
+	described, err := describeEventTypes(types)
+	if err != nil {
+		return nil, err
+	}
+	c.key, c.types = key.String(), described
+	return described, nil
+}
+
+// describeEventTypes describes event types with a standalone schema of
+// their data, in a registry of its own, so requests never add schemas to
 // the document's registry while others read it.
-func (s *Server) describeEventTypes() ([]EventType, error) {
+func describeEventTypes(types []events.Type) ([]EventType, error) {
 	reg := huma.NewMapRegistry("#/components/schemas/", httpapi.SchemaNamer)
 	out := []EventType{}
-	for _, t := range s.eventTypes() {
+	for _, t := range types {
 		et := EventType{Name: t.Name, Description: t.Description, Severity: t.Severity}
 		if t.Data != nil {
 			data, err := standaloneIn(reg, reg.Schema(reflect.TypeOf(t.Data), true, camel(t.Name)+"Data"))
@@ -282,8 +314,12 @@ func (s *Server) registerTimeline() {
 		if _, err := Actor(ctx); err != nil {
 			return nil, err
 		}
+		types, err := s.eventTypeList()
+		if err != nil {
+			return nil, err
+		}
 		out := &eventTypesOutput{}
-		out.Body.Types = s.typeList
+		out.Body.Types = types
 		return out, nil
 	})
 

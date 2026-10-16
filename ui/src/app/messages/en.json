@@ -380,6 +380,7 @@
   "error.agent.unknown_operation": "The agent has no operation called {op}.",
   "error.agent.unreachable": "The agent isn't reachable: {reason}.",
   "error.api.address_not_allowed": "The panel doesn't accept requests from {address}.",
+  "error.api.kind_elsewhere": "Resources of {kind} aren't served here. Use {path} instead.",
   "error.api.no_sign_in": "This panel has no way to sign anyone in yet, so it refuses requests that need a signed-in user.",
   "error.auth.address_not_allowed": "Signing in from {address} isn't allowed for {what}.",
   "error.auth.allowlist_locks_out": "The allowlist leaves out {address}, where you're connected from, so it would lock you out. Add it first.",

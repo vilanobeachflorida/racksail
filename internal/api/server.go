@@ -141,8 +141,8 @@ type Server struct {
 	kinds   *store.KindRegistry
 	docs    map[string]kindDoc
 	limiter *limiter
-	// typeList is the answer of GET /events/types.
-	typeList []EventType
+	// catalog is the answer of GET /events/types.
+	catalog eventCatalog
 	// noSignIn is set when no authenticator is configured outside
 	// development mode.
 	noSignIn bool
@@ -232,12 +232,10 @@ func New(opts Options) *Server {
 	// The operations of kinds come last, so the schemas they build take
 	// names no Go type has.
 	s.registerKinds()
-	types, err := s.describeEventTypes()
-	if err != nil {
+	if _, err := s.eventTypeList(); err != nil {
 		// Like a schema Huma can't build, this is a mistake in the code.
 		panic(fmt.Sprintf("api: describing event types: %v", err))
 	}
-	s.typeList = types
 	mux.HandleFunc("GET "+Prefix+"/openapi.json", s.serveOpenAPI)
 	// Everything under /api is the API's, so paths no operation matches get
 	// a problem rather than the UI's page.

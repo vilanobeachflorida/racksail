@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -40,17 +41,21 @@ func (k *schemaNoteKind) Validate(ctx context.Context, r, old *store.Resource) e
 
 const schemaNoteSpec = `{"type":"object","required":["text"],"properties":{"text":{"type":"string"}}}`
 
+// newNoteKind is a kind an add-on adds.
+func newNoteKind() *schemaNoteKind {
+	return &schemaNoteKind{info: store.KindInfo{
+		Name: "notes.note", Prefix: "note", Scope: store.ScopeServer, Title: "Note", Plural: "notes", Description: "A note an add-on keeps.",
+		Risks:   store.Risks{Create: store.RiskLow, Update: store.RiskLow, Delete: store.RiskHigh},
+		Actions: []store.Action{{Name: "pin", Title: "Pin", Summary: "Pin the note", Risk: store.RiskLow, Past: "pinned", Input: map[string]any{}}},
+	}}
+}
+
 // Kinds described by JSON Schema, which come and go while the panel runs,
 // are served at paths that name them, with the operations every kind has.
 func TestSchemaKindOperations(t *testing.T) {
 	s := newStack(t, RateLimit{})
-	note := &schemaNoteKind{info: store.KindInfo{
-		Name: "notes.note", Prefix: "note", Scope: store.ScopeServer, Title: "Note", Plural: "notes", Description: "A note an add-on keeps.",
-		Risks:   store.Risks{Create: store.RiskLow, Update: store.RiskLow, Delete: store.RiskHigh},
-		Actions: []store.Action{{Name: "pin", Title: "Pin", Summary: "Pin the note", Risk: store.RiskLow, Input: map[string]any{}}},
-	}}
 	// It arrives after the server was built, as an add-on's does.
-	if err := s.kinds.Register(note); err != nil {
+	if err := s.kinds.Register(newNoteKind()); err != nil {
 		t.Fatal(err)
 	}
 	base := SchemaKindPath("notes.note")
@@ -120,9 +125,12 @@ func TestSchemaKindOperations(t *testing.T) {
 		t.Errorf("deleting without a grant = %d", resp.StatusCode)
 	}
 
-	// Other kinds are served where their own operations are.
-	if resp := s.call("admin", "GET", SchemaKindPath("test.site"), nil, nil); resp.StatusCode != http.StatusNotFound {
-		t.Errorf("a kind with operations of its own here = %d", resp.StatusCode)
+	// Other kinds are served where their own operations are, which the
+	// answer says.
+	var elsewhere httpapi.Problem
+	if resp := s.call("admin", "GET", SchemaKindPath("test.site"), nil, &elsewhere); resp.StatusCode != http.StatusNotFound ||
+		elsewhere.Code != ErrKindElsewhere.Code || elsewhere.Detail != "Resources of test.site aren't served here. Use /api/v1/test/sites instead." {
+		t.Errorf("a kind with operations of its own here = %d %+v", resp.StatusCode, elsewhere)
 	}
 	if resp := s.call("admin", "GET", SchemaKindPath("nothing.here"), nil, nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("a kind that doesn't exist = %d", resp.StatusCode)
@@ -137,5 +145,39 @@ func TestSchemaKindOperations(t *testing.T) {
 	s.kinds.Unregister("notes.note")
 	if resp := s.call("admin", "GET", base, nil, nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("a kind that went = %d", resp.StatusCode)
+	}
+}
+
+// The event types follow the kinds as they come and go while the panel
+// runs, so webhooks and automations can react to the events of the kinds
+// add-ons add from the moment they're there.
+func TestEventTypesFollowTheKinds(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	types := func() []string {
+		t.Helper()
+		var list struct {
+			Types []EventType `json:"types"`
+		}
+		if resp := s.call("nobody", "GET", "/api/v1/events/types", nil, &list); resp.StatusCode != http.StatusOK {
+			t.Fatalf("event types = %d", resp.StatusCode)
+		}
+		var names []string
+		for _, et := range list.Types {
+			names = append(names, et.Name)
+		}
+		return names
+	}
+	if slices.Contains(types(), "notes.note.created") {
+		t.Fatal("the events of a kind that isn't there are listed")
+	}
+	if err := s.kinds.Register(newNoteKind()); err != nil {
+		t.Fatal(err)
+	}
+	if got := types(); !slices.Contains(got, "notes.note.created") || !slices.Contains(got, "notes.note.pinned") || !slices.Contains(got, "test.site.drifted") {
+		t.Errorf("the event types once an add-on's kind arrives = %v", got)
+	}
+	s.kinds.Unregister("notes.note")
+	if slices.Contains(types(), "notes.note.created") {
+		t.Error("the events of a kind that went are still listed")
 	}
 }

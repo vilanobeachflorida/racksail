@@ -13,6 +13,10 @@ import (
 
 var typeOfScope = reflect.TypeFor[store.Scope]()
 
+// ErrKindElsewhere answers a request at the path of kinds described by JSON
+// Schema for a kind whose operations are at a path of its own.
+var ErrKindElsewhere = i18n.Define("api.kind_elsewhere", http.StatusNotFound, "Resources of {kind} aren't served here. Use {path} instead.")
+
 // SchemaKindPath is where the operations of a kind described by JSON Schema
 // are, such as one an add-on adds: /api/v1/kinds/<name>/resources.
 func SchemaKindPath(name string) string {
@@ -31,7 +35,7 @@ func (s *Server) schemaKind(hc huma.Context) (store.Kind, error) {
 		return nil, i18n.ErrNotFound.New("what", "The kind "+name)
 	}
 	if _, ok := k.(store.SchemaKind); !ok {
-		return nil, i18n.ErrNotFound.New("what", "The resources of "+name+" here; they are at "+KindPath(k.Info())+",")
+		return nil, ErrKindElsewhere.New("kind", name, "path", KindPath(k.Info()))
 	}
 	return k, nil
 }
