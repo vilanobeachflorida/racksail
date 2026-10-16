@@ -18,7 +18,7 @@ cd racksail
 make dev
 ```
 
-`make dev` runs `racksail dev`, which is the panel, the agent and the edge in one process against a simulated server, on http://127.0.0.1:7070, and the UI dev server with hot reload on http://127.0.0.1:5173. Nothing touches your machine: the simulated server and the panel's state live in memory, so every start begins with a freshly installed server, and `.dev/` only holds empty working directories and the sockets of the simulated agent and the edge.
+`make dev` runs `racksail dev`, which is the panel, the agent and the edge in one process against a simulated server, on http://127.0.0.1:7070, and the UI dev server with hot reload on http://127.0.0.1:5173. Nothing touches your machine: the simulated server, the panel's database and secrets, and the edge's certificates are all kept in `.dev/`, so a restart carries on where you left off. `racksail dev --fresh` starts over with a newly installed server, or delete `.dev/`.
 
 [docs/architecture/internals.md](docs/architecture/internals.md) explains how the code fits together: the packages, the module contract, reconcilers and agent operations, the simulated backend and where to add things.
 
