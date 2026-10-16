@@ -52,6 +52,10 @@ const (
 
 var special = []Permission{PermOverride, PermSecretsRead, PermImpersonate}
 
+// Special reports whether perm is a special permission, which roles never
+// carry through their patterns.
+func (p Permission) Special() bool { return slices.Contains(special, p) }
+
 // KindPermission returns the permission for an operation on a kind.
 func KindPermission(kind, operation string) Permission {
 	return Permission(kind + "." + operation)
@@ -59,12 +63,22 @@ func KindPermission(kind, operation string) Permission {
 
 // Grant gives a role on a scope. Object narrows the grant to one resource,
 // for per-object grants to collaborators. Permissions narrows a
-// collaborator's grant, or adds special permissions to any grant.
+// collaborator's grant, or adds special permissions to any grant. Limit
+// narrows any grant to the permissions its patterns match, as an API token
+// scoped to some permissions narrows its owner's grants.
 type Grant struct {
-	Role        Role         `json:"role"`
-	Scope       store.Scope  `json:"scope"`
-	Object      store.ID     `json:"object,omitempty"`
-	Permissions []Permission `json:"permissions,omitempty"`
+	Role        Role         `json:"role" enum:"admin,reseller,owner,collaborator,readonly" doc:"What the grant lets its holder do"`
+	Scope       store.Scope  `json:"scope" doc:"Where the grant applies: the whole server, a reseller and their customers, or one account"`
+	Object      store.ID     `json:"object,omitempty" doc:"A single resource the grant is limited to, for collaborators"`
+	Permissions []Permission `json:"permissions,omitempty" doc:"For collaborators, the permissions they get instead of read-only access; for other roles, special permissions added by name"`
+	Limit       []string     `json:"limit,omitempty" doc:"Patterns the grant's permissions are narrowed to"`
+}
+
+// Clone returns a copy of g whose lists can be changed without affecting g.
+func (g Grant) Clone() Grant {
+	g.Permissions = slices.Clone(g.Permissions)
+	g.Limit = slices.Clone(g.Limit)
+	return g
 }
 
 // ActorType says what kind of thing is acting.
@@ -132,6 +146,9 @@ func (a *Actor) String() string {
 	if a.User != "" && a.User != a.ID {
 		s += " for user:" + string(a.User)
 	}
+	if a.Impersonator != "" {
+		s += " impersonated by user:" + string(a.Impersonator)
+	}
 	if a.Source != "" && a.Source != Source(a.Type) {
 		s += " via " + string(a.Source)
 	}
@@ -149,8 +166,7 @@ func (a *Actor) Clone() *Actor {
 	if a.Grants != nil {
 		c.Grants = make([]Grant, len(a.Grants))
 		for i, g := range a.Grants {
-			g.Permissions = slices.Clone(g.Permissions)
-			c.Grants[i] = g
+			c.Grants[i] = g.Clone()
 		}
 	}
 	return &c
@@ -160,6 +176,18 @@ func (a *Actor) Clone() *Actor {
 // within d, as sensitive actions require.
 func (a *Actor) SteppedUpWithin(d time.Duration, now time.Time) bool {
 	return a != nil && !a.SteppedUpAt.IsZero() && now.Sub(a.SteppedUpAt) <= d
+}
+
+// Person returns the user the actor acts as or for: the user itself, or the
+// owner of a token, an automation or the assistant's conversation.
+func (a *Actor) Person() store.ID {
+	if a == nil {
+		return ""
+	}
+	if a.Type == ActorUser {
+		return a.ID
+	}
+	return a.User
 }
 
 // System returns the actor for work Racksail does on its own, such as
@@ -179,6 +207,24 @@ func WithActor(ctx context.Context, a *Actor) context.Context {
 // ActorFrom returns the actor carried by ctx.
 func ActorFrom(ctx context.Context) (*Actor, bool) {
 	a, ok := ctx.Value(actorKey{}).(*Actor)
+	return a, ok && a != nil
+}
+
+type authorizerKey struct{}
+
+// WithAuthorizer returns a context carrying the authorizer that decides the
+// request, so validation that depends on what the actor may do, such as
+// which roles they may hand out, asks the same authorizer.
+func WithAuthorizer(ctx context.Context, a Authorizer) context.Context {
+	if a == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, authorizerKey{}, a)
+}
+
+// AuthorizerFrom returns the authorizer carried by ctx.
+func AuthorizerFrom(ctx context.Context) (Authorizer, bool) {
+	a, ok := ctx.Value(authorizerKey{}).(Authorizer)
 	return a, ok && a != nil
 }
 
@@ -223,6 +269,17 @@ type ScopeAuthorizer interface {
 	Scopes(ctx context.Context, actor *Actor, perm Permission) (scopes []store.Scope, all bool, err error)
 }
 
+// GrantChecker is implemented by authorizers that can tell whether an actor
+// may hand a grant to someone else: only what the actor may do themselves,
+// on scopes their own grants cover.
+type GrantChecker interface {
+	CanGrant(ctx context.Context, actor *Actor, g Grant) error
+	// Covers reports whether a grant on outer reaches inner: the server
+	// reaches everything, a reseller reaches itself and its customers'
+	// accounts, and an account reaches itself.
+	Covers(ctx context.Context, outer, inner store.Scope) (bool, error)
+}
+
 // Ownership answers questions about tenancy the authorizer needs.
 type Ownership interface {
 	// ResellerOf returns the reseller an account belongs to, or "" when the
@@ -250,7 +307,18 @@ var RolePermissions = map[Role][]string{
 
 // serverOnly are permissions that only server-wide grants carry, even when a
 // reseller or owner pattern would match.
-var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storage.*", "cluster.*", "core.reseller.*"}
+var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storage.*", "cluster.*", "core.reseller.*", "core.auth_policy.*"}
+
+// ServerOnly reports whether only grants on the whole server carry perm.
+func ServerOnly(perm Permission) bool { return matchAny(serverOnly, string(perm)) }
+
+// AboveAccount reports whether grants on an account never carry perm even by
+// name: changing the account itself, such as its limits, which its own
+// people may only read. Resellers and admins change accounts.
+func AboveAccount(perm Permission) bool {
+	name := string(perm)
+	return strings.HasPrefix(name, "core.account.") && name != "core.account.read"
+}
 
 // RoleAuthorizer is the default Authorizer: roles map to permission
 // patterns, and grants map roles to scopes.
@@ -263,6 +331,7 @@ var (
 	_ Authorizer       = (*RoleAuthorizer)(nil)
 	_ ObjectAuthorizer = (*RoleAuthorizer)(nil)
 	_ ScopeAuthorizer  = (*RoleAuthorizer)(nil)
+	_ GrantChecker     = (*RoleAuthorizer)(nil)
 )
 
 // NewRoleAuthorizer returns an authorizer that asks owners about tenancy.
@@ -377,11 +446,214 @@ func (r *RoleAuthorizer) Scopes(ctx context.Context, actor *Actor, perm Permissi
 	return out, false, nil
 }
 
+// Covers implements GrantChecker.
+func (r *RoleAuthorizer) Covers(ctx context.Context, outer, inner store.Scope) (bool, error) {
+	return r.covers(ctx, outer, inner)
+}
+
+// CanGrant implements GrantChecker. One of the actor's own grants has to
+// reach the grant's scope and let the actor do everything the grant would
+// let its holder do there; special permissions pass on only from grants
+// that carry them by name. A grant on one resource only passes on rights to
+// that resource.
+func (r *RoleAuthorizer) CanGrant(ctx context.Context, actor *Actor, g Grant) error {
+	if actor == nil {
+		return i18n.ErrUnauthenticated.New()
+	}
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	for _, a := range actor.Grants {
+		if !a.Role.Valid() || (a.Object != "" && a.Object != g.Object) {
+			continue
+		}
+		covers, err := r.covers(ctx, a.Scope, g.Scope)
+		if err != nil {
+			return err
+		}
+		if covers && grantable(a, g) {
+			return nil
+		}
+	}
+	return ErrGrantNotAllowed.New("role", string(g.Role), "scope", g.Scope.String())
+}
+
+// patternsOf returns what a grant lets its holder do, as permission
+// patterns, before Limit: a collaborator's permissions when it has any, and
+// otherwise its role's patterns.
+func patternsOf(g Grant) []string {
+	if g.Role == RoleCollaborator && len(g.Permissions) > 0 {
+		out := make([]string, 0, len(g.Permissions))
+		for _, p := range g.Permissions {
+			if !p.Special() {
+				out = append(out, string(p))
+			}
+		}
+		return out
+	}
+	return RolePermissions[g.Role]
+}
+
+// grantable reports whether everything g lets its holder do, a lets its
+// holder do too.
+func grantable(a, g Grant) bool {
+	for _, p := range g.Permissions {
+		if p.Special() && !slices.Contains(a.Permissions, p) {
+			return false
+		}
+	}
+	held := patternsOf(a)
+	covered := func(patterns []string) bool {
+		for _, p := range patterns {
+			if !coveredBy(held, p) || (len(a.Limit) > 0 && !coveredBy(a.Limit, p)) {
+				return false
+			}
+		}
+		return true
+	}
+	// A grant narrowed by Limit gives no more than its limit, so either
+	// list being covered is enough.
+	return covered(patternsOf(g)) || (len(g.Limit) > 0 && covered(g.Limit))
+}
+
+// coveredBy reports whether every permission p matches is matched by one of
+// held. It is exact for the forms roles and tokens use: names, "*", "*.<op>"
+// and "<prefix>.*"; anything it can't decide counts as not covered.
+func coveredBy(held []string, p string) bool {
+	for _, h := range held {
+		switch {
+		case h == p, h == "*":
+			return true
+		case strings.HasPrefix(h, "*.") && !strings.ContainsAny(h[2:], "*?"):
+			suffix := h[1:]
+			if p == h || (!strings.ContainsAny(p, "*?") && strings.HasSuffix(p, suffix)) {
+				return true
+			}
+		case strings.HasSuffix(h, ".*") && !strings.ContainsAny(h[:len(h)-2], "*?"):
+			if strings.HasPrefix(p, h[:len(h)-1]) {
+				return true
+			}
+		case !strings.ContainsAny(p, "*?"):
+			if ok, _ := path.Match(h, p); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Validate checks that a grant makes sense: a known role on a scope of the
+// level the role belongs to, permissions that are names or patterns, and an
+// object only where single resources can be granted.
+func (g Grant) Validate() error {
+	var fields []i18n.FieldError
+	if !g.Role.Valid() {
+		fields = append(fields, i18n.Field("role", i18n.ErrBadValue, "reason", "use admin, reseller, owner, collaborator or readonly"))
+	}
+	if err := g.Scope.Validate(); err != nil {
+		fields = append(fields, i18n.Field("scope", i18n.ErrBadValue, "reason", err.Error()))
+	} else if g.Role.Valid() && !slices.Contains(RoleLevels(g.Role), g.Scope.Level) {
+		fields = append(fields, i18n.Field("scope", i18n.ErrBadValue, "reason", "the "+string(g.Role)+" role applies to "+levelsText(RoleLevels(g.Role))))
+	}
+	if g.Object != "" {
+		if !g.Object.Valid() {
+			fields = append(fields, i18n.Field("object", i18n.ErrBadValue, "reason", "it isn't a resource ID"))
+		} else if g.Role != RoleCollaborator && g.Role != RoleReadOnly {
+			fields = append(fields, i18n.Field("object", i18n.ErrBadValue, "reason", "only collaborators and read-only users are given single resources"))
+		}
+	}
+	for i, p := range g.Permissions {
+		switch {
+		case !validPattern(string(p)):
+			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "use a permission name such as web.site.deploy, or a pattern such as web.*"))
+		case p == PermOverride && (g.Role != RoleAdmin || g.Scope.Level != store.ScopeServer):
+			// Loosening what protects every account is for server admins.
+			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "only an admin's grant on the whole server can carry core.override"))
+		}
+	}
+	for i, p := range g.Limit {
+		if !validPattern(p) || Permission(p).Special() {
+			fields = append(fields, i18n.Field("limit["+itoa(i)+"]", i18n.ErrBadValue, "reason", "use a permission name or a pattern such as *.read"))
+		}
+	}
+	if len(fields) > 0 {
+		return i18n.Invalid(fields...)
+	}
+	return nil
+}
+
+// RoleLevels returns the scope levels a role can be granted on.
+func RoleLevels(r Role) []store.ScopeLevel {
+	switch r {
+	case RoleAdmin:
+		return []store.ScopeLevel{store.ScopeServer}
+	case RoleReseller:
+		return []store.ScopeLevel{store.ScopeReseller}
+	case RoleOwner:
+		return []store.ScopeLevel{store.ScopeAccount}
+	case RoleCollaborator, RoleReadOnly:
+		return []store.ScopeLevel{store.ScopeServer, store.ScopeReseller, store.ScopeAccount}
+	}
+	return nil
+}
+
+func levelsText(levels []store.ScopeLevel) string {
+	words := map[store.ScopeLevel]string{store.ScopeServer: "the whole server", store.ScopeReseller: "a reseller", store.ScopeAccount: "an account"}
+	parts := make([]string, len(levels))
+	for i, l := range levels {
+		parts[i] = words[l]
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
+}
+
+func validPattern(p string) bool {
+	if p == "*" {
+		return true
+	}
+	if len(p) == 0 || len(p) > 128 {
+		return false
+	}
+	for _, part := range strings.Split(p, ".") {
+		if part == "" {
+			return false
+		}
+		for _, c := range part {
+			if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '_' && c != '*' && c != '?' && c != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b [20]byte
+	n := len(b)
+	for i > 0 {
+		n--
+		b[n] = byte('0' + i%10)
+		i /= 10
+	}
+	return string(b[n:])
+}
+
 func permits(g Grant, perm Permission) bool {
+	if g.Scope.Level == store.ScopeAccount && AboveAccount(perm) {
+		return false
+	}
+	if len(g.Limit) > 0 && !matchAny(g.Limit, string(perm)) {
+		return false
+	}
 	if slices.Contains(g.Permissions, perm) {
 		return true
 	}
-	if slices.Contains(special, perm) {
+	if perm.Special() {
 		return false
 	}
 	patterns := RolePermissions[g.Role]
@@ -391,7 +663,7 @@ func permits(g Grant, perm Permission) bool {
 			patterns = append(patterns, string(p))
 		}
 	}
-	if g.Scope.Level != store.ScopeServer && matchAny(serverOnly, string(perm)) {
+	if g.Scope.Level != store.ScopeServer && ServerOnly(perm) {
 		return false
 	}
 	return matchAny(patterns, string(perm))
@@ -399,12 +671,18 @@ func permits(g Grant, perm Permission) bool {
 
 func matchAny(patterns []string, name string) bool {
 	for _, p := range patterns {
+		if p == name {
+			return true
+		}
 		if ok, _ := path.Match(p, name); ok {
 			return true
 		}
 		// "*" in a pattern also spans dots, so "*.read" covers
-		// "web.site.read".
+		// "web.site.read" and "web.*" covers "web.site.read".
 		if strings.HasPrefix(p, "*.") && strings.HasSuffix(name, p[1:]) {
+			return true
+		}
+		if strings.HasSuffix(p, ".*") && strings.HasPrefix(name, p[:len(p)-1]) {
 			return true
 		}
 	}
@@ -430,6 +708,45 @@ func (r *RoleAuthorizer) covers(ctx context.Context, grant, target store.Scope) 
 		return target.Level == store.ScopeAccount && target.ID == grant.ID, nil
 	}
 	return false, nil
+}
+
+// Patterns returns what an actor may do somewhere, as permission names and
+// patterns, for the UI to decide what to show. The server still checks
+// every request against the scope it is about.
+func Patterns(actor *Actor) []string {
+	if actor == nil {
+		return []string{}
+	}
+	var out []string
+	add := func(p string) {
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	for _, g := range actor.Grants {
+		if !g.Role.Valid() {
+			continue
+		}
+		patterns := patternsOf(g)
+		if len(g.Limit) > 0 {
+			// The limit's own patterns are what the grant is narrowed to,
+			// as long as the role's patterns reach them.
+			patterns = slices.DeleteFunc(slices.Clone(g.Limit), func(p string) bool { return !coveredBy(patternsOf(g), p) })
+		}
+		for _, p := range patterns {
+			add(p)
+		}
+		for _, p := range g.Permissions {
+			if p.Special() {
+				add(string(p))
+			}
+		}
+	}
+	slices.Sort(out)
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 // DevAuthenticator treats every request as the server admin. It exists for

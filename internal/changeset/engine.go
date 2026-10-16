@@ -261,6 +261,9 @@ func atChange(err error, i, n int) error {
 // the actor isn't allowed, or that stops after being allowed, is recorded in
 // the audit log.
 func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch Change, now time.Time) (err error) {
+	// A kind's validation can ask what the actor may do, such as whether
+	// they may create an account for the reseller it names.
+	ctx = auth.WithAuthorizer(auth.WithActor(ctx, actor), e.opts.Authorizer)
 	kind, ok := e.opts.Kinds.Get(ch.Kind)
 	if !ok {
 		return i18n.ErrUnknownName.New("what", "kind", "name", ch.Kind)
