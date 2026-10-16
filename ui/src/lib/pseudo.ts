@@ -86,8 +86,8 @@ function accentText(text: string): string {
 
 // Right-to-left override and pop: Latin text shows reversed, as words in
 // a right-to-left script would sit.
-const rlo = "‮";
-const pdf = "‬";
+const rlo = "\u202E";
+const pdf = "\u202C";
 
 function transform(
   elements: MessageFormatElement[],
