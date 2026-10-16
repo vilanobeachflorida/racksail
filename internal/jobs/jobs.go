@@ -64,26 +64,26 @@ type Failure struct {
 type Job struct {
 	ID       store.ID    `json:"id" doc:"The job's ID, which starts with job_"`
 	Type     string      `json:"type" doc:"What kind of work it is, such as changeset.apply"`
-	Title    string      `json:"title" doc:"What the job does"`
-	State    State       `json:"state" enum:"queued,running,succeeded,failed,canceled" doc:"Where it is: waiting to run, running, done, failed or canceled"`
-	Progress Progress    `json:"progress" doc:"How far it has come"`
-	Actor    *auth.Actor `json:"actor,omitempty" doc:"Who started it, and for whom"`
+	Title    string      `json:"title" doc:"What the job does, in a few words"`
+	State    State       `json:"state" enum:"queued,running,succeeded,failed,canceled" doc:"Where the job is: waiting, running, done, failed or canceled"`
+	Progress Progress    `json:"progress" doc:"How far it got"`
+	Actor    *auth.Actor `json:"actor,omitempty" doc:"Who started it, and what acted for them"`
 	// Scope is the owner the work belongs to, which decides who may see it.
-	Scope     store.Scope `json:"scope" doc:"The owner the work belongs to, which decides who may see it"`
-	ChangeSet store.ID    `json:"changeSet,omitempty" doc:"The change set it carries out"`
-	Resource  store.ID    `json:"resource,omitempty" doc:"The resource it works on"`
+	Scope     store.Scope `json:"scope" doc:"Who the work belongs to, which decides who may see it"`
+	ChangeSet store.ID    `json:"changeSet,omitempty" doc:"The change set the job carries out, when it does"`
+	Resource  store.ID    `json:"resource,omitempty" doc:"The resource the job works on, when there is one"`
 	// Attempt counts the runs of the same work: a retry is a new job with
 	// the next attempt number and RetryOf set.
-	Attempt int             `json:"attempt" doc:"Which run of the work it is: a retry is a new job with the next number"`
+	Attempt int             `json:"attempt" doc:"Which run of the work it is: 1, or more for a retry"`
 	RetryOf store.ID        `json:"retryOf,omitempty" doc:"The job this one retries"`
 	Error   *Failure        `json:"error,omitempty" doc:"Why it failed"`
-	Result  json.RawMessage `json:"result,omitempty" doc:"What it found or made, once it succeeded"`
+	Result  json.RawMessage `json:"result,omitempty" doc:"What it returned, once it succeeded"`
 	Args    json.RawMessage `json:"-"`
 	// RunAfter delays a queued job, as for an automatic retry.
-	RunAfter   *time.Time `json:"runAfter,omitempty" doc:"When a waiting job may start, as an automatic retry waits"`
+	RunAfter   *time.Time `json:"runAfter,omitempty" doc:"When a job waiting to run again, as for an automatic retry, starts"`
 	CreatedAt  time.Time  `json:"createdAt" doc:"When it was queued"`
-	StartedAt  *time.Time `json:"startedAt,omitempty" doc:"When it started"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty" doc:"When it finished"`
+	StartedAt  *time.Time `json:"startedAt,omitempty" doc:"When it started running"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty" doc:"When it ended"`
 }
 
 func (j *Job) clone() *Job {
@@ -118,11 +118,11 @@ func cloneTime(t *time.Time) *time.Time {
 type LogLine struct {
 	// Seq numbers the lines of a job from 1, so a stream can resume after
 	// the last line it showed.
-	Seq     int64          `json:"seq" doc:"The line's number, from 1, which a stream resumes after"`
+	Seq     int64          `json:"seq" doc:"The line's number in the job's log, from 1, which a stream resumes after"`
 	Time    time.Time      `json:"time" doc:"When it was written"`
-	Level   string         `json:"level" enum:"DEBUG,INFO,WARN,ERROR" doc:"How much it matters"`
-	Message string         `json:"message" doc:"What happened, in English"`
-	Attrs   map[string]any `json:"attrs,omitempty" doc:"Details, by name"`
+	Level   string         `json:"level" enum:"DEBUG,INFO,WARN,ERROR" doc:"How important it is"`
+	Message string         `json:"message" doc:"What the job wrote"`
+	Attrs   map[string]any `json:"attrs,omitempty" doc:"The values the line carries, by name"`
 }
 
 // Reporter lets a handler report progress and write to the job's log.

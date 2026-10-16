@@ -241,7 +241,7 @@ func (s *Server) listParams(info *store.KindInfo) []*huma.Param {
 
 // listBody is a page of resources.
 type listBody struct {
-	Items []any  `json:"items"`
+	Items []any  `json:"items" doc:"The resources on this page"`
 	Next  string `json:"next,omitempty"`
 }
 
@@ -519,7 +519,7 @@ func (s *Server) awaitJob(ctx context.Context, id store.ID) bool {
 
 // historyBody is a resource's recorded versions.
 type historyBody struct {
-	Versions []store.Version `json:"versions" doc:"The versions of the resource's settings, oldest first"`
+	Versions []store.Version `json:"versions" doc:"Every recorded version of the settings, oldest first"`
 }
 
 func (s *Server) kindHistory(k store.Kind) handler {
@@ -542,9 +542,9 @@ func (s *Server) kindHistory(k store.Kind) handler {
 type KindDescription struct {
 	Name        string           `json:"name" doc:"<module>.<name>"`
 	Module      string           `json:"module" doc:"The module the kind belongs to"`
-	Title       string           `json:"title" doc:"What one resource of the kind is called, such as Site"`
-	Plural      string           `json:"plural" doc:"What several are called, as the kind's path names them"`
-	Description string           `json:"description" doc:"What the kind is for"`
+	Title       string           `json:"title" doc:"What one resource of the kind is called"`
+	Plural      string           `json:"plural" doc:"What several are called, as their path names them"`
+	Description string           `json:"description" doc:"What the kind is, in English"`
 	Prefix      string           `json:"prefix" doc:"What its IDs start with, before the underscore"`
 	Scope       store.ScopeLevel `json:"scope" enum:"server,reseller,account" doc:"Who owns resources of the kind"`
 	// Levels are where else its resources may belong.
@@ -552,12 +552,12 @@ type KindDescription struct {
 	Path      string             `json:"path" doc:"Where its operations are"`
 	Singleton bool               `json:"singleton,omitempty" doc:"At most one per owner"`
 	Confirm   bool               `json:"confirm,omitempty" doc:"Whether changing one asks people in the panel to confirm it's them"`
-	Risks     KindRisks          `json:"risks" doc:"How much harm creating, updating and deleting one can do"`
-	Actions   []ActionInfo       `json:"actions" doc:"The actions its resources have"`
-	Indexes   []IndexInfo        `json:"indexes" doc:"The fields its lists filter and sort on"`
+	Risks     KindRisks          `json:"risks" doc:"How much harm creating, changing and deleting one can do"`
+	Actions   []ActionInfo       `json:"actions" doc:"The kind's actions"`
+	Indexes   []IndexInfo        `json:"indexes" doc:"The fields lists filter and sort on"`
 	Events    []string           `json:"events" doc:"The event types the kind emits"`
-	UI        store.UIHints      `json:"ui" doc:"How screens show its resources"`
-	Backup    BackupInfo         `json:"backup" doc:"Whether backups cover its resources"`
+	UI        store.UIHints      `json:"ui" doc:"How the panel's generic screens show the kind"`
+	Backup    BackupInfo         `json:"backup" doc:"Whether backups cover the kind"`
 	// Schemas are filled in when one kind is asked for.
 	Spec    json.RawMessage            `json:"spec,omitempty" doc:"The JSON Schema of the settings"`
 	Status  json.RawMessage            `json:"status,omitempty" doc:"The JSON Schema of the status"`
@@ -567,35 +567,35 @@ type KindDescription struct {
 
 // KindRisks are the risks of a kind's operations.
 type KindRisks struct {
-	Create store.Risk `json:"create" doc:"How much harm creating one can do"`
-	Update store.Risk `json:"update" doc:"How much harm changing one can do"`
-	Delete store.Risk `json:"delete" doc:"How much harm deleting one can do"`
+	Create store.Risk `json:"create" doc:"The risk of creating one"`
+	Update store.Risk `json:"update" doc:"The risk of changing one"`
+	Delete store.Risk `json:"delete" doc:"The risk of deleting one"`
 }
 
 // ActionInfo describes an action.
 type ActionInfo struct {
-	Name        string     `json:"name" doc:"The action's name, as its path and its permission end with"`
-	Title       string     `json:"title,omitempty" doc:"What the action is called on buttons and menus"`
-	Summary     string     `json:"summary" doc:"What the action does, in a few words"`
-	Description string     `json:"description,omitempty" doc:"What the action does, in full"`
-	Risk        store.Risk `json:"risk" enum:"read,low,medium,high,critical" doc:"How much harm the action can do"`
+	Name        string     `json:"name" doc:"The action's name, as its path and permission use it"`
+	Title       string     `json:"title,omitempty" doc:"What the action is called"`
+	Summary     string     `json:"summary" doc:"What it does, in a few words"`
+	Description string     `json:"description,omitempty" doc:"What it does, in full"`
+	Risk        store.Risk `json:"risk" enum:"read,low,medium,high,critical" doc:"How much harm it can do"`
 	Event       string     `json:"event" doc:"The event it emits once it is done"`
-	Long        bool       `json:"long,omitempty" doc:"Whether it runs as a job, which the answer names, rather than being waited for"`
-	Destructive bool       `json:"destructive,omitempty" doc:"Whether it removes data, and so needs a typed confirmation"`
+	Long        bool       `json:"long,omitempty" doc:"Whether it runs as a job the answer names, rather than answering when it's done"`
+	Destructive bool       `json:"destructive,omitempty" doc:"Whether it removes data"`
 	Reversible  bool       `json:"reversible,omitempty" doc:"Whether it can be undone"`
-	HasInput    bool       `json:"hasInput,omitempty" doc:"Whether it takes an input, which inputs describes"`
+	HasInput    bool       `json:"hasInput,omitempty" doc:"Whether it takes input"`
 }
 
 // IndexInfo describes an index, which lists filter and sort on.
 type IndexInfo struct {
-	Name   string `json:"name" doc:"The index's name, which lists take as a filter parameter and a sort key"`
-	Path   string `json:"path" doc:"The spec field it holds, with dots between names"`
-	Unique bool   `json:"unique,omitempty" doc:"Whether two resources can't hold the same value"`
+	Name   string `json:"name" doc:"The filter's and sort's name"`
+	Path   string `json:"path" doc:"The field it reads, as a path into the settings"`
+	Unique bool   `json:"unique,omitempty" doc:"Whether two resources can't have the same value"`
 }
 
 // BackupInfo says whether backups cover a kind.
 type BackupInfo struct {
-	Covered bool   `json:"covered" doc:"Whether backups and account archives keep the kind's resources"`
+	Covered bool   `json:"covered" doc:"Whether backups, restores and the portable account archive cover the kind"`
 	Reason  string `json:"reason,omitempty" doc:"Why the kind isn't backed up"`
 }
 
@@ -625,7 +625,7 @@ func describeKind(k store.Kind) KindDescription {
 
 type kindsOutput struct {
 	Body struct {
-		Kinds []KindDescription `json:"kinds" doc:"Every kind the panel has"`
+		Kinds []KindDescription `json:"kinds" doc:"Every kind, sorted by name"`
 	}
 }
 

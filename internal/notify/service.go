@@ -53,10 +53,10 @@ type Notification struct {
 	Person    store.ID          `json:"person,omitempty" doc:"The person it is emailed to"`
 	Address   string            `json:"address,omitempty" doc:"The address it is emailed to"`
 	Event     store.ID          `json:"event,omitempty" doc:"The event it is about"`
-	EventType string            `json:"eventType,omitempty" doc:"The type of the event it is about"`
-	Title     string            `json:"title" doc:"What it says happened, in a few words"`
-	Severity  events.Severity   `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent it is"`
-	State     NotificationState `json:"state" enum:"pending,held,sent,failed,dropped,merged" doc:"Where it is: waiting, held for quiet hours, sent, failed, left out in quiet hours or sent in a summary"`
+	EventType string            `json:"eventType,omitempty" doc:"That event's type, such as backups.run.failed"`
+	Title     string            `json:"title" doc:"The message's title"`
+	Severity  events.Severity   `json:"severity" enum:"info,notice,warning,error,critical" doc:"How serious the message is"`
+	State     NotificationState `json:"state" enum:"pending,held,sent,failed,dropped,merged" doc:"pending until it goes out, held during quiet hours, sent, failed once given up on, dropped by quiet hours that leave things out, or merged into a summary of them"`
 	// Test deliveries are sent once, whatever the quiet hours.
 	Test         bool       `json:"test,omitempty" doc:"Whether it is a test, which is sent once whatever the quiet hours"`
 	AttemptCount int        `json:"attemptCount" doc:"How many times sending it was tried"`
@@ -65,7 +65,7 @@ type Notification struct {
 	// Summary is the delivery a held one went out in.
 	Summary    store.ID   `json:"summary,omitempty" doc:"The summary it went out in"`
 	CreatedAt  time.Time  `json:"createdAt" doc:"When it was made"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty" doc:"When it was sent or given up"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty" doc:"When it was sent or given up on"`
 	// Message is what is sent. Lists leave it out.
 	Message *Message `json:"message,omitempty" doc:"What is sent; lists leave it out"`
 }
@@ -411,11 +411,11 @@ func (s *Service) knownType(name string) bool {
 
 // ChannelType describes a channel type for people choosing one.
 type ChannelType struct {
-	Name        string `json:"name" doc:"The channel type, as channels name it"`
-	Title       string `json:"title" doc:"What the channel type is called"`
-	Description string `json:"description,omitempty" doc:"What a channel of the type sends to"`
+	Name        string `json:"name" doc:"The type's name, such as ntfy, which channels give as their type"`
+	Title       string `json:"title" doc:"What the panel calls the type"`
+	Description string `json:"description,omitempty" doc:"Where the type sends notifications and what it takes, in a sentence"`
 	// Secrets are the settings that hold secrets.
-	Secrets []string `json:"secrets,omitempty" doc:"The settings that hold secrets"`
+	Secrets []string `json:"secrets,omitempty" doc:"The settings that hold secrets, which are kept apart and never shown again"`
 	// Provider is who provides a notifier that isn't built in.
 	Provider string `json:"provider,omitempty" doc:"The module or add-on that provides the notifier"`
 	// Settings is a zero value of the settings type, for the form's schema.

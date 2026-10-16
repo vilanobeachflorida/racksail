@@ -119,7 +119,7 @@ type Version struct {
 	Server    ID        `json:"server,omitempty" doc:"The cluster server the resource was placed on; empty for the panel's own server"`
 	ChangeSet ID        `json:"changeSet,omitempty" doc:"The change set that wrote this version"`
 	Actor     string    `json:"actor,omitempty" doc:"Who made the change, and what acted for them"`
-	Time      time.Time `json:"time" doc:"When it was written"`
+	Time      time.Time `json:"time" doc:"When the version was written"`
 	Deleted   bool      `json:"deleted,omitempty" doc:"Set on the version recorded when the resource was deleted"`
 }
 

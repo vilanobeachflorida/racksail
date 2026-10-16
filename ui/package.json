@@ -13,8 +13,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json && tsc -p tsconfig.node.json",
-    "lint": "biome check . && node scripts/check-tokens.mjs",
-    "format": "biome format --write .",
+    "lint": "node scripts/biome.mjs check && node scripts/check-tokens.mjs",
+    "format": "node scripts/biome.mjs format --write",
     "test": "vitest run",
     "gen:api": "openapi-typescript ../spec/openapi.json --output src/lib/api/schema.d.ts",
     "check:api": "openapi-typescript ../spec/openapi.json --output src/lib/api/schema.d.ts --check"

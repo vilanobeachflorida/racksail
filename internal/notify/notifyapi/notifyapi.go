@@ -43,7 +43,7 @@ type ChannelType struct {
 
 type typeList struct {
 	Body struct {
-		Types []ChannelType `json:"types" doc:"Every channel type"`
+		Types []ChannelType `json:"types" doc:"The channel types: those built in, then those modules and add-ons provide"`
 	}
 }
 
@@ -56,7 +56,7 @@ type deliveriesInput struct {
 
 type deliveryList struct {
 	Body struct {
-		Notifications []*notify.Notification `json:"notifications" doc:"The notifications on this page, newest first"`
+		Notifications []*notify.Notification `json:"notifications" doc:"The notifications on this page, newest first, without their messages"`
 		Next          string                 `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }

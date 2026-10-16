@@ -1,4 +1,6 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+import { hiddenBelow } from "./hidden";
 
 // The pseudo-locale suite: the panel's UI built with the pseudo-locales
 // (pseudo/serve.mjs) in front of a racksail dev of its own, with addresses
@@ -9,9 +11,12 @@ const devAddr = process.env.RACKSAIL_E2E_ADDR ?? "127.0.0.1:7270";
 const devData = process.env.RACKSAIL_E2E_DATA ?? ".dev-e2e-pseudo";
 const port = process.env.RACKSAIL_E2E_PSEUDO_PORT ?? "7271";
 
+const pseudo = fileURLToPath(new URL("./pseudo", import.meta.url));
+
 export default defineConfig({
-  testDir: "./pseudo",
+  testDir: pseudo,
   testMatch: "*.spec.ts",
+  testIgnore: hiddenBelow(pseudo),
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

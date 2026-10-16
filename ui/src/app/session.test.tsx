@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import { builtinTheme } from "@/design/theme/spec";
 import type { PanelSession } from "@/lib/api/session";
 import { permits, sessionModuleStates, themeFileURL } from "@/lib/api/session";
+import { pseudoMessage } from "@/lib/pseudo";
 import type { ModuleUI } from "@/modules/types";
 import { fakeApi, json, renderApp } from "@/test/render";
+import { defaultGeneral, generalKey } from "./general";
 
 // The bundled modules don't add navigation yet, so these stand in for
 // them, with the bundled modules' own messages.
@@ -179,6 +181,144 @@ describe("the session", () => {
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Username")).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+  });
+});
+
+describe("preferences kept with the account", () => {
+  /** A panel that keeps what's sent as the person's preferences. */
+  function keeping(preferences: PanelSession["preferences"], user = session.user) {
+    const saved: unknown[] = [];
+    const api = panel({
+      session: () => json({ ...session, user, preferences }),
+      preferences: (r) => {
+        void r.json().then((body) => saved.push(body));
+        return new Response(null, { status: 204 });
+      },
+    });
+    return { api, saved };
+  }
+  const display = {
+    mode: "dark",
+    contrast: "system",
+    density: "theme",
+    textSize: "default",
+    motion: "system",
+  };
+
+  it("bring the general ones to this browser, and keep changes to them", async () => {
+    window.localStorage.setItem(
+      generalKey,
+      JSON.stringify({ ...defaultGeneral, timeZone: "Asia/Tokyo" }),
+    );
+    const { api, saved } = keeping({
+      mode: "dark",
+      timeZone: "Europe/Lisbon",
+      hourCycle: "h23",
+      letterShortcuts: false,
+      rememberRecent: true,
+    });
+    renderApp(api, "/settings/general");
+    expect(
+      await screen.findByRole("button", { name: "Time zone Europe/Lisbon" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "24-hour (15:45)" })).toBeChecked();
+    const letters = screen.getByRole("switch", { name: "Use single-key shortcuts" });
+    expect(letters).not.toBeChecked();
+    expect(
+      screen.getByText("How the panel works for you, in every browser you sign in on."),
+    ).toBeInTheDocument();
+    // This browser remembers them for the next visit, before the session comes.
+    expect(JSON.parse(window.localStorage.getItem(generalKey) ?? "{}")).toMatchObject({
+      timeZone: "Europe/Lisbon",
+      letterShortcuts: false,
+    });
+
+    // A change keeps every preference, the appearance's included, as the
+    // account keeps them as one.
+    await userEvent.click(letters);
+    await waitFor(() =>
+      expect(saved).toEqual([
+        {
+          ...display,
+          timeZone: "Europe/Lisbon",
+          hourCycle: "h23",
+          letterShortcuts: true,
+          rememberRecent: true,
+        },
+      ]),
+    );
+  });
+
+  it("keep the general ones as they are when the appearance changes", async () => {
+    const { api, saved } = keeping({ mode: "dark", letterShortcuts: false, rememberRecent: true });
+    renderApp(api, "/");
+    await userEvent.click(await screen.findByRole("button", { name: "Appearance" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Light" }));
+    await waitFor(() =>
+      expect(saved).toEqual([
+        { ...display, mode: "light", letterShortcuts: false, rememberRecent: true },
+      ]),
+    );
+    // Following the browser's time zone and the language's clock is the
+    // same as not keeping them.
+    expect(saved[0]).not.toHaveProperty("timeZone");
+    expect(saved[0]).not.toHaveProperty("hourCycle");
+  });
+
+  it("leave this browser's general ones alone while the account has none", async () => {
+    window.localStorage.setItem(
+      generalKey,
+      JSON.stringify({ ...defaultGeneral, timeZone: "Asia/Tokyo" }),
+    );
+    const { api } = keeping({ mode: "dark" });
+    renderApp(api, "/settings/general");
+    expect(await screen.findByRole("button", { name: "Time zone Asia/Tokyo" })).toBeInTheDocument();
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
+    expect(screen.getByRole("button", { name: "Time zone Asia/Tokyo" })).toBeInTheDocument();
+  });
+
+  it("say where the appearance settings stay", async () => {
+    const { api } = keeping({ mode: "dark" });
+    const { unmount } = renderApp(api, "/settings/appearance");
+    expect(
+      await screen.findByText(
+        "How the panel looks for you. These settings follow you to every browser you sign in on.",
+      ),
+    ).toBeInTheDocument();
+    unmount();
+    renderApp(panel({}), "/settings/appearance");
+    expect(
+      await screen.findByText(
+        "How the panel looks on this device. These settings stay in this browser.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("show the profile's language unless this browser chose one of its own", async () => {
+    const { api } = keeping(null, { ...session.user, locale: "en-XA" });
+    const { unmount } = renderApp(api, "/settings/general", { locale: undefined });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: pseudoMessage("General", "en-XA") }),
+    ).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en-XA");
+    unmount();
+
+    window.localStorage.setItem("racksail.locale", "en");
+    renderApp(api, "/settings/general", { locale: undefined });
+    expect(await screen.findByRole("heading", { level: 1, name: "General" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  it("offer the profile's language where a browser would otherwise follow its own", async () => {
+    const user = userEvent.setup();
+    const { api } = keeping(null, { ...session.user, locale: "en-GB" });
+    renderApp(api, "/settings/general", { locale: undefined });
+    const language = await screen.findByRole("combobox", { name: "Language" });
+    expect(language).toHaveTextContent("As in your profile (English)");
+    await user.click(language);
+    expect(
+      await screen.findByRole("option", { name: "As in your profile (English)" }),
+    ).toBeInTheDocument();
   });
 });
 

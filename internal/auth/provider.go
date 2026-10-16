@@ -106,9 +106,9 @@ type DirectoryUser struct {
 
 // SSHKey is one of a user's SSH public keys.
 type SSHKey struct {
-	ID          store.ID `json:"id" doc:"The key's ID"`
-	User        store.ID `json:"user" doc:"The user the key belongs to"`
-	Name        string   `json:"name" doc:"The key's name, its comment unless one was given"`
+	ID          store.ID `json:"id" doc:"The key's ID, which starts with sshkey_ and comes from its fingerprint"`
+	User        store.ID `json:"user" doc:"The user it belongs to"`
+	Name        string   `json:"name" doc:"What the key is for, such as the laptop it's on"`
 	Type        string   `json:"type" doc:"The key's algorithm, such as ssh-ed25519"`
 	Bits        int      `json:"bits,omitempty" doc:"The key's size, for RSA and ECDSA keys"`
 	Fingerprint string   `json:"fingerprint" doc:"The SHA256 fingerprint ssh-keygen -l shows"`

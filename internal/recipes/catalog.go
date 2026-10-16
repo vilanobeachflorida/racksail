@@ -109,8 +109,8 @@ type CatalogStatus struct {
 	Official    bool       `json:"official,omitempty" doc:"Whether the catalog is Racksail's own, signed by a key built into the panel"`
 	SyncedAt    *time.Time `json:"syncedAt,omitempty" doc:"When the index was last fetched"`
 	Built       *time.Time `json:"built,omitempty" doc:"When the index was built"`
-	Items       int        `json:"items,omitempty" doc:"How many items its index lists"`
-	IndexSHA256 string     `json:"indexSha256,omitempty" doc:"The SHA-256 checksum of the index last fetched"`
+	Items       int        `json:"items,omitempty" doc:"How many items the index lists"`
+	IndexSHA256 string     `json:"indexSha256,omitempty" doc:"The SHA-256 of the index the panel keeps"`
 	SyncError   string     `json:"syncError,omitempty" doc:"Why the last fetch failed"`
 }
 
@@ -462,12 +462,12 @@ func (c *Catalogs) Forget(id store.ID) {
 // ListedItem is an item of a catalog, as the marketplace lists it.
 type ListedItem struct {
 	IndexItem
-	Catalog      store.ID `json:"catalog" doc:"The catalog's ID"`
-	CatalogName  string   `json:"catalogName" doc:"The catalog's name"`
-	CatalogTitle string   `json:"catalogTitle" doc:"What the catalog is called"`
+	Catalog      store.ID `json:"catalog" doc:"The ID of the catalog that offers it"`
+	CatalogName  string   `json:"catalogName" doc:"That catalog's name, such as official"`
+	CatalogTitle string   `json:"catalogTitle" doc:"What that catalog is called"`
 	// Official items are from Racksail's own catalog; the rest are
 	// third-party and labelled so.
-	Official bool `json:"official" doc:"Whether the item is from Racksail's own catalog; the rest are third-party and labelled so"`
+	Official bool `json:"official" doc:"Whether it comes from Racksail's own catalog; the rest are third-party"`
 }
 
 // ItemFilter selects items.

@@ -47,7 +47,10 @@ type Info struct {
 	// Stream says the operation answers with Server-Sent Events.
 	Stream bool
 	// StepUp says a person in the panel must have confirmed it's them
-	// recently, as for changing someone's roles.
+	// recently, whatever the operation's risk, as for changing someone's
+	// roles. Critical operations always need it; an operation that needs it
+	// only for some changes, as a profile change does for a new email
+	// address, says so in its description instead.
 	StepUp bool
 	// Session says only a person in the panel may use the operation, not
 	// an API token: signing in, and changing how one signs in. The
@@ -93,8 +96,8 @@ type Operation struct {
 	Method      string     `json:"method" doc:"The HTTP method"`
 	Path        string     `json:"path" doc:"The path, with its parameters in braces"`
 	Summary     string     `json:"summary" doc:"What the operation does, in a few words"`
-	Description string     `json:"description,omitempty" doc:"What the operation does, in full"`
-	Tags        []string   `json:"tags,omitempty" doc:"The groups the API reference lists it in"`
+	Description string     `json:"description,omitempty" doc:"What it does, in full"`
+	Tags        []string   `json:"tags,omitempty" doc:"The groups the API reference lists it under"`
 	Kind        string     `json:"kind,omitempty" doc:"The kind the operation is about"`
 	Operation   string     `json:"operation,omitempty" doc:"list, get, create, update, delete, history, or an action's name"`
 	Permission  string     `json:"permission,omitempty" doc:"The permission the operation needs"`
@@ -105,15 +108,15 @@ type Operation struct {
 	Destructive bool       `json:"destructive,omitempty" doc:"Whether it removes data, and so needs a typed confirmation"`
 	Reversible  bool       `json:"reversible,omitempty" doc:"Whether it can be undone"`
 	Stream      bool       `json:"stream,omitempty" doc:"Whether it answers with Server-Sent Events"`
-	StepUp      bool       `json:"stepUp,omitempty" doc:"Whether it needs you to have confirmed it's you recently, when you use it in the panel"`
+	StepUp      bool       `json:"stepUp,omitempty" doc:"Whether it needs you to have confirmed it's you recently, when you use it in the panel, whatever its risk. Critical operations always do, and those that do only for some changes, such as a new email address, say so in their descriptions"`
 	Session     bool       `json:"session,omitempty" doc:"Whether only a person in the panel may use it, not an API token"`
 	Public      bool       `json:"public,omitempty" doc:"Whether it works without signing in"`
 	// Request and Response name the schemas of the body and of the answer
 	// in the document's components, and Output the schema of what an action
 	// returns in its change set's output.
-	Request  string `json:"request,omitempty" doc:"The schema of the request's body, among the document's components"`
-	Response string `json:"response,omitempty" doc:"The schema of the answer, among the document's components"`
-	Output   string `json:"output,omitempty" doc:"For an action, the schema of what it returns in its change set's output"`
+	Request  string `json:"request,omitempty" doc:"The schema of the body it takes, in the API document's components"`
+	Response string `json:"response,omitempty" doc:"The schema of the body it answers with"`
+	Output   string `json:"output,omitempty" doc:"The schema of what an action returns in its change set's output"`
 }
 
 // Catalog lists every operation of an API document, sorted by path and
@@ -178,7 +181,7 @@ func (s *Server) Catalog() []Operation { return Catalog(s.api.OpenAPI()) }
 
 type catalogOutput struct {
 	Body struct {
-		Operations []Operation `json:"operations" doc:"Every operation the panel serves, by path and method"`
+		Operations []Operation `json:"operations" doc:"Every operation, sorted by path and method"`
 	}
 }
 

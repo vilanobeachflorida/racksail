@@ -31,8 +31,8 @@ type BuildInfo struct {
 	CommitTime string `json:"commitTime,omitempty" format:"date-time" doc:"When that commit was made"`
 	Channel    string `json:"channel" enum:"stable,beta,nightly,dev" doc:"Release channel the binary belongs to"`
 	GoVersion  string `json:"goVersion" doc:"Go version used to build it"`
-	OS         string `json:"os" doc:"The operating system it was built for"`
-	Arch       string `json:"arch" doc:"The processor architecture it was built for"`
+	OS         string `json:"os" doc:"The operating system it was built for, such as linux"`
+	Arch       string `json:"arch" doc:"The processor architecture it was built for, such as amd64 or arm64"`
 }
 
 // Build returns information about the running binary. Builds without
@@ -180,12 +180,12 @@ func sign(n int) int {
 
 // ReleaseAsset is a file attached to a release.
 type ReleaseAsset struct {
-	Name   string `json:"name" doc:"The file's name"`
-	URL    string `json:"url" doc:"Where it is downloaded from"`
-	Size   int64  `json:"size" doc:"Its size, in bytes"`
-	SHA256 string `json:"sha256" doc:"Its SHA-256 checksum"`
+	Name   string `json:"name" doc:"The file's name, such as racksail-linux-amd64"`
+	URL    string `json:"url" doc:"Where the file is downloaded from"`
+	Size   int64  `json:"size" doc:"The file's size in bytes"`
+	SHA256 string `json:"sha256" doc:"The file's SHA-256, as the release's checksums list it"`
 	// Bundle is the Sigstore bundle that signs the asset.
-	Bundle string `json:"bundle,omitempty" doc:"The Sigstore bundle that signs it"`
+	Bundle string `json:"bundle,omitempty" doc:"Where the Sigstore bundle that signs the file is downloaded from"`
 }
 
 // Asset is the name the release tooling knows ReleaseAsset by; the API

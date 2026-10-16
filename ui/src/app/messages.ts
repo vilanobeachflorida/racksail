@@ -48,7 +48,7 @@ export const messages = {
   activityEmpty: m("app.activity.empty"),
   activityEmptyHelp: m("app.activity.emptyHelp"),
   activityFailed: m("app.activity.failed"),
-  activitySeverity: m("app.activity.severity"),
+  activityLine: m("app.activity.line"),
   activityWhen: m("app.activity.when"),
   activityAll: m("app.activity.all"),
   quickActionsTitle: m("app.quickActions.title"),

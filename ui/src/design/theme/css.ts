@@ -87,19 +87,41 @@ export const densityVars: Record<"comfortable" | "compact", Vars> = {
   ],
 };
 
-// The theme schema's pattern for shadows, whose color functions take
-// numbers only. A shadow that doesn't match is left out, as internal/theme
-// leaves it out, so it can't leave a parenthesis open and swallow the rest
-// of its layer.
-const shadowPattern = new RegExp(
-  (themeSpec as unknown as { schema: { $defs: { shadow: { pattern: string } } } }).schema.$defs
-    .shadow.pattern,
-  "u",
-);
+// The theme schema's patterns for the values written into the stylesheet
+// as they are. A value that doesn't match is left out, as internal/theme
+// leaves it out, so not even a theme still being edited can close its rule
+// with a brace, or leave a parenthesis open and swallow the rest of its
+// layer; shadows' color functions take numbers only for that reason.
+function schemaPattern(def: "shadow" | "length" | "duration"): RegExp {
+  const defs = (themeSpec as unknown as { schema: { $defs: Record<string, { pattern?: string }> } })
+    .schema.$defs;
+  const pattern = defs[def]?.pattern;
+  if (!pattern) {
+    throw new Error(`the theme schema has no pattern for ${def}`);
+  }
+  return new RegExp(pattern, "u");
+}
+
+const shadowPattern = schemaPattern("shadow");
+const lengthPattern = schemaPattern("length");
+const durationPattern = schemaPattern("duration");
+
+const matching = (pattern: RegExp, value: string | undefined): string =>
+  value !== undefined && pattern.test(value) ? value : "";
 
 /** A shadow as the stylesheet gets it: as it is when the schema allows it, or left out. */
 export function cssShadow(shadow: string | undefined): string {
-  return shadow !== undefined && shadowPattern.test(shadow) ? shadow : "";
+  return matching(shadowPattern, shadow);
+}
+
+/** A length, such as a radius, as the stylesheet gets it: as it is when the schema allows it, or left out. */
+export function cssLength(length: string | undefined): string {
+  return matching(lengthPattern, length);
+}
+
+/** A duration as the stylesheet gets it: as it is when the schema allows it, or left out. */
+export function cssDuration(duration: string | undefined): string {
+  return matching(durationPattern, duration);
 }
 
 function fontStack(family: string | undefined, fallback: string): string {
@@ -112,33 +134,36 @@ function sharedVars(theme: Theme): Vars {
   const vars: Vars = [
     ["fontSans", fontStack(typo.sans?.family, "ui-sans-serif, system-ui, sans-serif")],
     ["fontMono", fontStack(typo.mono?.family, "ui-monospace, monospace")],
-    ["fontSizeBase", typo.baseSize ?? ""],
+    ["fontSizeBase", cssLength(typo.baseSize)],
   ];
-  const w = typo.weights;
-  if (w?.regular) {
-    vars.push(
-      ["weightRegular", String(w.regular)],
-      ["weightMedium", String(w.medium ?? 0)],
-      ["weightSemibold", String(w.semibold ?? 0)],
-      ["weightBold", String(w.bold ?? 0)],
-    );
+  // A weight the theme doesn't set stays as the layers below have it.
+  const w = typo.weights ?? {};
+  for (const [name, weight] of [
+    ["weightRegular", w.regular],
+    ["weightMedium", w.medium],
+    ["weightSemibold", w.semibold],
+    ["weightBold", w.bold],
+  ] as const) {
+    if (weight) {
+      vars.push([name, String(weight)]);
+    }
   }
   if (typo.scale) {
     vars.push(...typeScale(typo.scale));
   }
   vars.push(
-    ["radiusSm", t.radius?.sm ?? ""],
-    ["radiusMd", t.radius?.md ?? ""],
-    ["radiusLg", t.radius?.lg ?? ""],
-    ["radiusXl", t.radius?.xl ?? ""],
+    ["radiusSm", cssLength(t.radius?.sm)],
+    ["radiusMd", cssLength(t.radius?.md)],
+    ["radiusLg", cssLength(t.radius?.lg)],
+    ["radiusXl", cssLength(t.radius?.xl)],
     ["shadowSm", cssShadow(t.shadows?.sm)],
     ["shadowMd", cssShadow(t.shadows?.md)],
     ["shadowLg", cssShadow(t.shadows?.lg)],
-    ["motionFast", t.motion?.fast ?? ""],
-    ["motionNormal", t.motion?.normal ?? ""],
-    ["motionSlow", t.motion?.slow ?? ""],
-    ["focusWidth", t.focusRing?.width ?? ""],
-    ["focusOffset", t.focusRing?.offset ?? ""],
+    ["motionFast", cssDuration(t.motion?.fast)],
+    ["motionNormal", cssDuration(t.motion?.normal)],
+    ["motionSlow", cssDuration(t.motion?.slow)],
+    ["focusWidth", cssLength(t.focusRing?.width)],
+    ["focusOffset", cssLength(t.focusRing?.offset)],
   );
   if (t.density && t.density in densityVars) {
     vars.push(...densityVars[t.density]);

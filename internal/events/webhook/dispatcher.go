@@ -36,24 +36,24 @@ const (
 // Delivery is one event sent, or being sent, to one webhook.
 type Delivery struct {
 	ID      store.ID `json:"id" doc:"Also sent as the webhook-id header, the same for every attempt"`
-	Webhook store.ID `json:"webhook" doc:"The webhook it is sent to"`
+	Webhook store.ID `json:"webhook" doc:"The webhook it goes to"`
 	// Event is the delivered event; test deliveries have none.
 	Event     store.ID      `json:"event,omitempty" doc:"The event it delivers; test deliveries have none"`
 	EventType string        `json:"eventType" doc:"The type of the event delivered"`
-	State     DeliveryState `json:"state" enum:"pending,succeeded,failed" doc:"Whether it is still being sent, went through or was given up"`
+	State     DeliveryState `json:"state" enum:"pending,succeeded,failed" doc:"Whether it is waiting to be sent, was received, or failed for good"`
 	// Test deliveries are sent once and never tried again.
-	Test         bool       `json:"test,omitempty" doc:"Whether it is a test, which is sent once and never tried again"`
+	Test         bool       `json:"test,omitempty" doc:"Whether it is a test delivery, sent once and never again"`
 	RedeliveryOf store.ID   `json:"redeliveryOf,omitempty" doc:"The delivery this one sends again"`
 	AttemptCount int        `json:"attemptCount" doc:"How many times it was sent"`
 	NextAttempt  *time.Time `json:"nextAttempt,omitempty" doc:"When it is sent again, while it is pending"`
 	LastStatus   int        `json:"lastStatus,omitempty" doc:"The HTTP status of the last answer"`
 	LastError    string     `json:"lastError,omitempty" doc:"Why the last attempt failed"`
-	CreatedAt    time.Time  `json:"createdAt" doc:"When the delivery was made"`
-	FinishedAt   *time.Time `json:"finishedAt,omitempty" doc:"When it went through or was given up"`
+	CreatedAt    time.Time  `json:"createdAt" doc:"When it was queued"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty" doc:"When it was received or given up on"`
 	// Payload is the body sent. Lists leave it out.
 	Payload json.RawMessage `json:"payload,omitempty" doc:"The body sent, the event as JSON"`
 	// Attempts is the log of every attempt. Lists leave it out.
-	Attempts []DeliveryAttempt `json:"attempts,omitempty" doc:"Every attempt to send it; lists leave them out"`
+	Attempts []DeliveryAttempt `json:"attempts,omitempty" doc:"Every attempt at sending it, oldest first"`
 }
 
 // DeliveryAttempt is one try at sending a delivery.

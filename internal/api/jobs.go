@@ -107,7 +107,7 @@ type jobLogsInput struct {
 
 type jobLogsOutput struct {
 	Body struct {
-		Lines []jobs.LogLine `json:"lines" doc:"The lines of the job's log, oldest first"`
+		Lines []jobs.LogLine `json:"lines" doc:"The lines of the log, oldest first"`
 	}
 }
 

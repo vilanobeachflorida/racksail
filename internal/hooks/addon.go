@@ -61,16 +61,16 @@ func (h HookDecl) DeadlineDuration() (time.Duration, error) {
 // installed, approved by the person installing it and enforced at runtime.
 type Permissions struct {
 	// Hooks are the hook levels the add-on may use.
-	Hooks []Kind      `yaml:"hooks,omitempty" json:"hooks,omitempty" doc:"The kinds of hooks the add-on may use, such as validate or observe"`
-	Read  []DataScope `yaml:"read,omitempty" json:"read,omitempty" doc:"The kinds whose resources the add-on may read"`
-	Write []DataScope `yaml:"write,omitempty" json:"write,omitempty" doc:"The kinds whose resources the add-on may change"`
+	Hooks []Kind      `yaml:"hooks,omitempty" json:"hooks,omitempty" doc:"The hook levels the add-on may use: observe, validate, modify and system"`
+	Read  []DataScope `yaml:"read,omitempty" json:"read,omitempty" doc:"The kinds, and the fields of them, the add-on may see"`
+	Write []DataScope `yaml:"write,omitempty" json:"write,omitempty" doc:"The kinds, and the fields of them, the add-on may change, which it may also see"`
 	// Secrets grants secrets:read, shown with a red warning.
-	Secrets bool `yaml:"secrets,omitempty" json:"secrets,omitempty" doc:"Whether the add-on may read secrets"`
+	Secrets bool `yaml:"secrets,omitempty" json:"secrets,omitempty" doc:"secrets.read: the add-on may read the secrets of the resources it may see"`
 	// Network lists the hosts the add-on may reach; none by default.
-	Network   []string  `yaml:"network,omitempty" json:"network,omitempty" doc:"The hosts the add-on may reach; none when empty"`
-	Resources Resources `yaml:"resources,omitempty" json:"resources,omitzero" doc:"What the add-on's process may use"`
+	Network   []string  `yaml:"network,omitempty" json:"network,omitempty" doc:"The hosts, addresses or networks the add-on may reach; none when empty"`
+	Resources Resources `yaml:"resources,omitempty" json:"resources,omitzero" doc:"The most CPU and memory the add-on's process may use"`
 	// Override grants core.override, which only a server admin can approve.
-	Override bool `yaml:"override,omitempty" json:"override,omitempty" doc:"Whether the add-on has core.override, which only a server admin can approve"`
+	Override bool `yaml:"override,omitempty" json:"override,omitempty" doc:"core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve"`
 }
 
 // DataScope grants access to a kind, optionally to some fields only.
@@ -81,17 +81,17 @@ type DataScope struct {
 
 // Resources caps the add-on's process.
 type Resources struct {
-	CPU      string `yaml:"cpu,omitempty" json:"cpu,omitempty" doc:"The share of one CPU the process may use, such as 50%"`
-	MemoryMB int    `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty" doc:"The memory the process may use, in MB"`
+	CPU      string `yaml:"cpu,omitempty" json:"cpu,omitempty" doc:"The most CPU time, in percent of one CPU, such as 20%"`
+	MemoryMB int    `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty" doc:"The most memory, in MB"`
 }
 
 // UIExtension is a declarative addition to the UI.
 type UIExtension struct {
-	Type  string `yaml:"type" json:"type" doc:"Where it goes: nav, tab, card, command, settings or column"`
-	Label string `yaml:"label" json:"label" doc:"What it says"`
-	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty" doc:"A lucide icon name, such as globe"`
-	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty" doc:"The kind whose screens a tab or a column goes on"`
-	Path  string `yaml:"path,omitempty" json:"path,omitempty" doc:"The page the add-on serves for it, which the panel shows in a sandboxed frame"`
+	Type  string `yaml:"type" json:"type" doc:"Where the entry goes: nav, tab, card, command, settings or column"`
+	Label string `yaml:"label" json:"label" doc:"What the panel calls the entry"`
+	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty" doc:"The entry's icon, by its name in Lucide, such as shield"`
+	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty" doc:"The kind whose screens a tab or column goes on"`
+	Path  string `yaml:"path,omitempty" json:"path,omitempty" doc:"For a column, the add-on's GET route that answers its values; otherwise the page under the add-on's /ui/ the entry shows"`
 }
 
 // AddonRoute is an API route the add-on serves under /api/v1/addons/<id>/.
@@ -185,25 +185,25 @@ const (
 // PolicySpec is the spec of a core.policy resource: a CEL rule evaluated
 // inside the panel with a cost limit.
 type PolicySpec struct {
-	Name        string     `json:"name" yaml:"name" doc:"The rule's name"`
-	Description string     `json:"description,omitempty" yaml:"description,omitempty" doc:"What the rule is for"`
-	Type        PolicyType `json:"type" yaml:"type" enum:"validate,default" doc:"validate refuses the changes its expression matches; default fills in fields of new resources"`
+	Name        string     `json:"name" yaml:"name" doc:"A short name for the rule, shown when it refuses a change"`
+	Description string     `json:"description,omitempty" yaml:"description,omitempty" doc:"What the rule is for, in a sentence or two"`
+	Type        PolicyType `json:"type" yaml:"type" enum:"validate,default" doc:"validate rules refuse changes; default rules fill in or override fields of new resources"`
 	// Kinds and Operations narrow the rule; empty means all.
-	Kinds      []string `json:"kinds,omitempty" yaml:"kinds,omitempty" doc:"The kinds it applies to, such as web.site; every kind when empty"`
-	Operations []string `json:"operations,omitempty" yaml:"operations,omitempty" doc:"The operations it applies to: create, update, delete or an action's name; every one when empty"`
+	Kinds      []string `json:"kinds,omitempty" yaml:"kinds,omitempty" doc:"The kinds the rule applies to, such as web.site; every kind when empty"`
+	Operations []string `json:"operations,omitempty" yaml:"operations,omitempty" doc:"The operations it applies to, such as create, update, delete or an action; every one when empty"`
 	// Expression is true when a validate rule must refuse the change.
-	Expression string         `json:"expression,omitempty" yaml:"expression,omitempty" doc:"For a validate rule, a CEL expression that is true when the change must be refused"`
-	Message    string         `json:"message,omitempty" yaml:"message,omitempty" doc:"What someone whose change the rule refuses is told"`
-	Defaults   []FieldDefault `json:"defaults,omitempty" yaml:"defaults,omitempty" doc:"For a default rule, the fields it fills in"`
-	Enabled    bool           `json:"enabled,omitempty" yaml:"enabled,omitempty" doc:"Whether the rule applies"`
-	Priority   int            `json:"priority,omitempty" yaml:"priority,omitempty" doc:"Where it runs among the hooks of the same point: lower runs first"`
+	Expression string         `json:"expression,omitempty" yaml:"expression,omitempty" doc:"For validate rules: a CEL expression that is true when the change must be refused"`
+	Message    string         `json:"message,omitempty" yaml:"message,omitempty" doc:"For validate rules: what the person making a refused change is told"`
+	Defaults   []FieldDefault `json:"defaults,omitempty" yaml:"defaults,omitempty" doc:"For default rules: the fields filled in, each from a CEL expression"`
+	Enabled    bool           `json:"enabled,omitempty" yaml:"enabled,omitempty" doc:"Whether the rule takes part in changes"`
+	Priority   int            `json:"priority,omitempty" yaml:"priority,omitempty" doc:"Where the rule runs among hooks, lower first"`
 }
 
 // FieldDefault fills a field on create from a CEL expression.
 type FieldDefault struct {
-	Field      string `json:"field" yaml:"field" doc:"The spec field it fills in, as a dotted path"`
+	Field      string `json:"field" yaml:"field" doc:"The spec field filled in, as a dotted path such as headers.security"`
 	Expression string `json:"expression" yaml:"expression" doc:"A CEL expression whose value the field gets"`
-	Override   bool   `json:"override,omitempty" yaml:"override,omitempty" doc:"Whether it replaces a value the change gave; otherwise it fills in only a field left empty"`
+	Override   bool   `json:"override,omitempty" yaml:"override,omitempty" doc:"Replace a value the new resource already has, rather than only fill in an empty field"`
 }
 
 // Validate checks a rule's structure against the policy schema. Compiling

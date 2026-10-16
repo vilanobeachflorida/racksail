@@ -9,11 +9,13 @@ import {
   useState,
 } from "react";
 import { safeStorage } from "@/design/theme/prefs";
+import type { SessionPreferences } from "@/lib/api/session";
 
 /**
- * How the panel works for the person, in this browser: where times show,
- * which clock they use, whether letter keys act as shortcuts and whether
- * the command bar remembers what they opened.
+ * How the panel works for the person: where times show, which clock they
+ * use, whether letter keys act as shortcuts and whether the command bar
+ * remembers what they opened. They're kept in the browser and, once the
+ * person is signed in, with their account, so they follow them.
  */
 export interface GeneralPreferences {
   /** The time zone times show in, such as Europe/Lisbon or UTC; empty follows the browser. */
@@ -70,6 +72,41 @@ export function normalizeGeneral(value: unknown): GeneralPreferences {
   return out;
 }
 
+/**
+ * The general preferences among those an account keeps, or null when it
+ * keeps none of them, as an account whose preferences were kept before the
+ * panel kept these doesn't. The ones it leaves out are the defaults.
+ */
+export function accountGeneral(
+  account: SessionPreferences | null | undefined,
+): GeneralPreferences | null {
+  if (
+    !account ||
+    (account.timeZone === undefined &&
+      account.hourCycle === undefined &&
+      account.letterShortcuts === undefined &&
+      account.rememberRecent === undefined)
+  ) {
+    return null;
+  }
+  return normalizeGeneral({
+    timeZone: account.timeZone ?? "",
+    hourCycle: account.hourCycle ?? "",
+    letterShortcuts: account.letterShortcuts ?? true,
+    rememberRecent: account.rememberRecent ?? true,
+  });
+}
+
+/** The general preferences as an account keeps them, without the ones that follow the browser. */
+export function generalForAccount(prefs: GeneralPreferences): SessionPreferences {
+  return {
+    ...(prefs.timeZone ? { timeZone: prefs.timeZone } : {}),
+    ...(prefs.hourCycle ? { hourCycle: prefs.hourCycle } : {}),
+    letterShortcuts: prefs.letterShortcuts,
+    rememberRecent: prefs.rememberRecent,
+  };
+}
+
 export function loadGeneral(storage: Storage | null = safeStorage()): GeneralPreferences {
   try {
     const raw = storage?.getItem(generalKey);
@@ -97,29 +134,69 @@ const GeneralContext = createContext<GeneralValue>({
   setPreferences: () => {},
 });
 
-/** Keeps the general preferences, in this browser and in step with its other tabs. */
-export function GeneralPreferencesProvider({ children }: { children: ReactNode }) {
+export interface GeneralPreferencesProviderProps {
+  /**
+   * The preferences kept with the person's account. Its general ones
+   * replace those this browser remembered once they arrive, so every
+   * browser works the same.
+   */
+  account?: SessionPreferences | null;
+  /** Called when the person changes a preference, to keep it with their account too. */
+  onPreferencesChange?: (preferences: GeneralPreferences) => void;
+  children: ReactNode;
+}
+
+/**
+ * Keeps the general preferences in this browser, in step with its other
+ * tabs, and with the account's when there is one.
+ */
+export function GeneralPreferencesProvider({
+  account,
+  onPreferencesChange,
+  children,
+}: GeneralPreferencesProviderProps) {
   const [preferences, setState] = useState<GeneralPreferences>(() => loadGeneral());
   // The preferences as last set, for changes made before React renders again.
   const current = useRef(preferences);
+  const onChange = useRef(onPreferencesChange);
+  useEffect(() => {
+    onChange.current = onPreferencesChange;
+  });
+  const adopt = useCallback((next: GeneralPreferences) => {
+    current.current = next;
+    setState(next);
+  }, []);
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === generalKey) {
-        current.current = loadGeneral();
-        setState(current.current);
+        adopt(loadGeneral());
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
-  // Saving happens here rather than in a state updater, which React may
-  // call twice.
-  const setPreferences = useCallback((change: Partial<GeneralPreferences>) => {
-    const next = normalizeGeneral({ ...current.current, ...change });
-    current.current = next;
+  }, [adopt]);
+  // The account's preferences arrived or changed in another browser.
+  const kept = accountGeneral(account);
+  const keptKey = kept ? JSON.stringify(kept) : "";
+  useEffect(() => {
+    if (keptKey === "") {
+      return;
+    }
+    const next = JSON.parse(keptKey) as GeneralPreferences;
+    adopt(next);
     saveGeneral(next);
-    setState(next);
-  }, []);
+  }, [keptKey, adopt]);
+  // Saving and telling the account happen here rather than in a state
+  // updater, which React may call twice.
+  const setPreferences = useCallback(
+    (change: Partial<GeneralPreferences>) => {
+      const next = normalizeGeneral({ ...current.current, ...change });
+      adopt(next);
+      saveGeneral(next);
+      onChange.current?.(next);
+    },
+    [adopt],
+  );
   const value = useMemo(() => ({ preferences, setPreferences }), [preferences, setPreferences]);
   return <GeneralContext value={value}>{children}</GeneralContext>;
 }

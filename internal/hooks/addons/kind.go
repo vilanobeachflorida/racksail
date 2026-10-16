@@ -46,7 +46,7 @@ type AddonSpec struct {
 	ID string `json:"id" pattern:"^[a-z0-9][a-z0-9-]{1,62}$" doc:"The add-on's id, as in its manifest"`
 	// Manifest is the add-on's addon.yaml.
 	Manifest string  `json:"manifest" minLength:"1" maxLength:"262144" doc:"The add-on's addon.yaml"`
-	Package  Package `json:"package" doc:"The add-on's program"`
+	Package  Package `json:"package" doc:"The add-on's program: an archive and the checksum it must match"`
 	// Catalog and Item say where it was installed from.
 	Catalog string `json:"catalog,omitempty" doc:"The catalog it was installed from"`
 	Item    string `json:"item,omitempty" doc:"Its item in that catalog"`

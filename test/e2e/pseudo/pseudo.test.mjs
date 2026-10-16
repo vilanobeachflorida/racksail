@@ -53,7 +53,7 @@ const undo = {
       return i >= 0 ? plain[i] : c;
     }).join("");
   },
-  "ar-XB": (s) => s.replace(/[‏‮‬]/g, ""),
+  "ar-XB": (s) => s.replace(/[\u200F\u202E\u202C]/g, ""),
 };
 
 const examples = [
@@ -86,7 +86,7 @@ test("en-XA accents, brackets and lengthens text", () => {
 });
 
 test("ar-XB reverses each word", () => {
-  assert.equal(pseudoMessage("Go home", "ar-XB"), "‏‮Go‬‏ ‏‮home‬‏");
+  assert.equal(pseudoMessage("Go home", "ar-XB"), "\u200F\u202EGo\u202C\u200F \u200F\u202Ehome\u202C\u200F");
 });
 
 test("a message that doesn't parse is named", () => {

@@ -54,6 +54,8 @@ func TestCanGrant(t *testing.T) {
 		{"limited owner can't give owner", limited, ownerOf(customer), false},
 		{"limited owner gives a limited owner", limited, Grant{Role: RoleOwner, Scope: store.AccountScope(customer), Limit: []string{"web.site.read"}}, true},
 		{"a role off its level", admin, Grant{Role: RoleOwner, Scope: store.ServerScope()}, false},
+		{"reseller can't name the server's", res, Grant{Role: RoleCollaborator, Scope: store.ResellerScope(reseller), Permissions: []Permission{"core.signin_policy.update"}}, false},
+		{"admin passes on the server's", admin, Grant{Role: RoleCollaborator, Scope: store.ServerScope(), Permissions: []Permission{"core.signin_policy.update"}}, true},
 	}
 	for _, tt := range tests {
 		err := az.CanGrant(ctx, tt.actor, tt.grant)
@@ -63,6 +65,36 @@ func TestCanGrant(t *testing.T) {
 	}
 	if err := az.CanGrant(ctx, nil, ownerOf(customer)); !errors.Is(err, i18n.ErrUnauthenticated) {
 		t.Errorf("nobody: %v", err)
+	}
+}
+
+// A grant passes on only what its own scope carries: a reseller's patterns
+// match what belongs to the whole server, and an owner's what changes the
+// account, but neither grant carries those, so neither passes them on.
+func TestGrantablePassesOnWhatItsScopeCarries(t *testing.T) {
+	reseller, acct := store.NewID("rsl"), store.NewID("acct")
+	for _, tc := range []struct {
+		name   string
+		holder Grant
+		given  Grant
+		ok     bool
+	}{
+		{"the server's, from a reseller", Grant{Role: RoleReseller, Scope: store.ResellerScope(reseller)},
+			Grant{Role: RoleCollaborator, Scope: store.ResellerScope(reseller), Permissions: []Permission{"core.signin_policy.update"}}, false},
+		{"the server's by pattern, from a reseller", Grant{Role: RoleReseller, Scope: store.ResellerScope(reseller)},
+			Grant{Role: RoleCollaborator, Scope: store.ResellerScope(reseller), Permissions: []Permission{"storage.*"}}, false},
+		{"changing the account, from its owner", Grant{Role: RoleOwner, Scope: store.AccountScope(acct)},
+			Grant{Role: RoleCollaborator, Scope: store.AccountScope(acct), Permissions: []Permission{"core.account.update"}}, false},
+		{"reading the account, from its owner", Grant{Role: RoleOwner, Scope: store.AccountScope(acct)},
+			Grant{Role: RoleCollaborator, Scope: store.AccountScope(acct), Permissions: []Permission{"core.account.read"}}, true},
+		{"sites, from a reseller", Grant{Role: RoleReseller, Scope: store.ResellerScope(reseller)},
+			Grant{Role: RoleCollaborator, Scope: store.ResellerScope(reseller), Permissions: []Permission{"web.*"}}, true},
+		{"the server's, from an admin", Grant{Role: RoleAdmin, Scope: store.ServerScope()},
+			Grant{Role: RoleCollaborator, Scope: store.ServerScope(), Permissions: []Permission{"core.signin_policy.update"}}, true},
+	} {
+		if got := grantable(tc.holder, tc.given); got != tc.ok {
+			t.Errorf("%s: grantable = %v", tc.name, got)
+		}
 	}
 }
 
@@ -152,6 +184,13 @@ func TestGrantValidation(t *testing.T) {
 		{Grant{Role: RoleOwner, Scope: store.AccountScope(acct), Permissions: []Permission{PermOverride}}, false},
 		{Grant{Role: RoleAdmin, Scope: store.ServerScope(), Permissions: []Permission{PermOverride}}, true},
 		{Grant{Role: RoleOwner, Scope: store.AccountScope(acct), Limit: []string{"secrets.read"}}, false},
+		// A grant names nothing its scope never carries.
+		{Grant{Role: RoleCollaborator, Scope: store.ResellerScope(store.NewID("rsl")), Permissions: []Permission{"core.signin_policy.update"}}, false},
+		{Grant{Role: RoleCollaborator, Scope: store.AccountScope(acct), Permissions: []Permission{"storage.*"}}, false},
+		{Grant{Role: RoleCollaborator, Scope: store.ServerScope(), Permissions: []Permission{"core.signin_policy.update"}}, true},
+		{Grant{Role: RoleCollaborator, Scope: store.AccountScope(acct), Permissions: []Permission{"core.account.update"}}, false},
+		{Grant{Role: RoleCollaborator, Scope: store.AccountScope(acct), Permissions: []Permission{"core.account.read", "core.*"}}, true},
+		{Grant{Role: RoleReseller, Scope: store.ResellerScope(store.NewID("rsl")), Permissions: []Permission{PermImpersonate}}, true},
 	} {
 		err := tc.grant.Validate()
 		if (err == nil) != tc.ok {

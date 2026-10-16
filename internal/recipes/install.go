@@ -25,8 +25,8 @@ import (
 // InstalledResource is a resource an installation created.
 type InstalledResource struct {
 	// Name is the resource's name in the recipe.
-	Name string   `json:"name" doc:"The resource's name in the recipe"`
-	Kind string   `json:"kind" doc:"The resource's kind"`
+	Name string   `json:"name" doc:"The resource's name in the recipe, such as db"`
+	Kind string   `json:"kind" doc:"The resource's kind, such as databases.database"`
 	ID   store.ID `json:"id" doc:"The resource's ID"`
 }
 
@@ -42,35 +42,35 @@ const (
 type InstallationSpec struct {
 	Source string `json:"source" enum:"catalog,module" doc:"Where the recipe came from"`
 	// Catalog, CatalogName and Official say which catalog offered it.
-	Catalog     store.ID `json:"catalog,omitempty" doc:"The catalog that offered it"`
-	CatalogName string   `json:"catalogName,omitempty" doc:"The catalog's name when it was installed"`
+	Catalog     store.ID `json:"catalog,omitempty" doc:"The ID of the catalog that offered the recipe"`
+	CatalogName string   `json:"catalogName,omitempty" doc:"That catalog's name, such as official"`
 	Official    bool     `json:"official,omitempty" doc:"Whether it came from Racksail's own catalog"`
 	// Module is the module that ships the recipe.
-	Module       string       `json:"module,omitempty" doc:"The module that ships the recipe"`
+	Module       string       `json:"module,omitempty" doc:"The module that ships the recipe, when it didn't come from a catalog"`
 	Item         string       `json:"item" doc:"The item's id"`
-	ItemKind     ItemKind     `json:"itemKind" enum:"app,runtime,service,stack,dns-template,automation,tuning-preset,model,theme,addon" doc:"What kind of item it is"`
+	ItemKind     ItemKind     `json:"itemKind" enum:"app,runtime,service,stack,dns-template,automation,tuning-preset,model,theme,addon" doc:"What sort of item it is"`
 	Name         string       `json:"name" doc:"The item's name"`
 	Version      string       `json:"version" doc:"The version installed"`
-	Revision     int          `json:"revision,omitempty" doc:"The revision of the recipe itself, within the version"`
+	Revision     int          `json:"revision,omitempty" doc:"The revision of the recipe itself, which goes up when the recipe changes without a new version of the software"`
 	License      string       `json:"license" doc:"The software's license, as an SPDX expression"`
-	LicenseClass LicenseClass `json:"licenseClass" enum:"open-source,free-to-use,proprietary" doc:"Whether the license is open source, free to use or proprietary"`
+	LicenseClass LicenseClass `json:"licenseClass" enum:"open-source,free-to-use,proprietary" doc:"Whether the software is open source, free to use or proprietary"`
 	// RecipeSHA256 and IndexSHA256 pin exactly what was installed.
-	RecipeSHA256 string `json:"recipeSha256" doc:"The SHA-256 of the recipe as installed"`
-	IndexSHA256  string `json:"indexSha256,omitempty" doc:"The SHA-256 of the catalog's index that listed it"`
+	RecipeSHA256 string `json:"recipeSha256" doc:"The SHA-256 of the recipe installed"`
+	IndexSHA256  string `json:"indexSha256,omitempty" doc:"The SHA-256 of the catalog index that listed it"`
 	// Recipe is the recipe as installed, so upgrading and uninstalling
 	// need nothing from the catalog.
 	Recipe string `json:"recipe" maxLength:"262144" doc:"The recipe as installed, so upgrading and uninstalling need nothing from the catalog"`
 	// Inputs are the values given, without passwords and secrets.
-	Inputs    map[string]any      `json:"inputs,omitempty" doc:"The values given at install, without passwords and secrets"`
-	Resources []InstalledResource `json:"resources" doc:"The resources it created"`
+	Inputs    map[string]any      `json:"inputs,omitempty" doc:"The values given for the recipe's inputs, without passwords and secrets"`
+	Resources []InstalledResource `json:"resources" doc:"The resources the installation created"`
 }
 
 // HealthResult is how one health check went.
 type HealthResult struct {
-	Type      string    `json:"type" doc:"What the check probes: http, tcp, dns, tls, unit or resource"`
-	Target    string    `json:"target" doc:"What it checked: a URL, an address, a DNS name, a unit or one of the installation's resources"`
+	Type      string    `json:"type" doc:"How the check works: http, tcp, tls, dns, unit or resource"`
+	Target    string    `json:"target" doc:"What it checks: a URL, host and port, name, unit or resource"`
 	OK        bool      `json:"ok" doc:"Whether it passed"`
-	Message   string    `json:"message,omitempty" doc:"What it found, when it didn't pass"`
+	Message   string    `json:"message,omitempty" doc:"Why it didn't pass"`
 	CheckedAt time.Time `json:"checkedAt" doc:"When it ran"`
 }
 
@@ -82,16 +82,16 @@ type InstallationStatus struct {
 	// in that change set, confirms they work.
 	Applied   string             `json:"applied,omitempty" doc:"The version the installation was last applied at"`
 	Downloads []VerifiedDownload `json:"downloads,omitempty" doc:"Upstream files checked against the recipe"`
-	Health    []HealthResult     `json:"health,omitempty" doc:"How its health checks last went"`
-	CheckedAt *time.Time         `json:"checkedAt,omitempty" doc:"When its health was last checked"`
+	Health    []HealthResult     `json:"health,omitempty" doc:"How the recipe's health checks went the last time they ran"`
+	CheckedAt *time.Time         `json:"checkedAt,omitempty" doc:"When the health checks last ran"`
 	// Upgrade is a newer version the catalog offers.
 	Upgrade string `json:"upgrade,omitempty" doc:"A newer version the catalog offers"`
 }
 
 // InstallationHealth is how the health checks went.
 type InstallationHealth struct {
-	Healthy bool           `json:"healthy" doc:"Whether every check passed"`
-	Health  []HealthResult `json:"health" doc:"How each check went"`
+	Healthy bool           `json:"healthy" doc:"Whether every health check passed"`
+	Health  []HealthResult `json:"health" doc:"How each health check went"`
 }
 
 // CheckInput says how an installation's health is checked.

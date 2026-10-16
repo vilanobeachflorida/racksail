@@ -229,7 +229,7 @@ func newStackWith(t *testing.T, limits RateLimit, mods *modules.Registry) *stack
 	recs := reconcile.NewRegistry()
 	for _, r := range []reconcile.Reconciler{
 		reconcile.Typed(siteKind, siteReconciler{}), webhook.Reconciler(dispatcher), account.Reconciler(kinds),
-		identity.PolicyReconciler(), identity.ProviderReconciler(),
+		identity.PolicyReconciler(),
 	} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
@@ -298,8 +298,10 @@ func newStackWith(t *testing.T, limits RateLimit, mods *modules.Registry) *stack
 		Hooks: &hooks.Runner{Registry: registry, Events: log}, Authorizer: authz, Hostname: "localhost",
 		Log: slog.New(slog.DiscardHandler),
 	})
-	if err := recs.Register(s.identity.UserReconciler()); err != nil {
-		t.Fatal(err)
+	for _, r := range []reconcile.Reconciler{s.identity.UserReconciler(), s.identity.ProviderReconciler()} {
+		if err := recs.Register(r); err != nil {
+			t.Fatal(err)
+		}
 	}
 	go runner.Run(ctx, time.Hour)
 	s.server = New(Options{

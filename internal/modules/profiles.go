@@ -25,9 +25,9 @@ const (
 
 // ProfileInfo describes a profile in the setup wizard.
 type ProfileInfo struct {
-	ID          Profile `json:"id" enum:"all-in-one,web-hosting,home-server,virtualization-host,mail-server,dns-server,minimal" doc:"The profile"`
-	Name        string  `json:"name" doc:"What the profile is called"`
-	Description string  `json:"description" doc:"What a server with it does"`
+	ID          Profile `json:"id" enum:"all-in-one,web-hosting,home-server,virtualization-host,mail-server,dns-server,minimal" doc:"The profile's id"`
+	Name        string  `json:"name" doc:"What the panel calls the profile"`
+	Description string  `json:"description" doc:"What a server set up with it is for"`
 }
 
 // Profiles lists the profiles in the order the wizard shows them.
@@ -100,8 +100,8 @@ func (m *Manager) ProfileModules(p Profile) []string {
 
 // Skipped is a module a profile would turn on but doesn't, with why.
 type Skipped struct {
-	Module string `json:"module" doc:"The module left off"`
-	Reason string `json:"reason" doc:"Why this server can't run it"`
+	Module string `json:"module" doc:"The module's id"`
+	Reason string `json:"reason" doc:"Why it isn't turned on, such as hardware the server lacks"`
 }
 
 // ProfileRequest builds the change set that turns on a profile's modules:

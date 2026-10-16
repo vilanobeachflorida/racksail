@@ -34,7 +34,7 @@ racksail logout                # forget the current profile and its token
 racksail logout --revoke       # revoke the token first, so it stops working everywhere
 ```
 
-`racksail whoami` says who the token signs in as, what it may do and which panel it's talking to. `racksail status` says whether the panel is healthy and which version it runs.
+`racksail whoami` says who the token signs in as, what it may do and which panel it's talking to. `racksail status` says whether the panel is healthy and which version it runs, with each of its health checks, and exits with status 2 when one fails, so scripts and monitors can tell.
 
 ### Without a profile
 

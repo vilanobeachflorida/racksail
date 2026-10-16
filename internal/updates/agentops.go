@@ -70,19 +70,19 @@ const (
 // UpdateState is what the agent last did to the racksail binary.
 type UpdateState struct {
 	State string `json:"state" enum:"installed,confirmed,rolled-back" doc:"installed until the new release confirms it works, then confirmed; rolled-back when it didn't"`
-	Tag   string `json:"tag" doc:"The release's tag"`
+	Tag   string `json:"tag" doc:"The release's tag, such as v1.2.3"`
 	// From and To are the versions before and after.
-	From   string `json:"from" doc:"The version before"`
-	To     string `json:"to" doc:"The version after"`
-	Binary string `json:"binary" doc:"Where the binary it installed is"`
+	From   string `json:"from" doc:"The version before the update"`
+	To     string `json:"to" doc:"The version the update installed"`
+	Binary string `json:"binary" doc:"The racksail binary the update replaced"`
 	// Snapshots were taken of the system first.
-	Snapshots   []agent.Snapshot `json:"snapshots,omitempty" doc:"The snapshots taken of the system first"`
+	Snapshots   []agent.Snapshot `json:"snapshots,omitempty" doc:"The read-only snapshots of the system taken before the update"`
 	Unprotected []string         `json:"unprotected,omitempty" doc:"Paths no snapshot covers, because they aren't on Btrfs"`
 	// PanelBackup is the copy of the panel's database from before.
-	PanelBackup  string     `json:"panelBackup,omitempty" doc:"The copy of the panel's database from before"`
-	InstalledAt  time.Time  `json:"installedAt" doc:"When it was installed"`
+	PanelBackup  string     `json:"panelBackup,omitempty" doc:"The copy of the panel's database kept from before the update"`
+	InstalledAt  time.Time  `json:"installedAt" doc:"When the release was installed"`
 	ConfirmedAt  *time.Time `json:"confirmedAt,omitempty" doc:"When the new release confirmed it works"`
-	RolledBackAt *time.Time `json:"rolledBackAt,omitempty" doc:"When it was rolled back"`
+	RolledBackAt *time.Time `json:"rolledBackAt,omitempty" doc:"When the update was rolled back"`
 	Reason       string     `json:"reason,omitempty" doc:"Why the release was rolled back"`
 }
 

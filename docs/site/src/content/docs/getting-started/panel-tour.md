@@ -63,6 +63,8 @@ Applied changes run as jobs, and a notification follows each one: how far it got
 
 ## Your settings
 
-**Settings → General** holds your language, the time zone and clock times show in, whether single-key shortcuts such as <kbd>G</kbd> then <kbd>H</kbd> are on (turn them off if they get in the way of speech input or a screen reader), and whether the command bar remembers what you opened. They're kept in the browser you set them in. **Settings → Appearance** holds light, dark or the system's choice, high contrast, density, text size and reduced motion, and shows the themes in effect: Racksail's, the server's and your reseller's when there are any, with your choices on top.
+**Settings → General** holds your language, the time zone and clock times show in, whether single-key shortcuts such as <kbd>G</kbd> then <kbd>H</kbd> are on (turn them off if they get in the way of speech input or a screen reader), and whether the command bar remembers what you opened. **Settings → Appearance** holds light, dark or the system's choice, high contrast, density, text size and reduced motion, and shows the themes in effect: Racksail's, the server's and your reseller's when there are any, with your choices on top.
+
+Once you're signed in, these settings are kept with your account as well as in the browser, so they follow you to every browser you sign in on. What the command bar remembers you opened stays in each browser. The panel shows your profile's language, unless you choose another one for a browser in **Settings → General**; saving your profile makes that browser follow the profile again.
 
 Your profile holds your password, passkeys and two-factor sign-in, your sessions and API tokens, your SSH keys, and which notifications you get and where.

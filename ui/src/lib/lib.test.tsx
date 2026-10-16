@@ -162,6 +162,33 @@ describe("JSON Schema validation", () => {
       "type",
     ]);
   });
+
+  it("checks values as the JSON the server gets, where undefined is left out", () => {
+    // Optional properties cleared to undefined aren't sent, so they aren't
+    // there to be wrong; required ones are missing, once.
+    expect(
+      validate(schema, {
+        name: "web",
+        port: 443,
+        email: undefined,
+        mode: undefined,
+        extra: undefined,
+      }),
+    ).toEqual([]);
+    expect(validate(schema, { name: undefined, port: 443 })).toEqual([
+      { path: "name", keyword: "required", params: { field: "name" } },
+    ]);
+    // In a list, an undefined item and a hole are null.
+    const list = { type: "array", items: { type: ["string", "null"] }, uniqueItems: true } as const;
+    expect(validate(list, ["a", undefined])).toEqual([]);
+    // biome-ignore lint/suspicious/noSparseArray: a list with a hole, as JSON writes it
+    expect(validate(list, [, "a", null])).toEqual([
+      { path: "", keyword: "uniqueItems", params: {} },
+    ]);
+    expect(validate({ type: "array", items: { type: "string" } }, ["a", undefined])).toEqual([
+      { path: "[1]", keyword: "type", params: { expected: "string", actual: "null" } },
+    ]);
+  });
 });
 
 describe("live data", () => {

@@ -124,8 +124,8 @@ type streamEventsInput struct {
 
 // EventType describes an event type.
 type EventType struct {
-	Name        string          `json:"name" doc:"The event type, <kind>.<past-tense verb>, such as web.site.created"`
-	Description string          `json:"description" doc:"When it is emitted"`
+	Name        string          `json:"name" doc:"The type's name, <kind>.<past-tense verb>"`
+	Description string          `json:"description" doc:"What happened, in English"`
 	Severity    events.Severity `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent events of the type are"`
 	// Data is the JSON Schema of the event's data, when it has any.
 	Data json.RawMessage `json:"data,omitempty" doc:"The JSON Schema of the event's data"`
@@ -133,7 +133,7 @@ type EventType struct {
 
 type eventTypesOutput struct {
 	Body struct {
-		Types []EventType `json:"types" doc:"Every event type"`
+		Types []EventType `json:"types" doc:"Every event type, sorted by name"`
 	}
 }
 

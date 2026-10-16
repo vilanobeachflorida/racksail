@@ -16,24 +16,24 @@ import (
 // UserView is a user as the API shows them to themselves: who they are,
 // what they may do and how they sign in, never their secrets.
 type UserView struct {
-	ID       store.ID     `json:"id" doc:"The user's ID"`
+	ID       store.ID     `json:"id" doc:"The user's ID, which starts with user_"`
 	Username string       `json:"username" doc:"What the person signs in with"`
-	Name     string       `json:"name" doc:"The person's name"`
-	Email    string       `json:"email,omitempty" doc:"The person's email address"`
+	Name     string       `json:"name" doc:"The person's name, as the panel shows it"`
+	Email    string       `json:"email,omitempty" doc:"Where the person gets notifications"`
 	Home     store.Scope  `json:"home" doc:"Where the user belongs, and so who manages them"`
-	Grants   []auth.Grant `json:"grants" doc:"The roles the user holds, and where"`
-	Disabled bool         `json:"disabled,omitempty" doc:"Whether the user is kept from signing in"`
-	Locale   string       `json:"locale,omitempty" doc:"The language the panel speaks to the person, such as en or pt-BR"`
+	Grants   []auth.Grant `json:"grants" doc:"What the user may do, and where"`
+	Disabled bool         `json:"disabled,omitempty" doc:"Whether the user is turned off, so they can't sign in"`
+	Locale   string       `json:"locale,omitempty" doc:"The panel's language for the person; empty follows their browser"`
 	// AllowFrom limits where the user may sign in from.
-	AllowFrom          []string   `json:"allowFrom" doc:"The addresses and networks the user may sign in from; anywhere the sign-in policy allows when empty"`
+	AllowFrom          []string   `json:"allowFrom" doc:"Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does"`
 	PasswordSet        bool       `json:"passwordSet" doc:"Whether the user has a password"`
 	MustChangePassword bool       `json:"mustChangePassword,omitempty" doc:"Whether the user has to choose a new password when they next sign in"`
 	TwoFactor          bool       `json:"twoFactor" doc:"Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on"`
 	LockedUntil        *time.Time `json:"lockedUntil,omitempty" doc:"Until when failed sign-ins keep the user out"`
-	LastSignInAt       *time.Time `json:"lastSignInAt,omitempty" doc:"When the person last signed in"`
-	LastSignInIP       string     `json:"lastSignInIp,omitempty" doc:"The address the person last signed in from"`
+	LastSignInAt       *time.Time `json:"lastSignInAt,omitempty" doc:"When they last signed in"`
+	LastSignInIP       string     `json:"lastSignInIp,omitempty" doc:"Where they last signed in from"`
 	CreatedAt          time.Time  `json:"createdAt" doc:"When the user was added"`
-	UpdatedAt          time.Time  `json:"updatedAt" doc:"When the user last changed"`
+	UpdatedAt          time.Time  `json:"updatedAt" doc:"When their settings last changed"`
 	Revision           int64      `json:"revision" doc:"The revision of the user's settings"`
 }
 
@@ -80,11 +80,11 @@ type SessionView struct {
 	Current      bool      `json:"current" doc:"Whether this is the session asking"`
 	CreatedAt    time.Time `json:"createdAt" doc:"When the person signed in"`
 	LastSeenAt   time.Time `json:"lastSeenAt" doc:"When the session was last used"`
-	ExpiresAt    time.Time `json:"expiresAt" doc:"When the session ends at the latest"`
-	IP           string    `json:"ip,omitempty" doc:"The address the session was last used from"`
+	ExpiresAt    time.Time `json:"expiresAt" doc:"When it ends at the latest, however active"`
+	IP           string    `json:"ip,omitempty" doc:"Where it was last used from"`
 	Device       string    `json:"device" doc:"The browser and system, as the browser describes itself"`
 	Method       string    `json:"method" doc:"How the person signed in"`
-	SecondFactor string    `json:"secondFactor,omitempty" doc:"The second step the person signed in with: totp, recovery or passkey"`
+	SecondFactor string    `json:"secondFactor,omitempty" doc:"The second step taken when signing in, if one was"`
 	Impersonator store.ID  `json:"impersonator,omitempty" doc:"Who is viewing the panel as the user in this session"`
 }
 
@@ -97,28 +97,28 @@ func sessionView(x *Session, current store.ID) SessionView {
 
 // DeviceView is a trusted browser.
 type DeviceView struct {
-	ID         store.ID  `json:"id" doc:"The browser's ID"`
-	Name       string    `json:"name" doc:"The browser and system, as the browser describes itself"`
+	ID         store.ID  `json:"id" doc:"The trusted browser's ID"`
+	Name       string    `json:"name" doc:"The browser and system, as the browser described itself"`
 	Current    bool      `json:"current" doc:"Whether it's the browser asking"`
-	IP         string    `json:"ip,omitempty" doc:"The address it was last used from"`
+	IP         string    `json:"ip,omitempty" doc:"Where it was last used from"`
 	CreatedAt  time.Time `json:"createdAt" doc:"When it was trusted"`
-	LastUsedAt time.Time `json:"lastUsedAt" doc:"When it was last used to sign in"`
-	ExpiresAt  time.Time `json:"expiresAt" doc:"When the browser stops being trusted"`
+	LastUsedAt time.Time `json:"lastUsedAt" doc:"When it last skipped the second step"`
+	ExpiresAt  time.Time `json:"expiresAt" doc:"When it stops being trusted"`
 }
 
 // TokenView is an API token, without its secret.
 type TokenView struct {
-	ID          store.ID   `json:"id" doc:"The token's ID"`
-	User        store.ID   `json:"user" doc:"The user the token acts for"`
-	Name        string     `json:"name" doc:"The token's name"`
+	ID          store.ID   `json:"id" doc:"The token's ID, which starts with tok_"`
+	User        store.ID   `json:"user" doc:"The user the token acts as"`
+	Name        string     `json:"name" doc:"What the token is for"`
 	Hint        string     `json:"hint" doc:"How the token starts, to tell tokens apart"`
 	Permissions []string   `json:"permissions" doc:"What the token may do, as permission patterns; empty means whatever its user may do"`
 	Accounts    []store.ID `json:"accounts" doc:"The accounts the token may act on; empty means wherever its user may"`
 	AllowFrom   []string   `json:"allowFrom" doc:"Where the token may be used from; empty means anywhere the sign-in policy allows"`
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty" doc:"When the token stops working; never when left out"`
-	CreatedAt   time.Time  `json:"createdAt" doc:"When the token was made"`
-	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty" doc:"When the token was last used"`
-	LastUsedIP  string     `json:"lastUsedIp,omitempty" doc:"The address the token was last used from"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty" doc:"When it stops working; it lasts until it's revoked without one"`
+	CreatedAt   time.Time  `json:"createdAt" doc:"When it was made"`
+	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty" doc:"When it was last used"`
+	LastUsedIP  string     `json:"lastUsedIp,omitempty" doc:"Where it was last used from"`
 }
 
 func tokenView(t *Token) TokenView {
@@ -141,9 +141,9 @@ func tokenView(t *Token) TokenView {
 // PasskeyView is a passkey as its user sees it.
 type PasskeyView struct {
 	ID         store.ID   `json:"id" doc:"The passkey's ID"`
-	Name       string     `json:"name" doc:"The passkey's name"`
-	CreatedAt  time.Time  `json:"createdAt" doc:"When the passkey was added"`
-	LastUsedAt *time.Time `json:"lastUsedAt,omitempty" doc:"When the passkey was last used"`
+	Name       string     `json:"name" doc:"What it's called, such as the device it's on"`
+	CreatedAt  time.Time  `json:"createdAt" doc:"When it was added"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty" doc:"When it last signed in or confirmed it was the person"`
 	// Synced passkeys live in a password manager or a platform account
 	// rather than in one device.
 	Synced bool `json:"synced" doc:"Whether the passkey is kept in a password manager or synced between devices"`

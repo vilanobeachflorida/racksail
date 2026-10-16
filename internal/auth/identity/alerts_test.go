@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/notify"
 )
 
@@ -69,5 +71,21 @@ func TestAlertsThroughTheCoreChannels(t *testing.T) {
 		}
 	default:
 		t.Fatal("the test alert wasn't posted")
+	}
+
+	// A sign-in from a device ada hasn't used goes out the same way.
+	elsewhere := auth.Client{IP: "203.0.113.200", UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Version/18.0 Mobile/15E148 Safari/604.1"}
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: password}, "", elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case p := <-posts:
+		title, _ := p.body["title"].(string)
+		message, _ := p.body["message"].(string)
+		if !strings.Contains(title, "New sign-in to your account") || !strings.Contains(message, "203.0.113.200") {
+			t.Errorf("the sign-in alert posted %v", p.body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sign-in alert wasn't posted")
 	}
 }

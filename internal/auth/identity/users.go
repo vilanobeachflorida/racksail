@@ -94,9 +94,9 @@ type ResetInput struct {
 
 // ResetResult is what helping a user back in did.
 type ResetResult struct {
-	Link          *IssuedLink `json:"link,omitempty" doc:"The sign-in link to choose a new password with, shown once"`
-	SessionsEnded int         `json:"sessionsEnded" doc:"How many of the user's sessions were ended"`
-	TokensRevoked int         `json:"tokensRevoked" doc:"How many of the user's API tokens were revoked"`
+	Link          *IssuedLink `json:"link,omitempty" doc:"The sign-in link made, shown once"`
+	SessionsEnded int         `json:"sessionsEnded" doc:"How many sessions were ended"`
+	TokensRevoked int         `json:"tokensRevoked" doc:"How many API tokens were revoked"`
 }
 
 // ResetUser helps a user back in. actor needs core.user.reset where the

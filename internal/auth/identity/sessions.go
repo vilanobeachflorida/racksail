@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -62,19 +61,12 @@ func (s *Service) Authenticate(ctx context.Context, r *http.Request) (*auth.Acto
 func (s *Service) clientOf(ctx context.Context, r *http.Request) auth.Client {
 	c := auth.ClientFrom(ctx)
 	if c.IP == "" {
-		c.IP = hostOf(r.RemoteAddr)
+		c.IP = auth.HostOf(r.RemoteAddr)
 	}
 	if c.UserAgent == "" {
 		c.UserAgent = r.UserAgent()
 	}
 	return c
-}
-
-func hostOf(addr string) string {
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return host
-	}
-	return addr
 }
 
 // checkAddress applies the policy's allowlist, which never keeps out the
@@ -245,12 +237,6 @@ func (s *Service) due(key string, now time.Time) bool {
 	return true
 }
 
-// cliClient reports whether a request comes from the racksail command,
-// which says so in its user agent.
-func cliClient(r *http.Request) bool {
-	return strings.HasPrefix(r.UserAgent(), "racksail/")
-}
-
 func (s *Service) authenticateToken(ctx context.Context, secret string, client auth.Client, r *http.Request) (*auth.Actor, error) {
 	if !strings.HasPrefix(secret, auth.TokenPrefix) {
 		return nil, auth.ErrTokenInvalid.New()
@@ -287,8 +273,10 @@ func (s *Service) authenticateToken(ctx context.Context, secret string, client a
 	if err != nil {
 		return nil, err
 	}
+	// A token is a program's, the racksail command's or another's; the
+	// panel's own pages sign in with sessions.
 	source := auth.SourceAPI
-	if cliClient(r) {
+	if auth.SourceOf(r) == auth.SourceCLI {
 		source = auth.SourceCLI
 	}
 	if s.due(string(t.ID), now) || t.LastUsedIP != client.IP {
@@ -449,10 +437,14 @@ func (s *Service) sessionsOf(ctx context.Context, user, current store.ID) ([]Ses
 	return out, nil
 }
 
-// EndMySession ends one of the actor's sessions.
+// EndMySession ends one of the actor's sessions. Someone viewing the panel
+// as the person can't, as they can't sign them out elsewhere.
 func (s *Service) EndMySession(ctx context.Context, actor *auth.Actor, id store.ID) error {
 	if err := requirePerson(actor); err != nil {
 		return err
+	}
+	if actor.Impersonator != "" {
+		return auth.ErrImpersonating.New("user", actor.Name, "action", "end their sessions")
 	}
 	x, err := s.opts.Store.Session(ctx, id)
 	if err != nil || x.User != actor.Person() {

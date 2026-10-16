@@ -1365,7 +1365,7 @@
           },
           "params": {
             "additionalProperties": {},
-            "description": "Values for the placeholders in the code's message",
+            "description": "The values the code's message is filled in with",
             "type": "object"
           },
           "value": {
@@ -4356,7 +4356,7 @@
         "additionalProperties": false,
         "properties": {
           "binary": {
-            "description": "Where the binary it installed is",
+            "description": "The racksail binary the update replaced",
             "type": "string"
           },
           "confirmedAt": {
@@ -4365,16 +4365,16 @@
             "type": "string"
           },
           "from": {
-            "description": "The version before",
+            "description": "The version before the update",
             "type": "string"
           },
           "installedAt": {
-            "description": "When it was installed",
+            "description": "When the release was installed",
             "format": "date-time",
             "type": "string"
           },
           "panelBackup": {
-            "description": "The copy of the panel's database from before",
+            "description": "The copy of the panel's database kept from before the update",
             "type": "string"
           },
           "reason": {
@@ -4382,12 +4382,12 @@
             "type": "string"
           },
           "rolledBackAt": {
-            "description": "When it was rolled back",
+            "description": "When the update was rolled back",
             "format": "date-time",
             "type": "string"
           },
           "snapshots": {
-            "description": "The snapshots taken of the system first",
+            "description": "The read-only snapshots of the system taken before the update",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -4406,11 +4406,11 @@
             "type": "string"
           },
           "tag": {
-            "description": "The release's tag",
+            "description": "The release's tag, such as v1.2.3",
             "type": "string"
           },
           "to": {
-            "description": "The version after",
+            "description": "The version the update installed",
             "type": "string"
           },
           "unprotected": {

@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/design/components/ui/choice";
 import { Label } from "@/design/components/ui/field";
 import { type Preferences, preferenceOptions } from "@/design/theme/prefs";
 import { useTheme } from "@/design/theme/provider";
+import { useSession } from "../identity/session";
 import { messages } from "../messages";
 import { ThemeLayers } from "./theme-layers";
 
@@ -60,16 +61,22 @@ function Choice<K extends keyof Preferences>({
 
 /**
  * Personal display settings, the top theme layer: mode, contrast, density,
- * text size and motion, over the themes the server and reseller set.
+ * text size and motion, over the themes the server and reseller set. They
+ * follow a person who is signed in to every browser.
  */
 export default function AppearanceSettings() {
   const intl = useIntl();
+  const { session } = useSession();
   const t = (d: MessageDescriptor) => intl.formatMessage(d);
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h1 className="font-semibold text-2xl">{t(messages.appearanceTitle)}</h1>
-        <p className="text-muted-foreground">{t(messages.appearanceDescription)}</p>
+        <p className="text-muted-foreground">
+          {intl.formatMessage(messages.appearanceDescription, {
+            kept: session ? "account" : "browser",
+          })}
+        </p>
       </div>
       <Choice
         name="mode"

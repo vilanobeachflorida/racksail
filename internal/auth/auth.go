@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"path"
 	"slices"
@@ -111,22 +112,22 @@ const (
 // Actor is who is acting, and for whom. Audit records keep both, so an
 // assistant action shows the person it acted for.
 type Actor struct {
-	Type ActorType `json:"type" doc:"What is acting: a user, an API token, an automation, an add-on, the assistant or the system"`
+	Type ActorType `json:"type" doc:"What acted: a person, an API token, an automation, an add-on, the assistant or Racksail itself"`
 	// ID is the user, token, automation or add-on; empty for the system.
-	ID   store.ID `json:"id,omitempty" doc:"The user, token, automation or add-on; empty for the system"`
-	Name string   `json:"name" doc:"Its name, as it was called then"`
+	ID   store.ID `json:"id,omitempty" doc:"The user, token, automation or add-on; empty for Racksail itself"`
+	Name string   `json:"name" doc:"Its name: a username, a token's or an add-on's name"`
 	// User is the person responsible when something acts for them, such as
 	// the owner of a token or the user talking to the assistant.
-	User   store.ID `json:"user,omitempty" doc:"The person responsible when something acts for them, such as a token's owner or the person talking to the assistant"`
-	Source Source   `json:"source" doc:"What it acted through: the panel, the racksail command, the API, an automation, an add-on, the assistant or the system"`
+	User   store.ID `json:"user,omitempty" doc:"The person responsible, when something acted for them"`
+	Source Source   `json:"source" doc:"The surface it came through: the panel's pages, the racksail command, the API and so on"`
 	// Impersonator is set while an admin or reseller views as a customer.
-	Impersonator store.ID `json:"impersonator,omitempty" doc:"The admin or reseller viewing the panel as the person, while one does"`
+	Impersonator store.ID `json:"impersonator,omitempty" doc:"Who was viewing the panel as the person"`
 	// UserName and ImpersonatorName are the names of User and Impersonator,
 	// so the records of what the actor does say who without looking them
 	// up, as they were called then.
-	UserName         string `json:"userName,omitempty" doc:"The name of the person it acts for, as it was then"`
-	ImpersonatorName string `json:"impersonatorName,omitempty" doc:"The name of the admin or reseller viewing as the person, as it was then"`
-	IP               string `json:"ip,omitempty" doc:"The address the request came from"`
+	UserName         string `json:"userName,omitempty" doc:"The username of the person responsible, as it was then"`
+	ImpersonatorName string `json:"impersonatorName,omitempty" doc:"The username of whoever was viewing the panel as them, as it was then"`
+	IP               string `json:"ip,omitempty" doc:"The address it came from"`
 	// Grants are what the actor may do. They are never serialized.
 	Grants []Grant `json:"-"`
 	// SessionID identifies the session for revocation; never serialized.
@@ -325,7 +326,8 @@ var RolePermissions = map[Role][]string{
 // reseller or owner pattern would match.
 var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storage.*", "cluster.*", "core.reseller.*", "core.signin_policy.*", "core.signin_provider.*"}
 
-// ServerOnly reports whether only grants on the whole server carry perm.
+// ServerOnly reports whether only grants on the whole server carry perm,
+// even by name.
 func ServerOnly(perm Permission) bool { return matchAny(serverOnly, string(perm)) }
 
 // AboveAccount reports whether grants on an account never carry perm even by
@@ -334,6 +336,19 @@ func ServerOnly(perm Permission) bool { return matchAny(serverOnly, string(perm)
 func AboveAccount(perm Permission) bool {
 	name := string(perm)
 	return strings.HasPrefix(name, "core.account.") && name != "core.account.read"
+}
+
+// carriedAt reports whether a grant on a scope of the given level can carry
+// a permission, or the permissions a pattern matches, at all, whatever its
+// role or the permissions it names.
+func carriedAt(level store.ScopeLevel, perm Permission) bool {
+	switch {
+	case level != store.ScopeServer && ServerOnly(perm):
+		return false
+	case level == store.ScopeAccount && AboveAccount(perm):
+		return false
+	}
+	return true
 }
 
 // RoleAuthorizer is the default Authorizer: roles map to permission
@@ -550,7 +565,8 @@ func patternsOf(g Grant) []string {
 }
 
 // grantable reports whether everything g lets its holder do, a lets its
-// holder do too.
+// holder do too. What a's scope never carries, such as what belongs to the
+// whole server on a reseller's grant, a's patterns don't pass on.
 func grantable(a, g Grant) bool {
 	for _, p := range g.Permissions {
 		if p.Special() && !slices.Contains(a.Permissions, p) {
@@ -560,7 +576,7 @@ func grantable(a, g Grant) bool {
 	held := patternsOf(a)
 	covered := func(patterns []string) bool {
 		for _, p := range patterns {
-			if !coveredBy(held, p) || (len(a.Limit) > 0 && !coveredBy(a.Limit, p)) {
+			if !coveredBy(held, p) || (len(a.Limit) > 0 && !coveredBy(a.Limit, p)) || !carriedAt(a.Scope.Level, Permission(p)) {
 				return false
 			}
 		}
@@ -624,6 +640,11 @@ func (g Grant) Validate() error {
 		case p == PermOverride && (g.Role != RoleAdmin || g.Scope.Level != store.ScopeServer):
 			// Loosening what protects every account is for server admins.
 			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "only an admin's grant on the whole server can carry core.override"))
+		case g.Scope.Level.Valid() && g.Scope.Level != store.ScopeServer && ServerOnly(p):
+			// Named or not, it would never let its holder do anything there.
+			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "only grants on the whole server carry "+string(p)))
+		case g.Scope.Level == store.ScopeAccount && AboveAccount(p):
+			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "grants on an account never carry "+string(p)+"; resellers and admins change accounts"))
 		}
 	}
 	for i, p := range g.Limit {
@@ -702,8 +723,12 @@ func itoa(i int) string {
 	return string(b[n:])
 }
 
+// permits reports whether a grant carries a permission. What a grant's scope
+// never carries it doesn't, even when it names it, so the guard doesn't rest
+// on such permissions only ever being checked against scopes the grant
+// can't reach.
 func permits(g Grant, perm Permission) bool {
-	if g.Scope.Level == store.ScopeAccount && AboveAccount(perm) {
+	if !carriedAt(g.Scope.Level, perm) {
 		return false
 	}
 	if len(g.Limit) > 0 && !matchAny(g.Limit, string(perm)) {
@@ -721,9 +746,6 @@ func permits(g Grant, perm Permission) bool {
 		for _, p := range g.Permissions {
 			patterns = append(patterns, string(p))
 		}
-	}
-	if g.Scope.Level != store.ScopeServer && ServerOnly(perm) {
-		return false
 	}
 	return matchAny(patterns, string(perm))
 }
@@ -833,15 +855,47 @@ func Patterns(actor *Actor) []string {
 
 // DevAuthenticator treats every request as the server admin. It exists for
 // `racksail dev`, which only listens on the loopback address of a
-// developer's machine; the panel role never uses it.
+// developer's machine; the panel role never uses it. The actor's address
+// and source are the request's, as records of what it does show them.
 type DevAuthenticator struct{}
 
 // Authenticate implements Authenticator.
 func (DevAuthenticator) Authenticate(ctx context.Context, r *http.Request) (*Actor, error) {
+	ip := ClientFrom(ctx).IP
+	if ip == "" {
+		ip = HostOf(r.RemoteAddr)
+	}
 	return &Actor{
-		Type: ActorUser, Name: "developer", Source: SourceUI, IP: r.RemoteAddr,
+		Type: ActorUser, Name: "developer", Source: SourceOf(r), IP: ip,
 		Grants: []Grant{{Role: RoleAdmin, Scope: store.ServerScope()}},
 	}, nil
+}
+
+// CLIAgent starts the User-Agent the racksail command sends, such as
+// racksail/1.2.0 (linux/amd64).
+const CLIAgent = "racksail/"
+
+// SourceOf says which surface a request came through, from what it says of
+// itself: the racksail command names itself in its User-Agent, and browsers
+// say where each of their requests comes from in Sec-Fetch-Site, which a
+// page can't leave out. Anything else is a program calling the API.
+func SourceOf(r *http.Request) Source {
+	switch {
+	case strings.HasPrefix(r.UserAgent(), CLIAgent):
+		return SourceCLI
+	case r.Header.Get("Sec-Fetch-Site") != "":
+		return SourceUI
+	}
+	return SourceAPI
+}
+
+// HostOf is the address of a host:port pair without its port, or addr as
+// it is when it has none.
+func HostOf(addr string) string {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }
 
 // NoAuthenticator finds no credentials in any request, so every protected

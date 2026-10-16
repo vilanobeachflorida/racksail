@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createIntl } from "react-intl";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PanelSession } from "@/lib/api/session";
 import { fakeApi, json, renderApp } from "@/test/render";
 import { readLinkReturn } from "./account/security";
@@ -154,6 +154,105 @@ describe("users", () => {
     });
   });
 
+  it("names the account a user belongs to, as the list of users does", async () => {
+    const owen: UserResource = {
+      ...adaResource,
+      id: "user_3",
+      scope: { level: "account", id: "acct_1" },
+      spec: { username: "owen", name: "Owen", grants: [], sshKeys: null },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/users": () => json({ items: [owen], next: "" }),
+      "GET /api/v1/core/users/user_3": () => json(owen),
+      "GET /api/v1/core/accounts": () =>
+        json({
+          items: [
+            {
+              id: "acct_1",
+              kind: "core.account",
+              scope: { level: "account", id: "acct_1" },
+              revision: 1,
+              generation: 1,
+              createdAt: "2026-10-01T10:00:00Z",
+              updatedAt: "2026-10-01T10:00:00Z",
+              spec: { name: "Review Account", slug: "reviewacct" },
+            },
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/users/user_3");
+    const home = await screen.findByRole("textbox", { name: /^Belongs to/ });
+    await waitFor(() => expect(home).toHaveValue("Account Review Account (reviewacct)"));
+  });
+
+  it("offers no help back in while viewing the panel as someone", async () => {
+    // Owen, an account's owner, viewed by an admin, opens one of his users.
+    const owen: PanelSession = {
+      user: {
+        id: "user_2",
+        name: "Owen",
+        username: "owen",
+        home: { level: "account", id: "acct_1" },
+      },
+      permissions: ["*"],
+      modules: {},
+      stepUpMethods: ["password"],
+      accounts: [],
+      impersonation: {
+        by: "user_1",
+        name: "Ada",
+        startedAt: "2026-10-15T10:00:00Z",
+        endsAt: "2026-10-15T11:00:00Z",
+      },
+    };
+    const cleo: UserResource = {
+      ...adaResource,
+      id: "user_3",
+      scope: { level: "account", id: "acct_1" },
+      spec: {
+        username: "cleo",
+        name: "Cleo",
+        grants: [{ role: "collaborator", scope: { level: "account", id: "acct_1" } }],
+        sshKeys: null,
+      },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(owen),
+      "GET /api/v1/core/users/user_3": () => json(cleo),
+      "GET /api/v1/core/users/user_3/sessions": () => json({ sessions: [] }),
+      "GET /api/v1/core/users/user_3/ssh-keys": () => json({ keys: [] }),
+      "GET /api/v1/core/users/user_3/tokens": () =>
+        json({
+          tokens: [
+            {
+              id: "tok_1",
+              user: "user_3",
+              name: "Backups",
+              hint: "rsk_abcd",
+              permissions: ["*.read"],
+              accounts: null,
+              allowFrom: null,
+              createdAt: "2026-10-15T10:00:00Z",
+            },
+          ],
+        }),
+    });
+    renderApp(api, "/users/user_3");
+    expect(await screen.findByRole("heading", { name: "Cleo" })).toBeInTheDocument();
+    for (const name of ["Help them back in", "Make a sign-in link", "View as them"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    await userEvent.click(screen.getByRole("tab", { name: "Signing in" }));
+    expect(await screen.findByText("Backups")).toBeInTheDocument();
+    for (const name of ["Set a password", "Revoke"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  });
+
   it("names users in previews that ask for a typed confirmation", () => {
     expect(resourceName({ id: "user_9", before: { username: "bea" } })).toBe("bea");
     expect(resourceName({ id: "acct_1", after: { slug: "acme" } })).toBe("acme");
@@ -169,6 +268,43 @@ describe("the security settings", () => {
       provider: "signprov_1",
     });
     expect(readLinkReturn("")).toEqual({});
+  });
+});
+
+describe("roles and permissions", () => {
+  it("scroll the permission matrix in a region named after it, as on a phone", async () => {
+    // A phone's screen is narrower than the matrix.
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(360);
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/roles": () =>
+        json({
+          roles: [
+            {
+              role: "admin",
+              title: "Admin",
+              description: "Does everything, everywhere.",
+              levels: ["server"],
+              patterns: ["*"],
+            },
+          ],
+          matrix: [
+            {
+              permission: "web.site.read",
+              description: "See sites",
+              roles: { admin: "everywhere" },
+            },
+          ],
+          self: [],
+        }),
+    });
+    renderApp(api, "/roles");
+    const region = await screen.findByRole("region", { name: "Permission matrix" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    const matrix = within(region).getByRole("table", { name: "Permission matrix" });
+    expect(within(matrix).getByText("web.site.read")).toBeInTheDocument();
   });
 });
 
@@ -205,6 +341,32 @@ describe("the audit log", () => {
       `Once more, the last at ${formatTime(intl, last)}`,
     );
     expect(repeats(intl, { repeats: 4 } as AuditRecord)).toBe("Happened 4 more times");
+  });
+
+  it("lists the records in a table named after it", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/users": () => json({ items: [adaResource], next: "" }),
+      "GET /api/v1/audit": () =>
+        json({
+          records: [
+            {
+              id: "aud_1",
+              time: "2026-10-15T09:00:00Z",
+              action: "web.site.update",
+              summary: "Changed shop.example.com",
+              outcome: "success",
+              scope: { level: "server" },
+              actor: { type: "user", id: "user_1", name: "ada", source: "ui" },
+            },
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/audit");
+    const table = await screen.findByRole("table", { name: "Audit log" });
+    expect(within(table).getByText("Changed shop.example.com")).toBeInTheDocument();
   });
 
   it("shows on a refusal's record how often it repeated", async () => {

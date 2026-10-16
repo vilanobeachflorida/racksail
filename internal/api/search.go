@@ -17,13 +17,13 @@ import (
 // SearchResult is a resource a search found, with what screens show of it
 // in a list.
 type SearchResult struct {
-	ID        store.ID    `json:"id" doc:"The resource's ID"`
+	ID        store.ID    `json:"id" doc:"The resource found"`
 	Kind      string      `json:"kind" doc:"The resource's kind, such as web.site"`
-	Scope     store.Scope `json:"scope" doc:"The owner the resource belongs to"`
+	Scope     store.Scope `json:"scope" doc:"Who it belongs to"`
 	Title     string      `json:"title" doc:"The value of the kind's title field, or the ID when the kind has none"`
 	Subtitle  string      `json:"subtitle,omitempty" doc:"The value of the kind's subtitle field"`
-	Phase     store.Phase `json:"phase" enum:"pending,applying,ready,degraded,failed,deleting" doc:"Where the resource is: being put in place, ready, failing or being deleted"`
-	UpdatedAt time.Time   `json:"updatedAt" doc:"When the resource last changed"`
+	Phase     store.Phase `json:"phase" enum:"pending,applying,ready,degraded,failed,deleting" doc:"The phase its status reports"`
+	UpdatedAt time.Time   `json:"updatedAt" doc:"When its settings last changed"`
 }
 
 type searchInput struct {
@@ -34,7 +34,7 @@ type searchInput struct {
 
 type searchOutput struct {
 	Body struct {
-		Results []SearchResult `json:"results" doc:"The resources that match"`
+		Results []SearchResult `json:"results" doc:"What was found, a few of each kind"`
 		// More names the kinds that had more results than the limit.
 		More []string `json:"more,omitempty" doc:"Kinds with more results than the limit; search one of them alone, with a higher limit, for the rest"`
 	}

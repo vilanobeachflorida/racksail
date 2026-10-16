@@ -10,7 +10,7 @@ import (
 // and the admin's view of the hook pipeline.
 type PointInfo struct {
 	Point       Point  `json:"point" doc:"The hook point, such as web.site.create.validate"`
-	Description string `json:"description,omitempty" doc:"What happens at the point"`
+	Description string `json:"description,omitempty" doc:"What the point is for and what hooks there can do"`
 	// Kind, Operation and Stage split the points of the change pipeline.
 	Kind      string `json:"kind,omitempty" doc:"The kind the point is about, for points of the change pipeline"`
 	Operation string `json:"operation,omitempty" doc:"The operation: create, update, delete or an action's name"`
@@ -23,23 +23,23 @@ type PointInfo struct {
 	Invariants []string `json:"invariants,omitempty" doc:"Settings hooks can only make stricter, unless they hold core.override"`
 	// Hooks are the registrations that run here, those of patterns that
 	// name the point included, in running order.
-	Hooks []HookInfo `json:"hooks,omitempty" doc:"The hooks that run here, those attached to patterns that name it included, in the order they run"`
+	Hooks []HookInfo `json:"hooks,omitempty" doc:"The hooks that run here, in the order they run, those attached by patterns that name the point included"`
 }
 
 // HookInfo describes one registration.
 type HookInfo struct {
 	Owner    string        `json:"owner" doc:"Who registered the hook: module:<id>, addon:<id>, rule:<id> or core:<part>"`
-	Label    string        `json:"label,omitempty" doc:"What the hook is called"`
-	Kind     Kind          `json:"kind" enum:"observe,validate,modify,system,provide,extend" doc:"What sort of hook it is"`
+	Label    string        `json:"label,omitempty" doc:"The hook's name for people, such as Backup policy 1.2; the owner when empty"`
+	Kind     Kind          `json:"kind" enum:"observe,validate,modify,system,provide,extend" doc:"What sort of hook it is: observe, validate, modify, system, provide or extend"`
 	Point    Point         `json:"point" doc:"The point or pattern the hook is attached to"`
-	Priority int           `json:"priority" doc:"Where it runs among the hooks of its point: lower first"`
+	Priority int           `json:"priority" doc:"Where it runs among the hooks of its point, lower first"`
 	Deadline time.Duration `json:"deadline,omitempty" doc:"How long the hook has to answer, in nanoseconds"`
 	Failure  FailureMode   `json:"failureMode,omitempty" enum:"block,allow" doc:"What happens when it fails or runs out of time"`
-	Security bool          `json:"security,omitempty" doc:"Whether it guards security, so safe mode leaves it on"`
+	Security bool          `json:"security,omitempty" doc:"Whether it is a validate hook that enforces a security policy, which blocks when it fails"`
 	Override bool          `json:"override,omitempty" doc:"Whether it holds core.override"`
 	// Provider and Extension name what provide and extend hooks add.
-	Provider string `json:"provider,omitempty" doc:"For a provide hook, the capability it provides"`
-	UI       string `json:"ui,omitempty" doc:"For an extend hook, what it adds to the panel"`
+	Provider string `json:"provider,omitempty" doc:"For a provide hook, the name of what it provides"`
+	UI       string `json:"ui,omitempty" doc:"For an extend hook, the label of the screen entry it adds"`
 	Failures int    `json:"failures,omitempty" doc:"How many times in a row it failed"`
 	Disabled bool   `json:"disabled,omitempty" doc:"Whether the circuit breaker switched it off"`
 }

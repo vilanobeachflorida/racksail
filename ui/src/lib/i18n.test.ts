@@ -8,7 +8,10 @@ import {
   loadMessages,
   loadScreenMessages,
   locales,
+  matchLocale,
   pickLocale,
+  preferredLocale,
+  profileLocale,
   shellMessages,
   storedLocale,
 } from "./i18n";
@@ -26,6 +29,25 @@ describe("pickLocale", () => {
 
   it("offers English", () => {
     expect(locales).toContain("en");
+  });
+
+  it("matches one tag, or says the panel doesn't have its language", () => {
+    const available = ["de", "en", "pt-BR"];
+    expect(matchLocale("PT-br", available)).toBe("pt-BR");
+    expect(matchLocale("de-CH", available)).toBe("de");
+    expect(matchLocale("fr", available)).toBeNull();
+  });
+});
+
+describe("the language a profile names", () => {
+  it("is shown when the panel has it, and the browser's otherwise", () => {
+    expect(profileLocale("en-GB")).toBe("en");
+    expect(profileLocale("en-XA")).toBe("en-XA");
+    expect(profileLocale("tlh")).toBeNull();
+    expect(profileLocale(undefined)).toBeNull();
+    expect(preferredLocale("en-XA")).toBe("en-XA");
+    expect(preferredLocale("tlh")).toBe(pickLocale(navigator.languages));
+    expect(preferredLocale()).toBe(pickLocale(navigator.languages));
   });
 });
 

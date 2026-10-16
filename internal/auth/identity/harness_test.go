@@ -116,7 +116,7 @@ func newHarness(t *testing.T) *harness {
 		Store: st, Resources: resources, Pipeline: engine, Refresh: runner.Enqueue, Secrets: vault, Events: log, Audit: log,
 		Hooks: runHooks, Authorizer: authz, Hostname: "panel.example.test", Log: discard, Now: c.now,
 	})
-	for _, r := range []reconcile.Reconciler{account.Reconciler(kinds), PolicyReconciler(), ProviderReconciler(), svc.UserReconciler()} {
+	for _, r := range []reconcile.Reconciler{account.Reconciler(kinds), PolicyReconciler(), svc.ProviderReconciler(), svc.UserReconciler()} {
 		if err := recs.Register(r); err != nil {
 			t.Fatal(err)
 		}

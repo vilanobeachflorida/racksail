@@ -5,39 +5,39 @@
         "additionalProperties": false,
         "properties": {
           "id": {
-            "description": "The user, token, automation or add-on; empty for the system",
+            "description": "The user, token, automation or add-on; empty for Racksail itself",
             "type": "string"
           },
           "impersonator": {
-            "description": "The admin or reseller viewing the panel as the person, while one does",
+            "description": "Who was viewing the panel as the person",
             "type": "string"
           },
           "impersonatorName": {
-            "description": "The name of the admin or reseller viewing as the person, as it was then",
+            "description": "The username of whoever was viewing the panel as them, as it was then",
             "type": "string"
           },
           "ip": {
-            "description": "The address the request came from",
+            "description": "The address it came from",
             "type": "string"
           },
           "name": {
-            "description": "Its name, as it was called then",
+            "description": "Its name: a username, a token's or an add-on's name",
             "type": "string"
           },
           "source": {
-            "description": "What it acted through: the panel, the racksail command, the API, an automation, an add-on, the assistant or the system",
+            "description": "The surface it came through: the panel's pages, the racksail command, the API and so on",
             "type": "string"
           },
           "type": {
-            "description": "What is acting: a user, an API token, an automation, an add-on, the assistant or the system",
+            "description": "What acted: a person, an API token, an automation, an add-on, the assistant or Racksail itself",
             "type": "string"
           },
           "user": {
-            "description": "The person responsible when something acts for them, such as a token's owner or the person talking to the assistant",
+            "description": "The person responsible, when something acted for them",
             "type": "string"
           },
           "userName": {
-            "description": "The name of the person it acts for, as it was then",
+            "description": "The username of the person responsible, as it was then",
             "type": "string"
           }
         },
@@ -80,10 +80,10 @@
         "properties": {
           "actor": {
             "$ref": "#/components/schemas/Actor",
-            "description": "Who made the change set, and for whom"
+            "description": "Who made it, and what acted for them"
           },
           "appliedAt": {
-            "description": "When it was applied to the settings",
+            "description": "When its changes were written",
             "format": "date-time",
             "type": "string"
           },
@@ -98,7 +98,7 @@
             ]
           },
           "changes": {
-            "description": "The changes, in the order they are applied",
+            "description": "Its changes, in the order they are planned and applied",
             "items": {
               "$ref": "#/components/schemas/ResourceChange"
             },
@@ -108,7 +108,7 @@
             ]
           },
           "conflicts": {
-            "description": "Fields two contributors changed differently; a change set with conflicts can't be applied",
+            "description": "Fields two contributors change; a change set with any can't be applied",
             "items": {
               "$ref": "#/components/schemas/Conflict"
             },
@@ -118,7 +118,7 @@
             ]
           },
           "contributions": {
-            "description": "What hooks, rules, add-ons and modules added to it",
+            "description": "What hooks and add-ons added to it, and who they are",
             "items": {
               "$ref": "#/components/schemas/Contribution"
             },
@@ -133,11 +133,11 @@
             "type": "string"
           },
           "dryRun": {
-            "description": "Whether it is a preview, which applying it with POST /api/v1/changesets/{id}/apply carries out",
+            "description": "Whether it is a preview, which changes nothing until it is applied",
             "type": "boolean"
           },
           "effects": {
-            "description": "What applying it does on the server",
+            "description": "What applying it does to the machine: downloads, packages, ports, services, files and the rest",
             "items": {
               "$ref": "#/components/schemas/Effect"
             },
@@ -147,23 +147,23 @@
             ]
           },
           "error": {
-            "description": "Why it failed",
+            "description": "Why applying it failed",
             "type": "string"
           },
           "estimate": {
             "$ref": "#/components/schemas/Estimate",
-            "description": "What applying it costs in downloads, disk and memory"
+            "description": "What applying it costs, all told"
           },
           "id": {
             "description": "The change set's ID, which starts with chg_",
             "type": "string"
           },
           "job": {
-            "description": "The job that carries out the system changes once it is applied",
+            "description": "The job that carries out its changes on the machine",
             "type": "string"
           },
           "risk": {
-            "description": "How much harm applying it can do, the highest of its changes'",
+            "description": "How much harm applying it can do: the highest risk of its changes",
             "enum": [
               "read",
               "low",
@@ -174,11 +174,11 @@
             "type": "string"
           },
           "snapshot": {
-            "description": "Whether it removes data, so read-only snapshots of what holds that data are taken before it is applied",
+            "description": "Whether it removes data, so read-only snapshots are taken first of what holds it",
             "type": "boolean"
           },
           "snapshots": {
-            "description": "The snapshots taken before it was applied, which a restore can bring back what it removed from; they go when the change set does",
+            "description": "The snapshots taken before it was applied, which a restore brings data back from",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -199,11 +199,11 @@
             "type": "string"
           },
           "title": {
-            "description": "What the change set does",
+            "description": "What the change set does, in a few words",
             "type": "string"
           },
           "undoOf": {
-            "description": "For an undo, the change set it undoes",
+            "description": "The change set it undoes, when it is an undo",
             "type": "string"
           }
         },
@@ -244,15 +244,15 @@
             "type": "string"
           },
           "path": {
-            "description": "The field they both changed",
+            "description": "The field they both change",
             "type": "string"
           },
           "resource": {
-            "description": "The resource whose field two contributors changed",
+            "description": "The resource whose field two contributors change",
             "type": "string"
           },
           "sources": {
-            "description": "Who changed it",
+            "description": "Who changes it",
             "items": {
               "$ref": "#/components/schemas/Source"
             },
@@ -274,7 +274,7 @@
         "additionalProperties": false,
         "properties": {
           "changes": {
-            "description": "The changes it added or changed, as indexes into the change set's changes",
+            "description": "The changes they added or rewrote, as indexes into the change set's changes",
             "items": {
               "format": "int64",
               "type": "integer"
@@ -285,7 +285,7 @@
             ]
           },
           "effects": {
-            "description": "The effects it added, as indexes into the change set's effects",
+            "description": "The effects they added, as indexes into the change set's effects",
             "items": {
               "format": "int64",
               "type": "integer"
@@ -300,7 +300,7 @@
             "description": "Who contributed it"
           },
           "summary": {
-            "description": "What it added, in a few words",
+            "description": "What they contributed, in English",
             "type": "string"
           }
         },
@@ -368,7 +368,7 @@
         "additionalProperties": false,
         "properties": {
           "diskBytes": {
-            "description": "How much more disk it takes once applied, in bytes",
+            "description": "How much more disk it takes, in bytes",
             "format": "int64",
             "type": "integer"
           },
@@ -378,7 +378,7 @@
             "type": "integer"
           },
           "memoryBytes": {
-            "description": "How much more memory what it sets up takes, in bytes",
+            "description": "How much more memory what it runs takes, in bytes",
             "format": "int64",
             "type": "integer"
           }
@@ -394,10 +394,10 @@
         "additionalProperties": false,
         "properties": {
           "after": {
-            "description": "The value after the change"
+            "description": "Its value after the change"
           },
           "before": {
-            "description": "The value before the change"
+            "description": "Its value before the change"
           },
           "op": {
             "description": "Whether the field was added, removed or replaced",
@@ -409,11 +409,11 @@
             "type": "string"
           },
           "path": {
-            "description": "The field, with dots between names and indexes in brackets, such as domains[0]",
+            "description": "The field, with dots and indexes, such as domains[0]",
             "type": "string"
           },
           "sensitive": {
-            "description": "Whether the field holds a secret, so its values are left out",
+            "description": "Whether the field holds a secret, whose values the diff leaves out",
             "type": "boolean"
           }
         },
@@ -443,7 +443,7 @@
           },
           "params": {
             "additionalProperties": {},
-            "description": "Values for the placeholders in the code's message",
+            "description": "The values the code's message is filled in with",
             "type": "object"
           },
           "value": {
@@ -650,17 +650,17 @@
         "additionalProperties": false,
         "properties": {
           "action": {
-            "description": "The action's name, for an action",
+            "description": "The action taken, when the change is one",
             "type": "string"
           },
           "after": {
-            "description": "The settings after the change; secret fields hold references, never values"
+            "description": "Its settings after the change; secret fields hold references, never values"
           },
           "before": {
-            "description": "The settings before the change, kept so it can be undone; secret fields hold references, never values"
+            "description": "Its settings before the change, which undoing it puts back; secret fields hold references, never values"
           },
           "checks": {
-            "description": "What confirms an action's steps worked, checked after they and the resource's reconcile ran",
+            "description": "What confirms an action's steps worked, once they have run",
             "items": {
               "$ref": "#/components/schemas/HealthCheck"
             },
@@ -670,7 +670,7 @@
             ]
           },
           "diff": {
-            "description": "What the change does to each field",
+            "description": "What the change does to each field of the settings",
             "items": {
               "$ref": "#/components/schemas/FieldDiff"
             },
@@ -680,32 +680,32 @@
             ]
           },
           "id": {
-            "description": "The resource's ID",
+            "description": "The resource the change is about",
             "type": "string"
           },
           "input": {
-            "description": "An action's input, kept with the change set, so actions never take secrets as input"
+            "description": "The action's input"
           },
           "kind": {
-            "description": "The kind of the resource",
+            "description": "The resource's kind",
             "type": "string"
           },
           "labels": {
             "additionalProperties": {
               "type": "string"
             },
-            "description": "The labels the resource has after the change",
+            "description": "The resource's labels after the change",
             "type": "object"
           },
           "labelsBefore": {
             "additionalProperties": {
               "type": "string"
             },
-            "description": "The labels before an update or an action, so an undo can put them back",
+            "description": "Its labels before the change, which undoing it puts back",
             "type": "object"
           },
           "op": {
-            "description": "What the change does: create, update, delete or run an action",
+            "description": "What the change does: creates, updates or deletes the resource, or takes one of its actions",
             "enum": [
               "create",
               "update",
@@ -724,7 +724,7 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope",
-            "description": "The owner the resource belongs to"
+            "description": "Who the resource belongs to"
           },
           "server": {
             "description": "The cluster server the resource is placed on; empty for the panel's own server",
@@ -732,7 +732,7 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source",
-            "description": "Who asked for the change: the request, or a hook, rule, add-on or module that added it"
+            "description": "Who asked for the change: the request, or the hook or add-on that added it"
           },
           "state": {
             "description": "How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts",
@@ -743,7 +743,7 @@
             "type": "string"
           },
           "steps": {
-            "description": "What an action runs on the server once, besides putting the resource in place",
+            "description": "The agent operations an action runs on the machine, besides what applying the resource does",
             "items": {
               "$ref": "#/components/schemas/Step"
             },
@@ -810,11 +810,11 @@
             "type": "string"
           },
           "name": {
-            "description": "Which contributor, such as an add-on's id and version",
+            "description": "Which contributor it was, such as an add-on's id and version",
             "type": "string"
           },
           "type": {
-            "description": "Who contributed it: the request, a hook, a rule, an add-on or a module",
+            "description": "Who contributed it: the request itself, a hook, a rule, an add-on or a module",
             "enum": [
               "request",
               "hook",

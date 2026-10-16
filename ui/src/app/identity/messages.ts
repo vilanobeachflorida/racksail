@@ -320,6 +320,7 @@ export const t = {
   providerAdd: m("identity.providerAdd"),
   providerAddTitle: m("identity.providerAddTitle"),
   providerChangeTitle: m("identity.providerChangeTitle"),
+  providerMissing: m("identity.providerMissing"),
   providerRemove: m("identity.providerRemove"),
   providerSaved: m("identity.providerSaved"),
   providerSecondStep: m("identity.providerSecondStep"),
@@ -557,4 +558,5 @@ export const t = {
   usersNone: m("identity.usersNone"),
   usersNoneHelp: m("identity.usersNoneHelp"),
   usersTitle: m("identity.usersTitle"),
+  viewingSignIns: m("identity.viewingSignIns"),
 };

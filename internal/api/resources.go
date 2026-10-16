@@ -76,7 +76,7 @@ type deliveriesInput struct {
 
 type deliveriesOutput struct {
 	Body struct {
-		Deliveries []*webhook.Delivery `json:"deliveries" doc:"The webhook's deliveries, newest first"`
+		Deliveries []*webhook.Delivery `json:"deliveries" doc:"The deliveries on this page, newest first"`
 		Next       string              `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }

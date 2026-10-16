@@ -35,18 +35,18 @@ type InboxItem struct {
 	Category  string            `json:"category" enum:"job,resource,alert,update,certificate,suggestion" doc:"What the item is about"`
 	Severity  events.Severity   `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent it is"`
 	Code      string            `json:"code" doc:"Names the message the panel shows in the person's language, inbox.<code>, filled in from params; title and message are the English text"`
-	Params    map[string]string `json:"params,omitempty" doc:"The values code's message is filled in with"`
+	Params    map[string]string `json:"params,omitempty" doc:"The values the item's message is filled in with"`
 	Title     string            `json:"title" doc:"What needs attention, in English"`
 	Message   string            `json:"message,omitempty" doc:"More about it, in English"`
 	Time      time.Time         `json:"time" doc:"When it started needing attention, or last happened"`
 	Count     int               `json:"count,omitempty" doc:"How often it happened, for alerts that repeat"`
 	Subject   store.ID          `json:"subject,omitempty" doc:"The resource the item is about"`
 	Kind      string            `json:"kind,omitempty" doc:"The subject's kind"`
-	Scope     store.Scope       `json:"scope" doc:"The owner the item belongs to"`
+	Scope     store.Scope       `json:"scope" doc:"Who the item is about, which decides who may see it"`
 	Job       store.ID          `json:"job,omitempty" doc:"The job the item is about"`
 	ChangeSet store.ID          `json:"changeSet,omitempty" doc:"The change set the item is about"`
 	Event     *events.Event     `json:"event,omitempty" doc:"The latest event, for alerts"`
-	Actions   []InboxAction     `json:"actions" doc:"What can be done about it, from the inbox"`
+	Actions   []InboxAction     `json:"actions" doc:"What can be done about it"`
 	Source    string            `json:"source" doc:"What found the item: core, or the id of the module that did"`
 	Version   string            `json:"version" doc:"Changes when the item does; a dismissal holds until it changes"`
 	Dismissal *InboxDismissal   `json:"dismissal,omitempty" doc:"Set on items you dismissed, when those are asked for"`
@@ -87,7 +87,7 @@ type listInboxInput struct {
 
 type inboxOutput struct {
 	Body struct {
-		Items []InboxItem `json:"items" doc:"What needs attention"`
+		Items []InboxItem `json:"items" doc:"What needs attention, most urgent first"`
 		// Dismissed counts the items left out because they were dismissed.
 		Dismissed   int            `json:"dismissed" doc:"How many items you dismissed or snoozed that would show otherwise"`
 		Unavailable []InboxProblem `json:"unavailable,omitempty" doc:"Parts of the inbox that couldn't be read, and why"`

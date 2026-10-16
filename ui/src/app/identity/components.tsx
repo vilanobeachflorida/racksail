@@ -24,6 +24,7 @@ import { Skeleton } from "@/design/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { messages as shell } from "../messages";
 import { t } from "./messages";
+import { useSession } from "./session";
 import { copyText, formatRelative, formatTime } from "./util";
 
 /** A screen's heading, what it's for, and its main actions. */
@@ -236,6 +237,22 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
         <Skeleton key={i} className="h-10 w-full" />
       ))}
     </div>
+  );
+}
+
+/**
+ * Says, while someone views the panel as the person, that how the person
+ * signs in can only be looked at, which is why the screen offers nothing
+ * that would change it.
+ */
+export function ViewingNote() {
+  const intl = useIntl();
+  const { session } = useSession();
+  if (!session?.impersonation) {
+    return null;
+  }
+  return (
+    <Alert tone="info">{intl.formatMessage(t.viewingSignIns, { user: session.user.name })}</Alert>
   );
 }
 

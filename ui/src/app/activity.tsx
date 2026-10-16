@@ -8,8 +8,8 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { lazy, Suspense } from "react";
-import { useIntl } from "react-intl";
+import { lazy, type ReactNode, Suspense } from "react";
+import { type IntlShape, useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
 import { Skeleton } from "@/design/components/ui/skeleton";
@@ -42,6 +42,22 @@ export const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }>
   error: { icon: CircleX, tone: "text-danger" },
   critical: { icon: OctagonAlert, tone: "text-danger" },
 };
+
+/**
+ * A line of activity, such as an event or an item that needs attention,
+ * with how urgent it is said first to screen readers, as its icon shows it.
+ */
+export function severityLine(intl: IntlShape, severity: string, text: string): ReactNode {
+  return intl.formatMessage(messages.activityLine, {
+    severity,
+    text,
+    hidden: (chunks) => (
+      <span key="severity" className="sr-only">
+        {chunks}
+      </span>
+    ),
+  });
+}
 
 /** The home card of the latest events, kept current as they happen. */
 export function RecentActivity() {
@@ -89,12 +105,7 @@ export function RecentActivity() {
                   <Icon className={cn("mt-0.5 size-4 shrink-0", tone)} aria-hidden="true" />
                   <div className="flex min-w-0 flex-col gap-0.5">
                     <p className="text-sm">
-                      <span className="sr-only">
-                        {intl.formatMessage(messages.activitySeverity, {
-                          severity: event.severity,
-                        })}{" "}
-                      </span>
-                      {eventText(intl, event)}
+                      {severityLine(intl, event.severity, eventText(intl, event))}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       {intl.formatMessage(messages.activityWhen, {

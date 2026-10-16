@@ -242,18 +242,8 @@ func (s *Server) registerChangeSets() {
 		if p == nil {
 			return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 		}
-		if !in.DryRun {
-			actor, err := Actor(ctx)
-			if err != nil {
-				return nil, err
-			}
-			if err := s.stepUpFor(actor, s.requestRisk(in.Body.Changes)); err != nil {
-				return nil, err
-			}
-			if err := s.stepUpForKinds(actor, s.requestConfirms(in.Body.Changes)); err != nil {
-				return nil, err
-			}
-		}
+		// Submit asks for what the changes need confirming, critical ones
+		// included, once they are planned.
 		return Submit(ctx, p, in.ChangeParams, changeset.Request{Title: in.Body.Title, Changes: in.Body.Changes})
 	})
 
@@ -282,19 +272,13 @@ func (s *Server) registerChangeSets() {
 				return earlier, err
 			}
 		}
-		preview, err := s.changeSet(ctx, in.ID)
-		if err != nil {
+		if _, err := s.changeSet(ctx, in.ID); err != nil {
 			return nil, err
 		}
-		if !in.DryRun {
-			if err := s.stepUpFor(actor, preview.Risk); err != nil {
-				return nil, err
-			}
-			if err := s.stepUpForKinds(actor, s.changeSetConfirms(preview)); err != nil {
-				return nil, err
-			}
-		}
-		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, DryRun: in.DryRun, IdempotencyKey: in.IdempotencyKey})
+		// What applying it needs confirming is judged by the preview as it is
+		// planned again for the actor, which is what gets applied; a dry run
+		// applies nothing, so it isn't asked about.
+		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, DryRun: in.DryRun, IdempotencyKey: in.IdempotencyKey, Confirm: s.confirmPlan(actor)})
 		if err != nil {
 			return nil, err
 		}
@@ -328,19 +312,12 @@ func (s *Server) registerChangeSets() {
 				return earlier, err
 			}
 		}
-		original, err := s.changeSet(ctx, in.ID)
-		if err != nil {
+		if _, err := s.changeSet(ctx, in.ID); err != nil {
 			return nil, err
 		}
-		if !in.DryRun {
-			if err := s.stepUpFor(actor, s.undoRisk(original)); err != nil {
-				return nil, err
-			}
-			if err := s.stepUpForKinds(actor, s.changeSetConfirms(original)); err != nil {
-				return nil, err
-			}
-		}
-		cs, err := s.pipeline().Undo(ctx, changeset.UndoRequest{Actor: actor, ChangeSet: in.ID, DryRun: in.DryRun, IdempotencyKey: in.IdempotencyKey})
+		// An undo is judged by the changes it makes, as planned, rather than
+		// by those it undoes.
+		cs, err := s.pipeline().Undo(ctx, changeset.UndoRequest{Actor: actor, ChangeSet: in.ID, DryRun: in.DryRun, IdempotencyKey: in.IdempotencyKey, Confirm: s.confirmPlan(actor)})
 		if err != nil {
 			return nil, err
 		}

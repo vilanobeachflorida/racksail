@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -217,6 +218,33 @@ func TestStatus(t *testing.T) {
 	out, err := run(t, "status", "--server", srv.URL)
 	if err != nil || !strings.Contains(out, "racksail 1.2.3 (stable), ok") {
 		t.Errorf("status = %q, %v", out, err)
+	}
+
+	// The checks' states line up after the longest name, however long.
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/health":
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"degraded","checks":[{"name":"agent","status":"ok"},{"name":"notifications","status":"ok"},` +
+				`{"name":"backups.destinations","status":"failing","message":"The destination doesn't answer."}]}`))
+		case "/api/v1/version":
+			w.Write([]byte(`{"version":"1.2.3","channel":"stable","goVersion":"go1.27","os":"linux","arch":"amd64"}`))
+		}
+	}))
+	defer failing.Close()
+	out, err = run(t, "status", "--server", failing.URL)
+	var exit exitError
+	if !errors.As(err, &exit) || exit.code != 2 {
+		t.Errorf("a degraded server = %v", err)
+	}
+	want := []string{
+		"  agent                ok",
+		"  notifications        ok",
+		"  backups.destinations failing: The destination doesn't answer.",
+	}
+	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 4 || !slices.Equal(lines[1:], want) {
+		t.Errorf("status of a degraded server =\n%s", out)
 	}
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/problem+json")

@@ -150,9 +150,14 @@ export function toastWithUndo({
     duration,
     action: {
       label: labels.undo,
-      onClick: () => {
+      onClick: (event) => {
+        // Sonner closes a toast once its action is pressed, unless told
+        // not to; this one stays to say how the undo went.
+        event.preventDefault();
         toast.promise(undo(), {
           id,
+          // Undo is offered once.
+          action: null,
           loading: labels.undoing,
           success: labels.undone,
           error: (error: unknown) => labels.failed(error),

@@ -453,7 +453,7 @@ function Channels() {
       {items.length === 0 && !channels.isPending ? (
         <EmptyState icon={Bell} title={intl.formatMessage(m.notifyNoChannels)} />
       ) : (
-        <Table>
+        <Table aria-labelledby="notify-channels">
           <TableHeader>
             <TableRow>
               <TableHead>{intl.formatMessage(m.notifyChannelName)}</TableHead>
@@ -765,7 +765,7 @@ function Log() {
       <h2 id="notify-log" className="font-semibold text-lg">
         {intl.formatMessage(m.notifyLog)}
       </h2>
-      <Table>
+      <Table aria-labelledby="notify-log">
         <TableHeader>
           <TableRow>
             <TableHead>{intl.formatMessage(m.notifyLogWhen)}</TableHead>

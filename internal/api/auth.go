@@ -143,7 +143,7 @@ type passkeyOptionsOutput struct {
 
 type passkeyFinishInput struct {
 	Body struct {
-		Ceremony   string          `json:"ceremony" doc:"The ceremony beginning the sign-in started"`
+		Ceremony   string          `json:"ceremony" doc:"The ceremony the step's first half answered with"`
 		Credential json.RawMessage `json:"credential" doc:"The passkey's answer, as PublicKeyCredential.toJSON() gives it"`
 		Remember   bool            `json:"remember,omitempty" doc:"Stay signed in when the browser closes"`
 	}

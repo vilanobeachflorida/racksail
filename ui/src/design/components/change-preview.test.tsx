@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { type ChangeSet, confirmationTarget, resourceTitle } from "@/lib/changes";
+import { shellMessages } from "@/lib/i18n";
 import { renderWithProviders } from "@/test/render";
 import { ChangePreview } from "./change-preview";
 
@@ -171,6 +172,21 @@ describe("the change preview", () => {
     await userEvent.click(confirm);
     expect(onApply).toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
+  it("says what a change removes in one message, which translators can reorder", async () => {
+    renderWithProviders(<ChangePreview changeSet={deletion} onApply={() => {}} />, {
+      messages: {
+        ...shellMessages,
+        "design.preview.effectLine":
+          "{target} ({action}){hasDetail, select, yes {: {detail}} other {}}",
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByRole("listitem")).toHaveTextContent(
+      /^\/srv\/racksail\/accounts\/acct\/sites\/example\.com \(Delete\)$/,
+    );
   });
 
   it("asks for the id of a resource without a name", async () => {

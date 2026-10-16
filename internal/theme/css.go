@@ -115,11 +115,17 @@ var TextSizes = []struct {
 	Zoom string
 }{{"small", "0.875"}, {"large", "1.125"}, {"larger", "1.25"}, {"largest", "1.5"}}
 
-// shadowPattern is the theme schema's pattern for shadows, whose color
-// functions take numbers only. Parse refuses shadows that don't match it,
-// and the renderer leaves them out, so not even a theme built in code can
-// leave a parenthesis open and swallow the rest of its layer.
-var shadowPattern = regexp.MustCompile(schemaPattern("shadow"))
+// The theme schema's patterns for the values the stylesheet takes as they
+// are: shadows, whose color functions take numbers only, lengths and
+// durations. Parse refuses values that don't match them, and the renderer
+// leaves them out, so not even a theme built in code can close its rule
+// with a brace, or leave a parenthesis open and swallow the rest of its
+// layer.
+var (
+	shadowPattern   = regexp.MustCompile(schemaPattern("shadow"))
+	lengthPattern   = regexp.MustCompile(schemaPattern("length"))
+	durationPattern = regexp.MustCompile(schemaPattern("duration"))
+)
 
 // schemaPattern returns the pattern of a definition in the theme schema.
 func schemaPattern(def string) string {
@@ -145,7 +151,21 @@ func schemaPattern(def string) string {
 // cssShadow is a shadow as the stylesheet gets it: as it is when the schema
 // allows it, and left out otherwise.
 func cssShadow(s string) string {
-	if shadowPattern.MatchString(s) {
+	return matching(shadowPattern, s)
+}
+
+// cssLength is a length, such as a radius, as the stylesheet gets it.
+func cssLength(s string) string {
+	return matching(lengthPattern, s)
+}
+
+// cssDuration is a duration as the stylesheet gets it.
+func cssDuration(s string) string {
+	return matching(durationPattern, s)
+}
+
+func matching(pattern *regexp.Regexp, s string) string {
+	if pattern.MatchString(s) {
 		return s
 	}
 	return ""
@@ -156,21 +176,28 @@ func sharedVars(tok Tokens) [][2]string {
 	vars := [][2]string{
 		{"fontSans", fontStack(tok.Typography.Sans.Family, "ui-sans-serif, system-ui, sans-serif")},
 		{"fontMono", fontStack(tok.Typography.Mono.Family, "ui-monospace, monospace")},
-		{"fontSizeBase", tok.Typography.BaseSize},
+		{"fontSizeBase", cssLength(tok.Typography.BaseSize)},
 	}
-	if w := tok.Typography.Weights; w.Regular != 0 {
-		vars = append(vars,
-			[2]string{"weightRegular", strconv.Itoa(w.Regular)}, [2]string{"weightMedium", strconv.Itoa(w.Medium)},
-			[2]string{"weightSemibold", strconv.Itoa(w.Semibold)}, [2]string{"weightBold", strconv.Itoa(w.Bold)})
+	// A weight the theme doesn't set stays as the layers below have it.
+	w := tok.Typography.Weights
+	for _, weight := range []struct {
+		name  string
+		value int
+	}{{"weightRegular", w.Regular}, {"weightMedium", w.Medium}, {"weightSemibold", w.Semibold}, {"weightBold", w.Bold}} {
+		if weight.value != 0 {
+			vars = append(vars, [2]string{weight.name, strconv.Itoa(weight.value)})
+		}
 	}
 	if tok.Typography.Scale != 0 {
 		vars = append(vars, typeScale(tok.Typography.Scale)...)
 	}
 	vars = append(vars,
-		[2]string{"radiusSm", tok.Radius.SM}, [2]string{"radiusMd", tok.Radius.MD}, [2]string{"radiusLg", tok.Radius.LG}, [2]string{"radiusXl", tok.Radius.XL},
+		[2]string{"radiusSm", cssLength(tok.Radius.SM)}, [2]string{"radiusMd", cssLength(tok.Radius.MD)},
+		[2]string{"radiusLg", cssLength(tok.Radius.LG)}, [2]string{"radiusXl", cssLength(tok.Radius.XL)},
 		[2]string{"shadowSm", cssShadow(tok.Shadows.SM)}, [2]string{"shadowMd", cssShadow(tok.Shadows.MD)}, [2]string{"shadowLg", cssShadow(tok.Shadows.LG)},
-		[2]string{"motionFast", tok.Motion.Fast}, [2]string{"motionNormal", tok.Motion.Normal}, [2]string{"motionSlow", tok.Motion.Slow},
-		[2]string{"focusWidth", tok.FocusRing.Width}, [2]string{"focusOffset", tok.FocusRing.Offset},
+		[2]string{"motionFast", cssDuration(tok.Motion.Fast)}, [2]string{"motionNormal", cssDuration(tok.Motion.Normal)},
+		[2]string{"motionSlow", cssDuration(tok.Motion.Slow)},
+		[2]string{"focusWidth", cssLength(tok.FocusRing.Width)}, [2]string{"focusOffset", cssLength(tok.FocusRing.Offset)},
 	)
 	if d, ok := densityVars[tok.Density]; ok {
 		vars = append(vars, d...)

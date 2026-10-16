@@ -26,10 +26,14 @@ type ChangeSetOutput struct {
 }
 
 // Submit sends a request through the change pipeline for the signed-in
-// actor, with the operation's change parameters, and builds the answer.
-// The pipeline looks the idempotency key up before it reads anything, so a
-// request built without reading anything gets the first change set back on
-// a retry; one built from what the store holds goes through SubmitFunc.
+// actor, with the operation's change parameters, and builds the answer. A
+// person in the panel confirms it's them first when what the changes do
+// needs it, such as giving a user a new email address, whichever operation
+// sends them: the pipeline asks once they are planned, hooks' changes
+// included. The pipeline looks the idempotency key up before it reads
+// anything, so a request built without reading anything gets the first
+// change set back on a retry; one built from what the store holds goes
+// through SubmitFunc.
 func Submit(ctx context.Context, p changeset.Pipeline, params ChangeParams, req changeset.Request) (*ChangeSetOutput, error) {
 	if p == nil {
 		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
@@ -39,6 +43,7 @@ func Submit(ctx context.Context, p changeset.Pipeline, params ChangeParams, req 
 		return nil, err
 	}
 	req.Actor, req.DryRun, req.IdempotencyKey = actor, params.DryRun, params.IdempotencyKey
+	req.Confirm = confirmerFor(ctx, actor, req.Confirm)
 	cs, err := p.Submit(ctx, req)
 	if err != nil {
 		return nil, err

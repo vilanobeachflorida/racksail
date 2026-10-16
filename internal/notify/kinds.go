@@ -227,7 +227,7 @@ func (in RelayTestInput) Validate() error {
 
 // RelayTestOutput is how the test went.
 type RelayTestOutput struct {
-	Sent  bool   `json:"sent" doc:"Whether the relay took the test message"`
+	Sent  bool   `json:"sent" doc:"Whether the relay took the email"`
 	Error string `json:"error,omitempty" doc:"Why the relay didn't take the email"`
 }
 

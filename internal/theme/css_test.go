@@ -175,3 +175,47 @@ func TestShadows(t *testing.T) {
 		t.Errorf("an unclosed shadow: %v", err)
 	}
 }
+
+func TestLengthsAndDurations(t *testing.T) {
+	// A theme built in code can't close its rule early with a length or a
+	// duration, which the stylesheet takes as they are.
+	d := Default()
+	d.Tokens.Radius.SM = "4px}main{display:none}x{"
+	d.Tokens.Typography.BaseSize = "1rem;color:red"
+	d.Tokens.Motion.Fast = "120ms}"
+	d.Tokens.FocusRing.Width = "3px"
+	css := d.LayerCSS(nil)
+	for _, gone := range []string{"--rs-radius-sm", "--rs-font-size-base", "--rs-motion-fast", "main{", "color:red"} {
+		if strings.Contains(css, gone) {
+			t.Errorf("the layer has %q:\n%s", gone, css)
+		}
+	}
+	for _, kept := range []string{"--rs-radius-md: 6px;", "--rs-motion-slow: 320ms;", "--rs-focus-width: 3px;"} {
+		if !strings.Contains(css, kept) {
+			t.Errorf("the layer lacks %q:\n%s", kept, css)
+		}
+	}
+	if strings.Count(css, "{") != strings.Count(css, "}") {
+		t.Errorf("the layer doesn't balance:\n%s", css)
+	}
+	if _, err := Parse(encode(t, d)); err == nil || !strings.Contains(err.Error(), "radius/sm") {
+		t.Errorf("a broken radius: %v", err)
+	}
+}
+
+func TestWeights(t *testing.T) {
+	// A weight the theme leaves out is the default's, not 0.
+	d := Default()
+	d.Tokens.Typography.Weights = Weights{Medium: 450, Bold: 800}
+	css := d.LayerCSS(nil)
+	for _, kept := range []string{"--rs-weight-medium: 450;", "--rs-weight-bold: 800;"} {
+		if !strings.Contains(css, kept) {
+			t.Errorf("the layer lacks %q:\n%s", kept, css)
+		}
+	}
+	for _, gone := range []string{"--rs-weight-regular", "--rs-weight-semibold"} {
+		if strings.Contains(css, gone) {
+			t.Errorf("the layer has %q:\n%s", gone, css)
+		}
+	}
+}

@@ -60,7 +60,7 @@ type passkeysOutput struct {
 
 type passkeyRegisterInput struct {
 	Body struct {
-		Ceremony   string          `json:"ceremony" doc:"The ceremony beginning the registration started"`
+		Ceremony   string          `json:"ceremony" doc:"The ceremony the step's first half answered with"`
 		Name       string          `json:"name,omitempty" maxLength:"64" doc:"What to call the passkey, such as the device it's on"`
 		Credential json.RawMessage `json:"credential" doc:"The new passkey, as PublicKeyCredential.toJSON() gives it"`
 	}
@@ -79,7 +79,7 @@ type renameInput struct {
 
 type sessionsOutput struct {
 	Body struct {
-		Sessions []identity.SessionView `json:"sessions" doc:"Your sessions, the one asking among them"`
+		Sessions []identity.SessionView `json:"sessions" doc:"The sessions, the one asking marked"`
 	}
 }
 
@@ -95,13 +95,13 @@ type devicesInput struct {
 
 type devicesOutput struct {
 	Body struct {
-		Devices []identity.DeviceView `json:"devices" doc:"The browsers you trust, which skip the second step"`
+		Devices []identity.DeviceView `json:"devices" doc:"The trusted browsers"`
 	}
 }
 
 type tokensOutput struct {
 	Body struct {
-		Tokens []identity.TokenView `json:"tokens" doc:"Your API tokens, without their secrets"`
+		Tokens []identity.TokenView `json:"tokens" doc:"The API tokens, without their secrets"`
 	}
 }
 
@@ -116,7 +116,7 @@ type createdTokenOutput struct {
 
 type sshKeysOutput struct {
 	Body struct {
-		Keys []auth.SSHKey `json:"keys" doc:"Your SSH keys"`
+		Keys []auth.SSHKey `json:"keys" doc:"The SSH public keys"`
 	}
 }
 
@@ -152,7 +152,7 @@ type linkStartOutput struct {
 
 type linksOutput struct {
 	Body struct {
-		Links []identity.LinkView `json:"links" doc:"The sign-in providers your user is linked to"`
+		Links []identity.LinkView `json:"links" doc:"The outside identities linked to your user"`
 	}
 }
 
@@ -162,14 +162,14 @@ type linkProviderPath struct {
 
 type mfaOptionsOutput struct {
 	Body struct {
-		Methods []identity.MFAOption `json:"methods" doc:"The second steps you can set up"`
+		Methods []identity.MFAOption `json:"methods" doc:"The second steps add-ons provide"`
 	}
 }
 
 type mfaFinishInput struct {
 	ID   store.ID `path:"id" doc:"The second step's ID, as the list of them gives it"`
 	Body struct {
-		Ceremony string `json:"ceremony" doc:"The ceremony beginning it started"`
+		Ceremony string `json:"ceremony" doc:"The ceremony the step's first half answered with"`
 		Response string `json:"response,omitempty" maxLength:"256" doc:"What the method asked the person for; empty for methods without input"`
 	}
 }
@@ -177,7 +177,7 @@ type mfaFinishInput struct {
 // AlertChannelTypeView is a kind of channel security alerts can go to, with
 // the schema of its settings.
 type AlertChannelTypeView struct {
-	ID       string          `json:"id" doc:"The channel type, as alert settings name it"`
+	ID       string          `json:"id" doc:"The channel type, or provider:<name> for one an add-on provides"`
 	Title    string          `json:"title" doc:"What the channel type is called"`
 	Secrets  []string        `json:"secrets,omitempty" doc:"The settings that hold secrets, which are kept encrypted with the rest and never shown again"`
 	Settings json.RawMessage `json:"settings,omitempty" doc:"The JSON Schema of the channel's settings"`
@@ -271,8 +271,9 @@ func (s *Server) registerMe() {
 
 	updateMe := reg(huma.Operation{
 		OperationID: "updateMe", Method: http.MethodPut, Path: base, Summary: "Change your details",
-		Description: "Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.",
-		Responses:   changeSetResponses(s, "The change set, applied to your user"),
+		Description: "Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview. " +
+			"A new email address takes confirming it's you first, since outside sign-in may match people by it; a new name or language doesn't.",
+		Responses: changeSetResponses(s, "The change set, applied to your user"),
 	}, store.RiskLow, inPanel)
 	Describe(&updateMe, Info{Risk: store.RiskLow, DryRun: true, Reversible: true, Session: true})
 	huma.Register(s.api, updateMe, func(ctx context.Context, in *profileInput) (*ChangeSetOutput, error) {
@@ -774,9 +775,10 @@ func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
 
 // submitOwn sends a change of the person's own user through the change
 // pipeline. It names no revision, so the pipeline plans it again when
-// something else changed the user while it was planned. A retry gets the
-// first change set before build reads the user, which no longer has the SSH
-// key the first request removed.
+// something else changed the user while it was planned, and asks again
+// then whether it needs a confirmation, as a new email address does. A
+// retry gets the first change set before build reads the user, which no
+// longer has the SSH key the first request removed.
 func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func() (changeset.Request, error)) (*ChangeSetOutput, error) {
 	return SubmitFunc(ctx, s.pipeline(), params, build)
 }

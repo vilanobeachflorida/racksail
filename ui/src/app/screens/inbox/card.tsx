@@ -1,11 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { BellOff, CircleCheck, EllipsisVertical, ExternalLink, RotateCcw } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { type IntlShape, useIntl } from "react-intl";
-import { severityIcons } from "@/app/activity";
+import { severityIcons, severityLine } from "@/app/activity";
 import { useChangeTracker } from "@/app/changes/tracker";
-import { messages as shellMessages } from "@/app/messages";
 import { useModules } from "@/app/modules";
 import { useShell } from "@/app/shell-state";
 import { docsURL } from "@/app/topbar";
@@ -84,6 +83,18 @@ function actionLabel(
         : action.title;
     }
   }
+}
+
+/** The label of an action that opens a new tab, which says so to screen readers. */
+export function newTabLabel(intl: IntlShape, label: string): ReactNode {
+  return intl.formatMessage(m.newTab, {
+    label,
+    hidden: (chunks) => (
+      <span key="new-tab" className="sr-only">
+        {chunks}
+      </span>
+    ),
+  });
 }
 
 /** Runs an item's actions: most go somewhere, retry and undo act at once. */
@@ -224,10 +235,7 @@ function ItemRow({
       <Icon className={cn("mt-0.5 size-4 shrink-0", tone)} aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p id={titleId} className="break-words font-medium">
-          <span className="sr-only">
-            {intl.formatMessage(shellMessages.activitySeverity, { severity: item.severity })}{" "}
-          </span>
-          {title}
+          {severityLine(intl, item.severity, title)}
         </p>
         {message ? <p className="break-words text-muted-foreground">{message}</p> : null}
         <p className="flex flex-wrap gap-x-3 text-muted-foreground text-xs">
@@ -260,13 +268,14 @@ function ItemRow({
                 onClick={() => void actions.run(item, action)}
               >
                 {action.type === "retry_job" ? <RotateCcw aria-hidden="true" /> : null}
-                {actionLabel(intl, action, moduleTitle)}
                 {action.type === "docs" ? (
                   <>
-                    <ExternalLink aria-hidden="true" />{" "}
-                    <span className="sr-only">{intl.formatMessage(m.newTab)}</span>
+                    {newTabLabel(intl, actionLabel(intl, action, moduleTitle))}
+                    <ExternalLink aria-hidden="true" />
                   </>
-                ) : null}
+                ) : (
+                  actionLabel(intl, action, moduleTitle)
+                )}
               </Button>
             ))}
           </div>

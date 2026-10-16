@@ -31,15 +31,15 @@ type Message struct {
 	ID       string          `json:"id,omitempty" doc:"The same on every attempt to deliver the message"`
 	Title    string          `json:"title" doc:"What happened, in a few words"`
 	Body     string          `json:"body" doc:"What happened and what to do, in plain text"`
-	Severity events.Severity `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent it is"`
+	Severity events.Severity `json:"severity" enum:"info,notice,warning,error,critical" doc:"How serious it is: info, notice, warning, error or critical"`
 	// URL links back to the panel, such as the failed job.
 	URL string `json:"url,omitempty" doc:"Where in the panel to look"`
 	// ActionLabel names the link, such as "Look at the backup".
-	ActionLabel string `json:"actionLabel,omitempty" doc:"What the link to the panel says, such as Look at the backup"`
+	ActionLabel string `json:"actionLabel,omitempty" doc:"What the link back to the panel says, such as Look at the backup"`
 	// Event is the event the message is about, when there is one.
-	Event *events.Event `json:"event,omitempty" doc:"The event it is about, when there is one"`
+	Event *events.Event `json:"event,omitempty" doc:"The event the message is about, when there is one"`
 	// Digest holds the messages a summary of quiet hours stands for.
-	Digest []Message `json:"digest,omitempty" doc:"For a summary of quiet hours, the messages it stands for"`
+	Digest []Message `json:"digest,omitempty" doc:"The messages a summary of quiet hours stands for"`
 }
 
 // Channel delivers messages to one destination.

@@ -69,13 +69,18 @@ type SSHKeyRef struct {
 	ID store.ID `json:"id" doc:"The key's ID, which starts with sshkey_"`
 }
 
+// ActionUpdateProfile is the action that changes a user's name, email
+// address and language.
+const ActionUpdateProfile = "update_profile"
+
 // The actions of users, besides creating, changing and deleting them.
 // Everyone may take them on their own user.
 var userActions = []store.Action{
 	{
-		Name: "update_profile", Title: "Change profile", Summary: "Change a user's name, email address and language",
-		Description: "Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own.",
-		Risk:        store.RiskLow, Input: ProfileInput{}, Reversible: true, Past: "profile_updated",
+		Name: ActionUpdateProfile, Title: "Change profile", Summary: "Change a user's name, email address and language",
+		Description: "Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own. " +
+			"A new email address takes confirming it's you in the panel, since outside sign-in may match people by it.",
+		Risk: store.RiskLow, Input: ProfileInput{}, Reversible: true, Past: "profile_updated",
 	},
 	{
 		Name: "add_ssh_key", Title: "Add SSH key", Summary: "Add an SSH public key to a user",
@@ -133,6 +138,12 @@ var (
 
 // NormalizeUsername is how usernames are compared: trimmed and lowercase.
 func NormalizeUsername(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
+
+// NormalizeEmail is how email addresses are compared: trimmed and
+// lowercase, as the users' email index keeps them and outside sign-in looks
+// them up. Unicode's case folding counts more addresses as one, such as
+// those with a long s, which the index tells apart.
+func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
 
 func defaultUser(ctx context.Context, obj *store.Object[UserSpec, UserStatus]) error {
 	normalize(&obj.Spec)
@@ -291,7 +302,7 @@ func ownSignIn(actor *auth.Actor, id store.ID, old, next UserSpec) error {
 	if actor.Person() != id || (actor.Type == auth.ActorUser && actor.Impersonator == "") {
 		return nil
 	}
-	if old.Username == next.Username && strings.EqualFold(old.Email, next.Email) && slices.Equal(old.AllowFrom, next.AllowFrom) &&
+	if old.Username == next.Username && NormalizeEmail(old.Email) == NormalizeEmail(next.Email) && slices.Equal(old.AllowFrom, next.AllowFrom) &&
 		sameKeys(old.SSHKeys, next.SSHKeys) {
 		return nil
 	}
@@ -299,6 +310,32 @@ func ownSignIn(actor *auth.Actor, id store.ID, old, next UserSpec) error {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change how they sign in")
 	}
 	return auth.ErrPanelOnly.New()
+}
+
+// SignInMatchChanged reports whether a change of a user's settings changes
+// what outside sign-in matches people to them by: their username or their
+// email address, compared as the matching compares them. The first time
+// someone signs in through a provider that matches by one of them, it
+// decides which user they become, so such a change could become a way in
+// that outlasts whoever makes it, and people in the panel confirm it's them
+// first.
+func SignInMatchChanged(before, after UserSpec) bool {
+	return NormalizeUsername(before.Username) != NormalizeUsername(after.Username) ||
+		NormalizeEmail(before.Email) != NormalizeEmail(after.Email)
+}
+
+// ApplyProfile returns a user's settings with the update_profile action's
+// input applied: its name, email address and language, trimmed.
+func ApplyProfile(spec UserSpec, input json.RawMessage) (UserSpec, error) {
+	var in ProfileInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return spec, i18n.ErrBadRequest.New("reason", "the profile isn't valid JSON")
+	}
+	if fields := checkProfile(in, "input."); len(fields) > 0 {
+		return spec, i18n.Invalid(fields...)
+	}
+	spec.Name, spec.Email, spec.Locale = strings.TrimSpace(in.Name), strings.TrimSpace(in.Email), strings.TrimSpace(in.Locale)
+	return spec, nil
 }
 
 // sameKeys reports whether two lists hold the same SSH keys, whatever their
