@@ -79,6 +79,33 @@
       "type": "array",
       "items": { "$ref": "#/$defs/upstream" }
     },
+    "ports": {
+      "description": "Ports the module opens in the firewall while it is active, for the preview before it is turned on.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["port", "protocol", "description"],
+        "properties": {
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "protocol": { "enum": ["tcp", "udp"] },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "services": {
+      "description": "Services the module runs while it is active, for the preview before it is turned on.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit", "description"],
+        "properties": {
+          "unit": { "type": "string", "pattern": "^[A-Za-z0-9:_.@*-]+\\.(service|socket|timer)$" },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": false,
@@ -152,7 +179,13 @@
           }
         },
         "install": { "description": "When it is installed, in plain words.", "type": "string", "minLength": 1 },
-        "optIn": { "description": "Only installed when an admin asks for it.", "type": "boolean" }
+        "optIn": { "description": "Only installed when an admin asks for it.", "type": "boolean" },
+        "downloadMB": {
+          "description": "About how much is downloaded when it is installed, for software whose size the package index can't tell, such as a vendor archive.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "diskMB": { "description": "About how much disk it takes once installed.", "type": "integer", "minimum": 0 }
       }
     }
   }

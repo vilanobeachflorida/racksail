@@ -15,6 +15,8 @@ cost:
   activeMemoryMB: 80
   diskMB: 400
   notes: The engine itself; apps use what their images need.
+services:
+  - {unit: docker.service, description: Runs the containers.}
 upstream:
   - id: docker
     name: Docker Engine

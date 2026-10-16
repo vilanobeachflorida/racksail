@@ -18,6 +18,18 @@ cost:
   activeMemoryMB: 250
   diskMB: 120
   notes: Rspamd uses most of the memory. Webmail adds a managed site.
+ports:
+  - {port: 25, protocol: tcp, description: "SMTP, for mail from other servers"}
+  - {port: 465, protocol: tcp, description: Mail submission over TLS}
+  - {port: 587, protocol: tcp, description: Mail submission}
+  - {port: 143, protocol: tcp, description: IMAP}
+  - {port: 993, protocol: tcp, description: IMAP over TLS}
+  - {port: 4190, protocol: tcp, description: "ManageSieve, for mail filters"}
+services:
+  - {unit: postfix.service, description: Sends and receives mail.}
+  - {unit: cyrus-imapd.service, description: Keeps the mailboxes and serves them over IMAP.}
+  - {unit: rspamd.service, description: Filters spam and signs outgoing mail.}
+  - {unit: valkey-server.service, description: "Keeps Rspamd's statistics and caches."}
 upstream:
   - id: postfix
     name: Postfix

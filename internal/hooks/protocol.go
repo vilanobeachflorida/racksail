@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -48,6 +49,13 @@ type AddonHealth struct {
 	APIVersion string `json:"apiVersion" doc:"The hook API version the add-on speaks, such as v1"`
 }
 
+// ProvideCall is what the panel sends an add-on to call a method of a
+// capability it provides, as POST /provide/{capability}/{method}. The
+// capability's interface says what each method takes and returns.
+type ProvideCall struct {
+	Input any `json:"input,omitempty" doc:"What the method takes, as the capability's interface describes it"`
+}
+
 // ProtocolDocument returns the OpenAPI document of the add-on protocol.
 func ProtocolDocument() ([]byte, error) {
 	cfg := httpapi.Config("Racksail add-on protocol", APIVersion)
@@ -89,6 +97,53 @@ func ProtocolDocument() ([]byte, error) {
 			"200":     {Description: "The hook's answer", Content: jsonBody(reflect.TypeFor[HookReply](), "HookReply")},
 			"default": problem,
 		},
+	})
+	segment := func(name, description string) *huma.Param {
+		return &huma.Param{Name: name, In: "path", Required: true, Description: description, Schema: &huma.Schema{Type: "string", Pattern: `^[a-z][a-z0-9_-]*$`}}
+	}
+	doc.AddOperation(&huma.Operation{
+		OperationID: "provide",
+		Method:      http.MethodPost,
+		Path:        "/provide/{capability}/{method}",
+		Summary:     "Call a method of a capability the add-on provides",
+		Description: "The panel calls it when it uses a capability the add-on declares under provides, such as sending a notification " +
+			"for notifier or creating a record for dns. The capability's interface says what each method takes and returns.",
+		Tags:        []string{"Add-on"},
+		Parameters:  []*huma.Param{segment("capability", "The capability, as under provides"), segment("method", "The method, such as send")},
+		RequestBody: &huma.RequestBody{Required: true, Content: jsonBody(reflect.TypeFor[ProvideCall](), "ProvideCall")},
+		Responses: map[string]*huma.Response{
+			"200":     {Description: "What the method returns", Content: map[string]*huma.MediaType{"application/json": {Schema: &huma.Schema{}}}},
+			"default": problem,
+		},
+	})
+	forwarded := []*huma.Param{
+		{Name: "path", In: "path", Required: true, Description: "The rest of the path", Schema: &huma.Schema{Type: "string"}},
+		{Name: "Racksail-Actor", In: "header", Description: "Who is asking, as JSON: type, id, name, user and source. The panel signed them in and checked they may use the add-on", Schema: &huma.Schema{Type: "string"}},
+		{Name: "Racksail-Request-Id", In: "header", Description: "The ID of the panel request this one comes from, for the add-on's logs", Schema: &huma.Schema{Type: "string"}},
+	}
+	for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		doc.AddOperation(&huma.Operation{
+			OperationID: "route" + strings.ToUpper(m[:1]) + strings.ToLower(m[1:]),
+			Method:      m,
+			Path:        "/routes/{path}",
+			Summary:     "Serve one of the add-on's API routes",
+			Description: "The panel passes requests for /api/v1/addons/<id>/<path> on to the add-on, for the routes its manifest declares. " +
+				"Cookies and credentials stay with the panel; the add-on learns who asks from Racksail-Actor.",
+			Tags:       []string{"Add-on"},
+			Parameters: forwarded,
+			Responses:  map[string]*huma.Response{"default": {Description: "Whatever the route answers"}},
+		})
+	}
+	doc.AddOperation(&huma.Operation{
+		OperationID: "screen",
+		Method:      http.MethodGet,
+		Path:        "/ui/{path}",
+		Summary:     "Serve one of the add-on's screens",
+		Description: "Pages of the add-on's UI extensions that need more than the panel's declarative entries. The panel shows them in a " +
+			"sandboxed frame of an origin of their own, so they can never read the panel's session.",
+		Tags:       []string{"Add-on"},
+		Parameters: forwarded,
+		Responses:  map[string]*huma.Response{"200": {Description: "The page", Content: map[string]*huma.MediaType{"text/html": {Schema: &huma.Schema{Type: "string"}}}}},
 	})
 	return json.MarshalIndent(doc, "", "  ")
 }

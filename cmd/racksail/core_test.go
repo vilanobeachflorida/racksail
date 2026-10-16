@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/modules"
+	"github.com/vilanobeachflorida/racksail/internal/modules/modulestest"
 )
 
 // knot stands in for a module that runs a service and checks on it.
@@ -33,7 +34,6 @@ func (k *knot) HealthChecks() []modules.HealthCheck {
 }
 
 func TestModuleHealthChecks(t *testing.T) {
-	reg := modules.NewRegistry()
 	mod := &knot{Base: modules.NewBase([]byte(`
 id: dns
 name: DNS
@@ -47,12 +47,8 @@ hardware: {arch: [amd64, arm64]}
 cost: {idleMemoryMB: 1, activeMemoryMB: 2, diskMB: 3}
 upstream: []
 `))}
-	if err := reg.Add(mod, nil); err != nil {
-		t.Fatal(err)
-	}
-	svc := &modules.Services{}
-	manager := modules.NewManager(reg, modules.ManagerOptions{Services: svc})
-	checks := moduleHealthChecks(reg, manager, svc)
+	e := modulestest.New(t, modulestest.Options{}, mod)
+	checks := moduleHealthChecks(e.Registry, e.Manager, e.Services)
 	if len(checks) != 1 || checks[0].Name != "dns.knot" {
 		t.Fatalf("checks = %+v", checks)
 	}
@@ -60,9 +56,7 @@ upstream: []
 		t.Error("a module that is off isn't checked")
 	}
 	ctx := context.Background()
-	if err := manager.TurnOn(ctx, "dns"); err != nil {
-		t.Fatal(err)
-	}
+	e.TurnOn(t, "dns")
 	if !checks[0].Active() || checks[0].Check(ctx) != nil {
 		t.Error("once it's on, its check runs and passes")
 	}

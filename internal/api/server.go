@@ -212,6 +212,7 @@ func New(opts Options) *Server {
 			}
 		}
 	}
+	s.addExtensions()
 	// The operations of kinds come last, so the schemas they build take
 	// names no Go type has.
 	s.registerKinds()

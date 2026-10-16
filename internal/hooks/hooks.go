@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -45,6 +44,9 @@ const (
 	Extend Kind = "extend"
 )
 
+// Kinds lists the hook kinds, from least to most powerful.
+func Kinds() []Kind { return []Kind{Observe, Validate, Modify, System, Provide, Extend} }
+
 // FailureMode says what happens when a synchronous hook errors or times out.
 type FailureMode string
 
@@ -71,6 +73,9 @@ var (
 	// specs of the changes its point is about, the changes it added and the
 	// effects it added.
 	ErrOverstep = i18n.Define("hooks.overstep", http.StatusUnprocessableEntity, "The hook changed {what}, which hooks can't change.")
+	// ErrNotDisabled answers a request to switch on a hook the circuit
+	// breaker didn't switch off.
+	ErrNotDisabled = i18n.Define("hooks.not_disabled", http.StatusConflict, "{hook} on {point} isn't switched off.")
 )
 
 // KindPoint returns the hook point of an operation on a kind at a stage.
@@ -105,6 +110,13 @@ const (
 	MigrationCutoverBefore Point = "migration.cutover.before"
 	MigrationCutoverAfter  Point = "migration.cutover.after"
 	AuthLoginValidate      Point = "auth.login.validate"
+	// The Debian upgrade points surround an upgrade of the operating system
+	// to its next major version, such as Debian 13 to 14. Validate hooks at
+	// the check point can refuse to start it; observe hooks hear about the
+	// rest.
+	OSUpgradeCheck  Point = "core.os_upgrade.check"
+	OSUpgradeBefore Point = "core.os_upgrade.before"
+	OSUpgradeAfter  Point = "core.os_upgrade.after"
 )
 
 // StaticPoints are the hook points that don't come from kinds.
@@ -117,6 +129,9 @@ var StaticPoints = map[Point]string{
 	MigrationCutoverBefore: "A migration is about to switch over.",
 	MigrationCutoverAfter:  "A migration has switched over.",
 	AuthLoginValidate:      "Someone is signing in; login policies can refuse it.",
+	OSUpgradeCheck:         "An upgrade of Debian to its next major version is being planned; hooks can refuse it.",
+	OSUpgradeBefore:        "Debian is about to be upgraded to its next major version.",
+	OSUpgradeAfter:         "Debian was upgraded to its next major version, or the upgrade was rolled back.",
 	AuthProvider:           "External identity providers, such as LDAP or OIDC.",
 	AuthMFA:                "Second-factor methods.",
 	ProvideDNS:             "External DNS providers.",
@@ -150,6 +165,10 @@ func ModulePoints(id string) []Point {
 
 var configPointPattern = regexp.MustCompile(`^system\.[a-z0-9-]+\.[a-z0-9-]+$`)
 
+// IsConfigPoint reports whether p is a system.<service>.<part> point,
+// where system hooks patch generated configuration.
+func IsConfigPoint(p Point) bool { return configPointPattern.MatchString(string(p)) }
+
 // Context is what validate, modify and observe hooks see. Each hook gets
 // its own copy of the change set and the actor.
 type Context struct {
@@ -180,14 +199,33 @@ type ConfigPatch struct {
 	Config map[string]any `json:"config"`
 }
 
+// Owner types: who registered a hook.
+const (
+	OwnerModule = "module"
+	OwnerAddon  = "addon"
+	OwnerRule   = "rule"
+	// OwnerCore is the core's own hooks, such as the module manager's
+	// refusal to create resources of a module that is off.
+	OwnerCore = "core"
+)
+
+// OwnerType returns the part of an owner before the colon, such as addon.
+func OwnerType(owner string) string {
+	t, _, _ := strings.Cut(owner, ":")
+	return t
+}
+
 // Registration attaches one handler to one hook point. Exactly one of the
 // handler fields is set, the one matching Kind: OnValidate, OnModify,
 // OnObserve, OnConfig (system), Provider (provide) or Extension (extend).
 type Registration struct {
+	// Point is where the hook attaches. Validate, modify and observe hooks
+	// may name several points with a pattern, where * stands for any part
+	// of one segment: web.site.*.validate, or *.*.create.plan.
 	Point Point
 	Kind  Kind
-	// Owner identifies who registered it: "module:<id>", "addon:<id>" or
-	// "rule:<id>".
+	// Owner identifies who registered it: "module:<id>", "addon:<id>",
+	// "rule:<id>" or "core:<part>".
 	Owner    string
 	Priority int
 	Deadline time.Duration
@@ -195,6 +233,14 @@ type Registration struct {
 	// Security marks validate hooks that enforce a security policy; they
 	// block by default when they fail.
 	Security bool
+	// Override says the hook holds core.override, which only a server admin
+	// can grant: it may loosen the invariants of the configuration it
+	// patches. Every time it does is logged and recorded in the audit log.
+	// Rules never hold it.
+	Override bool
+	// Label names the hook for people, such as "Backup policy 1.2"; the
+	// owner is used when it is empty.
+	Label string
 
 	OnValidate func(ctx context.Context, c *Context) error
 	OnModify   func(ctx context.Context, c *Context) error
@@ -204,9 +250,30 @@ type Registration struct {
 	Extension  *Extension
 }
 
+// Name is how the hook is shown to people.
+func (r *Registration) Name() string {
+	if r.Label != "" {
+		return r.Label
+	}
+	return r.Owner
+}
+
+var ownerPattern = regexp.MustCompile(`^(module|addon|rule|core):[a-z0-9][a-z0-9._-]*$`)
+
 func (r *Registration) check() error {
-	if r.Owner == "" || (!strings.HasPrefix(r.Owner, "module:") && !strings.HasPrefix(r.Owner, "addon:") && !strings.HasPrefix(r.Owner, "rule:")) {
-		return fmt.Errorf("hook owner %q must be module:<id>, addon:<id> or rule:<id>", r.Owner)
+	if !ownerPattern.MatchString(r.Owner) {
+		return fmt.Errorf("hook owner %q must be module:<id>, addon:<id>, rule:<id> or core:<part>", r.Owner)
+	}
+	if r.Override && OwnerType(r.Owner) == OwnerRule {
+		return fmt.Errorf("hook %s: rules can't hold core.override", r.Owner)
+	}
+	if IsPattern(r.Point) {
+		if r.Kind != Validate && r.Kind != Modify && r.Kind != Observe {
+			return fmt.Errorf("hook %s: only validate, modify and observe hooks can name points with a pattern, not %s hooks", r.Owner, r.Kind)
+		}
+		if !validPattern(r.Point) {
+			return fmt.Errorf("hook %s: %q isn't a pattern of hook points", r.Owner, r.Point)
+		}
 	}
 	switch r.Kind {
 	case Provide:
@@ -226,6 +293,9 @@ func (r *Registration) check() error {
 			r.Failure = Block
 		}
 	}
+	if r.Failure != Allow && r.Failure != Block {
+		return fmt.Errorf("hook %s on %s: unknown failure mode %q", r.Owner, r.Point, r.Failure)
+	}
 	var handler bool
 	switch r.Kind {
 	case Validate:
@@ -235,7 +305,7 @@ func (r *Registration) check() error {
 	case Observe:
 		handler = r.OnObserve != nil
 	case System:
-		handler = r.OnConfig != nil && configPointPattern.MatchString(string(r.Point))
+		handler = r.OnConfig != nil && IsConfigPoint(r.Point)
 	default:
 		return fmt.Errorf("hook %s: unknown hook kind %q", r.Owner, r.Kind)
 	}
@@ -250,13 +320,23 @@ type Registry struct {
 	mu       sync.RWMutex
 	points   map[Point]string
 	regs     map[Point][]Registration
-	failures map[string]int
-	disabled map[string]bool
+	patterns []Registration
+	configs  map[Point]ConfigService
+	breakers map[string]*breaker
+	store    BreakerStore
+	log      *slog.Logger
+}
+
+// breaker counts a hook's failures in a row, and says whether the circuit
+// breaker switched it off.
+type breaker struct {
+	failures int
+	disabled *DisabledHook
 }
 
 // NewRegistry returns a registry with the static points.
 func NewRegistry() *Registry {
-	r := &Registry{points: map[Point]string{}, regs: map[Point][]Registration{}, failures: map[string]int{}, disabled: map[string]bool{}}
+	r := &Registry{points: map[Point]string{}, regs: map[Point][]Registration{}, configs: map[Point]ConfigService{}, breakers: map[string]*breaker{}}
 	for p, d := range StaticPoints {
 		r.points[p] = d
 	}
@@ -268,8 +348,32 @@ func (r *Registry) DeclareKind(k store.Kind) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, p := range KindPoints(k) {
-		r.points[p] = k.Info().Title + " hook point."
+		_, op, stage, _ := ParseKindPoint(p)
+		r.points[p] = describeKindPoint(k.Info().Title, op, stage)
 	}
+}
+
+// describeKindPoint says what happens at a point of the change pipeline,
+// for people choosing where to attach a hook.
+func describeKindPoint(title, op, stage string) string {
+	var what, done string
+	switch op {
+	case "create":
+		what, done = "creating one", "one was created"
+	case "update":
+		what, done = "changing one", "one was changed"
+	case "delete":
+		what, done = "deleting one", "one was deleted"
+	default:
+		what, done = "its "+op+" action", "its "+op+" action was carried out"
+	}
+	switch stage {
+	case string(changeset.StageValidate):
+		return title + ": " + what + " is checked; validate hooks can refuse it."
+	case string(changeset.StagePlan):
+		return title + ": " + what + " is planned; modify hooks can add to the change."
+	}
+	return title + ": " + done + "."
 }
 
 // Declare adds a hook point a module offers beyond the generated ones, such
@@ -300,13 +404,46 @@ func (r *Registry) Known(p Point) bool {
 	return ok
 }
 
-// Register attaches a hook. The point must be declared.
+// Matching lists the declared points a pattern names, sorted. A point
+// without wildcards names itself when it is declared.
+func (r *Registry) Matching(pattern Point) []Point {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.matchingLocked(pattern)
+}
+
+func (r *Registry) matchingLocked(pattern Point) []Point {
+	var out []Point
+	if !IsPattern(pattern) {
+		if _, ok := r.points[pattern]; ok {
+			out = append(out, pattern)
+		}
+		return out
+	}
+	for p := range r.points {
+		if MatchPoint(pattern, p) {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// Register attaches a hook. The point must be declared; a pattern must name
+// at least one declared point.
 func (r *Registry) Register(reg Registration) error {
 	if err := reg.check(); err != nil {
 		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if IsPattern(reg.Point) {
+		if len(r.matchingLocked(reg.Point)) == 0 {
+			return ErrUnknownHook.New("point", string(reg.Point))
+		}
+		r.patterns = sortRegs(append(slices.Clone(r.patterns), reg))
+		return nil
+	}
 	if _, ok := r.points[reg.Point]; !ok {
 		return ErrUnknownHook.New("point", string(reg.Point))
 	}
@@ -317,82 +454,208 @@ func (r *Registry) Register(reg Registration) error {
 			}
 		}
 	}
-	list := append(slices.Clone(r.regs[reg.Point]), reg)
+	r.regs[reg.Point] = sortRegs(append(slices.Clone(r.regs[reg.Point]), reg))
+	return nil
+}
+
+// sortRegs puts registrations in running order: priority, then owner, then
+// the point they name, so the order never depends on when they registered.
+func sortRegs(list []Registration) []Registration {
 	sort.SliceStable(list, func(i, j int) bool {
 		if list[i].Priority != list[j].Priority {
 			return list[i].Priority < list[j].Priority
 		}
-		return list[i].Owner < list[j].Owner
+		if list[i].Owner != list[j].Owner {
+			return list[i].Owner < list[j].Owner
+		}
+		return list[i].Point < list[j].Point
 	})
-	r.regs[reg.Point] = list
-	return nil
+	return list
 }
 
 // Unregister removes every hook an owner registered, as when an add-on is
-// removed or safe mode switches add-ons off.
+// removed, a rule is deleted or safe mode switches add-ons off. Whether the
+// circuit breaker had switched any of them off is kept, so registering them
+// again doesn't switch them back on.
 func (r *Registry) Unregister(owner string) {
+	r.UnregisterFunc(func(reg Registration) bool { return reg.Owner == owner })
+}
+
+// UnregisterFunc removes every hook for which drop returns true.
+func (r *Registry) UnregisterFunc(drop func(Registration) bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for p, list := range r.regs {
-		kept := slices.DeleteFunc(slices.Clone(list), func(reg Registration) bool { return reg.Owner == owner })
+		kept := slices.DeleteFunc(slices.Clone(list), drop)
 		if len(kept) == 0 {
 			delete(r.regs, p)
 		} else {
 			r.regs[p] = kept
 		}
 	}
-	for key := range r.failures {
-		if strings.HasPrefix(key, owner+"\x00") {
-			delete(r.failures, key)
-			delete(r.disabled, key)
-		}
-	}
+	r.patterns = slices.DeleteFunc(slices.Clone(r.patterns), drop)
 }
 
-// For returns the hooks of a kind attached to a point, in running order.
+// Owners lists the owners with hooks registered, sorted.
+func (r *Registry) Owners() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	seen := map[string]bool{}
+	for _, list := range r.regs {
+		for _, reg := range list {
+			seen[reg.Owner] = true
+		}
+	}
+	for _, reg := range r.patterns {
+		seen[reg.Owner] = true
+	}
+	out := make([]string, 0, len(seen))
+	for o := range seen {
+		out = append(out, o)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// For returns the hooks of a kind that run at a point, in running order:
+// those attached to the point itself and those whose pattern names it.
 // Hooks switched off by the circuit breaker are left out.
 func (r *Registry) For(p Point, kind Kind) []Registration {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var out []Registration
 	for _, reg := range r.regs[p] {
-		if reg.Kind == kind && !r.disabled[breakerKey(reg)] {
+		if reg.Kind == kind && !r.isDisabled(reg) {
 			out = append(out, reg)
 		}
 	}
+	matched := false
+	for _, reg := range r.patterns {
+		if reg.Kind == kind && MatchPoint(reg.Point, p) && !r.isDisabled(reg) {
+			out = append(out, reg)
+			matched = true
+		}
+	}
+	if matched {
+		out = sortRegs(out)
+	}
 	return out
+}
+
+func (r *Registry) isDisabled(reg Registration) bool {
+	b := r.breakers[breakerKey(reg.Owner, reg.Point)]
+	return b != nil && b.disabled != nil
 }
 
 // BreakerThreshold is how many failures in a row switch a hook off.
 const BreakerThreshold = 5
 
-func breakerKey(reg Registration) string { return reg.Owner + "\x00" + string(reg.Point) }
+func breakerKey(owner string, p Point) string { return owner + "\x00" + string(p) }
 
-// result records a hook's outcome for the circuit breaker and reports
-// whether it was just switched off.
-func (r *Registry) result(reg Registration, failed bool) bool {
+// result records a hook's outcome for the circuit breaker. It returns the
+// record of the hook being switched off when this failure did it.
+func (r *Registry) result(ctx context.Context, reg Registration, failure error) *DisabledHook {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	key := breakerKey(reg)
-	if !failed {
-		r.failures[key] = 0
-		return false
+	key := breakerKey(reg.Owner, reg.Point)
+	b := r.breakers[key]
+	if b == nil {
+		b = &breaker{}
+		r.breakers[key] = b
 	}
-	r.failures[key]++
-	if r.failures[key] >= BreakerThreshold && !r.disabled[key] {
-		r.disabled[key] = true
-		return true
+	if failure == nil {
+		b.failures = 0
+		r.mu.Unlock()
+		return nil
 	}
-	return false
+	b.failures++
+	if b.failures < BreakerThreshold || b.disabled != nil {
+		r.mu.Unlock()
+		return nil
+	}
+	d := &DisabledHook{Owner: reg.Owner, Point: reg.Point, Failures: b.failures, Reason: i18n.From(failure).Message, At: time.Now().UTC()}
+	if code := i18n.CodeOf(failure); code == "" || code == i18n.ErrInternal.Code {
+		d.Reason = failure.Error()
+	}
+	b.disabled = d
+	st, log := r.store, r.log
+	r.mu.Unlock()
+	if st != nil {
+		if err := st.Disable(ctx, *d); err != nil && log != nil {
+			log.Error("recording a hook the circuit breaker switched off", "owner", reg.Owner, "point", reg.Point, "error", err)
+		}
+	}
+	return d
 }
 
 // Reset switches a hook back on after an admin has looked at it.
 func (r *Registry) Reset(owner string, p Point) {
+	_ = r.Enable(context.Background(), owner, p)
+}
+
+// Enable switches a hook the circuit breaker switched off back on, and
+// forgets its failures.
+func (r *Registry) Enable(ctx context.Context, owner string, p Point) error {
+	r.mu.Lock()
+	key := breakerKey(owner, p)
+	b := r.breakers[key]
+	if b == nil || b.disabled == nil {
+		r.mu.Unlock()
+		return ErrNotDisabled.New("hook", owner, "point", string(p))
+	}
+	delete(r.breakers, key)
+	st := r.store
+	r.mu.Unlock()
+	if st != nil {
+		return st.Enable(ctx, owner, p)
+	}
+	return nil
+}
+
+// Disabled lists the hooks the circuit breaker switched off, oldest first.
+func (r *Registry) Disabled() []DisabledHook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []DisabledHook
+	for _, b := range r.breakers {
+		if b.disabled != nil {
+			out = append(out, *b.disabled)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].At.Equal(out[j].At) {
+			return out[i].At.Before(out[j].At)
+		}
+		return breakerKey(out[i].Owner, out[i].Point) < breakerKey(out[j].Owner, out[j].Point)
+	})
+	return out
+}
+
+// Failures returns how many times in a row a hook has failed.
+func (r *Registry) Failures(owner string, p Point) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if b := r.breakers[breakerKey(owner, p)]; b != nil {
+		return b.failures
+	}
+	return 0
+}
+
+// UseBreakerStore keeps what the circuit breaker switches off in st, so a
+// hook that was switched off stays off when the panel starts again, until
+// an admin switches it back on. It loads what st already holds.
+func (r *Registry) UseBreakerStore(ctx context.Context, st BreakerStore, log *slog.Logger) error {
+	disabled, err := st.Disabled(ctx)
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := owner + "\x00" + string(p)
-	delete(r.disabled, key)
-	r.failures[key] = 0
+	r.store, r.log = st, log
+	for _, d := range disabled {
+		d := d
+		r.breakers[breakerKey(d.Owner, d.Point)] = &breaker{failures: d.Failures, disabled: &d}
+	}
+	return nil
 }
 
 // Runner runs hooks for the change pipeline. It implements changeset.Hooks.
@@ -400,7 +663,15 @@ type Runner struct {
 	Registry *Registry
 	// Events receives a notice when a hook is switched off.
 	Events events.Bus
-	Log    *slog.Logger
+	// Audit records what hooks contributed to applied change sets, the
+	// configuration patches that used core.override and the hooks the
+	// circuit breaker switched off. It may be nil.
+	Audit events.AuditLog
+	Log   *slog.Logger
+
+	mu sync.Mutex
+	// overrides are the loosenings with core.override already recorded.
+	overrides map[string]bool
 }
 
 var _ changeset.Hooks = (*Runner)(nil)
@@ -433,29 +704,57 @@ func call(ctx context.Context, deadline time.Duration, fn func(ctx context.Conte
 	}
 }
 
+// HookDisabledData is the data of core.hook.disabled events.
+type HookDisabledData struct {
+	Owner    string `json:"owner" doc:"Who registered the hook, such as addon:site-guard"`
+	Point    Point  `json:"point" doc:"The hook point or pattern it was attached to"`
+	Failures int    `json:"failures" doc:"How many times in a row it failed"`
+	Reason   string `json:"reason" doc:"Why it failed the last time"`
+}
+
 // settle records a hook's outcome. It returns an error only for a failure
 // (not a denial) of a hook that blocks when it fails.
 func (r *Runner) settle(ctx context.Context, reg Registration, err error, denial bool) error {
-	failed := err != nil && !denial
-	if r.Registry.result(reg, failed) {
-		r.log().Warn("hook switched off after repeated failures", "owner", reg.Owner, "point", reg.Point)
-		if r.Events != nil {
-			if pubErr := r.Events.Publish(ctx, events.Event{
-				Type: "core.hook.disabled", Severity: events.SeverityWarning, Scope: store.ServerScope(),
-				Message: fmt.Sprintf("%s was switched off on %s after failing %d times in a row.", reg.Owner, reg.Point, BreakerThreshold),
-			}); pubErr != nil {
-				r.log().Warn("publishing an event", "error", pubErr)
-			}
-		}
+	var failure error
+	if err != nil && !denial {
+		failure = err
 	}
-	if !failed {
+	if d := r.Registry.result(ctx, reg, failure); d != nil {
+		r.switchedOff(ctx, reg, *d)
+	}
+	if failure == nil {
 		return nil
 	}
 	r.log().Warn("hook failed", "owner", reg.Owner, "point", reg.Point, "error", err)
 	if reg.Failure == Block {
-		return ErrHookFailed.Wrap(err, "hook", reg.Owner)
+		return ErrHookFailed.Wrap(err, "hook", reg.Name())
 	}
 	return nil
+}
+
+// switchedOff tells admins that the circuit breaker switched a hook off:
+// a warning event, which notifications pass on to them, and an audit record.
+func (r *Runner) switchedOff(ctx context.Context, reg Registration, d DisabledHook) {
+	ctx = context.WithoutCancel(ctx)
+	message := fmt.Sprintf("%s was switched off on %s after failing %d times in a row: %s", reg.Name(), reg.Point, d.Failures, d.Reason)
+	r.log().Warn("hook switched off after repeated failures", "owner", reg.Owner, "point", reg.Point, "reason", d.Reason)
+	if r.Events != nil {
+		data, _ := json.Marshal(HookDisabledData{Owner: d.Owner, Point: d.Point, Failures: d.Failures, Reason: d.Reason})
+		if pubErr := r.Events.Publish(ctx, events.Event{
+			Type: events.HookDisabled.Name, Severity: events.HookDisabled.Severity, Scope: store.ServerScope(),
+			Actor: auth.System("hooks"), Message: message, Data: data,
+		}); pubErr != nil {
+			r.log().Warn("publishing an event", "error", pubErr)
+		}
+	}
+	if r.Audit != nil {
+		if err := r.Audit.Record(ctx, events.AuditRecord{
+			Actor: *auth.System("hooks"), Action: "core.hook.disable", Scope: store.ServerScope(),
+			Outcome: events.OutcomeSuccess, Summary: message,
+		}); err != nil {
+			r.log().Error("writing an audit record", "action", "core.hook.disable", "error", err)
+		}
+	}
 }
 
 // Validate implements changeset.Hooks. Each hook decides on its own copy of
@@ -492,6 +791,7 @@ func (r *Runner) Check(ctx context.Context, point Point, actor *auth.Actor, data
 func (r *Runner) validate(ctx context.Context, point Point, newContext func() *Context) error {
 	for _, reg := range r.Registry.For(point, Validate) {
 		hc := newContext()
+		hc.Point = point
 		err := call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnValidate(ctx, hc) })
 		var denial *i18n.Error
 		isDenial := err != nil && errors.As(err, &denial) && ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded)
@@ -499,7 +799,7 @@ func (r *Runner) validate(ctx context.Context, point Point, newContext func() *C
 			return err
 		}
 		if isDenial {
-			return ErrDenied.Wrap(err, "hook", reg.Owner, "reason", denial.Message)
+			return ErrDenied.Wrap(err, "hook", reg.Name(), "reason", denial.Message)
 		}
 	}
 	return nil
@@ -536,7 +836,7 @@ func (r *Runner) Modify(ctx context.Context, point string, cs *changeset.ChangeS
 		}
 		ownerType, ownerName, _ := strings.Cut(reg.Owner, ":")
 		source := changeset.Source{Type: ownerType, Name: ownerName, Hook: point}
-		contribution := changeset.Contribution{Source: source, Summary: reg.Owner + " changed the plan"}
+		contribution := changeset.Contribution{Source: source, Summary: reg.Name() + " changed the plan"}
 		for _, i := range changes {
 			diffs, err := changeset.Diff(cs.Changes[i].After, work.Changes[i].After)
 			if err != nil {
@@ -627,8 +927,10 @@ func overstep(orig, work *changeset.ChangeSet, mine []int) error {
 }
 
 // Applied implements changeset.Hooks. Observe hooks run in the background
-// and can't affect the change.
+// and can't affect the change. It also records in the audit log what hooks
+// contributed to the changes the point is about, attributed to them.
 func (r *Runner) Applied(ctx context.Context, point string, cs *changeset.ChangeSet, changes []int) {
+	r.attribute(ctx, Point(point), cs, changes)
 	r.observe(ctx, &Context{Point: Point(point), ChangeSet: cs, Changes: changes, Actor: cs.Actor})
 }
 
@@ -654,66 +956,6 @@ func (r *Runner) observe(ctx context.Context, hc *Context) {
 			}
 		}(reg)
 	}
-}
-
-// PatchConfig offers a configuration document to the system hooks of a
-// service, in order. Each hook patches its own copy of the result of the one
-// before, so a hook that fails or runs out of time leaves nothing behind,
-// even if it goes on running.
-func (r *Runner) PatchConfig(ctx context.Context, service, part string, config map[string]any) (map[string]any, error) {
-	point := Point("system." + service + "." + part)
-	for _, reg := range r.Registry.For(point, System) {
-		patch := &ConfigPatch{Service: service, Config: copyConfig(config)}
-		err := call(ctx, reg.Deadline, func(ctx context.Context) error { return reg.OnConfig(ctx, patch) })
-		if err := r.settle(ctx, reg, err, false); err != nil {
-			return nil, err
-		}
-		if err == nil && patch.Config != nil {
-			config = patch.Config
-		}
-	}
-	return config, nil
-}
-
-// copyConfig copies a configuration document, its nested maps and lists
-// included, keeping the types of its values.
-func copyConfig(config map[string]any) map[string]any {
-	if config == nil {
-		return map[string]any{}
-	}
-	return copyValue(reflect.ValueOf(config)).Interface().(map[string]any)
-}
-
-func copyValue(v reflect.Value) reflect.Value {
-	switch v.Kind() {
-	case reflect.Interface:
-		if v.IsNil() {
-			return v
-		}
-		c := reflect.New(v.Type()).Elem()
-		c.Set(copyValue(v.Elem()))
-		return c
-	case reflect.Map:
-		if v.IsNil() {
-			return v
-		}
-		c := reflect.MakeMapWithSize(v.Type(), v.Len())
-		iter := v.MapRange()
-		for iter.Next() {
-			c.SetMapIndex(iter.Key(), copyValue(iter.Value()))
-		}
-		return c
-	case reflect.Slice:
-		if v.IsNil() {
-			return v
-		}
-		c := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
-		for i := range v.Len() {
-			c.Index(i).Set(copyValue(v.Index(i)))
-		}
-		return c
-	}
-	return v
 }
 
 // clone copies a change set for a modify hook, through JSON, so that nothing

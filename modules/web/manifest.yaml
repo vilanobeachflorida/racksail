@@ -19,6 +19,13 @@ cost:
   notes: >-
     Idle sites sleep and use no memory. Each PHP version adds about 30 MB on disk, each Node line
     about 100 MB.
+ports:
+  - {port: 80, protocol: tcp, description: HTTP}
+  - {port: 443, protocol: tcp, description: HTTPS}
+  - {port: 443, protocol: udp, description: HTTP/3}
+services:
+  - {unit: racksail-edge.service, description: Serves the sites.}
+  - {unit: "php*-fpm.service", description: Runs PHP for the sites that use it.}
 upstream:
   - id: caddy
     name: Caddy

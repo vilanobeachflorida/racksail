@@ -41,8 +41,9 @@ var reservedModules = []string{"health", "version", "openapi.json", "operations"
 
 // registerKinds generates the operations of every registered kind.
 func (s *Server) registerKinds() {
+	reserved := append(slices.Clone(reservedModules), reservedByExtensions()...)
 	for _, k := range s.kinds.All() {
-		if slices.Contains(reservedModules, k.Info().Module()) {
+		if slices.Contains(reserved, k.Info().Module()) {
 			panic(fmt.Sprintf("api: kind %s uses %s, a path the core's own operations need", k.Info().Name, KindPath(k.Info())))
 		}
 		s.registerKind(k)

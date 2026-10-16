@@ -1,0 +1,132 @@
+# racksail-addon@.service
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail add-on %i
+Documentation=https://vilanobeachflorida.github.io/racksail/addons/overview/
+Requires=racksail-addon@%i.socket
+After=racksail-addon@%i.socket network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Slice=racksail.slice
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+LoadCredential=token:/var/lib/racksail/addons/%i.token
+Environment=RACKSAIL_ADDON=%i
+Environment=RACKSAIL_PANEL_SOCKET=/run/racksail/addons.sock
+StateDirectory=racksail-addon/%i
+RuntimeDirectory=racksail-addon/%i
+ReadWritePaths=/run/racksail/addons.sock
+DynamicUser=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RemoveIPC=yes
+KeyringMode=private
+UMask=0077
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @clock @debug @module @raw-io @reboot @swap
+SystemCallErrorNumber=EPERM
+InaccessiblePaths=-/var/lib/racksail
+InaccessiblePaths=-/run/racksail/agent.sock
+InaccessiblePaths=-/run/racksail/edge.sock
+InaccessiblePaths=-/etc/racksail
+IPAddressDeny=any
+
+# racksail-addon@.socket
+# Managed by Racksail. Changes made here are overwritten.
+
+[Unit]
+Description=Racksail add-on %i, for the panel
+PartOf=racksail-addon@%i.service
+
+[Socket]
+ListenStream=/run/racksail/addons/%i.sock
+SocketUser=racksail
+SocketGroup=racksail
+SocketMode=0600
+DirectoryMode=0750
+Service=racksail-addon@%i.service
+
+[Install]
+WantedBy=sockets.target
+
+# racksail-addon@site-guard.service.d/racksail.conf
+# Managed by Racksail. Changes made here are overwritten.
+
+[Service]
+ExecStart=/opt/racksail/modules/addons/site-guard/0.3.0/addon
+WorkingDirectory=/opt/racksail/modules/addons/site-guard/0.3.0
+MemoryMax=64M
+MemorySwapMax=0
+CPUQuota=20%
+TasksMax=64
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# /opt/racksail/modules/addons/site-guard/hosts
+# Managed by Racksail. Changes made here are overwritten.
+127.0.0.1 localhost
+::1 localhost
+
+# racksail-addon@cloudflare-dns.service.d/racksail.conf
+# Managed by Racksail. Changes made here are overwritten.
+
+[Service]
+ExecStart=/opt/racksail/modules/addons/cloudflare-dns/1.2.0-beta.1/addon
+WorkingDirectory=/opt/racksail/modules/addons/cloudflare-dns/1.2.0-beta.1
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%
+TasksMax=64
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressAllow=104.16.0.0/13 104.16.132.229 2606:4700::/32
+BindReadOnlyPaths=/opt/racksail/modules/addons/cloudflare-dns/hosts:/etc/hosts
+
+# /opt/racksail/modules/addons/cloudflare-dns/hosts
+# Managed by Racksail. Changes made here are overwritten.
+127.0.0.1 localhost
+::1 localhost
+104.16.132.229 api.cloudflare.com
+
+# racksail-addon@site-guard-r9s0t1u2v3.service.d/racksail.conf
+# Managed by Racksail. Changes made here are overwritten.
+
+[Service]
+Slice=racksail-accounts-blog.slice
+ExecStart=/opt/racksail/modules/addons/site-guard-r9s0t1u2v3/0.3.0/addon
+WorkingDirectory=/opt/racksail/modules/addons/site-guard-r9s0t1u2v3/0.3.0
+MemoryMax=48M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=64
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# /opt/racksail/modules/addons/site-guard-r9s0t1u2v3/hosts
+# Managed by Racksail. Changes made here are overwritten.
+127.0.0.1 localhost
+::1 localhost
+

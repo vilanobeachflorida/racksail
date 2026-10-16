@@ -15,6 +15,11 @@ cost:
   activeMemoryMB: 40
   diskMB: 15
   notes: "Knot DNS for authoritative zones and Unbound as the server's own resolver."
+ports:
+  - {port: 53, protocol: udp, description: DNS}
+  - {port: 53, protocol: tcp, description: DNS and zone transfers}
+services:
+  - {unit: knot.service, description: Serves the zones.}
 upstream:
   - id: knot
     name: Knot DNS

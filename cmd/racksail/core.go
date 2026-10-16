@@ -21,9 +21,12 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
+	"github.com/vilanobeachflorida/racksail/internal/notify"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -108,25 +111,17 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 
 	hookReg := hooks.NewRegistry()
-	for _, k := range kinds.All() {
-		hookReg.DeclareKind(k)
+	if err := modules.DeclareHookPoints(hookReg, reg, kinds); err != nil {
+		return nil, err
 	}
-	recs := reconcile.NewRegistry()
-	for _, m := range reg.All() {
-		man := m.Manifest()
-		for _, p := range hooks.ModulePoints(man.ID) {
-			hookReg.Declare(p, man.Name+" lifecycle.")
-		}
-		for _, h := range man.Hooks {
-			hookReg.Declare(hooks.Point(h.Point), h.Description)
-		}
-		if rp, ok := m.(modules.ReconcilerProvider); ok {
-			for _, r := range rp.Reconcilers() {
-				if err := recs.Register(r); err != nil {
-					return nil, err
-				}
-			}
-		}
+	// A hook the circuit breaker switched off stays off across restarts,
+	// until an admin switches it back on.
+	breakers, err := hooks.NewSQLBreakers(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if err := hookReg.UseBreakerStore(ctx, breakers, log); err != nil {
+		return nil, err
 	}
 
 	facts := func(ctx context.Context) (system.MachineFacts, error) {
@@ -135,6 +130,32 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	vault, err := openSecrets(ctx, cfg, log, agentClient)
 	if err != nil {
 		return nil, err
+	}
+	recs := reconcile.NewRegistry()
+	runner := &reconcile.Runner{
+		Store: st, Agent: agentClient, Registry: recs, Secrets: vault, Events: timeline, Log: log,
+		Facts: func(ctx context.Context, server store.ID) (system.MachineFacts, error) { return facts(ctx) },
+	}
+	// The services are filled in as their parts are built; the module
+	// manager holds them from the start.
+	svc := &modules.Services{
+		Config: cfg, Store: st, Kinds: kinds, Jobs: queue, Events: timeline, Audit: timeline,
+		Agent: agentClient, Edge: router, Secrets: vault, Log: log,
+	}
+	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Enqueue: runner.Enqueue, Log: log})
+	svc.Modules = manager
+	if err := recs.Register(manager.Reconciler()); err != nil {
+		return nil, err
+	}
+	// The reconcilers of a module that is off leave the server alone.
+	for _, m := range reg.All() {
+		if rp, ok := m.(modules.ReconcilerProvider); ok {
+			for _, r := range rp.Reconcilers() {
+				if err := recs.Register(manager.Gate(r)); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 	dispatcher, err := webhook.NewSQL(ctx, db, webhook.Options{
 		Store: st, Log: timeline, Secrets: vault, Version: updates.Build().Version, AllowNetworks: hooksAllowed,
@@ -146,12 +167,57 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err := recs.Register(webhook.Reconciler(dispatcher)); err != nil {
 		return nil, err
 	}
-	runner := &reconcile.Runner{
-		Store: st, Agent: agentClient, Registry: recs, Secrets: vault, Events: timeline, Log: log,
-		Facts: func(ctx context.Context, server store.ID) (system.MachineFacts, error) { return facts(ctx) },
-	}
-	hookRunner := &hooks.Runner{Registry: hookReg, Events: timeline, Log: log}
+	hookRunner := &hooks.Runner{Registry: hookReg, Events: timeline, Audit: timeline, Log: log}
 	authorizer := auth.NewRoleAuthorizer(nil)
+	var owners auth.Ownership
+	ruleEngine := rules.NewEngine(rules.Options{
+		Registry: hookReg, Facts: rules.StoreFacts{Store: st, Machine: facts},
+		Ownership: func() auth.Ownership { return owners },
+	})
+	for _, r := range ruleEngine.Reconcilers() {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
+	// Notifications follow the timeline like webhooks, and reach the same
+	// networks they may.
+	notifier, err := notify.NewSQL(ctx, db, notify.Options{
+		Store: st, Log: timeline, Secrets: vault, Registry: hookReg, Authorizer: authorizer, BrandName: "Racksail",
+		Link: panelLink(cfg), AllowNetworks: hooksAllowed, Retention: time.Duration(keep.Deliveries), Logger: log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	svc.Notify = notifier
+	for _, r := range notify.Reconcilers(notifier) {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
+	catalogs, recipeEngine, err := newRecipes(cfg, st, kinds, reg, manager, agentClient, facts, log)
+	if err != nil {
+		return nil, err
+	}
+	svc.Catalogs, svc.Recipes = catalogs, recipeEngine
+	for _, r := range append(recipeEngine.Reconcilers(), catalogs.Reconciler()) {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
+	// Accounts' add-ons run where the module that keeps accounts says,
+	// once it has said.
+	var accounts addons.Accounts
+	addonRuntime, err := newAddonRuntime(ctx, cfg, db, st, hookReg, agentClient, timeline, runner, catalogs,
+		func() addons.Accounts { return accounts }, log)
+	if err != nil {
+		return nil, err
+	}
+	svc.Addons = addonRuntime
+	for _, r := range addonRuntime.Reconcilers() {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
 	pipeline, err := changeset.NewEngine(changeset.Options{
 		Store: st, Kinds: kinds, Runner: runner, Jobs: queue, Events: timeline, Audit: timeline,
 		Hooks: hookRunner, Authorizer: authorizer, Secrets: vault, Storage: changeSets,
@@ -160,9 +226,36 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err != nil {
 		return nil, err
 	}
-	svc := &modules.Services{
-		Config: cfg, Store: st, Kinds: kinds, Pipeline: pipeline, Jobs: queue, Events: timeline, Audit: timeline,
-		Agent: agentClient, Edge: router, Secrets: vault, Hooks: hookRunner, Authorizer: authorizer, Log: log,
+	svc.Pipeline, svc.Hooks, svc.Authorizer, svc.Rules = pipeline, hookRunner, authorizer, ruleEngine
+	// The updater confirms a new release once the panel's own parts work;
+	// a module that fails to start is no reason to roll Racksail back.
+	var coreHealth []api.HealthCheck
+	updater := updates.NewUpdater(updates.Options{
+		Store: st, Agent: agentClient, Events: timeline, Hooks: hookRunner, Channel: updates.Channel(cfg.Updates.Channel),
+		StateDir: cfg.Paths.State, Logger: log,
+		Submit: func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {
+			return pipeline.Submit(ctx, req)
+		},
+		Backup: func(ctx context.Context, dest string) error {
+			_, err := db.Exec(ctx, "VACUUM INTO ?", dest)
+			return err
+		},
+		Health: func(ctx context.Context) error {
+			for _, hc := range coreHealth {
+				if err := hc.Check(ctx); err != nil {
+					return fmt.Errorf("%s: %w", hc.Name, err)
+				}
+			}
+			return nil
+		},
+	})
+	if err := recs.Register(updater.Reconciler()); err != nil {
+		return nil, err
+	}
+	for _, h := range slices.Concat(manager.Hooks(), addonRuntime.Hooks(), notifier.Hooks(), recipeEngine.Hooks()) {
+		if err := hookReg.Register(h); err != nil {
+			return nil, err
+		}
 	}
 	for _, m := range reg.All() {
 		if hp, ok := m.(modules.HookProvider); ok {
@@ -175,14 +268,20 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 	// Reseller grants cover their customers' accounts once the module that
 	// keeps resellers says which accounts those are.
-	owners, err := reg.Ownership(svc)
-	if err != nil {
+	if owners, err = reg.Ownership(svc); err != nil {
 		return nil, err
 	}
 	if owners != nil {
 		authorizer.SetOwnership(owners)
 	}
-	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
+	if accounts, err = reg.Accounts(svc); err != nil {
+		return nil, err
+	}
+	// Rules take part in changes from the start; a rule that can't be
+	// attached is reported in its status when it is next reconciled.
+	if err := ruleEngine.Load(ctx, st); err != nil {
+		log.Warn("some rules couldn't be attached", "error", err)
+	}
 	attention, err := newInbox(ctx, db, svc, timeline, reg, manager, router, log)
 	if err != nil {
 		return nil, err
@@ -191,7 +290,8 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		log: log, agent: agentClient, modules: reg, manager: manager, services: svc, db: db, timeline: timeline, webhooks: dispatcher,
 		queue: queue, runner: runner, inbox: attention, cancel: cancel,
 	}
-	c.health = append([]api.HealthCheck{
+	// These are what a new release must have working to confirm itself.
+	coreHealth = []api.HealthCheck{
 		{Name: "agent", Check: func(ctx context.Context) error {
 			_, err := facts(ctx)
 			return err
@@ -201,7 +301,10 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		}},
 		{Name: "jobs", Check: queue.Check},
 		{Name: "reconcile", Check: runner.Check},
+	}
+	c.health = append(slices.Clone(coreHealth), []api.HealthCheck{
 		{Name: "webhooks", Check: dispatcher.Check},
+		{Name: "notifications", Check: notifier.Check},
 		{Name: "modules", Check: func(ctx context.Context) error {
 			failed := manager.Failed()
 			ids := slices.Sorted(maps.Keys(failed))
@@ -210,7 +313,8 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			}
 			return failed[ids[0]]
 		}},
-	}, moduleHealthChecks(reg, manager, svc)...)
+	}...)
+	c.health = append(c.health, moduleHealthChecks(reg, manager, svc)...)
 	// A module that doesn't start is reported by the health check rather
 	// than keeping the panel down, so it can still be turned off.
 	if err := manager.Boot(ctx); err != nil {
@@ -224,8 +328,30 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	// changes whose apply job never ran.
 	c.work.Go(func() { runner.Run(ctx, reconcile.ResyncInterval) })
 	c.work.Go(func() { dispatcher.Run(ctx) })
+	c.work.Go(func() { notifier.Run(ctx) })
 	c.work.Go(func() { timeline.Run(ctx, time.Hour) })
 	c.work.Go(func() { attention.Run(ctx, time.Minute) })
+	// Modules become active as resources start to use them.
+	c.work.Go(func() { manager.Run(ctx) })
+	// Add-ons are watched for safe mode and crash loops, and reach the
+	// panel through their gateway.
+	addonRuntime.Load(ctx)
+	c.work.Go(func() { addonRuntime.Run(ctx) })
+	c.work.Go(func() { c.serveAddonGateway(ctx) })
+	// The update settings exist from the first start; then the updater
+	// finishes an update the panel restarted onto and looks for releases.
+	if err := updater.Boot(ctx); err != nil {
+		log.Warn("setting up updates", "error", err)
+	}
+	c.work.Go(func() { updater.Run(ctx) })
+	// The official catalog is there from the first start; catalogs are
+	// fetched daily while the marketplace is on, and what was installed
+	// from them is checked every few minutes.
+	if err := catalogs.Boot(ctx, pipeline.Submit); err != nil {
+		log.Warn("adding the official catalog", "error", err)
+	}
+	c.work.Go(func() { catalogs.Run(ctx) })
+	c.work.Go(func() { recipeEngine.Run(ctx) })
 	if err := timeline.Publish(ctx, events.Event{
 		Type: events.PanelStarted.Name, Severity: events.PanelStarted.Severity, Scope: store.ServerScope(),
 		Actor: auth.System("core"), Message: "Racksail " + updates.Build().Version + " started.",

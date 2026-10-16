@@ -22,6 +22,8 @@ cost:
   activeMemoryMB: 150
   diskMB: 600
   notes: Incus and QEMU themselves; guests use the memory and disks you give them.
+services:
+  - {unit: incus.service, description: Runs the virtual machines and system containers.}
 upstream:
   - id: incus
     name: Incus

@@ -177,11 +177,15 @@ type Upgrade struct {
 	Notes    string `yaml:"notes,omitempty" json:"notes,omitempty"`
 }
 
-// Uninstall says what removing the recipe keeps.
+// Uninstall says what removing the recipe keeps. Data is kept unless the
+// recipe or the person uninstalling says otherwise.
 type Uninstall struct {
-	KeepData bool   `yaml:"keepData,omitempty" json:"keepData,omitempty"`
+	KeepData *bool  `yaml:"keepData,omitempty" json:"keepData,omitempty"`
 	Notes    string `yaml:"notes,omitempty" json:"notes,omitempty"`
 }
+
+// Keeps reports whether uninstalling keeps data by default.
+func (u Uninstall) Keeps() bool { return u.KeepData == nil || *u.KeepData }
 
 // Tests describe the recipe's install test in CI.
 type Tests struct {

@@ -127,6 +127,18 @@ func (p *packages) get(ctx context.Context, url string, max int64) ([]byte, erro
 	return data, nil
 }
 
+// Fetch implements system.Packages.
+func (p *packages) Fetch(ctx context.Context, url string) (io.ReadCloser, error) {
+	if err := system.CheckFetchURL(url); err != nil {
+		return nil, err
+	}
+	resp, err := p.request(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
 func (p *packages) request(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

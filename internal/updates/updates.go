@@ -1,7 +1,6 @@
 package updates
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"runtime/debug"
@@ -179,8 +178,8 @@ func sign(n int) int {
 	return 0
 }
 
-// Asset is a file attached to a release.
-type Asset struct {
+// ReleaseAsset is a file attached to a release.
+type ReleaseAsset struct {
 	Name   string `json:"name"`
 	URL    string `json:"url"`
 	Size   int64  `json:"size"`
@@ -188,6 +187,10 @@ type Asset struct {
 	// Bundle is the Sigstore bundle that signs the asset.
 	Bundle string `json:"bundle,omitempty"`
 }
+
+// Asset is the name the release tooling knows ReleaseAsset by; the API
+// documents it under the longer name, which no theme asset shares.
+type Asset = ReleaseAsset
 
 // Release is a published version.
 type Release struct {
@@ -208,16 +211,6 @@ func (r Release) Binary(arch string) (Asset, bool) {
 		}
 	}
 	return Asset{}, false
-}
-
-// Source lists releases, from GitHub Releases or a mirror.
-type Source interface {
-	Releases(ctx context.Context) ([]Release, error)
-}
-
-// Verifier checks that an asset was signed by the Racksail release workflow.
-type Verifier interface {
-	Verify(ctx context.Context, asset Asset, content []byte) error
 }
 
 // Latest returns the newest release a server on channel c should be offered

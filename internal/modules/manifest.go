@@ -30,13 +30,15 @@ type Manifest struct {
 	Description  string       `yaml:"description" json:"description"`
 	Version      string       `yaml:"version" json:"version"`
 	License      string       `yaml:"license" json:"license"`
-	Category     Category     `yaml:"category" json:"category"`
+	Category     Category     `yaml:"category" json:"category" enum:"core,hosting,apps,storage,operations,home,assistant"`
 	Required     bool         `yaml:"required,omitempty" json:"required,omitempty"`
 	Dependencies Dependencies `yaml:"dependencies" json:"dependencies"`
 	Profiles     []Profile    `yaml:"profiles" json:"profiles"`
 	Hardware     Hardware     `yaml:"hardware" json:"hardware"`
 	Cost         Cost         `yaml:"cost" json:"cost"`
 	Upstream     []Upstream   `yaml:"upstream" json:"upstream"`
+	Ports        []Port       `yaml:"ports,omitempty" json:"ports,omitempty"`
+	Services     []Service    `yaml:"services,omitempty" json:"services,omitempty"`
 	Capabilities Capabilities `yaml:"capabilities,omitempty" json:"capabilities,omitzero"`
 	// Settings is the JSON Schema of the module's settings.
 	Settings    map[string]any `yaml:"settings,omitempty" json:"settings,omitempty"`
@@ -74,18 +76,35 @@ type Cost struct {
 
 // Upstream is software a module installs the first time something needs it.
 type Upstream struct {
-	ID       string `yaml:"id" json:"id"`
-	Name     string `yaml:"name" json:"name"`
-	License  string `yaml:"license" json:"license"`
-	Homepage string `yaml:"homepage,omitempty" json:"homepage,omitempty"`
-	Source   Source `yaml:"source" json:"source"`
+	ID       string         `yaml:"id" json:"id"`
+	Name     string         `yaml:"name" json:"name"`
+	License  string         `yaml:"license" json:"license"`
+	Homepage string         `yaml:"homepage,omitempty" json:"homepage,omitempty"`
+	Source   UpstreamSource `yaml:"source" json:"source"`
 	// Install says when it is installed, in plain words.
 	Install string `yaml:"install" json:"install"`
 	OptIn   bool   `yaml:"optIn,omitempty" json:"optIn,omitempty"`
+	// DownloadMB and DiskMB estimate its size where the package index can't
+	// tell, as for vendor archives.
+	DownloadMB int `yaml:"downloadMB,omitempty" json:"downloadMB,omitempty"`
+	DiskMB     int `yaml:"diskMB,omitempty" json:"diskMB,omitempty"`
 }
 
-// Source says where upstream software comes from.
-type Source struct {
+// Port is a port a module opens while it is active.
+type Port struct {
+	Port        int    `yaml:"port" json:"port"`
+	Protocol    string `yaml:"protocol" json:"protocol" enum:"tcp,udp"`
+	Description string `yaml:"description" json:"description"`
+}
+
+// Service is a systemd unit a module runs while it is active.
+type Service struct {
+	Unit        string `yaml:"unit" json:"unit"`
+	Description string `yaml:"description" json:"description"`
+}
+
+// UpstreamSource says where upstream software comes from.
+type UpstreamSource struct {
 	// Type is debian, apt-repository, vendor-archive, racksail-build,
 	// embedded or present.
 	Type         string   `yaml:"type" json:"type"`

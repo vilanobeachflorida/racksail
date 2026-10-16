@@ -17,6 +17,11 @@ cost:
   activeMemoryMB: 40
   diskMB: 60
   notes: Each feature installs its software only when you set it up.
+ports:
+  - {port: 51820, protocol: udp, description: WireGuard}
+services:
+  - {unit: nut-server.service, description: Talks to the UPS.}
+  - {unit: nut-monitor.service, description: Shuts the server down when the UPS runs low.}
 upstream:
   - id: nut
     name: Network UPS Tools

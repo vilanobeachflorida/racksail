@@ -14,8 +14,12 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/edge"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
+	"github.com/vilanobeachflorida/racksail/internal/notify"
+	"github.com/vilanobeachflorida/racksail/internal/recipes"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -43,7 +47,21 @@ type Services struct {
 	// backups.run.before, and its Registry lists providers and extensions.
 	Hooks      *hooks.Runner
 	Authorizer auth.Authorizer
-	Log        *slog.Logger
+	// Modules says which modules are on and turns them on and off.
+	Modules *Manager
+	// Rules runs the panel's CEL rules and tries rules out.
+	Rules *rules.Engine
+	// Addons runs installed add-ons and keeps safe mode.
+	Addons *addons.Runtime
+	// Notify sends notifications: alerts through the channels and
+	// preferences people set, and messages for one person or address,
+	// such as sign-in alerts and customer emails.
+	Notify *notify.Service
+	// Catalogs fetches and checks catalogs, and Recipes installs,
+	// upgrades and uninstalls what they offer.
+	Catalogs *recipes.Catalogs
+	Recipes  *recipes.Engine
+	Log      *slog.Logger
 }
 
 // KindProvider declares a module's kinds. Kind names must start with the
@@ -128,6 +146,14 @@ type HealthProvider interface {
 // no other module may.
 type OwnershipProvider interface {
 	Ownership(svc *Services) auth.Ownership
+}
+
+// AccountProvider says where each account's add-ons run: in the account's
+// slice, within what its plan allows. The module that keeps accounts
+// implements it, and no other module may; until one does, accounts'
+// add-ons don't run.
+type AccountProvider interface {
+	Accounts(svc *Services) addons.Accounts
 }
 
 // Hint helps the assistant use a module's tools: a short description and

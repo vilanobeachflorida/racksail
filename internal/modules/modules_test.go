@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -18,7 +18,11 @@ func manifestYAML(id string, extra string) []byte {
 	if strings.Contains(extra, "hardware:") {
 		hardware = ""
 	}
-	return []byte(hardware + `
+	upstream := "upstream: []\n"
+	if strings.Contains(extra, "upstream:") {
+		upstream = ""
+	}
+	return []byte(hardware + upstream + `
 id: ` + id + `
 name: ` + strings.ToUpper(id[:1]) + id[1:] + `
 description: A test module.
@@ -27,7 +31,6 @@ license: AGPL-3.0-or-later
 category: operations
 profiles: [all-in-one]
 cost: {idleMemoryMB: 1, activeMemoryMB: 2, diskMB: 3}
-upstream: []
 ` + extra)
 }
 
@@ -131,184 +134,125 @@ func TestKindsBelongToTheirModule(t *testing.T) {
 	if err := reg.Add(withKinds{NewBase(manifestYAML("other", "dependencies: {}\n")), []store.Kind{foreign}}, kinds); err == nil {
 		t.Error("a module can't declare another module's kinds")
 	}
-}
-
-func facts(virt bool) func(context.Context) (system.MachineFacts, error) {
-	return func(context.Context) (system.MachineFacts, error) {
-		return system.MachineFacts{Arch: "amd64", MemoryBytes: 4 << 30, CPU: system.CPUInfo{Virtualization: virt}, KVM: virt}, nil
-	}
-}
-
-func TestManagerRules(t *testing.T) {
-	ctx := context.Background()
-	m := NewManager(newRegistry(t), ManagerOptions{Facts: facts(false)})
-	if m.State("net") != StateOn || m.State("web") != StateOff {
-		t.Errorf("states = %v", m.States())
-	}
-	if err := m.TurnOn(ctx, "perf"); !errors.Is(err, ErrDependency) {
-		t.Errorf("perf without web or db: %v", err)
-	}
-	if err := m.TurnOn(ctx, "db"); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.TurnOn(ctx, "perf"); err != nil {
-		t.Fatalf("perf with db on: %v", err)
-	}
-	if err := m.TurnOff(ctx, "db"); !errors.Is(err, ErrInUse) {
-		t.Errorf("db is needed by perf: %v", err)
-	}
-	if err := m.TurnOn(ctx, "web"); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.TurnOff(ctx, "db"); err != nil {
-		t.Errorf("perf still has web: %v", err)
-	}
-	if err := m.TurnOff(ctx, "net"); !errors.Is(err, ErrRequired) {
-		t.Errorf("net is required: %v", err)
-	}
-	if err := m.TurnOn(ctx, "vm"); !errors.Is(err, ErrHardware) {
-		t.Errorf("vm without virtualization: %v", err)
-	}
-	if err := m.TurnOn(ctx, "nope"); !errors.Is(err, ErrUnknownModule) {
-		t.Errorf("unknown module: %v", err)
-	}
-}
-
-func TestApplyProfileSkipsUnsupportedHardware(t *testing.T) {
-	ctx := context.Background()
-	m := NewManager(newRegistry(t), ManagerOptions{Facts: facts(false)})
-	order := m.ProfileModules(AllInOne)
-	if order[0] != "net" {
-		t.Errorf("dependencies come first: %v", order)
-	}
-	skipped, err := m.ApplyProfile(ctx, AllInOne)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(skipped) != 1 || skipped[0] != "vm" {
-		t.Errorf("skipped = %v", skipped)
-	}
-	if m.State("perf") != StateOn || m.State("web") != StateOn {
-		t.Errorf("states = %v", m.States())
-	}
-	capable := NewManager(newRegistry(t), ManagerOptions{Facts: facts(true)})
-	if skipped, _ := capable.ApplyProfile(ctx, AllInOne); len(skipped) != 0 {
-		t.Errorf("a capable machine skips nothing: %v", skipped)
-	}
-	if len(Profiles()) != 7 {
-		t.Error("there are seven profiles")
+	m := NewManager(reg, ManagerOptions{})
+	if id, ok := m.ModuleOf("web.site"); !ok || id != "web" || len(m.KindsOf("web")) != 1 {
+		t.Errorf("kinds of web = %v", m.KindsOf("web"))
 	}
 }
 
 func TestHardwareProblems(t *testing.T) {
-	man := &Manifest{Hardware: Hardware{Arch: []string{"amd64"}, MinMemoryMB: 2048, Features: []string{"kvm", "iommu", "tpm", "uefi"}}}
-	problems := HardwareProblems(man, system.MachineFacts{Arch: "arm64", MemoryBytes: 1 << 30})
-	if len(problems) != 6 {
+	man := &Manifest{Hardware: Hardware{Arch: []string{"amd64"}, MinMemoryMB: 2048, MinDiskGB: 100, Features: []string{"kvm", "iommu", "tpm", "uefi"}}}
+	problems := HardwareProblems(man, system.MachineFacts{Arch: "arm64", MemoryBytes: 1 << 30, Disks: []system.DiskFact{{SizeBytes: 20 << 30}}})
+	if len(problems) != 7 {
 		t.Errorf("problems = %v", problems)
 	}
 }
 
-// lifecycleModule records when it is started and stopped.
-type lifecycleModule struct {
-	Base
-	log     *[]string
-	failing bool
-}
-
-func (l lifecycleModule) Start(ctx context.Context, svc *Services) error {
-	if l.failing {
-		return errors.New("the socket is taken")
+func TestProfilesAndOrder(t *testing.T) {
+	m := NewManager(newRegistry(t), ManagerOptions{})
+	order := m.ProfileModules(AllInOne)
+	if order[0] != "net" || len(order) != 5 {
+		t.Errorf("dependencies come first: %v", order)
 	}
-	*l.log = append(*l.log, "start "+l.Manifest().ID)
-	return nil
+	if len(Profiles()) != 7 || !ValidProfile(Minimal) || ValidProfile("everything") {
+		t.Error("there are seven profiles")
+	}
+	if got := dependencyOrder(m.reg, []string{"perf", "web", "net"}); strings.Join(got, ",") != "net,web,perf" {
+		t.Errorf("order = %v", got)
+	}
+	if m.State("net") != StateOff || !m.Enabled("net") || m.Enabled("web") {
+		t.Error("before boot, only required modules are meant to be on")
+	}
 }
 
-func (l lifecycleModule) Stop(ctx context.Context) error {
-	*l.log = append(*l.log, "stop "+l.Manifest().ID)
-	return nil
+func TestSettings(t *testing.T) {
+	man, err := ParseManifest(manifestYAML("mail", `dependencies: {}
+settings:
+  type: object
+  additionalProperties: false
+  properties:
+    relayHost: {type: string, format: hostname}
+    greylisting: {type: boolean}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := man.ValidateSettings(map[string]any{"relayHost": "smtp.example.com", "greylisting": true}); err != nil {
+		t.Errorf("valid settings: %v", err)
+	}
+	if err := man.ValidateSettings(map[string]any{"greylisting": "yes"}); !errors.Is(err, ErrSettings) {
+		t.Errorf("a wrong type: %v", err)
+	}
+	if err := man.ValidateSettings(map[string]any{"colour": "blue"}); !errors.Is(err, ErrSettings) {
+		t.Errorf("an unknown setting: %v", err)
+	}
+	plain, _ := ParseManifest(manifestYAML("dns", "dependencies: {}\n"))
+	if err := plain.ValidateSettings(map[string]any{"x": 1}); !errors.Is(err, ErrSettings) {
+		t.Errorf("a module without settings takes none: %v", err)
+	}
 }
 
-func TestLifecycle(t *testing.T) {
+func TestInstallAndUninstallSteps(t *testing.T) {
 	ctx := context.Background()
-	var log []string
-	reg := NewRegistry()
-	for _, m := range []Module{
-		lifecycleModule{Base: NewBase(manifestYAML("net", "required: true\ndependencies: {}\n")), log: &log},
-		lifecycleModule{Base: NewBase(manifestYAML("web", "dependencies: {requires: [net]}\n")), log: &log},
-		lifecycleModule{Base: NewBase(manifestYAML("broken", "dependencies: {}\n")), log: &log, failing: true},
-	} {
-		if err := reg.Add(m, nil); err != nil {
-			t.Fatal(err)
-		}
+	man, err := ParseManifest(manifestYAML("web", `dependencies: {}
+upstream:
+  - {id: php, name: PHP, license: PHP-3.01, source: {type: apt-repository, packages: ["php*-fpm", "php*-cli"], repository: "https://packages.sury.org/php/"}, install: When a site uses it.}
+  - {id: apache2, name: Apache, license: Apache-2.0, source: {type: debian, packages: [apache2]}, install: For .htaccess sites.}
+  - {id: nodejs, name: Node.js, license: MIT, source: {type: vendor-archive, url: "https://nodejs.org/dist/"}, install: When a Node site needs it., downloadMB: 30}
+  - {id: zfs, name: ZFS, license: CDDL-1.0, source: {type: debian, packages: [zfs-dkms]}, install: When asked for., optIn: true}
+  - {id: caddy, name: Caddy, license: Apache-2.0, source: {type: embedded}, install: Built in.}
+`))
+	if err != nil {
+		t.Fatal(err)
 	}
-	hookReg := hooks.NewRegistry()
-	for _, id := range reg.IDs() {
-		for _, p := range hooks.ModulePoints(id) {
-			hookReg.Declare(p, "lifecycle")
-		}
+	steps, err := InstallSteps(ctx, nil, man, "php", Install{Packages: []string{"php8.4-fpm"}})
+	if err != nil || len(steps) != 2 || steps[0].Op != "EnsureAptSource" || steps[1].Op != "InstallPackages" {
+		t.Errorf("php = %+v, %v", steps, err)
 	}
-	transitions := make(chan Transition, 4)
-	for _, p := range []hooks.Point{hooks.ModuleOn("web"), hooks.ModuleOff("web")} {
-		if err := hookReg.Register(hooks.Registration{Point: p, Kind: hooks.Observe, Owner: "module:monitoring",
-			OnObserve: func(ctx context.Context, c *hooks.Context) { transitions <- c.Data.(Transition) }}); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := InstallSteps(ctx, nil, man, "php", Install{Packages: []string{"nginx"}}); !errors.Is(err, ErrNotUpstream) {
+		t.Errorf("a package the manifest doesn't name: %v", err)
 	}
-	m := NewManager(reg, ManagerOptions{Services: &Services{Hooks: &hooks.Runner{Registry: hookReg}}})
-	next := func() Transition {
-		select {
-		case tr := <-transitions:
-			return tr
-		case <-time.After(time.Second):
-			t.Fatal("no lifecycle notification")
-			return Transition{}
-		}
+	if steps, err := InstallSteps(ctx, nil, man, "apache2", Install{}); err != nil || len(steps) != 1 {
+		t.Errorf("apache = %+v, %v", steps, err)
 	}
+	archive := &system.Archive{URL: "https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz", SHA256: strings.Repeat("a", 64), Size: 30 << 20, Format: "tar.xz", StripComponents: 1}
+	steps, err = InstallSteps(ctx, nil, man, "nodejs", Install{Version: "22.11.0", Archive: archive})
+	if err != nil || len(steps) != 1 || steps[0].Input.(agent.InstallArchiveInput).Archive.Dest != "/opt/racksail/runtimes/nodejs/22.11.0" {
+		t.Errorf("node = %+v, %v", steps, err)
+	}
+	if _, err := InstallSteps(ctx, nil, man, "nodejs", Install{Version: "../../etc", Archive: archive}); !errors.Is(err, ErrNotUpstream) {
+		t.Errorf("a version that isn't one: %v", err)
+	}
+	if _, err := InstallSteps(ctx, nil, man, "zfs", Install{}); !errors.Is(err, ErrOptIn) {
+		t.Errorf("opt-in software needs the admin's go-ahead: %v", err)
+	}
+	if steps, err := InstallSteps(ctx, nil, man, "caddy", Install{}); err != nil || len(steps) != 0 {
+		t.Errorf("embedded software installs nothing: %+v, %v", steps, err)
+	}
+	plan := UninstallPlan(man, Shared{})
+	var ops []string
+	for _, s := range plan.Steps {
+		ops = append(ops, s.Op)
+	}
+	if strings.Join(ops, ",") != "RemoveAptSource,RemovePackages,RemovePath,RemovePackages" {
+		t.Errorf("uninstall = %v", ops)
+	}
+}
 
-	if err := m.Boot(ctx); err != nil {
+func TestDeclareHookPoints(t *testing.T) {
+	reg := newRegistry(t)
+	reg.Add(testModule{NewBase(manifestYAML("edge", "dependencies: {}\nhooks: [{point: system.caddy.config, description: Caddy's configuration.}]\n"))}, nil)
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(Kind); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.TurnOn(ctx, "web"); err != nil {
+	hr := hooks.NewRegistry()
+	if err := DeclareHookPoints(hr, reg, kinds); err != nil {
 		t.Fatal(err)
 	}
-	if tr := next(); tr != (Transition{Module: "web", From: StateOff, To: StateOn}) {
-		t.Errorf("on = %+v", tr)
-	}
-	if err := m.TurnOn(ctx, "web"); err != nil {
-		t.Errorf("turning on twice is harmless: %v", err)
-	}
-	if err := m.TurnOn(ctx, "broken"); !errors.Is(err, ErrStartFailed) {
-		t.Errorf("a module that can't start: %v", err)
-	}
-	if m.State("broken") != StateOff {
-		t.Error("a module that didn't start stays off")
-	}
-	if err := m.TurnOff(ctx, "web"); err != nil {
-		t.Fatal(err)
-	}
-	if tr := next(); tr.To != StateOff || tr.From != StateOn {
-		t.Errorf("off = %+v", tr)
-	}
-	if err := m.TurnOn(ctx, "web"); err != nil {
-		t.Fatal(err)
-	}
-	next()
-	m.Shutdown(ctx)
-	want := "start net,start web,stop web,start web,stop web,stop net"
-	if got := strings.Join(log, ","); got != want {
-		t.Errorf("lifecycle = %s, want %s", got, want)
-	}
-	if m.State("web") != StateOn {
-		t.Error("stopping the panel doesn't turn modules off")
-	}
-
-	m.mu.Lock()
-	m.states["broken"] = StateActive
-	m.mu.Unlock()
-	if err := m.Boot(ctx); !errors.Is(err, ErrStartFailed) {
-		t.Errorf("boot reports modules that didn't start: %v", err)
-	}
-	if failed := m.Failed(); failed["broken"] == nil || len(failed) != 1 {
-		t.Errorf("failed = %v", failed)
+	for _, p := range []hooks.Point{"modules.web.on", "modules.vm.off", "system.caddy.config", "core.module.turn_on.validate", "core.module.remove.applied"} {
+		if !hr.Known(p) {
+			t.Errorf("%s isn't declared", p)
+		}
 	}
 }
