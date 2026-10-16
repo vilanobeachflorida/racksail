@@ -244,6 +244,19 @@ func (s *Server) Handler() http.Handler {
 		}
 		st := &auditState{}
 		ctx := context.WithValue(context.WithValue(r.Context(), callerKey{}, caller), auditedKey{}, st)
+		// A local operation is refused before its input is even read: whoever
+		// reaches the socket or comes from another server is outside the
+		// agent's process.
+		if op, ok := strings.CutPrefix(r.URL.Path, "/v1/ops/"); ok {
+			if e, found := Lookup(op); found && e.Local() {
+				err := errNotInProcess(e.Name())
+				if s.runtime != nil {
+					s.env(ctx, false, store.ID(r.Header.Get("Racksail-Owner"))).audit(e.Name(), nil, []byte{}, nil, err, time.Now())
+				}
+				writeProblem(w, err)
+				return
+			}
+		}
 		sw := &statusWriter{ResponseWriter: w}
 		inner.ServeHTTP(sw, r.WithContext(ctx))
 		// Operations and streams record themselves once they are reached; the

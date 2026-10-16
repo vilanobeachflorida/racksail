@@ -32,7 +32,7 @@ systemd-tmpfiles ${DPKG_ROOT:+--root="$DPKG_ROOT"} --create racksail.conf
 deb-systemd-helper unmask racksail-agent.service racksail-panel.socket racksail-panel.service racksail-edge.socket racksail-edge.service >/dev/null || true
 # Enable each unit on the first install, and any unit a new version adds,
 # but leave the ones an administrator disabled as they are.
-for unit in racksail-agent.service racksail-panel.service racksail-edge.socket; do
+for unit in racksail-agent.service racksail-panel.socket racksail-panel.service racksail-edge.socket; do
 	if deb-systemd-helper --quiet was-enabled "$unit"; then
 		deb-systemd-helper enable "$unit" >/dev/null || true
 	else
@@ -49,7 +49,7 @@ if [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
 	fi
 	# Then whatever is enabled and stopped starts, such as after the package
 	# was removed and is installed again; disabled units stay stopped.
-	deb-systemd-invoke start racksail-agent.service racksail-panel.service racksail-edge.socket >/dev/null || true
+	deb-systemd-invoke start racksail-agent.service racksail-panel.socket racksail-panel.service racksail-edge.socket >/dev/null || true
 fi
 
 ### scripts/postrm -rwxr-xr-x

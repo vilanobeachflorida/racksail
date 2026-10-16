@@ -139,6 +139,11 @@ type Def[In Input, Out any] struct {
 	// Sensitive operations take or return secrets, so the audit trail keeps
 	// no hash of their input.
 	Sensitive bool
+	// Local operations run only for callers in the agent's own process, the
+	// installer and the self-update code, through Local or from another
+	// operation; the agent's socket and panels on other servers are refused
+	// them, since they write what runs as root.
+	Local bool
 	// Effects describes what a step would do, without asking the machine.
 	// Previews use it when check mode isn't available.
 	Effects func(in In) []system.Effect
@@ -170,6 +175,9 @@ type Entry interface {
 	Effects(input json.RawMessage) ([]system.Effect, error)
 	// Invoke decodes and validates the input, then runs the operation.
 	Invoke(ctx context.Context, env *Env, input json.RawMessage) (json.RawMessage, error)
+	// Local reports whether only callers in the agent's own process may run
+	// the operation.
+	Local() bool
 	register(api huma.API, srv *Server)
 	sensitive() bool
 }
@@ -248,6 +256,10 @@ func (o *Op[In, Out]) Description() string { return o.def.Description }
 func (o *Op[In, Out]) ReadOnly() bool { return o.def.ReadOnly }
 
 func (o *Op[In, Out]) sensitive() bool { return o.def.Sensitive }
+
+// Local reports whether only callers in the agent's own process may run the
+// operation.
+func (o *Op[In, Out]) Local() bool { return o.def.Local }
 
 // InputType returns the Go type of the input.
 func (o *Op[In, Out]) InputType() reflect.Type { return reflect.TypeFor[In]() }
@@ -344,17 +356,27 @@ type opResponse[Out any] struct {
 	Body Out
 }
 
+// errNotInProcess refuses a local operation to a caller outside the agent.
+func errNotInProcess(op string) error {
+	return ErrNotAllowed.New("op", op, "target", "anything for a caller outside the agent's own process")
+}
+
 func (o *Op[In, Out]) register(api huma.API, srv *Server) {
 	tag, _, ok := strings.Cut(o.def.Name, ".")
 	if !ok {
 		tag = "core"
+	}
+	description := o.def.Description
+	if o.def.Local {
+		description = strings.TrimSpace(description + " Only the installer and the self-update code, which run in the agent's own process, " +
+			"can call it; the agent's socket and panels on other servers are refused.")
 	}
 	huma.Register(api, huma.Operation{
 		OperationID: o.def.Name,
 		Method:      "POST",
 		Path:        "/v1/ops/" + o.def.Name,
 		Summary:     o.def.Summary,
-		Description: o.def.Description,
+		Description: description,
 		Tags:        []string{tag},
 		Errors:      []int{400, 404, 409, 413, 422, 500},
 		// Huma would cap bodies at 1 MiB; the socket's own limit applies.
@@ -363,6 +385,13 @@ func (o *Op[In, Out]) register(api huma.API, srv *Server) {
 	}, func(ctx context.Context, req *opRequest[In]) (*opResponse[Out], error) {
 		env := srv.env(ctx, req.Check && !o.def.ReadOnly, store.ID(req.Owner))
 		markAudited(ctx)
+		// Server.Handler refuses local operations before this; the handler
+		// refuses them too, whatever serves it.
+		if o.def.Local {
+			err := errNotInProcess(o.def.Name)
+			env.audit(o.def.Name, req.Body, nil, nil, err, time.Now())
+			return nil, err
+		}
 		if err := req.Body.Validate(); err != nil {
 			err = ErrInvalidInput.Wrap(err, "op", o.def.Name, "reason", err.Error())
 			env.audit(o.def.Name, req.Body, nil, nil, err, time.Now())

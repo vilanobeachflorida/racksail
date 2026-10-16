@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,6 +69,9 @@ func (u *units) ReadUnit(ctx context.Context, name string) ([]byte, error) {
 	return u.fs().ReadFile(ctx, path.Join(system.UnitDir, name), 1<<20)
 }
 
+// RemoveUnit removes the unit file with its drop-ins, the ones set-property
+// wrote included, so a unit of the same name made later doesn't inherit
+// the limits of this one.
 func (u *units) RemoveUnit(ctx context.Context, name string) error {
 	if err := checkUnit(name); err != nil {
 		return err
@@ -75,11 +79,13 @@ func (u *units) RemoveUnit(ctx context.Context, name string) error {
 	if err := u.fs().Remove(ctx, path.Join(system.UnitDir, name)); err != nil {
 		return err
 	}
-	err := u.fs().RemoveAll(ctx, path.Join(system.UnitDir, name+".d"))
-	if errors.Is(err, system.ErrNotFound) {
-		return nil
+	for _, dir := range []string{system.UnitDir, system.ControlDir, system.RuntimeControlDir} {
+		err := u.fs().RemoveAll(ctx, path.Join(dir, name+".d"))
+		if err != nil && !errors.Is(err, system.ErrNotFound) {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 var dropInPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
@@ -253,85 +259,71 @@ func (u *units) ResourceControl(ctx context.Context, name string, runtime bool) 
 	return out, nil
 }
 
-// unitConfigDirs are the directories a unit's persistent configuration lives
-// in, lowest precedence first; the transient /run directories are left out,
-// since a persistent change must survive a reboot that drops them.
-var unitConfigDirs = []string{"/usr/lib/systemd/system", "/lib/systemd/system", system.UnitDir}
-
 // persistentLimits reads the resource-control limits a unit keeps across a
-// reboot: its unit file and its persistent drop-ins (admin drop-ins and the
-// drop-ins systemctl set-property writes under system.control), but not the
-// /run overrides a runtime set-property writes. Parsing is done the way
-// systemd reads unit files, and the last assignment of each limit wins.
+// reboot: its configuration as systemd loads it from the directories a
+// reboot leaves in place, so not the /run overrides a runtime set-property
+// writes. Only the unit file of the highest priority counts, and its
+// drop-ins, the set-property ones under system.control included, apply in
+// the order of their names (system.LoadUnitConfig).
 func (u *units) persistentLimits(ctx context.Context, name string) (map[string]string, error) {
-	fs := u.fs()
-	raw := map[string]string{}
-	collect := func(content []byte) {
-		parsed, err := system.ParseUnitFile(content)
+	files, err := system.LoadUnitConfig(name, system.PersistentUnitSearchPath(), unitTree{ctx: ctx, h: u.h})
+	if err != nil {
+		return nil, err
+	}
+	return system.UnitResourceLimits(name, files)
+}
+
+// unitTree reads unit files and drop-ins under the machine's root for
+// system.LoadUnitConfig.
+type unitTree struct {
+	ctx context.Context
+	h   *host
+}
+
+func (t unitTree) Lstat(p string) (system.FileInfo, error) {
+	if err := checkPath(p); err != nil {
+		return system.FileInfo{}, err
+	}
+	fi, err := os.Lstat(t.h.path(p))
+	if err != nil {
+		return system.FileInfo{}, mapErr("stat", p, err)
+	}
+	return t.info(p, fi), nil
+}
+
+func (t unitTree) ReadDir(p string) ([]system.FileInfo, error) {
+	if err := checkPath(p); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(t.h.path(p))
+	if err != nil {
+		return nil, mapErr("readdir", p, err)
+	}
+	out := make([]system.FileInfo, 0, len(entries))
+	for _, e := range entries {
+		fi, err := e.Info()
 		if err != nil {
-			return
-		}
-		for _, s := range parsed.Sections {
-			for _, e := range s.Entries {
-				if slices.Contains(system.ResourceControlProperties, e.Key) {
-					raw[e.Key] = e.Value
-				}
-			}
-		}
-	}
-	readFile := func(p string) error {
-		content, err := fs.ReadFile(ctx, p, 1<<20)
-		switch {
-		case errors.Is(err, system.ErrNotFound):
-			return nil
-		case err != nil:
-			return err
-		}
-		collect(content)
-		return nil
-	}
-	// The unit file: /etc overrides /usr/lib, so later directories win.
-	for _, dir := range unitConfigDirs {
-		if err := readFile(path.Join(dir, name)); err != nil {
-			return nil, err
-		}
-	}
-	// Persistent drop-in directories, lowest precedence first; the admin ones
-	// in /etc override the vendor ones, and system.control (set-property)
-	// overrides those.
-	var dropInDirs []string
-	for _, dir := range unitConfigDirs {
-		dropInDirs = append(dropInDirs, path.Join(dir, name+".d"))
-	}
-	dropInDirs = append(dropInDirs, path.Join("/etc/systemd/system.control", name+".d"))
-	for _, dir := range dropInDirs {
-		entries, err := fs.ReadDir(ctx, dir)
-		if errors.Is(err, system.ErrNotFound) {
+			// Removed while the directory was read.
 			continue
 		}
-		if err != nil {
-			return nil, err
-		}
-		confs := make([]string, 0, len(entries))
-		for _, e := range entries {
-			if strings.HasSuffix(e.Path, ".conf") {
-				confs = append(confs, e.Path)
-			}
-		}
-		sort.Strings(confs)
-		for _, c := range confs {
-			if err := readFile(c); err != nil {
-				return nil, err
-			}
-		}
-	}
-	out := map[string]string{}
-	for k, v := range raw {
-		if canon, ok := system.CanonicalLimit(k, v); ok {
-			out[k] = canon
-		}
+		out = append(out, t.info(path.Join(p, e.Name()), fi))
 	}
 	return out, nil
+}
+
+func (t unitTree) ReadFile(p string) ([]byte, error) {
+	return (&files{t.h}).ReadFile(t.ctx, p, 1<<20)
+}
+
+// info describes a unit file by what loading it needs: its type and, for
+// a link, its target. Owners don't matter here, so the account files
+// aren't read for every entry of a large unit directory.
+func (t unitTree) info(p string, fi fs.FileInfo) system.FileInfo {
+	info := system.FileInfo{Path: p, Mode: fi.Mode(), Size: fi.Size(), ModTime: fi.ModTime().UTC()}
+	if fi.Mode()&fs.ModeSymlink != 0 {
+		info.Target, _ = os.Readlink(t.h.path(p))
+	}
+	return info
 }
 
 func (u *units) Kill(ctx context.Context, name string, signal system.Signal) error {

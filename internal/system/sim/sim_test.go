@@ -50,6 +50,13 @@ func TestFreshMachine(t *testing.T) {
 	if len(procs) != 1 || procs[0].Unit != "racksail-panel.service" {
 		t.Errorf("racksail processes = %+v", procs)
 	}
+	// An installed server holds the panel's edge-facing socket as it holds
+	// the edge's, both started at boot.
+	for _, name := range []string{system.PanelSocketUnit, system.EdgeSocketUnit} {
+		if st, err := b.Units.Status(ctx, name); err != nil || st.SubState != "listening" || st.UnitFileState != "enabled" {
+			t.Errorf("%s = %+v, %v", name, st, err)
+		}
+	}
 	svs, err := b.Btrfs.Subvolumes(ctx, "/")
 	if err != nil || len(svs) != 6 {
 		t.Errorf("subvolumes = %d, %v", len(svs), err)
@@ -222,6 +229,80 @@ func TestUnitsAndPackages(t *testing.T) {
 	up, _ := b.Packages.Upgradable(ctx, false)
 	if len(up) != 1 || up[0].Version != "1.9.17-1" {
 		t.Errorf("upgradable = %+v", up)
+	}
+}
+
+// SetProperties keeps limits as systemctl set-property does, one drop-in
+// per property under system.control, /run's for a runtime change: the live
+// limits change at once, a persistent change of a limit hides a runtime one,
+// a drop-in that sorts later decides again at the next daemon-reload, and a
+// reboot drops what a runtime change kept.
+func TestSetPropertiesKeepsDropIns(t *testing.T) {
+	ctx := context.Background()
+	m, b := newMachine(t)
+	const slice = "racksail-accounts-blog.slice"
+	if err := b.Units.WriteUnit(ctx, slice, []byte("[Slice]\nMemoryMax=1G\n")); err != nil {
+		t.Fatal(err)
+	}
+	limit := func(runtime bool, name string) string {
+		t.Helper()
+		got, err := b.Units.ResourceControl(ctx, slice, runtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[name]
+	}
+	if err := b.Units.SetProperties(ctx, slice, true, system.UnitProperty{Name: "MemoryMax", Value: "512M"}); err != nil {
+		t.Fatal(err)
+	}
+	if live, kept := limit(true, "MemoryMax"), limit(false, "MemoryMax"); live != "536870912" || kept != "1073741824" {
+		t.Errorf("after a runtime change: live %s, kept %s", live, kept)
+	}
+	if _, err := b.Files.Stat(ctx, system.RuntimeControlDir+"/"+slice+".d/50-MemoryMax.conf"); err != nil {
+		t.Errorf("the runtime drop-in: %v", err)
+	}
+	if err := b.Units.SetProperties(ctx, slice, false, system.UnitProperty{Name: "MemoryMax", Value: "2G"}); err != nil {
+		t.Fatal(err)
+	}
+	if live, kept := limit(true, "MemoryMax"), limit(false, "MemoryMax"); live != "2147483648" || kept != "2147483648" {
+		t.Errorf("after a persistent change: live %s, kept %s", live, kept)
+	}
+	if v, _ := m.Property(slice, "MemoryMax"); v != "2G" {
+		t.Errorf("kept MemoryMax = %q", v)
+	}
+	if err := b.Units.WriteDropIn(ctx, slice, "racksail-limits", []byte("[Slice]\nMemoryMax=3G\n")); err != nil {
+		t.Fatal(err)
+	}
+	if live := limit(true, "MemoryMax"); live != "2147483648" {
+		t.Errorf("set-property's value holds until systemd reloads: %s", live)
+	}
+	if err := b.Units.DaemonReload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if live, kept := limit(true, "MemoryMax"), limit(false, "MemoryMax"); live != "3221225472" || kept != "3221225472" {
+		t.Errorf("after a reload: live %s, kept %s", live, kept)
+	}
+	if err := b.Units.SetProperties(ctx, slice, true, system.UnitProperty{Name: "TasksMax", Value: "50"}); err != nil {
+		t.Fatal(err)
+	}
+	if live := limit(true, "TasksMax"); live != "50" {
+		t.Errorf("runtime TasksMax = %q", live)
+	}
+	m.Reboot()
+	if live := limit(true, "TasksMax"); live != "" {
+		t.Errorf("a runtime limit outlived a reboot: %q", live)
+	}
+	if _, err := b.Files.Stat(ctx, system.RuntimeControlDir); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("/run kept set-property's drop-ins across a reboot: %v", err)
+	}
+	if err := b.Units.SetProperties(ctx, "racksail-backup.timer", false, system.UnitProperty{Name: "MemoryMax", Value: "1G"}); err == nil {
+		t.Error("a unit that doesn't exist takes no limits")
+	}
+	if err := b.Units.RemoveUnit(ctx, slice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Files.Stat(ctx, system.ControlDir+"/"+slice+".d"); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("set-property's drop-ins outlived the unit: %v", err)
 	}
 }
 

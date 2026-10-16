@@ -93,8 +93,10 @@ var EnsureGroup = Register(Def[EnsureGroupInput, Result]{
 // checkCreatableGroup holds a group created over a free name to what Racksail
 // can manage afterwards, the rule DeleteGroup and member changes already use:
 // a system group must be racksail-*, and an account group must take an
-// account-range GID. An account's GID is allocated at apply time, so a
-// preview still carrying the zero placeholder is let through.
+// account-range GID and a name no user or group of the system or its
+// packages has or may get, which a package would adopt with whoever Racksail
+// put in it. An account's GID is allocated at apply time, so a preview still
+// carrying the zero placeholder is let through.
 func checkCreatableGroup(in EnsureGroupInput, check bool) error {
 	if in.System {
 		if !strings.HasPrefix(in.Name, "racksail-") {
@@ -106,6 +108,9 @@ func checkCreatableGroup(in EnsureGroupInput, check bool) error {
 			return fmt.Errorf("gid %d is outside the account range, so Racksail won't create group %s with it: %w", in.GID, in.Name, system.ErrInvalid)
 		}
 		return nil
+	}
+	if ReservedName(in.Name) {
+		return fmt.Errorf("%s is the name of a user or group the system uses, so no account group takes it: %w", in.Name, system.ErrInvalid)
 	}
 	if check && in.GID == 0 {
 		return nil
@@ -183,8 +188,28 @@ func (in EnsureUserInput) Validate() error {
 	if len(in.Comment) > 128 {
 		return fmt.Errorf("comment is longer than 128 characters")
 	}
-	if in.SubIDs != nil && (in.SubIDs.Start < system.SubIDStart || in.SubIDs.Count <= 0 || in.SubIDs.Count > 1<<20) {
-		return fmt.Errorf("subordinate ids must start at %d or above", system.SubIDStart)
+	// Subordinate IDs are an account's own range (decision D3), worked out
+	// from its UID; an update that leaves the UID out is checked against the
+	// user's.
+	if in.SubIDs != nil {
+		if in.System {
+			return fmt.Errorf("only accounts get subordinate ids, not system user %s", in.Name)
+		}
+		if in.UID != 0 {
+			if err := checkSubIDs(in.Name, in.UID, *in.SubIDs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkSubIDs holds an account's subordinate IDs to its own range, so it
+// can't be given another account's or overlap anyone else's.
+func checkSubIDs(name string, uid int, r system.IDRange) error {
+	if want := system.AccountSubIDs(uid); r != want {
+		return fmt.Errorf("account %s's subordinate ids are %d-%d, not %d-%d", name,
+			want.Start, want.Start+want.Count-1, r.Start, r.Start+r.Count-1)
 	}
 	return nil
 }
@@ -204,11 +229,19 @@ func (in EnsureUserInput) user() system.User {
 // user Racksail manages: an account or a racksail-* system user. A create
 // over an existing name that isn't one of those, such as root or an
 // administrator's login user, is refused, so a compromised panel can't
-// rewrite another user's home, shell, groups or lock state.
+// rewrite another user's home, shell, groups or lock state. What a user may
+// be given follows from who it is on the machine, never from the request:
+// an account keeps its home in its own directory and its own subordinate
+// IDs, and a request that says otherwise about whether the user is a system
+// user is refused.
 var EnsureUser = Register(Def[EnsureUserInput, Result]{
-	Name:        "EnsureUser",
-	Summary:     "Create a user",
-	Description: "Creates a Linux account or racksail-* system user, or updates the shell, groups, comment, lock state and subordinate IDs of one. It refuses to change any other user, and user and group IDs never change.",
+	Name:    "EnsureUser",
+	Summary: "Create a user",
+	Description: "Creates a Linux account or racksail-* system user, or updates the home, shell, groups, comment, lock state and " +
+		"subordinate IDs of one. It refuses to change any other user, and user and group IDs never change, nor does whether " +
+		"the user is a system user. An account's home is its own directory under " + system.AccountsDir + ", its subordinate " +
+		"IDs are its own range, and it can't take the name of a privileged group or of a user or group the system or its " +
+		"packages use.",
 	Effects: func(in EnsureUserInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectUser, Action: "create", Target: in.Name}}
 	},
@@ -221,8 +254,11 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 			if err := checkCreatableUser(in, env.Check); err != nil {
 				return Result{}, err
 			}
-			if err := checkUserHome(in); err != nil {
+			if err := checkUserHome(!in.System, in.Name, in.Home); err != nil {
 				return Result{}, err
+			}
+			if in.SubIDs != nil && in.UID == 0 {
+				return Result{}, fmt.Errorf("account %s's subordinate ids follow from its uid, which isn't chosen yet: %w", in.Name, system.ErrInvalid)
 			}
 			if in.GID != 0 {
 				if err := checkPrimaryGroup(ctx, u, in.GID); err != nil {
@@ -249,6 +285,17 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		if (in.UID != 0 && cur.UID != in.UID) || (in.GID != 0 && cur.GID != in.GID) {
 			return Result{}, fmt.Errorf("user %s has ids %d:%d, not %d:%d: %w", in.Name, cur.UID, cur.GID, in.UID, in.GID, system.ErrExists)
 		}
+		// Which rules hold comes from the user as the machine has it, so a
+		// request can't choose a system user's home for an account, or the
+		// other way round, by what it says about the user.
+		account := accountUser(cur)
+		if managedUser(cur) && in.System == account {
+			kind := "a system user"
+			if account {
+				kind = "an account"
+			}
+			return Result{}, fmt.Errorf("user %s is %s, which doesn't change: %w", in.Name, kind, system.ErrExists)
+		}
 		same := cur.Shell == want.Shell && cur.Comment == want.Comment && cur.Locked == want.Locked &&
 			cur.Home == want.Home && sameSet(cur.Groups, want.Groups) && sameRange(cur.SubIDs, want.SubIDs)
 		if same {
@@ -259,8 +306,16 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		if !managedUser(cur) {
 			return Result{}, ErrNotAllowed.New("op", "EnsureUser", "target", in.Name)
 		}
-		if err := checkUserHome(in); err != nil {
+		if err := checkUserHome(account, in.Name, want.Home); err != nil {
 			return Result{}, err
+		}
+		if want.SubIDs != nil {
+			if !account {
+				return Result{}, fmt.Errorf("only accounts get subordinate ids, not system user %s: %w", in.Name, system.ErrInvalid)
+			}
+			if err := checkSubIDs(in.Name, cur.UID, *want.SubIDs); err != nil {
+				return Result{}, fmt.Errorf("%w: %w", err, system.ErrInvalid)
+			}
 		}
 		if err := checkSupplementaryGroups(ctx, u, want.Groups, env.Check); err != nil {
 			return Result{}, err
@@ -320,15 +375,26 @@ func checkPrimaryGroup(ctx context.Context, u system.Users, gid int) error {
 // checkCreatableUser holds a user created over a free name to what Racksail
 // can manage afterwards, so a name a distribution package might take later
 // can't be claimed in advance with panel-chosen settings: a system user must
-// be racksail-* (or a platform user the installer makes), and an account must
-// take an account-range UID. An account's UID is allocated at apply time, so
-// a preview still carrying the zero placeholder is let through.
+// be racksail-* (or a platform user the installer makes), and an account
+// must take an account-range UID and a name of its own. The name is its
+// group's too, so it can't be a privileged group's, or a user's or group's
+// the system or a package uses (ReservedName), which a package installed
+// later would adopt with the account in it; and racksail-* names are for
+// Racksail's service users, whose units the account sandbox doesn't bind.
+// An account's UID is allocated at apply time, so a preview still carrying
+// the zero placeholder is let through.
 func checkCreatableUser(in EnsureUserInput, check bool) error {
 	if in.System {
 		if !strings.HasPrefix(in.Name, "racksail-") && !slices.Contains(platformUsers, in.Name) {
 			return fmt.Errorf("a system user Racksail creates must be named racksail-*, not %s: %w", in.Name, system.ErrInvalid)
 		}
 		return nil
+	}
+	if ReservedName(in.Name) {
+		return fmt.Errorf("%s is the name of a privileged group or of a user or group the system uses, so no account takes it: %w", in.Name, system.ErrInvalid)
+	}
+	if strings.HasPrefix(in.Name, "racksail-") {
+		return fmt.Errorf("racksail-* names are for Racksail's service users, not an account such as %s: %w", in.Name, system.ErrInvalid)
 	}
 	if check && in.UID == 0 {
 		return nil
@@ -340,23 +406,44 @@ func checkCreatableUser(in EnsureUserInput, check bool) error {
 }
 
 // checkUserHome confines where a managed user's home may point, so it can't
-// be a location the panel itself writes. Account homes stay under the
-// accounts area, each account in its own directory (decision D1), so a home
-// can't be the accounts' parent, a sibling such as the replica or backups
-// staging, or anywhere else; Racksail's own service users, which are system
-// users, keep their homes out of the way: none (/nonexistent) or inside the
-// panel's state.
-func checkUserHome(in EnsureUserInput) error {
-	if in.System {
-		if in.Home != "/nonexistent" && in.Home != system.StateDir && !strings.HasPrefix(in.Home, system.StateDir+"/") {
-			return fmt.Errorf("a system user's home must be /nonexistent or under %s, not %s: %w", system.StateDir, in.Home, system.ErrInvalid)
+// be a location the panel itself writes or another account's. An account's
+// home is its own directory under the accounts area (decision D1), or a
+// directory inside it, never the accounts' parent, a sibling such as the
+// replica or backups staging, or another account's; Racksail's own service
+// users, which are system users, keep their homes out of the way: none
+// (/nonexistent) or inside the panel's state.
+func checkUserHome(account bool, name, home string) error {
+	if !account {
+		if home != "/nonexistent" && home != system.StateDir && !strings.HasPrefix(home, system.StateDir+"/") {
+			return fmt.Errorf("a system user's home must be /nonexistent or under %s, not %s: %w", system.StateDir, home, system.ErrInvalid)
 		}
 		return nil
 	}
-	if !strings.HasPrefix(in.Home, system.AccountsDir+"/") {
-		return fmt.Errorf("an account's home must be under %s, not %s: %w", system.AccountsDir, in.Home, system.ErrInvalid)
+	if own := system.AccountDir(name); home != own && !strings.HasPrefix(home, own+"/") {
+		return fmt.Errorf("account %s's home must be its own directory, %s, not %s: %w", name, own, home, system.ErrInvalid)
 	}
 	return nil
+}
+
+// checkRemovableHome holds the home DeleteUser removes along with a user to
+// where a managed user's home may be: an account's own directory, or for a
+// service user a directory inside the panel's state, never the state
+// itself. A home set elsewhere before can't take another account's data or
+// the panel's state with it.
+func checkRemovableHome(u system.User) error {
+	if u.Home == "/nonexistent" {
+		return nil
+	}
+	if !accountUser(u) && u.Home == system.StateDir {
+		return fmt.Errorf("user %s's home is the panel's state, which isn't removed with it: %w", u.Name, system.ErrInvalid)
+	}
+	return checkUserHome(accountUser(u), u.Name, u.Home)
+}
+
+// accountUser reports whether a user is an account: its UID is in the
+// account range.
+func accountUser(u system.User) bool {
+	return u.UID >= system.AccountUIDMin && u.UID <= system.AccountUIDMax
 }
 
 func sameRange(a, b *system.IDRange) bool {
@@ -395,6 +482,11 @@ var DeleteUser = Register(Def[DeleteUserInput, Result]{
 		if !managedUser(cur) {
 			return Result{}, ErrNotAllowed.New("op", "DeleteUser", "target", in.Name)
 		}
+		if in.RemoveHome {
+			if err := checkRemovableHome(cur); err != nil {
+				return Result{}, err
+			}
+		}
 		effect := system.Effect{Type: system.EffectUser, Action: "delete", Target: in.Name, Destructive: in.RemoveHome}
 		if env.Check {
 			return Changed(effect), nil
@@ -414,7 +506,7 @@ func managedUser(u system.User) bool {
 	if slices.Contains(platformUsers, u.Name) {
 		return false
 	}
-	if u.UID >= system.AccountUIDMin && u.UID <= system.AccountUIDMax {
+	if accountUser(u) {
 		return true
 	}
 	return u.System && strings.HasPrefix(u.Name, "racksail-") && len(u.Name) > len("racksail-")

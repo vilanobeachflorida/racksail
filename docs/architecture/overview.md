@@ -37,7 +37,7 @@ One Go binary, `racksail`, runs in several roles.
 
 - The panel talks to the agent over HTTP+JSON on a Unix socket (`/run/racksail/agent.sock`) on the same server, and over mutual TLS between servers.
 - The agent accepts only typed operations from a fixed allowlist. There is no operation that runs an arbitrary command.
-- systemd units: `racksail-panel.service`, `racksail-agent.service` and `racksail-edge.service`, all in `racksail.slice`. Account workloads live in `racksail-accounts.slice`.
+- systemd units: `racksail-panel.service`, `racksail-agent.service` and `racksail-edge.service`, all in `racksail.slice`, with two sockets systemd holds for them: `racksail-edge.socket`, through which the panel reaches the edge, and `racksail-panel.socket`, through which the edge reaches the panel. Account workloads live in `racksail-accounts.slice`.
 
 ## Resources
 

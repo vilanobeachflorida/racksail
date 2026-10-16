@@ -14,7 +14,8 @@ import (
 // Racksail's own units run as root or as the platform's users by design,
 // so the panel never writes them: the agent renders them itself from the
 // path of the racksail executable, which has to be one only root can
-// change.
+// change, and only for the installer and the self-update code, which run in
+// its own process.
 
 // PlatformUnitsInput names the executable Racksail's services run.
 type PlatformUnitsInput struct {
@@ -67,14 +68,17 @@ func checkRootOnly(ctx context.Context, files system.Files, p string) error {
 	}
 }
 
-// InstallPlatformUnits writes Racksail's own slices and services, rendered
-// by the agent, and reloads systemd when one changed. It doesn't enable or
-// start them.
+// InstallPlatformUnits writes Racksail's own slices, sockets and services,
+// rendered by the agent, and reloads systemd when one changed. It doesn't
+// enable or start them. It is local: a panel, even one on the agent's own
+// socket, can't have the units that run as root rewritten, whatever
+// executable it names.
 var InstallPlatformUnits = Register(Def[PlatformUnitsInput, Result]{
 	Name:    "InstallPlatformUnits",
 	Summary: "Install Racksail's own services",
-	Description: "Renders racksail.slice, racksail-accounts.slice and the agent, panel and edge units for the given racksail executable, " +
-		"which only root may be able to change, and writes the ones that differ.",
+	Description: "Renders racksail.slice, racksail-accounts.slice and the agent, panel and edge units and sockets for the given racksail " +
+		"executable, which only root may be able to change, and writes the ones that differ.",
+	Local: true,
 	Effects: func(in PlatformUnitsInput) []system.Effect {
 		var out []system.Effect
 		for _, name := range system.PlatformUnitNames() {

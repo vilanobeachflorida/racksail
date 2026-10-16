@@ -331,8 +331,23 @@ func TestUnitsAndPolicy(t *testing.T) {
 	if res, err := EnsureDropIn.Call(ctx, c, limits, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("drop-in = %+v, %v", res, err)
 	}
-	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "1G"}}}, CallOptions{}); err != nil || !res.Changed {
-		t.Errorf("properties = %+v, %v", res, err)
+	// The drop-in already holds this limit, live and across reboots.
+	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "1G"}}}, CallOptions{}); err != nil || res.Changed {
+		t.Errorf("a limit the drop-in sets = %+v, %v", res, err)
+	}
+	// Another one takes effect, but set-property's drop-in sorts before
+	// racksail-limits.conf, which wins again at the next reboot, so it never
+	// counts as kept.
+	for range 2 {
+		if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: unit.Name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "2G"}}}, CallOptions{}); err != nil || !res.Changed {
+			t.Errorf("a limit a drop-in overrides = %+v, %v", res, err)
+		}
+	}
+	if live, _ := m.Backend().Units.ResourceControl(ctx, unit.Name, true); live["MemoryMax"] != "2147483648" {
+		t.Errorf("live limits = %v", live)
+	}
+	if kept, _ := m.Backend().Units.ResourceControl(ctx, unit.Name, false); kept["MemoryMax"] != "1073741824" || kept["TasksMax"] != "64" {
+		t.Errorf("kept limits = %v", kept)
 	}
 	if res, err := RemoveUnit.Call(ctx, c, UnitInput{Name: unit.Name}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("remove = %+v, %v", res, err)

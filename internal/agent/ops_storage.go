@@ -757,11 +757,22 @@ var EnsureMounted = Register(Def[MountInput, Result]{
 				return Result{}, fmt.Errorf("%s is already mounted from %s: %w", m.Target, m.Source, system.ErrExists)
 			}
 		}
-		effect := system.Effect{Type: system.EffectStorage, Action: "mount", Target: mount.Target, Detail: mount.Source}
-		if env.Check {
-			return Changed(effect), nil
+		var effects []system.Effect
+		if mount.FSType == "btrfs" {
+			// The operations that manage a Btrfs pool run the btrfs tools, which a
+			// disk brought from another machine doesn't bring along, so it gets
+			// them with its first mount, as a disk formatted here does.
+			pkg, err := ensurePackage(ctx, env, "btrfs-progs")
+			if err != nil {
+				return Result{}, err
+			}
+			effects = append(effects, pkg...)
 		}
-		return Changed(effect), env.System.Mounts.Mount(ctx, mount)
+		effects = append(effects, system.Effect{Type: system.EffectStorage, Action: "mount", Target: mount.Target, Detail: mount.Source})
+		if env.Check {
+			return Changed(effects...), nil
+		}
+		return Changed(effects...), env.System.Mounts.Mount(ctx, mount)
 	},
 })
 
@@ -1025,9 +1036,10 @@ var PartitionDisk = Register(Def[PartitionInput, Result]{
 })
 
 // formatPackages are the packages that provide the mkfs tools Debian 13
-// doesn't install by default; btrfs-progs and e2fsprogs are present, and
-// mkswap comes with util-linux.
-var formatPackages = map[string]string{"xfs": "xfsprogs", "vfat": "dosfstools"}
+// doesn't install by default: btrfs-progs only comes with a system installed
+// on Btrfs, and is no more than a recommendation of Racksail's own package.
+// e2fsprogs is always there, and mkswap comes with util-linux.
+var formatPackages = map[string]string{"btrfs": "btrfs-progs", "xfs": "xfsprogs", "vfat": "dosfstools"}
 
 // FormatInput is a filesystem to create.
 type FormatInput struct {

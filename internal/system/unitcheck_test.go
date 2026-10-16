@@ -230,10 +230,30 @@ func TestCheckDropIn(t *testing.T) {
 	for _, good := range []string{
 		"[Service]\nMemoryMax=1G\nCPUQuota=50%\nLimitNOFILE=65536\nRestart=on-failure\n",
 		"[Unit]\nRequiresMountsFor=/mnt/racksail/data\nAfter=mnt-racksail-data.mount\n",
-		"[Slice]\nMemoryHigh=512M\n",
 	} {
 		if err := CheckDropIn("mariadb.service", []byte(good), testUnitRules()); err != nil {
 			t.Errorf("CheckDropIn(%q): %v", good, err)
+		}
+	}
+	// Each type of unit takes the sections systemd reads for it.
+	for unit, good := range map[string]string{
+		"racksail-accounts-blog.slice": "[Slice]\nMemoryHigh=512M\n",
+		"racksail-site-blog.socket":    "[Unit]\nAfter=mnt-racksail-data.mount\n[Socket]\nTasksMax=16\n",
+		"racksail-backup.timer":        "[Unit]\nAfter=mnt-racksail-data.mount\n",
+	} {
+		if err := CheckDropIn(unit, []byte(good), testUnitRules()); err != nil {
+			t.Errorf("CheckDropIn(%s, %q): %v", unit, good, err)
+		}
+	}
+	for unit, bad := range map[string]string{
+		"mariadb.service":              "[Slice]\nMemoryHigh=512M\n",
+		"racksail-accounts-blog.slice": "[Service]\nMemoryHigh=512M\n",
+		"racksail-site-blog.socket":    "[Service]\nRestart=always\n",
+		"racksail-backup.timer":        "[Timer]\nOnCalendar=daily\n",
+		"swap.swap":                    "[Unit]\nAfter=local-fs.target\n",
+	} {
+		if err := CheckDropIn(unit, []byte(bad), testUnitRules()); !errors.Is(err, ErrInvalid) {
+			t.Errorf("CheckDropIn(%s, %q) should be refused: %v", unit, bad, err)
 		}
 	}
 	for _, bad := range []string{

@@ -437,10 +437,10 @@ func (m *Machine) Reboot() {
 func (m *Machine) rebootLocked() {
 	for name, rt := range m.units {
 		m.stopUnit(name)
-		// Transient --runtime set-property overrides don't survive a reboot;
-		// only the persistent drop-ins do.
-		rt.runtimeProps = nil
+		rt.applied = nil
 	}
+	// /run is empty again, and with it what a runtime set-property kept.
+	m.removeTree(system.RuntimeControlDir)
 	for pid := range m.procs {
 		if pid != 1 {
 			delete(m.procs, pid)

@@ -275,8 +275,9 @@ func checkUnit(name string) error {
 
 // systemUnits are the root-running units Racksail controls but whose
 // configuration it renders itself, from typed input: networkd, the clock
-// and the firewall. Drop-ins never reach them, so a compromised panel can't
-// change what they run, as whom or with which limits and dependencies.
+// and the firewall. Neither drop-ins nor resource limits reach them, so a
+// compromised panel can't change what they run, as whom or with which
+// limits and dependencies.
 var systemUnits = []string{"systemd-networkd.service", "systemd-timesyncd.service", "nftables.service"}
 
 // agentRenderedUnit reports whether a unit is one the agent writes itself
@@ -287,10 +288,11 @@ func agentRenderedUnit(name string) bool {
 	return system.IsPlatformUnit(name) || strings.HasPrefix(name, "racksail-addon@")
 }
 
-// checkDropInTarget validates the unit a drop-in adjusts: one Racksail
-// manages, but never a unit the agent renders itself or a root-running
-// system service.
-func checkDropInTarget(name string) error {
+// checkAdjustableUnit validates a unit whose configuration the panel
+// adjusts, with a drop-in or with resource limits set-property keeps in one:
+// a unit Racksail manages, but never a unit the agent renders itself or a
+// root-running system service.
+func checkAdjustableUnit(name string) error {
 	if err := checkUnit(name); err != nil {
 		return err
 	}
@@ -304,7 +306,7 @@ func checkDropInTarget(name string) error {
 		return fmt.Errorf("unit %s is a prefix that a drop-in would apply to every unit under it, not a single unit", name)
 	}
 	if agentRenderedUnit(name) || slices.Contains(systemUnits, name) {
-		return fmt.Errorf("unit %s is one of Racksail's own or a system service, which take no drop-ins", name)
+		return fmt.Errorf("unit %s is one of Racksail's own or a system service, which the panel can't adjust", name)
 	}
 	return nil
 }
@@ -399,9 +401,14 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 	case id.Dynamic:
 		return fmt.Errorf("%s exists, so systemd would run the service as that user instead of a dynamic one", id.User)
 	default:
-		account := u.UID >= system.AccountUIDMin && u.UID <= system.AccountUIDMax
+		account := accountUser(u)
 		service := u.System && strings.HasPrefix(u.Name, "racksail-") && !slices.Contains(platformUsers, u.Name)
-		if !account && !service {
+		switch {
+		case strings.HasPrefix(u.Name, "racksail-") && !service:
+			// The unit's checks spare a racksail-* user the account sandbox,
+			// so only one of Racksail's own system users may carry the name.
+			return fmt.Errorf("user %s is named like one of Racksail's service users but isn't one", u.Name)
+		case !account && !service:
 			return fmt.Errorf("user %s isn't an account or one of Racksail's service users", u.Name)
 		}
 		if !ownedGID(u.GID) {
@@ -447,6 +454,36 @@ func checkAccountName(kind, name string) error {
 var privilegedGroups = []string{
 	"root", "sudo", "adm", "shadow", "disk", "docker", "incus-admin", "incus", "lxd", "libvirt", "kvm",
 	"systemd-journal", "staff", "wheel", "racksail", "racksail-edge",
+}
+
+// systemNames are the users and groups a Debian 13 server has from the
+// start or gets from the packages Racksail installs, such as postgres,
+// ssl-cert or www-data. useradd makes a group named after each new user,
+// and a package that finds its user or group already there adopts it with
+// whoever is in it, so an account that took one of these names first would
+// get the package's rights, such as reading the private keys in
+// /etc/ssl/private or every database as postgres.
+var systemNames = []string{
+	// base-passwd and the base system.
+	"daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup",
+	"list", "irc", "gnats", "nobody", "tty", "kmem", "dialout", "fax", "voice", "cdrom", "floppy", "tape", "audio",
+	"dip", "operator", "src", "utmp", "video", "sasl", "plugdev", "users", "nogroup", "input", "render", "sgx",
+	"netdev", "crontab", "messagebus", "polkitd", "tss", "uuidd", "lpadmin", "_apt", "_ssh", "sshd", "statd", "_rpc",
+	"systemd-network", "systemd-resolve", "systemd-timesync", "systemd-coredump", "systemd-oom",
+	// The web, mail, DNS, database, container, VM, share and home software
+	// of decisions S2 to S11.
+	"ssl-cert", "postfix", "postdrop", "opendkim", "opendmarc", "dovecot", "dovenull", "cyrus", "_rspamd", "rspamd",
+	"clamav", "redis", "valkey", "memcache", "mysql", "postgres", "knot", "bind", "unbound", "dnsmasq",
+	"podman", "libvirt-qemu", "libvirt-dnsmasq", "swtpm", "samba", "sambashare", "nut", "ntpsec", "_chrony",
+	"headscale",
+}
+
+// ReservedName reports whether a new account, or an account's group, can't
+// take name: a privileged group's, or a user's or group's the system has or
+// may get. The agent refuses them, and the panel asks so it can say so
+// before anything is planned.
+func ReservedName(name string) bool {
+	return slices.Contains(privilegedGroups, name) || slices.Contains(systemNames, name)
 }
 
 var allowedShells = []string{"/usr/sbin/nologin", "/bin/false", "/usr/bin/false", "/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/git-shell"}

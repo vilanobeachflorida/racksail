@@ -56,7 +56,8 @@ func NewLocalRuntime(rt *Runtime) *Local {
 func (l *Local) Runtime() *Runtime { return l.runtime }
 
 // Call implements Client. The input goes through the same decoding and
-// validation as calls that arrive over the socket.
+// validation as calls that arrive over the socket. Local operations, which
+// the socket refuses, run here, since the caller shares the agent's process.
 func (l *Local) Call(ctx context.Context, op string, input json.RawMessage, opts CallOptions) (json.RawMessage, error) {
 	env := &Env{System: l.backend, Check: opts.Check, Owner: opts.Owner, Log: l.log, Runtime: l.runtime, Caller: CallerLocal}
 	e, ok := Lookup(op)

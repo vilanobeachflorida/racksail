@@ -138,7 +138,7 @@ type DropInInput struct {
 // environment. Racksail's own units and the root system services it renders
 // take none.
 func (in DropInInput) Validate() error {
-	if err := checkDropInTarget(in.Unit); err != nil {
+	if err := checkAdjustableUnit(in.Unit); err != nil {
 		return err
 	}
 	if !dropInNamePattern.MatchString(in.Name) {
@@ -279,6 +279,11 @@ func unitEnablement(name, summary, action string, enable bool) *Op[UnitsInput, R
 			var todo []string
 			var effects []system.Effect
 			for _, n := range in.Names {
+				if !enable && n == system.AgentUnit {
+					// Every server runs an agent and nothing else starts it again,
+					// so a panel never keeps it from starting at the next boot.
+					return Result{}, ErrNotAllowed.New("op", name, "target", n)
+				}
 				st, err := units.Status(ctx, n)
 				if err != nil {
 					return Result{}, err
@@ -380,9 +385,12 @@ type SetUnitPropertiesInput struct {
 	Properties []system.UnitProperty `json:"properties" doc:"Properties to set"`
 }
 
-// Validate implements Input.
+// Validate implements Input. A persistent change is kept as a drop-in, so
+// the units it may reach are those a drop-in may adjust: never Racksail's
+// own units, which a tiny limit on would leave the server unmanageable
+// until someone fixed it at the console, nor the root system services.
 func (in SetUnitPropertiesInput) Validate() error {
-	if err := checkUnit(in.Name); err != nil {
+	if err := checkAdjustableUnit(in.Name); err != nil {
 		return err
 	}
 	if len(in.Properties) == 0 {
@@ -397,26 +405,35 @@ func (in SetUnitPropertiesInput) Validate() error {
 }
 
 // SetUnitProperties applies resource limits, such as plan limits on an
-// account slice, without restarting anything. It reports no change when the
-// limits already have the asked values, so running a plan twice does
-// nothing.
+// account slice, without restarting anything. It reports no change only
+// when the limits are in effect with the asked values and, for a change
+// kept across reboots, are also what the unit's configuration keeps, so
+// running a plan twice does nothing and a limit is never left to the next
+// reboot.
 var SetUnitProperties = Register(Def[SetUnitPropertiesInput, Result]{
 	Name:    "SetUnitProperties",
 	Summary: "Change the resource limits of a unit",
+	Description: "Sets resource-control limits of a unit Racksail manages, as systemctl set-property does: at once, and unless runtime " +
+		"is set, also in a drop-in that outlives a reboot. Racksail's own units and the root system services can't be adjusted.",
 	Effects: func(in SetUnitPropertiesInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectService, Action: "limit", Target: in.Name}}
 	},
 	Run: func(ctx context.Context, env *Env, in SetUnitPropertiesInput) (Result, error) {
-		// A read error leaves current empty, so every property counts as a
-		// change and set-property runs, reporting any real problem itself. A
-		// persistent change (runtime false) compares against the values that
-		// survive a reboot, so it still writes its drop-in when a runtime
-		// override is the only thing currently matching.
-		current, _ := env.System.Units.ResourceControl(ctx, in.Name, in.Runtime)
+		// A read error leaves a view empty, so every property counts as a
+		// change and set-property runs, reporting any real problem itself.
+		// The live values must match for either kind of change, so a runtime
+		// override with another value is replaced; a persistent change must
+		// also match what survives a reboot, so it still writes its drop-in
+		// when a runtime override is all that currently matches.
+		live, _ := env.System.Units.ResourceControl(ctx, in.Name, true)
+		var kept map[string]string
+		if !in.Runtime {
+			kept, _ = env.System.Units.ResourceControl(ctx, in.Name, false)
+		}
 		var todo []system.UnitProperty
 		for _, p := range in.Properties {
 			want, ok := system.CanonicalLimit(p.Name, p.Value)
-			if !ok || current[p.Name] != want {
+			if !ok || live[p.Name] != want || (!in.Runtime && kept[p.Name] != want) {
 				todo = append(todo, p)
 			}
 		}

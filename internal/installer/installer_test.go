@@ -111,6 +111,9 @@ func TestConvertOnTheSimulatedServer(t *testing.T) {
 	if st, _ := b.Units.Status(ctx, EdgeSocket); !st.Active() || st.SubState != "listening" || st.UnitFileState != "enabled" {
 		t.Errorf("the edge's socket waits for the panel: %+v", st)
 	}
+	if st, _ := b.Units.Status(ctx, PanelSocket); !st.Active() || st.SubState != "listening" || st.UnitFileState != "enabled" {
+		t.Errorf("the panel's socket waits for the edge: %+v", st)
+	}
 	if st, _ := b.Units.Status(ctx, EdgeUnit); st.Active() {
 		t.Errorf("the edge itself only starts when it gets routes: %+v", st)
 	}
