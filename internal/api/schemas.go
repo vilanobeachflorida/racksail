@@ -62,6 +62,15 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		inputs:  map[string]*huma.Schema{},
 		outputs: map[string]*huma.Schema{},
 	}
+	// Every resource, request and form shows the spec under one heading;
+	// kinds that share a spec type share its schema.
+	spec := d.spec
+	if d.spec.Ref != "" {
+		spec = reg.SchemaFromRef(d.spec.Ref)
+	}
+	if spec.Description == "" {
+		spec.Description = "The settings: what should exist, which Racksail puts in place"
+	}
 	base := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[store.Resource](), true, "Resource").Ref)
 	props := map[string]*huma.Schema{}
 	for key, p := range base.Properties {

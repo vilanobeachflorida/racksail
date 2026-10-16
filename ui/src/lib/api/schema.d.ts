@@ -435,7 +435,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch an item's icon */
+        /**
+         * Fetch an item's icon
+         * @description Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.
+         */
         get: operations["getCatalogItemIcon"];
         put?: never;
         post?: never;
@@ -3396,7 +3399,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Describe a module */
+        /**
+         * Describe a module
+         * @description Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.
+         */
         get: operations["getModule"];
         put?: never;
         post?: never;
@@ -3597,7 +3603,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Show a notification and its message */
+        /**
+         * Show a notification and its message
+         * @description Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.
+         */
         get: operations["getNotification"];
         put?: never;
         post?: never;
@@ -3714,7 +3723,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Say whether safe mode is on */
+        /**
+         * Say whether safe mode is on
+         * @description Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.
+         */
         get: operations["getSafeMode"];
         put?: never;
         /**
@@ -3916,6 +3928,7 @@ export interface components {
             /** @description What the owner signs in with */
             username: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         AccountSpec: {
             /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
             limits?: components["schemas"]["AccountLimits"];
@@ -3983,6 +3996,7 @@ export interface components {
             user?: string;
             userName?: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         AddonSpec: {
             /** @description The permissions the person installing the add-on approved */
             approved: components["schemas"]["Permissions"];
@@ -3996,6 +4010,7 @@ export interface components {
             item?: string;
             /** @description The add-on's addon.yaml */
             manifest: string;
+            /** @description The add-on's program */
             package: components["schemas"]["Package"];
         };
         AddonStatus: {
@@ -4162,6 +4177,7 @@ export interface components {
         CatalogOutputBody: {
             operations: components["schemas"]["Operation"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         CatalogSpec: {
             /** @description Stops offering the catalog's items without forgetting it */
             disabled?: boolean;
@@ -4284,6 +4300,7 @@ export interface components {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         ChannelSpec: {
             /** @description Stops sending until the channel is enabled again */
             disabled?: boolean;
@@ -5785,7 +5802,9 @@ export interface components {
             user: string;
         };
         DataScope: {
+            /** @description The spec fields it reaches, as dotted paths; every one when empty */
             fields?: string[] | null;
+            /** @description The kind, such as web.site */
             kind: string;
         };
         DeliveriesOutputBody: {
@@ -6010,8 +6029,11 @@ export interface components {
             message: string;
         };
         FieldDefault: {
+            /** @description A CEL expression whose value the field gets */
             expression: string;
+            /** @description The spec field it fills in, as a dotted path */
             field: string;
+            /** @description Whether it replaces a value the change gave; otherwise it fills in only a field left empty */
             override?: boolean;
         };
         FieldDiff: {
@@ -6318,34 +6340,55 @@ export interface components {
             health: components["schemas"]["HealthResult"][] | null;
             healthy: boolean;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         InstallationSpec: {
+            /** @description The catalog that offered it */
             catalog?: string;
+            /** @description The catalog's name when it was installed */
             catalogName?: string;
+            /** @description The SHA-256 of the catalog's index that listed it */
             indexSha256?: string;
+            /** @description The values given at install, without passwords and secrets */
             inputs?: {
                 [key: string]: unknown;
             };
             /** @description The item's id */
             item: string;
-            /** @enum {string} */
+            /**
+             * @description What kind of item it is
+             * @enum {string}
+             */
             itemKind: "app" | "runtime" | "service" | "stack" | "dns-template" | "automation" | "tuning-preset" | "model" | "theme" | "addon";
+            /** @description The software's license, as an SPDX expression */
             license: string;
-            /** @enum {string} */
+            /**
+             * @description Whether the license is open source, free to use or proprietary
+             * @enum {string}
+             */
             licenseClass: "open-source" | "free-to-use" | "proprietary";
+            /** @description The module that ships the recipe */
             module?: string;
+            /** @description The item's name */
             name: string;
             /** @description Whether it came from Racksail's own catalog */
             official?: boolean;
+            /** @description The recipe as installed, so upgrading and uninstalling need nothing from the catalog */
             recipe: string;
+            /** @description The SHA-256 of the recipe as installed */
             recipeSha256: string;
+            /** @description The resources it created */
             resources: components["schemas"]["InstalledResource"][] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The revision of the recipe itself, within the version
+             */
             revision?: number;
             /**
              * @description Where the recipe came from
              * @enum {string}
              */
             source: "catalog" | "module";
+            /** @description The version installed */
             version: string;
         };
         InstallationStatus: {
@@ -6370,8 +6413,11 @@ export interface components {
             upgrade?: string;
         };
         InstalledResource: {
+            /** @description The resource's ID */
             id: string;
+            /** @description The resource's kind */
             kind: string;
+            /** @description The resource's name in the recipe */
             name: string;
         };
         IssuedLink: {
@@ -6659,6 +6705,7 @@ export interface components {
             url?: string;
         };
         MfaFinishInputBody: {
+            /** @description The ceremony beginning it started */
             ceremony: string;
             /** @description What the method asked the person for; empty for methods without input */
             response?: string;
@@ -6708,6 +6755,7 @@ export interface components {
         ModuleListBody: {
             modules: components["schemas"]["ModuleInfo"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         ModuleSpec: {
             /** @description Whether the module is on */
             enabled: boolean;
@@ -6980,6 +7028,7 @@ export interface components {
             upgraded: number;
         };
         PasskeyFinishInputBody: {
+            /** @description The ceremony beginning the sign-in started */
             ceremony: string;
             /** @description The passkey's answer, as PublicKeyCredential.toJSON() gives it */
             credential: unknown;
@@ -6993,6 +7042,7 @@ export interface components {
             options: unknown;
         };
         PasskeyRegisterInputBody: {
+            /** @description The ceremony beginning the registration started */
             ceremony: string;
             /** @description The new passkey, as PublicKeyCredential.toJSON() gives it */
             credential: unknown;
@@ -7034,12 +7084,19 @@ export interface components {
             name: string;
         };
         Permissions: {
+            /** @description The kinds of hooks the add-on may use, such as validate or observe */
             hooks?: string[] | null;
+            /** @description The hosts the add-on may reach; none when empty */
             network?: string[] | null;
+            /** @description Whether the add-on has core.override, which only a server admin can approve */
             override?: boolean;
+            /** @description The kinds whose resources the add-on may read */
             read?: components["schemas"]["DataScope"][] | null;
+            /** @description What the add-on's process may use */
             resources?: components["schemas"]["Resources"];
+            /** @description Whether the add-on may read secrets */
             secrets?: boolean;
+            /** @description The kinds whose resources the add-on may change */
             write?: components["schemas"]["DataScope"][] | null;
         };
         PointInfo: {
@@ -7066,18 +7123,33 @@ export interface components {
         PointListBody: {
             points: components["schemas"]["PointInfo"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         PolicySpec: {
+            /** @description For a default rule, the fields it fills in */
             defaults?: components["schemas"]["FieldDefault"][] | null;
+            /** @description What the rule is for */
             description?: string;
+            /** @description Whether the rule applies */
             enabled?: boolean;
+            /** @description For a validate rule, a CEL expression that is true when the change must be refused */
             expression?: string;
+            /** @description The kinds it applies to, such as web.site; every kind when empty */
             kinds?: string[] | null;
+            /** @description What someone whose change the rule refuses is told */
             message?: string;
+            /** @description The rule's name */
             name: string;
+            /** @description The operations it applies to: create, update, delete or an action's name; every one when empty */
             operations?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where it runs among the hooks of the same point: lower runs first
+             */
             priority?: number;
-            /** @enum {string} */
+            /**
+             * @description validate refuses the changes its expression matches; default fills in fields of new resources
+             * @enum {string}
+             */
             type: "validate" | "default";
         };
         Port: {
@@ -7088,20 +7160,33 @@ export interface components {
             protocol: "tcp" | "udp";
         };
         Preferences: {
-            /** @enum {string} */
+            /**
+             * @description Standard or high contrast, or the system's
+             * @enum {string}
+             */
             contrast?: "system" | "standard" | "high";
-            /** @enum {string} */
+            /**
+             * @description How much room things take: the theme's, comfortable or compact
+             * @enum {string}
+             */
             density?: "theme" | "comfortable" | "compact";
             /**
              * @description Light, dark or the system's
              * @enum {string}
              */
             mode?: "system" | "light" | "dark";
-            /** @enum {string} */
+            /**
+             * @description Less motion, all of it, or as the system says
+             * @enum {string}
+             */
             motion?: "system" | "reduce" | "full";
-            /** @enum {string} */
+            /**
+             * @description How large text is
+             * @enum {string}
+             */
             textSize?: "default" | "small" | "large" | "larger" | "largest";
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         PreferencesSpec: {
             /** @description Send notifications to my email address */
             email: boolean;
@@ -7210,6 +7295,7 @@ export interface components {
              */
             total: number;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         ProviderSpec: {
             /**
              * @description What it does: signs people in (identity), or adds a second sign-in step (mfa)
@@ -7288,6 +7374,7 @@ export interface components {
             /** @description The delivery to send again */
             delivery: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         RelaySpec: {
             /**
              * @description The address email comes from
@@ -7365,6 +7452,7 @@ export interface components {
             keepData?: boolean;
         };
         RenameInputBody: {
+            /** @description The passkey's new name */
             name: string;
         };
         Requirements: {
@@ -7461,8 +7549,12 @@ export interface components {
             steps?: components["schemas"]["Step"][] | null;
         };
         Resources: {
+            /** @description The share of one CPU the process may use, such as 50% */
             cpu?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The memory the process may use, in MB
+             */
             memoryMB?: number;
         };
         ResyncNotice: {
@@ -7490,6 +7582,7 @@ export interface components {
             self: string[] | null;
         };
         RollbackInput: {
+            /** @description Why, for the audit log */
             reason?: string;
         };
         SSHKey: {
@@ -7680,6 +7773,7 @@ export interface components {
         SessionsOutputBody: {
             sessions: components["schemas"]["SessionView"][] | null;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         SettingsSpec: {
             /** @description Install new releases on the channel by themselves, during the window */
             automatic?: boolean;
@@ -7730,9 +7824,14 @@ export interface components {
         SetupInput: {
             /** @description The setup code from the panel's log or the server's console */
             code: string;
+            /** @description The admin's email address */
             email?: string;
+            /** @description The admin's name */
             name?: string;
-            /** Format: password */
+            /**
+             * Format: password
+             * @description The admin's password
+             */
             password: string;
             /** @description The admin's username */
             username: string;
@@ -7782,6 +7881,7 @@ export interface components {
             /** @description Whether the panel still waits for its first admin */
             setupRequired: boolean;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         SignInPolicySpec: {
             /** @description Addresses and networks people may sign in and use API tokens from; empty allows anywhere. The server itself is always allowed */
             allowFrom?: string[] | null;
@@ -7930,6 +8030,7 @@ export interface components {
             code?: string;
             /** @description The passkey's answer, as PublicKeyCredential.toJSON() gives it */
             credential?: unknown;
+            /** @description The person's password */
             password?: string;
         };
         StepUpOutputBody: {
@@ -7957,6 +8058,7 @@ export interface components {
              * @example web.site
              */
             kind: string;
+            /** @description The resource's labels as the change leaves them */
             labels?: {
                 [key: string]: string;
             };
@@ -8117,6 +8219,7 @@ export interface components {
             unprotected?: string[] | null;
         };
         UpgradeInput: {
+            /** @description Accept the license of software that isn't open source */
             acceptLicense?: boolean;
             /** @description Values for inputs the new version adds or that should change */
             inputs?: {
@@ -8180,6 +8283,7 @@ export interface components {
             /** @description The public key as an authorized_keys line, without options */
             publicKey: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         UserSpec: {
             /** @description Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does */
             allowFrom?: string[] | null;
@@ -8307,6 +8411,7 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        /** @description The settings: what should exist, which Racksail puts in place */
         WebhookSpec: {
             /** @description What the webhook is for */
             description?: string;
@@ -8694,8 +8799,11 @@ export interface operations {
                 id: string;
             };
             cookie?: {
+                /** @description The cookie starting the sign-in set, which the provider's answer must match */
                 racksail_signin_state?: string;
+                /** @description A trusted browser's cookie */
                 racksail_device?: string;
+                /** @description Set while linking an outside identity from the security settings, which the browser goes back to */
                 racksail_linking?: boolean;
             };
         };
@@ -16378,6 +16486,7 @@ export interface operations {
             header?: never;
             path?: never;
             cookie?: {
+                /** @description A trusted browser's cookie, so the list says which browser is this one */
                 racksail_device?: string;
             };
         };
@@ -16435,6 +16544,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -16621,6 +16731,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -16652,6 +16763,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -16681,6 +16793,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The second step's ID, as the list of them gives it */
                 id: string;
             };
             cookie?: never;
@@ -16805,6 +16918,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -16834,6 +16948,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The passkey's ID */
                 id: string;
             };
             cookie?: never;
@@ -16987,6 +17102,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -17184,6 +17300,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The ID, as the list it comes from gives it */
                 id: string;
             };
             cookie?: never;
@@ -17395,6 +17512,7 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
+                /** @description The profile, such as web-hosting */
                 profile: "all-in-one" | "web-hosting" | "home-server" | "virtualization-host" | "mail-server" | "dns-server" | "minimal";
             };
             cookie?: never;

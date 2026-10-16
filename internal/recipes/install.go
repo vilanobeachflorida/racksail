@@ -25,9 +25,9 @@ import (
 // InstalledResource is a resource an installation created.
 type InstalledResource struct {
 	// Name is the resource's name in the recipe.
-	Name string   `json:"name"`
-	Kind string   `json:"kind"`
-	ID   store.ID `json:"id"`
+	Name string   `json:"name" doc:"The resource's name in the recipe"`
+	Kind string   `json:"kind" doc:"The resource's kind"`
+	ID   store.ID `json:"id" doc:"The resource's ID"`
 }
 
 // Sources of a recipe.
@@ -42,27 +42,27 @@ const (
 type InstallationSpec struct {
 	Source string `json:"source" enum:"catalog,module" doc:"Where the recipe came from"`
 	// Catalog, CatalogName and Official say which catalog offered it.
-	Catalog     store.ID `json:"catalog,omitempty"`
-	CatalogName string   `json:"catalogName,omitempty"`
+	Catalog     store.ID `json:"catalog,omitempty" doc:"The catalog that offered it"`
+	CatalogName string   `json:"catalogName,omitempty" doc:"The catalog's name when it was installed"`
 	Official    bool     `json:"official,omitempty" doc:"Whether it came from Racksail's own catalog"`
 	// Module is the module that ships the recipe.
-	Module       string       `json:"module,omitempty"`
+	Module       string       `json:"module,omitempty" doc:"The module that ships the recipe"`
 	Item         string       `json:"item" doc:"The item's id"`
-	ItemKind     ItemKind     `json:"itemKind" enum:"app,runtime,service,stack,dns-template,automation,tuning-preset,model,theme,addon"`
-	Name         string       `json:"name"`
-	Version      string       `json:"version"`
-	Revision     int          `json:"revision,omitempty"`
-	License      string       `json:"license"`
-	LicenseClass LicenseClass `json:"licenseClass" enum:"open-source,free-to-use,proprietary"`
+	ItemKind     ItemKind     `json:"itemKind" enum:"app,runtime,service,stack,dns-template,automation,tuning-preset,model,theme,addon" doc:"What kind of item it is"`
+	Name         string       `json:"name" doc:"The item's name"`
+	Version      string       `json:"version" doc:"The version installed"`
+	Revision     int          `json:"revision,omitempty" doc:"The revision of the recipe itself, within the version"`
+	License      string       `json:"license" doc:"The software's license, as an SPDX expression"`
+	LicenseClass LicenseClass `json:"licenseClass" enum:"open-source,free-to-use,proprietary" doc:"Whether the license is open source, free to use or proprietary"`
 	// RecipeSHA256 and IndexSHA256 pin exactly what was installed.
-	RecipeSHA256 string `json:"recipeSha256"`
-	IndexSHA256  string `json:"indexSha256,omitempty"`
+	RecipeSHA256 string `json:"recipeSha256" doc:"The SHA-256 of the recipe as installed"`
+	IndexSHA256  string `json:"indexSha256,omitempty" doc:"The SHA-256 of the catalog's index that listed it"`
 	// Recipe is the recipe as installed, so upgrading and uninstalling
 	// need nothing from the catalog.
-	Recipe string `json:"recipe" maxLength:"262144"`
+	Recipe string `json:"recipe" maxLength:"262144" doc:"The recipe as installed, so upgrading and uninstalling need nothing from the catalog"`
 	// Inputs are the values given, without passwords and secrets.
-	Inputs    map[string]any      `json:"inputs,omitempty"`
-	Resources []InstalledResource `json:"resources"`
+	Inputs    map[string]any      `json:"inputs,omitempty" doc:"The values given at install, without passwords and secrets"`
+	Resources []InstalledResource `json:"resources" doc:"The resources it created"`
 }
 
 // HealthResult is how one health check went.
@@ -428,7 +428,7 @@ type UpgradeInput struct {
 	// Inputs replace values given at install; passwords and secrets the
 	// new version asks for anew must be given here.
 	Inputs        map[string]any `json:"inputs,omitempty" doc:"Values for inputs the new version adds or that should change"`
-	AcceptLicense bool           `json:"acceptLicense,omitempty"`
+	AcceptLicense bool           `json:"acceptLicense,omitempty" doc:"Accept the license of software that isn't open source"`
 }
 
 // UpgradeRequest builds the change set that upgrades an installation: the

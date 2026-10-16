@@ -23,7 +23,7 @@ type TestRequest struct {
 	Operation string            `json:"operation" pattern:"^[a-z][a-z0-9_]*$" doc:"create, update, delete or an action's name" example:"create"`
 	Kind      string            `json:"kind" pattern:"^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$" doc:"The kind of the resource" example:"web.site"`
 	Scope     store.Scope       `json:"scope" doc:"Who the resource belongs to"`
-	Labels    map[string]string `json:"labels,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty" doc:"The resource's labels as the change leaves them"`
 	// Spec is the resource as the change leaves it, and OldSpec as it was
 	// before, for anything but a create.
 	Spec    json.RawMessage `json:"spec,omitempty" doc:"The resource's settings as the change leaves them"`

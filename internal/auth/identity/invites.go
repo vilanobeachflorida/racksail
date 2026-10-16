@@ -310,9 +310,9 @@ func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
 type SetupInput struct {
 	Code     string `json:"code" maxLength:"64" doc:"The setup code from the panel's log or the server's console"`
 	Username string `json:"username" minLength:"2" maxLength:"64" doc:"The admin's username"`
-	Name     string `json:"name,omitempty" maxLength:"128"`
-	Email    string `json:"email,omitempty" maxLength:"254"`
-	Password string `json:"password" maxLength:"1024" format:"password"`
+	Name     string `json:"name,omitempty" maxLength:"128" doc:"The admin's name"`
+	Email    string `json:"email,omitempty" maxLength:"254" doc:"The admin's email address"`
+	Password string `json:"password" maxLength:"1024" format:"password" doc:"The admin's password"`
 }
 
 // Setup creates the first admin with the one-time setup code and signs

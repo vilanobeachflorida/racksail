@@ -29,10 +29,10 @@ func (ModuleState) Schema(r huma.Registry) *huma.Schema {
 // Preferences are a person's display preferences, kept with their user.
 type Preferences struct {
 	Mode     string `json:"mode,omitempty" enum:"system,light,dark" doc:"Light, dark or the system's"`
-	Contrast string `json:"contrast,omitempty" enum:"system,standard,high"`
-	Density  string `json:"density,omitempty" enum:"theme,comfortable,compact"`
-	TextSize string `json:"textSize,omitempty" enum:"default,small,large,larger,largest"`
-	Motion   string `json:"motion,omitempty" enum:"system,reduce,full"`
+	Contrast string `json:"contrast,omitempty" enum:"system,standard,high" doc:"Standard or high contrast, or the system's"`
+	Density  string `json:"density,omitempty" enum:"theme,comfortable,compact" doc:"How much room things take: the theme's, comfortable or compact"`
+	TextSize string `json:"textSize,omitempty" enum:"default,small,large,larger,largest" doc:"How large text is"`
+	Motion   string `json:"motion,omitempty" enum:"system,reduce,full" doc:"Less motion, all of it, or as the system says"`
 }
 
 // SessionUser is who is signed in.

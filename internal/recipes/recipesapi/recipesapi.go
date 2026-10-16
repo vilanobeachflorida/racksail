@@ -154,7 +154,8 @@ func register(a huma.API, svc *modules.Services) {
 
 	op = huma.Operation{
 		OperationID: "getCatalogItemIcon", Method: http.MethodGet, Path: api.Prefix + "/catalog/items/{catalog}/{item}/icon", Tags: tags, Security: api.Protected,
-		Summary: "Fetch an item's icon",
+		Summary:     "Fetch an item's icon",
+		Description: "Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.",
 	}
 	api.Describe(&op, api.Info{Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *itemInput) (*iconOutput, error) {

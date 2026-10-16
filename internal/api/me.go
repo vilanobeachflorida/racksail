@@ -50,7 +50,7 @@ type recoveryCodesOutput struct {
 }
 
 type idPath struct {
-	ID store.ID `path:"id"`
+	ID store.ID `path:"id" doc:"The ID, as the list it comes from gives it"`
 }
 
 type passkeysOutput struct {
@@ -61,7 +61,7 @@ type passkeysOutput struct {
 
 type passkeyRegisterInput struct {
 	Body struct {
-		Ceremony   string          `json:"ceremony"`
+		Ceremony   string          `json:"ceremony" doc:"The ceremony beginning the registration started"`
 		Name       string          `json:"name,omitempty" maxLength:"64" doc:"What to call the passkey, such as the device it's on"`
 		Credential json.RawMessage `json:"credential" doc:"The new passkey, as PublicKeyCredential.toJSON() gives it"`
 	}
@@ -72,9 +72,9 @@ type passkeyOutput struct {
 }
 
 type renameInput struct {
-	ID   store.ID `path:"id"`
+	ID   store.ID `path:"id" doc:"The passkey's ID"`
 	Body struct {
-		Name string `json:"name" minLength:"1" maxLength:"64"`
+		Name string `json:"name" minLength:"1" maxLength:"64" doc:"The passkey's new name"`
 	}
 }
 
@@ -91,7 +91,7 @@ type endedOutput struct {
 }
 
 type devicesInput struct {
-	Device string `cookie:"racksail_device"`
+	Device string `cookie:"racksail_device" doc:"A trusted browser's cookie, so the list says which browser is this one"`
 }
 
 type devicesOutput struct {
@@ -168,9 +168,9 @@ type mfaOptionsOutput struct {
 }
 
 type mfaFinishInput struct {
-	ID   store.ID `path:"id"`
+	ID   store.ID `path:"id" doc:"The second step's ID, as the list of them gives it"`
 	Body struct {
-		Ceremony string `json:"ceremony"`
+		Ceremony string `json:"ceremony" doc:"The ceremony beginning it started"`
 		Response string `json:"response,omitempty" maxLength:"256" doc:"What the method asked the person for; empty for methods without input"`
 	}
 }

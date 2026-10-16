@@ -74,6 +74,7 @@
       },
       "AccountSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "limits": {
             "$ref": "#/components/schemas/AccountLimits",
@@ -259,6 +260,7 @@
       },
       "AddonSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "approved": {
             "$ref": "#/components/schemas/Permissions",
@@ -288,7 +290,8 @@
             "type": "string"
           },
           "package": {
-            "$ref": "#/components/schemas/Package"
+            "$ref": "#/components/schemas/Package",
+            "description": "The add-on's program"
           }
         },
         "required": [
@@ -711,6 +714,7 @@
       },
       "CatalogSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "disabled": {
             "description": "Stops offering the catalog's items without forgetting it",
@@ -1064,6 +1068,7 @@
       },
       "ChannelSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "disabled": {
             "description": "Stops sending until the channel is enabled again",
@@ -4379,6 +4384,7 @@
         "additionalProperties": false,
         "properties": {
           "fields": {
+            "description": "The spec fields it reaches, as dotted paths; every one when empty",
             "items": {
               "type": "string"
             },
@@ -4388,6 +4394,7 @@
             ]
           },
           "kind": {
+            "description": "The kind, such as web.site",
             "type": "string"
           }
         },
@@ -5033,12 +5040,15 @@
         "additionalProperties": false,
         "properties": {
           "expression": {
+            "description": "A CEL expression whose value the field gets",
             "type": "string"
           },
           "field": {
+            "description": "The spec field it fills in, as a dotted path",
             "type": "string"
           },
           "override": {
+            "description": "Whether it replaces a value the change gave; otherwise it fills in only a field left empty",
             "type": "boolean"
           }
         },
@@ -5934,18 +5944,23 @@
       },
       "InstallationSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "catalog": {
+            "description": "The catalog that offered it",
             "type": "string"
           },
           "catalogName": {
+            "description": "The catalog's name when it was installed",
             "type": "string"
           },
           "indexSha256": {
+            "description": "The SHA-256 of the catalog's index that listed it",
             "type": "string"
           },
           "inputs": {
             "additionalProperties": {},
+            "description": "The values given at install, without passwords and secrets",
             "type": "object"
           },
           "item": {
@@ -5953,6 +5968,7 @@
             "type": "string"
           },
           "itemKind": {
+            "description": "What kind of item it is",
             "enum": [
               "app",
               "runtime",
@@ -5968,9 +5984,11 @@
             "type": "string"
           },
           "license": {
+            "description": "The software's license, as an SPDX expression",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether the license is open source, free to use or proprietary",
             "enum": [
               "open-source",
               "free-to-use",
@@ -5979,9 +5997,11 @@
             "type": "string"
           },
           "module": {
+            "description": "The module that ships the recipe",
             "type": "string"
           },
           "name": {
+            "description": "The item's name",
             "type": "string"
           },
           "official": {
@@ -5989,13 +6009,16 @@
             "type": "boolean"
           },
           "recipe": {
+            "description": "The recipe as installed, so upgrading and uninstalling need nothing from the catalog",
             "maxLength": 262144,
             "type": "string"
           },
           "recipeSha256": {
+            "description": "The SHA-256 of the recipe as installed",
             "type": "string"
           },
           "resources": {
+            "description": "The resources it created",
             "items": {
               "$ref": "#/components/schemas/InstalledResource"
             },
@@ -6005,6 +6028,7 @@
             ]
           },
           "revision": {
+            "description": "The revision of the recipe itself, within the version",
             "format": "int64",
             "type": "integer"
           },
@@ -6017,6 +6041,7 @@
             "type": "string"
           },
           "version": {
+            "description": "The version installed",
             "type": "string"
           }
         },
@@ -6106,12 +6131,15 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The resource's kind",
             "type": "string"
           },
           "name": {
+            "description": "The resource's name in the recipe",
             "type": "string"
           }
         },
@@ -7131,6 +7159,7 @@
         "additionalProperties": false,
         "properties": {
           "ceremony": {
+            "description": "The ceremony beginning it started",
             "type": "string"
           },
           "response": {
@@ -7313,6 +7342,7 @@
       },
       "ModuleSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "enabled": {
             "description": "Whether the module is on",
@@ -8028,6 +8058,7 @@
         "additionalProperties": false,
         "properties": {
           "ceremony": {
+            "description": "The ceremony beginning the sign-in started",
             "type": "string"
           },
           "credential": {
@@ -8064,6 +8095,7 @@
         "additionalProperties": false,
         "properties": {
           "ceremony": {
+            "description": "The ceremony beginning the registration started",
             "type": "string"
           },
           "credential": {
@@ -8188,6 +8220,7 @@
         "additionalProperties": false,
         "properties": {
           "hooks": {
+            "description": "The kinds of hooks the add-on may use, such as validate or observe",
             "items": {
               "type": "string"
             },
@@ -8197,6 +8230,7 @@
             ]
           },
           "network": {
+            "description": "The hosts the add-on may reach; none when empty",
             "items": {
               "type": "string"
             },
@@ -8206,9 +8240,11 @@
             ]
           },
           "override": {
+            "description": "Whether the add-on has core.override, which only a server admin can approve",
             "type": "boolean"
           },
           "read": {
+            "description": "The kinds whose resources the add-on may read",
             "items": {
               "$ref": "#/components/schemas/DataScope"
             },
@@ -8218,12 +8254,15 @@
             ]
           },
           "resources": {
-            "$ref": "#/components/schemas/Resources"
+            "$ref": "#/components/schemas/Resources",
+            "description": "What the add-on's process may use"
           },
           "secrets": {
+            "description": "Whether the add-on may read secrets",
             "type": "boolean"
           },
           "write": {
+            "description": "The kinds whose resources the add-on may change",
             "items": {
               "$ref": "#/components/schemas/DataScope"
             },
@@ -8315,8 +8354,10 @@
       },
       "PolicySpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "defaults": {
+            "description": "For a default rule, the fields it fills in",
             "items": {
               "$ref": "#/components/schemas/FieldDefault"
             },
@@ -8326,15 +8367,19 @@
             ]
           },
           "description": {
+            "description": "What the rule is for",
             "type": "string"
           },
           "enabled": {
+            "description": "Whether the rule applies",
             "type": "boolean"
           },
           "expression": {
+            "description": "For a validate rule, a CEL expression that is true when the change must be refused",
             "type": "string"
           },
           "kinds": {
+            "description": "The kinds it applies to, such as web.site; every kind when empty",
             "items": {
               "type": "string"
             },
@@ -8344,12 +8389,15 @@
             ]
           },
           "message": {
+            "description": "What someone whose change the rule refuses is told",
             "type": "string"
           },
           "name": {
+            "description": "The rule's name",
             "type": "string"
           },
           "operations": {
+            "description": "The operations it applies to: create, update, delete or an action's name; every one when empty",
             "items": {
               "type": "string"
             },
@@ -8359,10 +8407,12 @@
             ]
           },
           "priority": {
+            "description": "Where it runs among the hooks of the same point: lower runs first",
             "format": "int64",
             "type": "integer"
           },
           "type": {
+            "description": "validate refuses the changes its expression matches; default fills in fields of new resources",
             "enum": [
               "validate",
               "default"
@@ -8405,6 +8455,7 @@
         "additionalProperties": false,
         "properties": {
           "contrast": {
+            "description": "Standard or high contrast, or the system's",
             "enum": [
               "system",
               "standard",
@@ -8413,6 +8464,7 @@
             "type": "string"
           },
           "density": {
+            "description": "How much room things take: the theme's, comfortable or compact",
             "enum": [
               "theme",
               "comfortable",
@@ -8430,6 +8482,7 @@
             "type": "string"
           },
           "motion": {
+            "description": "Less motion, all of it, or as the system says",
             "enum": [
               "system",
               "reduce",
@@ -8438,6 +8491,7 @@
             "type": "string"
           },
           "textSize": {
+            "description": "How large text is",
             "enum": [
               "default",
               "small",
@@ -8452,6 +8506,7 @@
       },
       "PreferencesSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "email": {
             "description": "Send notifications to my email address",
@@ -8737,6 +8792,7 @@
       },
       "ProviderSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "capability": {
             "description": "What it does: signs people in (identity), or adds a second sign-in step (mfa)",
@@ -8938,6 +8994,7 @@
       },
       "RelaySpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "from": {
             "description": "The address email comes from",
@@ -9130,6 +9187,7 @@
         "additionalProperties": false,
         "properties": {
           "name": {
+            "description": "The passkey's new name",
             "maxLength": 64,
             "minLength": 1,
             "type": "string"
@@ -9392,9 +9450,11 @@
         "additionalProperties": false,
         "properties": {
           "cpu": {
+            "description": "The share of one CPU the process may use, such as 50%",
             "type": "string"
           },
           "memoryMB": {
+            "description": "The memory the process may use, in MB",
             "format": "int64",
             "type": "integer"
           }
@@ -9510,6 +9570,7 @@
         "additionalProperties": false,
         "properties": {
           "reason": {
+            "description": "Why, for the audit log",
             "maxLength": 500,
             "type": "string"
           }
@@ -10070,6 +10131,7 @@
       },
       "SettingsSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "automatic": {
             "description": "Install new releases on the channel by themselves, during the window",
@@ -10196,14 +10258,17 @@
             "type": "string"
           },
           "email": {
+            "description": "The admin's email address",
             "maxLength": 254,
             "type": "string"
           },
           "name": {
+            "description": "The admin's name",
             "maxLength": 128,
             "type": "string"
           },
           "password": {
+            "description": "The admin's password",
             "format": "password",
             "maxLength": 1024,
             "type": "string"
@@ -10360,6 +10425,7 @@
       },
       "SignInPolicySpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "allowFrom": {
             "description": "Addresses and networks people may sign in and use API tokens from; empty allows anywhere. The server itself is always allowed",
@@ -10775,6 +10841,7 @@
             "description": "The passkey's answer, as PublicKeyCredential.toJSON() gives it"
           },
           "password": {
+            "description": "The person's password",
             "maxLength": 1024,
             "type": "string"
           }
@@ -10854,6 +10921,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The resource's labels as the change leaves them",
             "type": "object"
           },
           "oldSpec": {
@@ -11357,6 +11425,7 @@
         "additionalProperties": false,
         "properties": {
           "acceptLicense": {
+            "description": "Accept the license of software that isn't open source",
             "type": "boolean"
           },
           "inputs": {
@@ -11553,6 +11622,7 @@
       },
       "UserSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "allowFrom": {
             "description": "Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does",
@@ -11873,6 +11943,7 @@
       },
       "WebhookSpec": {
         "additionalProperties": false,
+        "description": "The settings: what should exist, which Racksail puts in place",
         "properties": {
           "description": {
             "description": "What the webhook is for",
@@ -12700,23 +12771,29 @@
             }
           },
           {
+            "description": "The cookie starting the sign-in set, which the provider's answer must match",
             "in": "cookie",
             "name": "racksail_signin_state",
             "schema": {
+              "description": "The cookie starting the sign-in set, which the provider's answer must match",
               "type": "string"
             }
           },
           {
+            "description": "A trusted browser's cookie",
             "in": "cookie",
             "name": "racksail_device",
             "schema": {
+              "description": "A trusted browser's cookie",
               "type": "string"
             }
           },
           {
+            "description": "Set while linking an outside identity from the security settings, which the browser goes back to",
             "in": "cookie",
             "name": "racksail_linking",
             "schema": {
+              "description": "Set while linking an outside identity from the security settings, which the browser goes back to",
               "type": "boolean"
             }
           }
@@ -13549,6 +13626,7 @@
     },
     "/api/v1/catalog/items/{catalog}/{item}/icon": {
       "get": {
+        "description": "Returns the item's icon, a PNG or an SVG, from the catalog's files as its signed index lists them.",
         "operationId": "getCatalogItemIcon",
         "parameters": [
           {
@@ -27585,9 +27663,11 @@
         "operationId": "listMyDevices",
         "parameters": [
           {
+            "description": "A trusted browser's cookie, so the list says which browser is this one",
             "in": "cookie",
             "name": "racksail_device",
             "schema": {
+              "description": "A trusted browser's cookie, so the list says which browser is this one",
               "type": "string"
             }
           }
@@ -27635,10 +27715,12 @@
         "operationId": "forgetMyDevice",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -27936,10 +28018,12 @@
         "operationId": "disableMfa",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -27980,10 +28064,12 @@
         "operationId": "beginMfa",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -28033,10 +28119,12 @@
         "operationId": "finishMfa",
         "parameters": [
           {
+            "description": "The second step's ID, as the list of them gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The second step's ID, as the list of them gives it",
               "type": "string"
             }
           }
@@ -28222,10 +28310,12 @@
         "operationId": "removePasskey",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -28266,10 +28356,12 @@
         "operationId": "renamePasskey",
         "parameters": [
           {
+            "description": "The passkey's ID",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The passkey's ID",
               "type": "string"
             }
           }
@@ -28499,10 +28591,12 @@
         "operationId": "endMySession",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -28829,10 +28923,12 @@
         "operationId": "revokeMyToken",
         "parameters": [
           {
+            "description": "The ID, as the list it comes from gives it",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The ID, as the list it comes from gives it",
               "type": "string"
             }
           }
@@ -29131,10 +29227,12 @@
         "operationId": "applyProfile",
         "parameters": [
           {
+            "description": "The profile, such as web-hosting",
             "in": "path",
             "name": "profile",
             "required": true,
             "schema": {
+              "description": "The profile, such as web-hosting",
               "enum": [
                 "all-in-one",
                 "web-hosting",
@@ -29212,6 +29310,7 @@
     },
     "/api/v1/modules/{id}": {
       "get": {
+        "description": "Returns a module with its manifest, whether it is on, the modules it needs and those that need it, what uses it, and why it can't run here when it can't.",
         "operationId": "getModule",
         "parameters": [
           {
@@ -29925,6 +30024,7 @@
     },
     "/api/v1/notifications/{id}": {
       "get": {
+        "description": "Returns one notification with the message it carries: where it goes, how sending it went, and when it is sent or tried again.",
         "operationId": "getNotification",
         "parameters": [
           {
@@ -30351,6 +30451,7 @@
         "x-racksail-risk": "high"
       },
       "get": {
+        "description": "Says whether safe mode is on and what turned it on. While it is on no add-on runs, so a broken one can't keep the panel from working.",
         "operationId": "getSafeMode",
         "responses": {
           "200": {

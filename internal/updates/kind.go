@@ -199,7 +199,7 @@ type UpdateOutput struct {
 
 // RollbackInput says why.
 type RollbackInput struct {
-	Reason string `json:"reason,omitempty" maxLength:"500"`
+	Reason string `json:"reason,omitempty" maxLength:"500" doc:"Why, for the audit log"`
 }
 
 // Validate implements the check every action input gets.
