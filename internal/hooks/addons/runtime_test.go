@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -270,6 +271,39 @@ func guard(enabled bool) AddonSpec {
 	}
 }
 
+// accountManifest is an add-on an account owner may install: it only takes
+// part in changes.
+const accountManifest = `
+format: 1
+id: site-guard
+name: Site guard
+version: 0.3.0
+license: Apache-2.0
+source: https://example.com/site-guard
+author: Example
+description: Refuses sites on evil domains.
+apiVersions: [v1]
+hooks:
+  - {point: web.site.create.validate, kind: validate, security: true, deadline: 2s}
+  - {point: web.site.*.applied, kind: observe}
+permissions:
+  hooks: [validate, observe]
+  read: [{kind: web.site, fields: [domains]}]
+`
+
+func account(t *testing.T, manifest string) AddonSpec {
+	t.Helper()
+	man, err := hooks.ParseAddonManifest([]byte(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return AddonSpec{
+		ID: man.ID, Manifest: manifest, Enabled: true,
+		Package:  Package{URL: "https://example.com/site-guard-0.3.0.tar.gz", SHA256: strings.Repeat("ab", 32), Size: 1 << 20, Format: "tar.gz"},
+		Approved: man.Permissions,
+	}
+}
+
 func (e *env) install(t *testing.T) store.ID {
 	t.Helper()
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "core.addon", Scope: store.ServerScope(), Spec: spec(t, guard(true))})
@@ -310,6 +344,28 @@ func TestChecks(t *testing.T) {
 	}
 	if _, err := Check(system, true); !errors.Is(err, ErrTenancy) {
 		t.Errorf("an account can't: %v", err)
+	}
+	// What add-ons provide serves the whole server, and so do lifecycle,
+	// identity and provider points; an account's add-ons only take part in
+	// changes.
+	if _, err := Check(ok, true); !errors.Is(err, ErrTenancy) || !strings.Contains(i18n.From(err).Message, "provides notifier") {
+		t.Errorf("an account's add-on that provides a notifier: %v", err)
+	}
+	if _, err := Check(account(t, accountManifest), true); err != nil {
+		t.Errorf("an account's add-on at the points of changes: %v", err)
+	}
+	for _, point := range []string{"auth.login.validate", "core.os_upgrade.check", "core.boot", "modules.web.on", "backups.run.*", "web.site.create.*", "core.update.before"} {
+		kind := "validate"
+		if !strings.HasSuffix(point, ".validate") && !strings.HasSuffix(point, ".check") {
+			kind = "observe"
+		}
+		man := strings.Replace(accountManifest, "{point: web.site.create.validate, kind: validate", "{point: \""+point+"\", kind: "+kind, 1)
+		if _, err := Check(account(t, man), true); !errors.Is(err, ErrTenancy) {
+			t.Errorf("an account's add-on at %s: %v", point, err)
+		}
+		if _, err := Check(account(t, man), false); err != nil {
+			t.Errorf("a server admin's add-on at %s: %v", point, err)
+		}
 	}
 	if Instance("core.account_addon", "site-guard", store.AccountScope("acct_01j9x3k4m5n6p7q8r9s0t1u2v3")) != "site-guard-r9s0t1u2v3" {
 		t.Errorf("instance = %s", Instance("core.account_addon", "site-guard", store.AccountScope("acct_01j9x3k4m5n6p7q8r9s0t1u2v3")))
@@ -574,17 +630,135 @@ func TestSafeMode(t *testing.T) {
 	}
 }
 
+// An add-on an account owner installed takes part in that account's
+// changes and in nothing else: not in signing in, not in what happens to
+// the server, and not in other accounts' changes, of which it learns
+// nothing even when they share a change set with its own.
+func TestAccountAddonsOnlyTakePartInTheirChanges(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	mine := store.AccountScope(store.NewID("acct"))
+	theirs := store.AccountScope(store.NewID("acct"))
+	inst := Instance(AccountAddon.Name(), "site-guard", mine)
+	fake := &fakeAddon{}
+	fake.serve(t, filepath.Join(e.dir, inst+".sock"))
+	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: AccountAddon.Name(), Scope: mine, Spec: spec(t, account(t, accountManifest))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.State != changeset.StateApplied {
+		t.Fatalf("installing: %s %s", cs.State, cs.Error)
+	}
+	_, man, g, client, ok := e.runtime.Running(inst)
+	if !ok || !g.Account() {
+		t.Fatalf("the account's add-on runs as %s: %v", inst, e.runtime.Instances())
+	}
+	calls := func() []hooks.HookCall {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		return slices.Clone(fake.calls)
+	}
+
+	// Signing in never reaches it, nor does anything else outside changes,
+	// even through a registration made by hand.
+	runner := &hooks.Runner{Registry: e.registry}
+	if err := runner.Check(ctx, hooks.AuthLoginValidate, e.admin, map[string]string{"user": "server-admin", "ip": "198.51.100.9"}); err != nil {
+		t.Fatalf("signing in: %v", err)
+	}
+	in := &installed{instance: inst, manifest: man, grants: g, client: client}
+	for _, kind := range []hooks.Kind{hooks.Validate, hooks.Observe, hooks.Modify} {
+		h := hooks.Registration{Kind: kind}
+		e.runtime.handlers(in, &h)
+		c := &hooks.Context{Point: hooks.AuthLoginValidate, Actor: e.admin, Data: map[string]string{"user": "server-admin"}}
+		switch {
+		case h.OnValidate != nil:
+			if err := h.OnValidate(ctx, c); err != nil {
+				t.Errorf("a validate hook outside changes: %v", err)
+			}
+		case h.OnObserve != nil:
+			h.OnObserve(ctx, c)
+		case h.OnModify != nil:
+			if err := h.OnModify(ctx, c); err != nil {
+				t.Errorf("a modify hook outside changes: %v", err)
+			}
+		}
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("the add-on heard about something outside its account's changes: %+v", got)
+	}
+
+	// Another account's changes don't reach it.
+	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: theirs, Spec: spec(t, siteSpec{Domains: []string{"theirs.evil"}})}); err != nil {
+		t.Fatalf("another account's site: %v", err)
+	}
+
+	// Its own account's do.
+	_, err = e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: mine, Spec: spec(t, siteSpec{Domains: []string{"mine.evil"}})})
+	if !errors.Is(err, hooks.ErrDenied) || !strings.Contains(i18n.From(err).Message, "list of evil domains") {
+		t.Fatalf("its own account's site: %v", err)
+	}
+
+	// A change set that also changes another account tells it only about
+	// its own account.
+	cs, err = e.submit(e.admin,
+		changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: mine, Spec: spec(t, siteSpec{Domains: []string{"mine.example"}})},
+		changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: theirs, Spec: spec(t, siteSpec{Domains: []string{"secret.example"}, Notes: "theirs"})},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !slices.ContainsFunc(calls(), func(c hooks.HookCall) bool { return c.Kind == hooks.Observe }) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	observed := false
+	for _, call := range calls() {
+		raw, _ := json.Marshal(call)
+		if strings.Contains(string(raw), "theirs") || strings.Contains(string(raw), "secret.example") || strings.Contains(string(raw), string(theirs.ID)) {
+			t.Errorf("the add-on learned about another account: %s", raw)
+		}
+		if call.Data != nil {
+			t.Errorf("the add-on got the data of a point outside changes: %s", raw)
+		}
+		if call.Kind == hooks.Observe {
+			observed = true
+			if call.ChangeSet == nil || call.ChangeSet.Title != "" || len(call.Changes) != 1 || call.Changes[0] != 0 {
+				t.Errorf("observed = %s", raw)
+			}
+		}
+	}
+	if !observed {
+		t.Errorf("the add-on never heard of its own account's site: %+v", calls())
+	}
+}
+
 func TestAccountAddonsStayInTheirAccount(t *testing.T) {
 	acct := store.AccountScope(store.NewID("acct"))
 	man, _ := hooks.ParseAddonManifest([]byte(guardManifest))
 	g := NewGrants(man.Permissions, acct)
 	other := store.AccountScope(store.NewID("acct"))
-	cs := &changeset.ChangeSet{Changes: []changeset.ResourceChange{
-		{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, After: json.RawMessage(`{"domains":["mine.example"],"notes":"n"}`)},
-		{Op: changeset.OpCreate, Kind: "web.site", Scope: other, After: json.RawMessage(`{"domains":["theirs.example"]}`)},
-		{Op: changeset.OpCreate, Kind: "dns.zone", Scope: acct, After: json.RawMessage(`{"name":"mine.example"}`)},
-	}}
+	mineID, theirsID := store.NewID("site"), store.NewID("site")
+	cs := &changeset.ChangeSet{
+		Title: "Move theirs.example", Estimate: changeset.Estimate{DiskBytes: 1 << 30},
+		Changes: []changeset.ResourceChange{
+			{Op: changeset.OpCreate, Kind: "web.site", ID: mineID, Scope: acct, After: json.RawMessage(`{"domains":["mine.example"],"notes":"n"}`)},
+			{Op: changeset.OpCreate, Kind: "web.site", ID: theirsID, Scope: other, After: json.RawMessage(`{"domains":["theirs.example"]}`)},
+			{Op: changeset.OpCreate, Kind: "dns.zone", Scope: acct, After: json.RawMessage(`{"name":"mine.example"}`)},
+		},
+		Effects:       []system.Effect{{Type: system.EffectFile, Action: "write", Target: "/srv/racksail/accounts/theirs/site.conf"}},
+		Conflicts:     []changeset.Conflict{{Resource: theirsID, Path: "domains"}, {Resource: mineID, Path: "cdn"}},
+		Contributions: []changeset.Contribution{{Summary: "theirs", Changes: []int{1}}, {Summary: "mine", Changes: []int{0}, Effects: []int{0}}},
+	}
 	f := g.FilterChangeSet(cs)
+	if f.Title != "" || f.Estimate != (changeset.Estimate{}) || len(f.Effects) != 1 || f.Effects[0] != (system.Effect{}) {
+		t.Errorf("what the change set says of another account = %q %+v %+v", f.Title, f.Estimate, f.Effects)
+	}
+	if len(f.Conflicts) != 1 || f.Conflicts[0].Resource != mineID || len(f.Contributions) != 1 || f.Contributions[0].Summary != "mine" || f.Contributions[0].Effects != nil {
+		t.Errorf("conflicts and contributions = %+v %+v", f.Conflicts, f.Contributions)
+	}
+	if own := g.FilterChangeSet(&changeset.ChangeSet{Title: "Add mine.example", Changes: cs.Changes[:1], Effects: cs.Effects}); own.Title == "" || own.Effects[0].Target == "" {
+		t.Errorf("a change set of its own account keeps its title and effects: %+v", own)
+	}
 	if string(f.Changes[0].After) != `{"domains":["mine.example"]}` {
 		t.Errorf("its own site = %s", f.Changes[0].After)
 	}

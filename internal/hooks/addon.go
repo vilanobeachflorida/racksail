@@ -140,8 +140,11 @@ func ParseAddonManifest(data []byte) (*AddonManifest, error) {
 }
 
 // AccountInstalled reports whether the manifest can be installed by an
-// account owner: such add-ons only affect their account and can never hold
-// system hooks or core.override.
+// account owner. Such add-ons only affect their account: they take part in
+// changes through the points of the change pipeline, where the runtime only
+// shows them what belongs to the account, and never at lifecycle, identity
+// or provider points, which belong to the whole server. They can never hold
+// system hooks or core.override either.
 func (m *AddonManifest) AccountInstalled() error {
 	if slices.Contains(m.Permissions.Hooks, System) {
 		return fmt.Errorf("add-on %s needs system hooks, which only a server admin can grant", m.ID)
@@ -149,7 +152,25 @@ func (m *AddonManifest) AccountInstalled() error {
 	if m.Permissions.Override {
 		return fmt.Errorf("add-on %s asks for core.override, which only a server admin can grant", m.ID)
 	}
+	if len(m.Provides) > 0 {
+		return fmt.Errorf("add-on %s provides %s, and what add-ons provide serves the whole server, so only a server admin can install it", m.ID, m.Provides[0])
+	}
+	for _, h := range m.Hooks {
+		if !AccountPoint(Point(h.Point)) {
+			return fmt.Errorf("add-on %s hooks %s, which belongs to the whole server; an account's add-ons only take part in changes, at points such as web.site.create.validate", m.ID, h.Point)
+		}
+	}
 	return nil
+}
+
+// AccountPoint reports whether an add-on an account owner installed may
+// attach to p: a point of the change pipeline, or a pattern that only names
+// such points, so its stage is written out. Lifecycle points such as
+// core.boot, identity points such as auth.login.validate and the points of
+// capabilities all belong to the whole server.
+func AccountPoint(p Point) bool {
+	_, _, _, ok := ParseKindPoint(p)
+	return ok && (!IsPattern(p) || validPattern(p))
 }
 
 // PolicyType says what a rule does.

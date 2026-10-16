@@ -11,6 +11,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 // Grants are what an add-on was allowed, read from its approved
@@ -66,8 +67,12 @@ func (g Grants) CanWrite(kind string) ([]string, bool) { return fieldsOf(g.perms
 // InScope reports whether a resource of scope belongs to what the add-on
 // may see: anything for server add-ons, its own account for account ones.
 func (g Grants) InScope(scope store.Scope) bool {
-	return g.Scope.Level != store.ScopeAccount || scope == g.Scope
+	return !g.Account() || scope == g.Scope
 }
+
+// Account reports whether the add-on is an account's, which only ever
+// sees and changes that account.
+func (g Grants) Account() bool { return g.Scope.Level == store.ScopeAccount }
 
 // Actor is who the add-on acts as when it calls the panel's API: an
 // add-on with grants on exactly the kinds and operations its permissions
@@ -168,7 +173,11 @@ func pathAllowed(path string, fields []string) bool {
 // FilterChangeSet returns the copy of a change set an add-on is sent:
 // changes of kinds it may read keep the fields it may read, the rest say
 // only what happens to which resource, and changes outside an account
-// add-on's account say nothing at all but their position.
+// add-on's account say nothing at all but their position. When a change set
+// reaches beyond the account, what it says as a whole, its title, effects,
+// estimate and snapshots, could be about other accounts, so an account's
+// add-on gets only as many empty effects as there are, and the conflicts and
+// contributions of its own changes.
 func (g Grants) FilterChangeSet(cs *changeset.ChangeSet) *changeset.ChangeSet {
 	if cs == nil {
 		return nil
@@ -176,6 +185,9 @@ func (g Grants) FilterChangeSet(cs *changeset.ChangeSet) *changeset.ChangeSet {
 	c := cs.Clone()
 	if c.Actor != nil {
 		c.Actor = redactActor(c.Actor)
+	}
+	if g.Account() && slices.ContainsFunc(c.Changes, func(ch changeset.ResourceChange) bool { return !g.InScope(ch.Scope) }) {
+		g.keepOwn(c)
 	}
 	for i := range c.Changes {
 		ch := &c.Changes[i]
@@ -201,6 +213,31 @@ func (g Grants) FilterChangeSet(cs *changeset.ChangeSet) *changeset.ChangeSet {
 		}
 	}
 	return c
+}
+
+// keepOwn leaves a change set that reaches beyond an account add-on's
+// account only what is about the account. Effects say nothing of which
+// change they belong to, so each becomes an empty one; keeping their number
+// lets a modify hook's answer still add effects after them.
+func (g Grants) keepOwn(c *changeset.ChangeSet) {
+	own := map[int]bool{}
+	ids := map[store.ID]bool{}
+	for i, ch := range c.Changes {
+		if g.InScope(ch.Scope) {
+			own[i], ids[ch.ID] = true, true
+		}
+	}
+	c.Title = ""
+	c.Effects = make([]system.Effect, len(c.Effects))
+	c.Estimate = changeset.Estimate{}
+	c.Snapshots = nil
+	c.Conflicts = slices.DeleteFunc(c.Conflicts, func(con changeset.Conflict) bool { return !ids[con.Resource] })
+	c.Contributions = slices.DeleteFunc(c.Contributions, func(con changeset.Contribution) bool {
+		return len(con.Changes) == 0 || slices.ContainsFunc(con.Changes, func(i int) bool { return !own[i] })
+	})
+	for i := range c.Contributions {
+		c.Contributions[i].Effects = nil
+	}
 }
 
 // redactActor keeps who acted and through what, leaving out the address

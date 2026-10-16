@@ -398,6 +398,12 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 		count++
 	}
 	for _, decl := range in.manifest.Hooks {
+		// Check refuses these already; an account's add-on never reaches
+		// what belongs to the whole server, whatever its resource says.
+		if in.grants.Account() && !hooks.AccountPoint(hooks.Point(decl.Point)) {
+			problems = append(problems, decl.Point+": an account's add-ons only take part in changes")
+			continue
+		}
 		deadline, _ := decl.DeadlineDuration()
 		h := hooks.Registration{
 			Point: hooks.Point(decl.Point), Kind: decl.Kind, Owner: owner, Label: label, Priority: decl.Priority,
@@ -407,6 +413,10 @@ func (r *Runtime) attach(in *installed) (int, []string) {
 		add(decl.Point, h)
 	}
 	for _, capability := range in.manifest.Provides {
+		if in.grants.Account() {
+			problems = append(problems, capability+": what add-ons provide serves the whole server")
+			continue
+		}
 		point, ok := hooks.Capabilities[capability]
 		if !ok {
 			problems = append(problems, capability+": not a capability")
@@ -452,17 +462,24 @@ func actorHeader(req *http.Request) string {
 	return string(raw)
 }
 
-// handlers fills in a registration's handler, which calls the add-on.
+// handlers fills in a registration's handler, which calls the add-on. An
+// account's add-on is only ever called about changes to its account: never
+// with what lifecycle and identity points describe, and never about a
+// change set none of whose changes it may see.
 func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 	g := in.grants
 	switch h.Kind {
 	case hooks.Validate:
 		h.OnValidate = func(ctx context.Context, c *hooks.Context) error {
+			if g.Account() && (c.ChangeSet == nil || c.Change == nil) {
+				return nil
+			}
 			call := hooks.HookCall{Point: c.Point, Kind: hooks.Validate, Actor: redactActor(c.Actor), Data: c.Data}
 			if c.ChangeSet != nil {
 				if c.Change != nil && !g.InScope(c.Change.Scope) {
 					return nil
 				}
+				call.Data = nil
 				call.ChangeSet = g.FilterChangeSet(c.ChangeSet)
 				for i := range c.ChangeSet.Changes {
 					if &c.ChangeSet.Changes[i] == c.Change {
@@ -486,6 +503,9 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 		}
 	case hooks.Modify:
 		h.OnModify = func(ctx context.Context, c *hooks.Context) error {
+			if c.ChangeSet == nil {
+				return nil
+			}
 			var mine []int
 			for _, i := range c.Changes {
 				if g.InScope(c.ChangeSet.Changes[i].Scope) {
@@ -503,6 +523,9 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 		}
 	case hooks.Observe:
 		h.OnObserve = func(ctx context.Context, c *hooks.Context) {
+			if g.Account() && c.ChangeSet == nil {
+				return
+			}
 			call := hooks.HookCall{Point: c.Point, Kind: hooks.Observe, Actor: redactActor(c.Actor), Data: c.Data}
 			if c.ChangeSet != nil {
 				var mine []int
@@ -511,9 +534,10 @@ func (r *Runtime) handlers(in *installed, h *hooks.Registration) {
 						mine = append(mine, i)
 					}
 				}
-				if len(mine) == 0 && len(c.Changes) > 0 {
+				if len(mine) == 0 && (len(c.Changes) > 0 || g.Account()) {
 					return
 				}
+				call.Data = nil
 				call.ChangeSet, call.Changes = g.FilterChangeSet(c.ChangeSet), mine
 			}
 			if _, err := in.client.Hook(ctx, call); err != nil {
