@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -561,12 +562,17 @@ func TestInstallRefusals(t *testing.T) {
 func TestMirrorsComeFirst(t *testing.T) {
 	ctx := context.Background()
 	g := newGitHub(t, release{"v1.3.0", []byte("racksail 1.3.0")})
+	listed := true
 	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The mirror serves what GitHub serves, under the same names.
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		if p, ok := strings.CutPrefix(r.URL.Path, "/m/sigstore/"); ok && p == pinnedRoot+".trusted_root.json" {
 			w.Write(g.root)
+			return
+		}
+		if r.URL.Path == "/m/"+ReleasesFile && listed {
+			json.NewEncoder(w).Encode([]map[string]any{{"tag_name": "v1.3.0", "draft": false}})
 			return
 		}
 		data, ok := g.files["/dl/"+strings.TrimPrefix(r.URL.Path, "/m/")]
@@ -578,13 +584,17 @@ func TestMirrorsComeFirst(t *testing.T) {
 	}))
 	defer mirror.Close()
 	c := g.client([]string{mirror.URL + "/m"})
+	g.mu.Lock()
+	g.fetched = nil
+	g.mu.Unlock()
+	releases, err := c.Releases(ctx)
+	if err != nil || len(releases) != 1 || releases[0].Tag != "v1.3.0" {
+		t.Fatalf("releases = %+v, %v", releases, err)
+	}
 	root, _, err := c.TrustedRoot(ctx, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.mu.Lock()
-	g.fetched = nil
-	g.mu.Unlock()
 	rel, err := c.Manifest(ctx, root, "v1.3.0")
 	if err != nil || rel.Version.String() != "1.3.0" {
 		t.Fatalf("manifest = %+v, %v", rel, err)
@@ -595,6 +605,19 @@ func TestMirrorsComeFirst(t *testing.T) {
 	files, _ := c.AssetURLs("v1.3.0", rel.Assets[0])
 	if !strings.HasPrefix(files[0], mirror.URL) {
 		t.Errorf("downloads try the mirror first: %v", files)
+	}
+
+	// A mirror that doesn't keep the list leaves it to GitHub.
+	g.mu.Lock()
+	listed = false
+	g.mu.Unlock()
+	if releases, err := c.Releases(ctx); err != nil || len(releases) != 1 {
+		t.Fatalf("releases from GitHub = %+v, %v", releases, err)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !slices.Contains(g.fetched, "/api/repos/"+Repository+"/releases") {
+		t.Errorf("GitHub lists the releases when the mirror doesn't: %v", g.fetched)
 	}
 }
 

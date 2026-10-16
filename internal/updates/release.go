@@ -44,10 +44,12 @@ var pinnedRoot = SigstoreRootSHA256
 // SigstoreTUF is Sigstore's TUF repository.
 const SigstoreTUF = "https://tuf-repo-cdn.sigstore.dev"
 
-// Names of the files a release carries besides its artifacts.
+// Names of the files a release carries besides its artifacts, and of the
+// list of releases a mirror keeps at its root.
 const (
 	ManifestFile = "release.json"
 	BundleSuffix = ".sigstore.json"
+	ReleasesFile = "releases.json"
 )
 
 var (
@@ -104,7 +106,8 @@ type Client struct {
 	API, Downloads string
 	TUF            string
 	// Mirrors serve each release's files under its tag and Sigstore's
-	// trusted roots under sigstore/, as install.sh expects.
+	// trusted roots under sigstore/, as install.sh expects, and a copy of
+	// GitHub's list of releases as releases.json.
 	Mirrors []string
 }
 
@@ -239,9 +242,16 @@ type githubRelease struct {
 }
 
 // Releases lists the published releases, newest first, without their
-// files: every tag that names a release on a channel.
+// files: every tag that names a release on a channel. The list isn't
+// signed, but it only names tags and each release's manifest is checked
+// against its signature, so a mirror can at worst hold releases back.
 func (c *Client) Releases(ctx context.Context) ([]Release, error) {
-	data, err := c.fetch(ctx, []string{strings.TrimSuffix(c.API, "/") + "/repos/" + Repository + "/releases?per_page=100"}, maxSmall)
+	var urls []string
+	for _, m := range c.Mirrors {
+		urls = append(urls, strings.TrimSuffix(m, "/")+"/"+ReleasesFile)
+	}
+	urls = append(urls, strings.TrimSuffix(c.API, "/")+"/repos/"+Repository+"/releases?per_page=100")
+	data, err := c.fetch(ctx, urls, maxSmall)
 	if err != nil {
 		return nil, fmt.Errorf("listing releases: %w", err)
 	}
