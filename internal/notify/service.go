@@ -809,19 +809,19 @@ func (s *Service) Notification(ctx context.Context, id store.ID) (*Notification,
 
 // Preferences returns a person's preferences; a person who never chose
 // gets none.
-func (s *Service) Preferences(ctx context.Context, person store.ID) (Preferences, error) {
+func (s *Service) Preferences(ctx context.Context, person store.ID) (NotificationPreferences, error) {
 	return s.db.preferences(ctx, person)
 }
 
 // SetPreferences stores a person's preferences.
-func (s *Service) SetPreferences(ctx context.Context, person store.ID, p Preferences) (Preferences, error) {
+func (s *Service) SetPreferences(ctx context.Context, person store.ID, p NotificationPreferences) (NotificationPreferences, error) {
 	if err := p.Check(); err != nil {
-		return Preferences{}, err
+		return NotificationPreferences{}, err
 	}
 	now := s.opts.Now().UTC()
 	p.UpdatedAt = &now
 	if err := s.db.setPreferences(ctx, person, p); err != nil {
-		return Preferences{}, err
+		return NotificationPreferences{}, err
 	}
 	return p, nil
 }

@@ -344,10 +344,10 @@ func TestPeopleByPreference(t *testing.T) {
 		t.Fatalf("relay: %+v", cs.Error)
 	}
 	ctx := context.Background()
-	if _, err := p.svc.SetPreferences(ctx, alice.ID, Preferences{Email: true, Events: []string{"bad pattern!"}}); !errors.Is(err, i18n.ErrInvalid) {
+	if _, err := p.svc.SetPreferences(ctx, alice.ID, NotificationPreferences{Email: true, Events: []string{"bad pattern!"}}); !errors.Is(err, i18n.ErrInvalid) {
 		t.Errorf("bad preferences are refused: %v", err)
 	}
-	if _, err := p.svc.SetPreferences(ctx, alice.ID, Preferences{Email: true, Muted: []string{"dns.*"}}); err != nil {
+	if _, err := p.svc.SetPreferences(ctx, alice.ID, NotificationPreferences{Email: true, Muted: []string{"dns.*"}}); err != nil {
 		t.Fatal(err)
 	}
 	p.publish(t, "web.site.failed", events.SeverityError, store.AccountScope(theirs))
@@ -509,7 +509,7 @@ func TestQuietHoursWindows(t *testing.T) {
 }
 
 func TestPreferencesWant(t *testing.T) {
-	p := Preferences{Email: true}
+	p := NotificationPreferences{Email: true}
 	for typ, want := range map[string]bool{"web.site.failed": true, "security.login.blocked": true, "web.site.created": false} {
 		if got := p.Wants(events.Event{Type: typ, Severity: events.SeverityError}); got != want {
 			t.Errorf("default %s: %v", typ, got)
@@ -518,7 +518,7 @@ func TestPreferencesWant(t *testing.T) {
 	if p.Wants(events.Event{Type: "web.site.failed", Severity: events.SeverityNotice}) {
 		t.Error("below warning isn't wanted by default")
 	}
-	if (&Preferences{}).Wants(events.Event{Type: "web.site.failed", Severity: events.SeverityCritical}) {
+	if (&NotificationPreferences{}).Wants(events.Event{Type: "web.site.failed", Severity: events.SeverityCritical}) {
 		t.Error("no email means nothing")
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/notify"
+	"github.com/vilanobeachflorida/racksail/internal/recipes"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -55,7 +56,11 @@ type Services struct {
 	// preferences people set, and messages for one person or address,
 	// such as sign-in alerts and customer emails.
 	Notify *notify.Service
-	Log    *slog.Logger
+	// Catalogs fetches and checks catalogs, and Recipes installs,
+	// upgrades and uninstalls what they offer.
+	Catalogs *recipes.Catalogs
+	Recipes  *recipes.Engine
+	Log      *slog.Logger
 }
 
 // KindProvider declares a module's kinds. Kind names must start with the

@@ -272,35 +272,35 @@ func (s *sqlStorage) prune(ctx context.Context, before time.Time) error {
 	})
 }
 
-func (s *sqlStorage) preferences(ctx context.Context, person store.ID) (Preferences, error) {
+func (s *sqlStorage) preferences(ctx context.Context, person store.ID) (NotificationPreferences, error) {
 	var raw string
 	err := s.db.Reader().QueryRowContext(ctx, `SELECT preferences FROM notify_preferences WHERE person = ?`, person).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Preferences{}, nil
+		return NotificationPreferences{}, nil
 	}
 	if err != nil {
-		return Preferences{}, err
+		return NotificationPreferences{}, err
 	}
-	var p Preferences
+	var p NotificationPreferences
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
-		return Preferences{}, fmt.Errorf("notify: reading the preferences of %s: %w", person, err)
+		return NotificationPreferences{}, fmt.Errorf("notify: reading the preferences of %s: %w", person, err)
 	}
 	return p, nil
 }
 
-func (s *sqlStorage) allPreferences(ctx context.Context) (map[store.ID]*Preferences, error) {
+func (s *sqlStorage) allPreferences(ctx context.Context) (map[store.ID]*NotificationPreferences, error) {
 	rows, err := s.db.Reader().QueryContext(ctx, `SELECT person, preferences FROM notify_preferences`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[store.ID]*Preferences{}
+	out := map[store.ID]*NotificationPreferences{}
 	for rows.Next() {
 		var person, raw string
 		if err := rows.Scan(&person, &raw); err != nil {
 			return nil, err
 		}
-		var p Preferences
+		var p NotificationPreferences
 		if err := json.Unmarshal([]byte(raw), &p); err != nil {
 			return nil, fmt.Errorf("notify: reading the preferences of %s: %w", person, err)
 		}
@@ -309,7 +309,7 @@ func (s *sqlStorage) allPreferences(ctx context.Context) (map[store.ID]*Preferen
 	return out, rows.Err()
 }
 
-func (s *sqlStorage) setPreferences(ctx context.Context, person store.ID, p Preferences) error {
+func (s *sqlStorage) setPreferences(ctx context.Context, person store.ID, p NotificationPreferences) error {
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err

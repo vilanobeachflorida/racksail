@@ -49,8 +49,8 @@ func PersonOf(a *auth.Actor) (store.ID, bool) {
 // as an API token without a user.
 var ErrNotAPerson = i18n.Define("notify.not_a_person", http.StatusForbidden, "Notification preferences belong to people. Sign in with your own user to set yours.")
 
-// Preferences are what one person wants to hear about, and when.
-type Preferences struct {
+// NotificationPreferences are what one person wants to hear about, and when.
+type NotificationPreferences struct {
 	// Email sends what the person wants to their email address.
 	Email bool `json:"email" doc:"Send notifications to my email address"`
 	// Events are the event types wanted, as patterns; DefaultEvents when
@@ -70,7 +70,7 @@ type Preferences struct {
 var DefaultEvents = []string{"*.failed", "security.*", "core.safe_mode.*", "core.hook.disabled", "core.update.*"}
 
 // Check returns what is wrong with preferences.
-func (p *Preferences) Check() error {
+func (p *NotificationPreferences) Check() error {
 	var fields []i18n.FieldError
 	for i, pat := range p.Events {
 		if !events.ValidPattern(pat) {
@@ -95,7 +95,7 @@ func (p *Preferences) Check() error {
 }
 
 // Wants reports whether the person wants to hear about an event.
-func (p *Preferences) Wants(e events.Event) bool {
+func (p *NotificationPreferences) Wants(e events.Event) bool {
 	if !p.Email {
 		return false
 	}

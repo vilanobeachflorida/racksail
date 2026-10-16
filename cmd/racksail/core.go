@@ -235,6 +235,16 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err := recs.Register(updater.Reconciler()); err != nil {
 		return nil, err
 	}
+	catalogs, recipeEngine, err := newRecipes(cfg, st, kinds, reg, manager, agentClient, facts, log)
+	if err != nil {
+		return nil, err
+	}
+	svc.Catalogs, svc.Recipes = catalogs, recipeEngine
+	for _, r := range append(recipeEngine.Reconcilers(), catalogs.Reconciler()) {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
 	for _, h := range append(manager.Hooks(), addonRuntime.Hooks()...) {
 		if err := hookReg.Register(h); err != nil {
 			return nil, err
@@ -316,6 +326,14 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		log.Warn("setting up updates", "error", err)
 	}
 	c.work.Go(func() { updater.Run(ctx) })
+	// The official catalog is there from the first start; catalogs are
+	// fetched daily while the marketplace is on, and what was installed
+	// from them is checked every few minutes.
+	if err := catalogs.Boot(ctx, pipeline.Submit); err != nil {
+		log.Warn("adding the official catalog", "error", err)
+	}
+	c.work.Go(func() { catalogs.Run(ctx) })
+	c.work.Go(func() { recipeEngine.Run(ctx) })
 	if err := timeline.Publish(ctx, events.Event{
 		Type: events.PanelStarted.Name, Severity: events.PanelStarted.Severity, Scope: store.ServerScope(),
 		Actor: auth.System("core"), Message: "Racksail " + updates.Build().Version + " started.",

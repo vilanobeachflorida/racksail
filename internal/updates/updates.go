@@ -178,8 +178,8 @@ func sign(n int) int {
 	return 0
 }
 
-// Asset is a file attached to a release.
-type Asset struct {
+// ReleaseAsset is a file attached to a release.
+type ReleaseAsset struct {
 	Name   string `json:"name"`
 	URL    string `json:"url"`
 	Size   int64  `json:"size"`
@@ -187,6 +187,10 @@ type Asset struct {
 	// Bundle is the Sigstore bundle that signs the asset.
 	Bundle string `json:"bundle,omitempty"`
 }
+
+// Asset is the name the release tooling knows ReleaseAsset by; the API
+// documents it under the longer name, which no theme asset shares.
+type Asset = ReleaseAsset
 
 // Release is a published version.
 type Release struct {

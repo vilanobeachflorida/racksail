@@ -19,8 +19,13 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
+	"github.com/vilanobeachflorida/racksail/internal/modules"
+	"github.com/vilanobeachflorida/racksail/internal/recipes"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
+	"github.com/vilanobeachflorida/racksail/internal/updates"
+	"github.com/vilanobeachflorida/racksail/internal/updates/sigstore"
 )
 
 // newAddonRuntime builds what runs installed add-ons: their tokens, kept in
@@ -38,6 +43,56 @@ func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st st
 		TokenDir: filepath.Join(cfg.Paths.State, "addons"), SocketDir: filepath.Join(cfg.Paths.Run, "addons"),
 		Enqueue: runner.Enqueue, Log: log,
 	}), nil
+}
+
+// newRecipes builds the catalog client and the recipe engine. Catalogs are
+// fetched only while the marketplace module is on; what holds data, which
+// uninstalls may keep and upgrades snapshot, is what modules back up.
+func newRecipes(cfg config.Config, st store.Store, kinds *store.KindRegistry, reg *modules.Registry, manager *modules.Manager,
+	agentClient agent.Client, facts func(ctx context.Context) (system.MachineFacts, error), log *slog.Logger) (*recipes.Catalogs, *recipes.Engine, error) {
+	catalogs := recipes.NewCatalogs(recipes.CatalogOptions{
+		Store: st, Cache: filepath.Join(cfg.Paths.State, "catalogs"), Logger: log,
+		Active: func() bool { return manager.State("marketplace").IsOn() },
+	})
+	downloads := filepath.Join(cfg.Paths.State, "downloads")
+	if err := os.MkdirAll(downloads, 0o750); err != nil {
+		return nil, nil, err
+	}
+	backups := map[string]modules.Backup{}
+	for _, m := range reg.All() {
+		if bp, ok := m.(modules.BackupProvider); ok {
+			for _, b := range bp.Backups() {
+				backups[b.Kind] = b
+			}
+		}
+	}
+	engine := recipes.NewEngine(recipes.EngineOptions{
+		Store: st, Kinds: kinds, Catalogs: catalogs, Checker: reconcile.AgentChecker{Agent: agentClient}, Facts: facts, Logger: log,
+		Verifier: &recipes.Verifier{Dir: downloads, TrustedRoot: func(ctx context.Context) (*sigstore.TrustedRoot, error) {
+			root, _, err := updates.NewClient(nil).TrustedRoot(ctx, filepath.Join(cfg.Paths.State, "updates"))
+			return root, err
+		}},
+		ModuleRecipes: func(id string) (fs.FS, bool) {
+			m, ok := reg.Get(id)
+			if !ok {
+				return nil, false
+			}
+			rp, ok := m.(modules.RecipeProvider)
+			if !ok {
+				return nil, false
+			}
+			return rp.Recipes(), true
+		},
+		ModuleOn:  func(id string) bool { return manager.State(id).IsOn() },
+		DataKinds: func(kind string) bool { _, ok := backups[kind]; return ok },
+		DataPaths: func(ctx context.Context, r *store.Resource) ([]string, error) {
+			if b, ok := backups[r.Kind]; ok && b.Paths != nil {
+				return b.Paths(ctx, r)
+			}
+			return nil, nil
+		},
+	})
+	return catalogs, engine, nil
 }
 
 // panelLink returns what notifications link back to: the address people
