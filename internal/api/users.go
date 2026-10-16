@@ -256,6 +256,7 @@ func (s *Server) registerUsers() {
 		Summary: "Open an account",
 		Description: "Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. " +
 			"The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. " +
+			"An owner is a new user, so in the panel it takes having confirmed it's you, as adding a user does. " +
 			"With dryRun=true the answer is the preview and nothing is added.",
 		Responses: map[string]*huma.Response{
 			"200": jsonResponse("The preview, for a dry run", s.schemaOf(typeOfOpened, "OpenedAccount")),
@@ -309,6 +310,16 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 			return nil, err
 		}
 		changes = append(changes, changeset.Change{Op: changeset.OpCreate, Kind: identity.KindUser, ID: ownerID, Scope: home, Spec: owner})
+	}
+	if !in.DryRun {
+		// An owner is a new user, which people in the panel confirm it's
+		// them for, as when they add one on its own.
+		if err := s.stepUpFor(actor, s.requestRisk(changes)); err != nil {
+			return nil, err
+		}
+		if err := s.stepUpForKinds(actor, s.requestConfirms(changes)); err != nil {
+			return nil, err
+		}
 	}
 	res, err := Submit(ctx, p, in.ChangeParams, changeset.Request{Title: "Open the account " + in.Body.Name, Changes: changes})
 	if err != nil {

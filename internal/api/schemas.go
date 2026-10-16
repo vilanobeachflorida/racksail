@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -155,6 +156,58 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 
 // plural names a kind's resources in sentences: "sites", "mail domains".
 func plural(info *store.KindInfo) string { return strings.ReplaceAll(info.Plural, "-", " ") }
+
+// sentenceTitle is a kind's title inside a sentence: Sign-in policy becomes
+// sign-in policy, and abbreviations such as DNS zone stay as they are.
+func sentenceTitle(info *store.KindInfo) string {
+	r := []rune(info.Title)
+	if len(r) == 0 || (len(r) > 1 && unicode.IsUpper(r[1])) {
+		return info.Title
+	}
+	r[0] = unicode.ToLower(r[0])
+	return string(r)
+}
+
+// withArticle puts "a" or "an" before a noun, by how its first word
+// sounds: an account, a user, an IP address, a DNS zone.
+func withArticle(noun string) string {
+	word, _, _ := strings.Cut(noun, " ")
+	word, _, _ = strings.Cut(word, "-")
+	if word == "" {
+		return noun
+	}
+	if vowelSound(word) {
+		return "an " + noun
+	}
+	return "a " + noun
+}
+
+// Abbreviations read as words rather than letter by letter, and words whose
+// first letter doesn't sound as it's written.
+var (
+	readAsWords = []string{"NAT", "NAS", "LAN", "SAN", "LUN", "RAID", "SIM", "SAML", "SASL", "SOAP"}
+	vowelAhead  = []string{"hour", "honest", "honor", "heir"}
+	vowelLetter = []string{"uni", "use", "usa", "usu", "uti", "ure", "uri", "ura", "ubi", "eu", "ewe", "one", "once"}
+)
+
+func vowelSound(word string) bool {
+	lower := strings.ToLower(word)
+	if len(word) > 1 && strings.ToUpper(word) == word && !slices.Contains(readAsWords, word) {
+		// Spelled out: an IP, an SSH key, an HTTP route, a DNS zone.
+		return strings.ContainsRune("AEFHILMNORSX8", rune(word[0]))
+	}
+	for _, p := range vowelAhead {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, p := range vowelLetter {
+		if strings.HasPrefix(lower, p) {
+			return false
+		}
+	}
+	return strings.ContainsRune("aeiou", rune(lower[0]))
+}
 
 var refPattern = regexp.MustCompile(`"#/components/schemas/([^"]+)"`)
 

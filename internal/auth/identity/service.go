@@ -232,7 +232,7 @@ func (s *Service) forgetUser(ctx context.Context, id store.ID) {
 	}
 	s.forget(ctx, id)
 	if s.opts.Secrets != nil {
-		for _, name := range []string{totpSecret, totpPending, alertSettings} {
+		for _, name := range userSecrets {
 			if err := s.opts.Secrets.Delete(ctx, secretRef(id, name)); err != nil && !store.ErrNotFound.Is(err) {
 				s.opts.Log.Warn("removing a deleted user's secret", "user", id, "error", err)
 			}

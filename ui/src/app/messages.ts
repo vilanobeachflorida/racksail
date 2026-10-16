@@ -94,6 +94,11 @@ export const messages = {
   commandSystem: m("app.command.system"),
   commandHighContrast: m("app.command.highContrast"),
   commandStandardContrast: m("app.command.standardContrast"),
+  commandSignInSettings: m("app.command.signInSettings"),
+  commandAddUser: m("app.command.addUser"),
+  commandOpenAccount: m("app.command.openAccount"),
+  commandMakeToken: m("app.command.makeToken"),
+  commandAddSSHKey: m("app.command.addSSHKey"),
 
   jobsOpen: m("app.jobs.open"),
   jobsRunning: m("app.jobs.running"),

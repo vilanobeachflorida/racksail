@@ -185,6 +185,7 @@ func New(opts Options) *Server {
 	}
 	mux := http.NewServeMux()
 	cfg := httpapi.Config("Racksail API", Version)
+	cfg.Transformers = append(cfg.Transformers, retryAfterHeader)
 	cfg.Info.Description = "The API of the Racksail panel. Every change goes through the change pipeline: " +
 		"mutating calls accept dryRun=true to preview the change set without applying it, and an Idempotency-Key header. " +
 		"Errors are RFC 9457 problem details with a stable code."

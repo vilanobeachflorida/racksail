@@ -182,6 +182,9 @@ type setupInput struct {
 type providerStartInput struct {
 	ID       store.ID `path:"id" doc:"The sign-in provider's ID"`
 	Remember bool     `query:"remember" doc:"Stay signed in when the browser closes"`
+	// Device is read here, where the browser leaves from the panel's own
+	// page: coming back from the provider's site, it doesn't send it.
+	Device string `cookie:"racksail_device" doc:"A trusted browser's cookie"`
 }
 
 type redirectOutput struct {
@@ -191,9 +194,11 @@ type redirectOutput struct {
 }
 
 type providerCallbackInput struct {
-	ID     store.ID `path:"id" doc:"The sign-in provider's ID"`
-	State  string   `cookie:"racksail_signin_state"`
-	Device string   `cookie:"racksail_device"`
+	ID    store.ID `path:"id" doc:"The sign-in provider's ID"`
+	State string   `cookie:"racksail_signin_state"`
+	// Device comes only when the provider sent the browser back without
+	// leaving the panel's site; otherwise the start kept it.
+	Device string `cookie:"racksail_device"`
 	// Linking is the cookie a link from the security settings carries, so
 	// its errors go back there.
 	Linking bool `cookie:"racksail_linking"`
@@ -439,7 +444,7 @@ func (s *Server) registerAuth() {
 			return nil, err
 		}
 		c := auth.ClientFrom(ctx)
-		to, state, err := id.BeginProviderSignIn(ctx, in.ID, providerCallback(ctx, in.ID), in.Remember, c)
+		to, state, err := id.BeginProviderSignIn(ctx, in.ID, providerCallback(ctx, in.ID), in.Remember, in.Device, c)
 		if err != nil {
 			return nil, err
 		}

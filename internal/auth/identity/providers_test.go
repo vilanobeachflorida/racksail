@@ -132,7 +132,7 @@ func TestRedirectProviders(t *testing.T) {
 	}
 
 	callback := "https://panel.example.test/api/v1/auth/providers/" + string(id) + "/callback"
-	to, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, true, client)
+	to, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, true, "", client)
 	if err != nil || !strings.HasPrefix(to, "https://idp.example/authorize") || state == "" {
 		t.Fatalf("begin = %q %q %v", to, state, err)
 	}
@@ -148,6 +148,60 @@ func TestRedirectProviders(t *testing.T) {
 	}
 	if _, err := h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client); !auth.ErrChallengeExpired.Is(err) {
 		t.Errorf("a state counts once: %v", err)
+	}
+}
+
+// A browser trusted to skip the second step skips it after a provider's
+// page too. The way back from the provider's site doesn't carry the
+// browser's SameSite=Strict cookie, but the start, from the panel's own
+// page, does.
+func TestRedirectProvidersKeepTrustedBrowsers(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	h.provide(hooks.AuthProvider, "oidc", func(json.RawMessage) (any, error) { return redirector{}, nil })
+	id := h.connect(ProviderSpec{Capability: "identity", Provider: "oidc", Title: "Single sign-on", Match: "email"})
+	h.admin("root")
+	shop := h.createAccount("shop", "")
+	ada := h.user("ada", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	if _, err := h.update(root(), ada.ID, func(s *UserSpec) { s.Email = "ada@example.test" }); err != nil {
+		t.Fatal(err)
+	}
+	actor, _ := h.signIn("ada")
+	key, err := h.svc.BeginTOTP(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := auth.TOTPCode(key.Secret, h.clock.now())
+	if _, err := h.svc.ConfirmTOTP(ctx, actor, code); err != nil {
+		t.Fatal(err)
+	}
+	h.clock.add(time.Minute)
+	first, err := h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: password}, "", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ = auth.TOTPCode(key.Secret, h.clock.now())
+	trusted, err := h.svc.SecondStep(ctx, SecondStepInput{Challenge: first.Challenge, Method: "totp", Code: code, Trust: true}, client, "")
+	if err != nil || trusted.Issued.DeviceSecret == "" {
+		t.Fatalf("trusting the browser = %+v, %v", trusted, err)
+	}
+
+	callback := "https://panel.example.test/api/v1/auth/providers/" + string(id) + "/callback"
+	_, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, false, "", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client)
+	if err != nil || res.Issued != nil || res.Challenge == "" {
+		t.Errorf("a browser nobody trusts = %+v, %v", res, err)
+	}
+	_, state, err = h.svc.BeginProviderSignIn(ctx, id, callback, false, trusted.Issued.DeviceSecret, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client)
+	if err != nil || res.Issued == nil || res.Issued.Session.SecondFactor != "device" {
+		t.Errorf("the trusted browser = %+v, %v", res, err)
 	}
 }
 
@@ -363,7 +417,7 @@ func TestLinkingThroughARedirect(t *testing.T) {
 	callback := "https://panel.example.test/api/v1/auth/providers/" + string(id) + "/callback"
 
 	// Without a link, the provider signs nobody in.
-	to, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, false, client)
+	to, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, false, "", client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +433,7 @@ func TestLinkingThroughARedirect(t *testing.T) {
 	if err != nil || ret.Linked == nil || ret.Linked.ID != id || ret.SignInResult != nil {
 		t.Fatalf("linking = %+v, %v", ret, err)
 	}
-	_, state, _ = h.svc.BeginProviderSignIn(ctx, id, callback, false, client)
+	_, state, _ = h.svc.BeginProviderSignIn(ctx, id, callback, false, "", client)
 	res, err := h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client)
 	if err != nil || res.Issued == nil || h.actor(res.Issued.Secret).ID != ada.ID {
 		t.Fatalf("signing in once linked = %+v, %v", res, err)

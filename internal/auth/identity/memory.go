@@ -317,18 +317,43 @@ func (m *Memory) CreateSession(ctx context.Context, s *Session) error {
 	return nil
 }
 
-// UpdateSession implements Store.
-func (m *Memory) UpdateSession(ctx context.Context, s *Session) error {
+// TouchSession implements Store.
+func (m *Memory) TouchSession(ctx context.Context, id store.ID, at time.Time, ip string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cur, ok := m.sessions[s.ID]
+	s, ok := m.sessions[id]
 	if !ok {
-		return notFound(string(s.ID))
+		return notFound(string(id))
 	}
-	// What a session is about never changes once it starts.
-	next := copyOf(s)
-	next.User, next.CreatedAt, next.Method, next.Impersonator, next.Parent = cur.User, cur.CreatedAt, cur.Method, cur.Impersonator, cur.Parent
-	m.sessions[s.ID] = next
+	s.LastSeenAt, s.IP = at, ip
+	return nil
+}
+
+// SetSessionPending implements Store.
+func (m *Memory) SetSessionPending(ctx context.Context, id store.ID, pending string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok {
+		return notFound(string(id))
+	}
+	s.Pending = pending
+	return nil
+}
+
+// RotateSession implements Store.
+func (m *Memory) RotateSession(ctx context.Context, x *Session, from string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[x.ID]
+	switch {
+	case !ok:
+		return notFound(string(x.ID))
+	case s.Hash != from:
+		return ErrSessionRotated
+	}
+	s.Hash, s.PreviousHash, s.RotatedAt, s.GrantsHash = x.Hash, x.PreviousHash, x.RotatedAt, x.GrantsHash
+	s.SteppedUpAt, s.LastSeenAt, s.IP = x.SteppedUpAt, x.LastSeenAt, x.IP
 	return nil
 }
 

@@ -67,8 +67,19 @@ type Store interface {
 	DeletePasskey(ctx context.Context, user, id store.ID) error
 
 	CreateSession(ctx context.Context, s *Session) error
-	// UpdateSession replaces what a session records, its hashes included.
-	UpdateSession(ctx context.Context, s *Session) error
+	// TouchSession records when and from where a session was last used,
+	// and nothing else, so it never undoes a new secret another request
+	// gave the session meanwhile.
+	TouchSession(ctx context.Context, id store.ID, at time.Time, ip string) error
+	// SetSessionPending says what the session's person must do first.
+	SetSessionPending(ctx context.Context, id store.ID, pending string) error
+	// RotateSession gives a session a new secret: it keeps s's hash and
+	// previous hash, when it was rotated, its grants' hash, when its person
+	// last confirmed it's them, and when and from where it was last used.
+	// It does so only while the session's secret is still the one hashed as
+	// from, and fails with ErrSessionRotated otherwise, so two requests
+	// can't each give a session a secret and leave one of them unknown.
+	RotateSession(ctx context.Context, s *Session, from string) error
 	Session(ctx context.Context, id store.ID) (*Session, error)
 	// SessionByHash finds a session by the hash of its secret, or of the
 	// secret it had before it was last given a new one.

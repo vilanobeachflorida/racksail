@@ -13,7 +13,7 @@ var (
 	ErrBadCredentials      = i18n.Define("auth.bad_credentials", http.StatusUnauthorized, "The username or password isn't right.")
 	ErrWrongPassword       = i18n.Define("auth.wrong_password", http.StatusUnauthorized, "Your current password isn't right.")
 	ErrOwnPassword         = i18n.Define("auth.own_password", http.StatusConflict, "Change your own password in your security settings, where your current one is asked for.")
-	ErrLocked              = i18n.Define("auth.locked", http.StatusTooManyRequests, "Too many failed sign-ins for this user. Try again in {minutes} minutes, or sign in with a passkey.")
+	ErrLocked              = i18n.Define("auth.locked", http.StatusTooManyRequests, "Too many failed sign-ins for this user. Try again in {minutes, plural, one {# minute} other {# minutes}}, or sign in with a passkey.")
 	ErrDisabled            = i18n.Define("auth.disabled", http.StatusForbidden, "This user is turned off. Ask an admin to turn it back on.")
 	ErrBadCode             = i18n.Define("auth.bad_code", http.StatusUnauthorized, "That code isn't right, or it was used already.")
 	ErrChallengeExpired    = i18n.Define("auth.challenge_expired", http.StatusUnauthorized, "The sign-in took too long. Start again.")

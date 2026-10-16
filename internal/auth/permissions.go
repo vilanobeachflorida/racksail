@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -19,6 +20,10 @@ import (
 type PermissionInfo struct {
 	Name        Permission `json:"name" doc:"The permission, such as core.audit.read"`
 	Description string     `json:"description" doc:"What the permission lets someone do"`
+	// Levels are the levels of the scopes the permission is checked
+	// against: where what it is about belongs, such as the server for the
+	// panel's metrics. Empty means any.
+	Levels []store.ScopeLevel `json:"levels,omitempty" doc:"Where the permission is checked: on the server, a reseller or an account; anywhere when empty"`
 }
 
 // Core permissions that no kind defines.
@@ -40,18 +45,20 @@ var permissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$
 
 func init() {
 	for _, p := range []PermissionInfo{
-		{PermOverride, "Let hooks and rules loosen safety rules such as sandbox minimums. Shown in red and logged."},
-		{PermSecretsRead, "Read secret values, such as passwords kept for resources."},
-		{PermImpersonate, "View the panel as one of your customers, and act for them, with every step recorded."},
+		{PermOverride, "Let hooks and rules loosen safety rules such as sandbox minimums. Shown in red and logged.", []store.ScopeLevel{store.ScopeServer}},
+		{PermSecretsRead, "Read secret values, such as passwords kept for resources.", nil},
+		{PermImpersonate, "View the panel as one of your customers, and act for them, with every step recorded.", nil},
 	} {
-		RegisterPermission(p.Name, p.Description)
+		RegisterPermission(p.Name, p.Description, p.Levels...)
 	}
 }
 
 // RegisterPermission describes a permission the core or a module checks
-// itself, outside the operations of a kind, and returns it. It is meant
+// itself, outside the operations of a kind, and returns it. levels are
+// where it is checked, such as only against the server for something of
+// the whole server's; without them, it may be checked anywhere. It is meant
 // for package-level variables; problems are reported by Err.
-func RegisterPermission(name Permission, description string) Permission {
+func RegisterPermission(name Permission, description string, levels ...store.ScopeLevel) Permission {
 	permissions.Lock()
 	defer permissions.Unlock()
 	switch {
@@ -62,7 +69,7 @@ func RegisterPermission(name Permission, description string) Permission {
 	case permissions.byName[name].Name != "":
 		permissions.errs = append(permissions.errs, fmt.Errorf("auth: permission %s is registered twice", name))
 	default:
-		permissions.byName[name] = PermissionInfo{Name: name, Description: description}
+		permissions.byName[name] = PermissionInfo{Name: name, Description: description, Levels: levels}
 	}
 	return name
 }
@@ -105,14 +112,16 @@ func Permissions(kinds []store.Kind) []PermissionInfo {
 func KindPermissions(k store.Kind) []PermissionInfo {
 	info := k.Info()
 	many := pluralOf(info.Title)
+	// They're checked where the kind's resources belong.
+	levels := append([]store.ScopeLevel{info.Scope}, info.Levels...)
 	out := []PermissionInfo{
-		{KindPermission(info.Name, "read"), "See " + many + "."},
-		{KindPermission(info.Name, "create"), "Create " + many + "."},
-		{KindPermission(info.Name, "update"), "Change " + many + "."},
-		{KindPermission(info.Name, "delete"), "Delete " + many + "."},
+		{KindPermission(info.Name, "read"), "See " + many + ".", levels},
+		{KindPermission(info.Name, "create"), "Create " + many + ".", levels},
+		{KindPermission(info.Name, "update"), "Change " + many + ".", levels},
+		{KindPermission(info.Name, "delete"), "Delete " + many + ".", levels},
 	}
 	for _, a := range info.Actions {
-		out = append(out, PermissionInfo{KindPermission(info.Name, a.Name), a.Summary})
+		out = append(out, PermissionInfo{KindPermission(info.Name, a.Name), a.Summary, levels})
 	}
 	return out
 }
@@ -201,31 +210,42 @@ type MatrixRow struct {
 }
 
 // MatrixFor works out the permission matrix for some permissions: for each,
-// how far each role reaches with it when granted where the role belongs.
-// A collaborator counts with its default read access.
-func MatrixFor(perms []Permission) []MatrixRow {
-	out := make([]MatrixRow, 0, len(perms))
-	for _, perm := range slices.Sorted(slices.Values(slices.Compact(slices.Sorted(slices.Values(perms))))) {
-		row := MatrixRow{Permission: perm, Roles: map[Role]Access{}}
+// how far each role reaches with it when granted where the role belongs,
+// counting only where the permission is checked. A collaborator counts with
+// its default read access. A permission listed twice counts once.
+func MatrixFor(perms []PermissionInfo) []MatrixRow {
+	byName := map[Permission]PermissionInfo{}
+	for _, p := range perms {
+		if _, seen := byName[p.Name]; !seen {
+			byName[p.Name] = p
+		}
+	}
+	out := make([]MatrixRow, 0, len(byName))
+	for _, name := range slices.Sorted(maps.Keys(byName)) {
+		row := MatrixRow{Permission: name, Roles: map[Role]Access{}}
 		for _, info := range Roles() {
-			row.Roles[info.Role] = roleAccess(info.Role, perm)
+			row.Roles[info.Role] = roleAccess(info.Role, byName[name])
 		}
 		out = append(out, row)
 	}
 	return out
 }
 
-func roleAccess(r Role, perm Permission) Access {
-	if perm.Special() {
-		// Only a server admin can hold core.override, since it loosens
-		// what protects every account.
-		switch {
-		case r == RoleAdmin, perm != PermOverride && (r == RoleReseller || r == RoleOwner):
+func roleAccess(r Role, p PermissionInfo) Access {
+	perm := p.Name
+	for _, level := range RoleLevels(r) {
+		if !reaches(level, p.Levels) {
+			continue
+		}
+		if perm.Special() {
+			// Any grant can name a special permission, but core.override
+			// only an admin's on the whole server, since it loosens what
+			// protects every account.
+			if perm == PermOverride && (r != RoleAdmin || level != store.ScopeServer) {
+				continue
+			}
 			return AccessByName
 		}
-		return AccessNone
-	}
-	for _, level := range RoleLevels(r) {
 		scope := store.Scope{Level: level}
 		if level != store.ScopeServer {
 			scope.ID = store.NewID("acct")
@@ -238,4 +258,20 @@ func roleAccess(r Role, perm Permission) Access {
 		}
 	}
 	return AccessNone
+}
+
+// reaches reports whether a grant on a scope of the given level reaches
+// scopes of one of levels, any when there are none: the server reaches
+// everything, a reseller itself and its customers' accounts, and an account
+// itself.
+func reaches(grant store.ScopeLevel, levels []store.ScopeLevel) bool {
+	if len(levels) == 0 || grant == store.ScopeServer {
+		return true
+	}
+	for _, l := range levels {
+		if l == grant || (grant == store.ScopeReseller && l == store.ScopeAccount) {
+			return true
+		}
+	}
+	return false
 }

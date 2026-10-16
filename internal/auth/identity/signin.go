@@ -91,9 +91,10 @@ func (s *Service) SignIn(ctx context.Context, in SignInInput, deviceSecret strin
 			if !auth.ErrBadCredentials.Is(perr) {
 				return nil, perr
 			}
-			if u == nil {
-				auth.WasteTime(ctx, in.Password)
-			}
+			// No password was checked here, which takes as long as checking
+			// one, so the answer doesn't say whether the name exists or has
+			// a password.
+			auth.WasteTime(ctx, in.Password)
 			s.audit(ctx, signInActor(u, username, client), "auth.sign_in", idOf(u), homeScope(u), events.OutcomeFailed, "wrong username or password", "Sign in as "+username)
 			if u != nil {
 				s.failed(ctx, u, client)
@@ -108,8 +109,10 @@ func (s *Service) SignIn(ctx context.Context, in SignInInput, deviceSecret strin
 	}
 	ok, rehash, err := auth.VerifyPassword(ctx, u.PasswordHash, in.Password)
 	if errors.Is(err, auth.ErrHashFormat) {
-		// A hash nothing can check is a password nobody can use.
+		// A hash nothing can check is a password nobody can use, and
+		// refusing it takes as long as checking one.
 		s.opts.Log.Warn("a user's password hash is in a format Racksail doesn't read", "user", u.ID)
+		auth.WasteTime(ctx, in.Password)
 		ok, err = false, nil
 	}
 	if err != nil {
@@ -170,7 +173,7 @@ func (s *Service) failed(ctx context.Context, u *User, client auth.Client) {
 		UserEvent{Username: u.Username, IP: client.IP, Device: DescribeAgent(client.UserAgent)})
 	s.alert(ctx, u, "Your user was locked out",
 		"Someone failed to sign in as "+u.Username+" "+itoa(p.LockoutAttempts)+" times in a row, from "+client.IP+
-			". Signing in with a password is blocked for "+itoa(p.LockoutMinutes)+" minutes; passkeys still work. If it wasn't you, choose a stronger password.",
+			". Signing in with a password is blocked for "+count(p.LockoutMinutes, "minute", "minutes")+"; passkeys still work. If it wasn't you, choose a stronger password.",
 		events.SeverityWarning)
 }
 
@@ -441,7 +444,14 @@ func (s *Service) trust(ctx context.Context, u *User, issued *Issued, client aut
 // useRecoveryCode signs someone in with one of their recovery codes, which
 // then no longer works, and tells them how many are left.
 func (s *Service) useRecoveryCode(ctx context.Context, u *User, code string, client auth.Client) error {
-	ok, err := s.opts.Store.UseRecoveryCode(ctx, u.ID, auth.HashCode(code))
+	key, err := s.recoveryKey(ctx, u.ID, false)
+	if err != nil {
+		return err
+	}
+	if key == nil {
+		return auth.ErrBadCode.New()
+	}
+	ok, err := s.opts.Store.UseRecoveryCode(ctx, u.ID, auth.KeyedCodeHash(key, code))
 	if err != nil {
 		return err
 	}

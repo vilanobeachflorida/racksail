@@ -211,30 +211,56 @@ func TestCredentialsAndSessions(t *testing.T) {
 		if err := s.CreateSession(ctx, other); err != nil {
 			t.Fatal(err)
 		}
-		sess.Hash, sess.SteppedUpAt, sess.LastSeenAt, sess.Pending = "h3", epoch.Add(time.Second), epoch.Add(2*time.Minute), PendingPassword
-		sess.Method = "changed"
-		if err := s.UpdateSession(ctx, sess); err != nil {
+		if err := s.SetSessionPending(ctx, sess.ID, PendingPassword); err != nil {
+			t.Fatal(err)
+		}
+		stepped := *sess
+		stepped.Hash, stepped.SteppedUpAt, stepped.LastSeenAt = "h3", epoch.Add(time.Second), epoch.Add(2*time.Minute)
+		if err := s.RotateSession(ctx, &stepped, "h1"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.SessionByHash(ctx, "h1"); !store.ErrNotFound.Is(err) {
 			t.Error("a session's replaced hash finds nothing")
 		}
+		// A secret is given once: a request that read the session before
+		// it changed doesn't give it another, and using it later doesn't
+		// bring the old hash back.
+		late := *sess
+		late.Hash = "h5"
+		if err := s.RotateSession(ctx, &late, "h1"); !errors.Is(err, ErrSessionRotated) {
+			t.Errorf("a second new secret from the same one = %v", err)
+		}
+		if err := s.TouchSession(ctx, sess.ID, epoch.Add(150*time.Second), "192.0.2.7"); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.Session(ctx, sess.ID); err != nil || got.Hash != "h3" || got.IP != "192.0.2.7" || !got.LastSeenAt.Equal(epoch.Add(150*time.Second)) {
+			t.Errorf("after the touch = %+v, %v", got, err)
+		}
 		// A session given a new secret for new grants is still found by the
 		// one before, for requests already on their way.
-		sess.PreviousHash, sess.Hash, sess.RotatedAt, sess.GrantsHash = "h3", "h4", epoch.Add(3*time.Minute), "g2"
-		if err := s.UpdateSession(ctx, sess); err != nil {
+		rotated := stepped
+		rotated.PreviousHash, rotated.Hash, rotated.RotatedAt, rotated.GrantsHash = "h3", "h4", epoch.Add(3*time.Minute), "g2"
+		rotated.LastSeenAt, rotated.IP = epoch.Add(3*time.Minute), "192.0.2.8"
+		if err := s.RotateSession(ctx, &rotated, "h3"); err != nil {
 			t.Fatal(err)
 		}
 		for _, hash := range []string{"h3", "h4"} {
 			if got, err := s.SessionByHash(ctx, hash); err != nil || got.ID != sess.ID || got.Hash != "h4" || got.PreviousHash != "h3" ||
-				got.GrantsHash != "g2" || !got.RotatedAt.Equal(epoch.Add(3*time.Minute)) {
+				got.GrantsHash != "g2" || !got.RotatedAt.Equal(epoch.Add(3*time.Minute)) || got.IP != "192.0.2.8" {
 				t.Errorf("by %s = %+v, %v", hash, got, err)
 			}
 		}
 		got, err := s.SessionByHash(ctx, "h4")
 		if err != nil || got.ID != sess.ID || got.Method != "password" || got.SecondFactor != "totp" || !got.Persistent || got.Pending != PendingPassword ||
-			!got.SteppedUpAt.Equal(epoch.Add(time.Second)) {
+			!got.SteppedUpAt.Equal(epoch.Add(time.Second)) || !got.ExpiresAt.Equal(sess.ExpiresAt) {
 			t.Errorf("session = %+v, %v", got, err)
+		}
+		gone := Session{ID: store.NewID(PrefixSession), Hash: "h6"}
+		if err := s.RotateSession(ctx, &gone, "h0"); !store.ErrNotFound.Is(err) {
+			t.Errorf("a session that isn't there = %v", err)
+		}
+		if err := s.TouchSession(ctx, gone.ID, epoch, ""); !store.ErrNotFound.Is(err) {
+			t.Errorf("touching a session that isn't there = %v", err)
 		}
 		list, _ := s.Sessions(ctx, u.ID)
 		if len(list) != 2 || list[0].ID != sess.ID {

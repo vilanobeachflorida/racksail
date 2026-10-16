@@ -6370,6 +6370,15 @@
               "description": "Stay signed in when the browser closes",
               "type": "boolean"
             }
+          },
+          {
+            "description": "A trusted browser's cookie",
+            "in": "cookie",
+            "name": "racksail_device",
+            "schema": {
+              "description": "A trusted browser's cookie",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -7346,7 +7355,7 @@
             "token": []
           }
         ],
-        "summary": "Create a account",
+        "summary": "Create an account",
         "tags": [
           "Accounts"
         ],
@@ -7360,7 +7369,7 @@
     },
     "/api/v1/core/accounts/open": {
       "post": {
-        "description": "Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. With dryRun=true the answer is the preview and nothing is added.",
+        "description": "Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. An owner is a new user, so in the panel it takes having confirmed it's you, as adding a user does. With dryRun=true the answer is the preview and nothing is added.",
         "operationId": "openCoreAccount",
         "parameters": [
           {
@@ -7524,7 +7533,7 @@
             "token": []
           }
         ],
-        "summary": "Delete a account",
+        "summary": "Delete an account",
         "tags": [
           "Accounts"
         ],
@@ -7588,7 +7597,7 @@
             "token": []
           }
         ],
-        "summary": "Get a account",
+        "summary": "Get an account",
         "tags": [
           "Accounts"
         ],
@@ -7678,7 +7687,7 @@
             "token": []
           }
         ],
-        "summary": "Change a account",
+        "summary": "Change an account",
         "tags": [
           "Accounts"
         ],
@@ -7735,7 +7744,7 @@
             "token": []
           }
         ],
-        "summary": "Show a account's history",
+        "summary": "Show an account's history",
         "tags": [
           "Accounts"
         ],

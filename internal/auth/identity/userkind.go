@@ -268,6 +268,9 @@ func validateUser(ctx context.Context, obj, old *store.Object[UserSpec, UserStat
 	if old == nil {
 		return nil
 	}
+	if err := ownSignIn(actor, obj.ID, old.Spec, spec); err != nil {
+		return err
+	}
 	if spec.Disabled && !old.Spec.Disabled && (actor.Person() == obj.ID || actor.Impersonator == obj.ID) {
 		return auth.ErrSelfDelete.New()
 	}
@@ -275,6 +278,45 @@ func validateUser(ctx context.Context, obj, old *store.Object[UserSpec, UserStat
 		return keepAnAdmin(ctx, obj.ID, old.Spec.Username)
 	}
 	return nil
+}
+
+// ownSignIn refuses a change to how a user signs in, their username, email
+// address, allowed addresses or SSH keys, that they make to themselves other
+// than in their own session in the panel. Through an API token, or with
+// someone viewing the panel as them, such a change would give a way in that
+// outlasts the token or the viewing: an SSH key, or an email address an
+// outside provider's sign-in is matched by. Others change them with the
+// permissions for it, and the person is told about SSH keys someone added.
+func ownSignIn(actor *auth.Actor, id store.ID, old, next UserSpec) error {
+	if actor.Person() != id || (actor.Type == auth.ActorUser && actor.Impersonator == "") {
+		return nil
+	}
+	if old.Username == next.Username && strings.EqualFold(old.Email, next.Email) && slices.Equal(old.AllowFrom, next.AllowFrom) &&
+		sameKeys(old.SSHKeys, next.SSHKeys) {
+		return nil
+	}
+	if actor.Impersonator != "" {
+		return auth.ErrImpersonating.New("user", actor.Name, "action", "change how they sign in")
+	}
+	return auth.ErrPanelOnly.New()
+}
+
+// sameKeys reports whether two lists hold the same SSH keys, whatever their
+// names and order.
+func sameKeys(a, b []UserSSHKey) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ids := map[store.ID]bool{}
+	for _, k := range a {
+		ids[k.ID] = true
+	}
+	for _, k := range b {
+		if !ids[k.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 // keepAnAdmin refuses a change that leaves the server without an admin who

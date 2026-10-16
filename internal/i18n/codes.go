@@ -14,7 +14,7 @@ var (
 	ErrAlreadyExists    = Define("core.already_exists", http.StatusConflict, "{what} already exists.")
 	ErrUnauthenticated  = Define("core.unauthenticated", http.StatusUnauthorized, "Sign in to continue.")
 	ErrForbidden        = Define("core.forbidden", http.StatusForbidden, "You don't have permission to {action}.")
-	ErrRateLimited      = Define("core.rate_limited", http.StatusTooManyRequests, "Too many requests. Wait {retryAfter} seconds and try again.")
+	ErrRateLimited      = Define("core.rate_limited", http.StatusTooManyRequests, "Too many requests. Wait {retryAfter, plural, one {# second} other {# seconds}} and try again.")
 	ErrUnavailable      = Define("core.unavailable", http.StatusServiceUnavailable, "{what} isn't available right now. Try again in a moment.")
 	ErrTimeout          = Define("core.timeout", http.StatusGatewayTimeout, "{what} took too long and was stopped.")
 	ErrCanceled         = Define("core.canceled", http.StatusConflict, "The operation was canceled before it finished.")

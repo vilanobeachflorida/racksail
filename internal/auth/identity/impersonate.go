@@ -105,15 +105,15 @@ func (s *Service) StopImpersonating(ctx context.Context, actor *auth.Actor) (*Is
 	if err != nil || s.now().After(parent.ExpiresAt) {
 		return nil, auth.ErrSessionExpired.New()
 	}
-	secret := auth.NewSecret(auth.SessionPrefix)
-	parent.Hash, parent.LastSeenAt = auth.HashSecret(secret), s.now()
-	if err := s.opts.Store.UpdateSession(ctx, parent); err != nil {
+	now := s.now()
+	issued, err := s.newSecret(ctx, parent, func(x *Session) { x.LastSeenAt = now })
+	if err != nil {
 		return nil, err
 	}
 	if target, err := s.User(ctx, x.User); err == nil {
 		s.audit(ctx, actor, "core.impersonate.stop", target.ID, target.Home, events.OutcomeSuccess, "", "Stop viewing the panel as "+target.Username)
 	}
-	return &Issued{Secret: secret, Session: parent}, nil
+	return issued, nil
 }
 
 // Impersonation says who is viewing the panel as the actor's user, for the

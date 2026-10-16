@@ -411,6 +411,48 @@ func TestOwnChanges(t *testing.T) {
 	}
 }
 
+// How someone signs in changes only in their own session in the panel: a
+// token of theirs, or someone viewing the panel as them, can't give them a
+// new SSH key or email address, whatever their grants. Others can, with the
+// permissions for it.
+func TestOwnSignInTakesThePanel(t *testing.T) {
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	owen := h.user("owen", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	token := &auth.Actor{Type: auth.ActorToken, ID: store.NewID(PrefixToken), Name: "ci", User: owen.ID, Source: auth.SourceAPI,
+		Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(shop)}}}
+	viewing := &auth.Actor{Type: auth.ActorUser, ID: owen.ID, Name: "owen", User: owen.ID, Source: auth.SourceUI, Impersonator: store.NewID(PrefixUser),
+		Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(shop)}}}
+	addKey := changeset.Change{Op: changeset.OpAction, Kind: KindUser, ID: owen.ID, Action: "add_ssh_key",
+		Input: json.RawMessage(`{"name":"ci","publicKey":"` + keys[0] + `"}`)}
+	if _, err := h.submit(token, "Add a key", addKey); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token adding its user a key = %v", err)
+	}
+	if _, err := h.submit(viewing, "Add a key", addKey); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("someone viewing as the user adding them a key = %v", err)
+	}
+	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Email = "mallory@example.net" }); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token changing its user's email address = %v", err)
+	}
+	if _, err := h.update(viewing, owen.ID, func(s *UserSpec) { s.AllowFrom = []string{"203.0.113.0/24"} }); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("someone viewing as the user changing where they sign in from = %v", err)
+	}
+	// What doesn't sign anyone in goes through.
+	if _, err := h.update(token, owen.ID, func(s *UserSpec) { s.Name = "Owen Owner" }); err != nil {
+		t.Errorf("a token renaming its user = %v", err)
+	}
+	// Others with the permission add keys, and the user hears about it.
+	cy := h.user("cy", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	theirs := &auth.Actor{Type: auth.ActorToken, ID: store.NewID(PrefixToken), Name: "ops", User: cy.ID, Source: auth.SourceAPI,
+		Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(shop)}}}
+	if _, err := h.submit(theirs, "Add a key for owen", addKey); err != nil {
+		t.Errorf("another owner's token adding owen a key = %v", err)
+	}
+	if u := h.get(owen.ID); len(u.SSHKeys) != 1 || u.Name != "Owen Owner" {
+		t.Errorf("owen = %+v", u)
+	}
+}
+
 func TestHelpingUsersBackIn(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)

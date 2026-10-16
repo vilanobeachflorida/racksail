@@ -89,7 +89,7 @@ func (s *Service) CreateToken(ctx context.Context, actor *auth.Actor, in TokenIn
 		case expires.IsZero():
 			fields = append(fields, i18n.Field("expiresAt", i18n.ErrRequired))
 		case expires.After(limit):
-			fields = append(fields, i18n.Field("expiresAt", i18n.ErrBadValue, "reason", fmt.Sprintf("tokens last at most %d days here", max)))
+			fields = append(fields, i18n.Field("expiresAt", i18n.ErrBadValue, "reason", "tokens last at most "+count(max, "day", "days")+" here"))
 		}
 	}
 	if len(fields) > 0 {

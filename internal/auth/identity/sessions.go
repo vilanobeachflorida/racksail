@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"slices"
@@ -163,9 +164,18 @@ func (s *Service) authenticateSession(ctx context.Context, secret string, client
 		// What the session may do changed since its secret was issued, so
 		// it gets a new one, which the answer sets as its cookie.
 		next := auth.NewSecret(auth.SessionPrefix)
-		x.PreviousHash, x.Hash, x.RotatedAt, x.GrantsHash = x.Hash, auth.HashSecret(next), now, current
+		from := x.Hash
+		x.PreviousHash, x.Hash, x.RotatedAt, x.GrantsHash = from, auth.HashSecret(next), now, current
 		x.LastSeenAt, x.IP = now, client.IP
-		if err := s.opts.Store.UpdateSession(ctx, x); err != nil {
+		switch err := s.opts.Store.RotateSession(ctx, x, from); {
+		case errors.Is(err, ErrSessionRotated):
+			// A request at the same moment gave the session its new secret,
+			// and its answer sets the cookie; this one's is the secret
+			// before, which keeps working meanwhile.
+			return actor, nil
+		case store.ErrNotFound.Is(err):
+			return nil, auth.ErrSessionExpired.New()
+		case err != nil:
 			return nil, err
 		}
 		s.touched.Store(string(x.ID), now)
@@ -173,12 +183,35 @@ func (s *Service) authenticateSession(ctx context.Context, secret string, client
 		return actor, nil
 	}
 	if s.due(string(x.ID), now) || x.IP != client.IP {
-		x.LastSeenAt, x.IP = now, client.IP
-		if err := s.opts.Store.UpdateSession(ctx, x); err != nil && !store.ErrNotFound.Is(err) {
+		if err := s.opts.Store.TouchSession(ctx, x.ID, now, client.IP); err != nil && !store.ErrNotFound.Is(err) {
 			s.opts.Log.Warn("recording a session's use", "session", x.ID, "error", err)
 		}
 	}
 	return actor, nil
+}
+
+// newSecret gives a session a new secret, and what change says comes with
+// it, such as when its person confirmed it's them. The secret before stops
+// working at once. When another request gave the session a new secret
+// meanwhile, it reads the session again and goes on from that one, so
+// neither change is lost.
+func (s *Service) newSecret(ctx context.Context, x *Session, change func(*Session)) (*Issued, error) {
+	secret := auth.NewSecret(auth.SessionPrefix)
+	for attempt := 1; ; attempt++ {
+		next := *x
+		change(&next)
+		next.Hash, next.PreviousHash, next.RotatedAt = auth.HashSecret(secret), "", s.now()
+		err := s.opts.Store.RotateSession(ctx, &next, x.Hash)
+		if err == nil {
+			return &Issued{Secret: secret, Session: &next}, nil
+		}
+		if !errors.Is(err, ErrSessionRotated) || attempt == 3 {
+			return nil, err
+		}
+		if x, err = s.opts.Store.Session(ctx, x.ID); err != nil {
+			return nil, err
+		}
+	}
 }
 
 type reissueKey struct{}
@@ -263,7 +296,10 @@ func (s *Service) authenticateToken(ctx context.Context, secret string, client a
 			s.opts.Log.Warn("recording a token's use", "token", t.ID, "error", err)
 		}
 	}
-	return &auth.Actor{Type: auth.ActorToken, ID: t.ID, Name: t.Name, User: u.ID, UserName: u.Username, Source: source, IP: client.IP, Grants: grants}, nil
+	return &auth.Actor{
+		Type: auth.ActorToken, ID: t.ID, Name: t.Name, User: u.ID, UserName: u.Username, Source: source, IP: client.IP, Grants: grants,
+		Limit: slices.Clone(t.Permissions), Accounts: slices.Clone(t.Accounts),
+	}, nil
 }
 
 // tokenGrants narrows a user's grants to what a token may do: its
@@ -497,3 +533,12 @@ func (s *Service) ForgetDevice(ctx context.Context, actor *auth.Actor, id store.
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// count says how many of something there are, such as 1 minute or 15
+// minutes.
+func count(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
+}

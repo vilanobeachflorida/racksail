@@ -1,9 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -27,6 +29,22 @@ const (
 	ExtStepUp  = "x-racksail-step-up"
 	ExtSession = "x-racksail-session"
 )
+
+// retryAfterHeader says when to try again in the Retry-After header of
+// answers whose problem says so, as the API's rate limit does: the identity
+// service's limits on signing in answer through the operations.
+func retryAfterHeader(ctx huma.Context, status string, v any) (any, error) {
+	p, ok := v.(*httpapi.Problem)
+	if !ok || p.Status != http.StatusTooManyRequests {
+		return v, nil
+	}
+	if after, ok := p.Params["retryAfter"]; ok {
+		if n, err := strconv.Atoi(fmt.Sprint(after)); err == nil && n > 0 {
+			ctx.SetHeader("Retry-After", strconv.Itoa(n))
+		}
+	}
+	return v, nil
+}
 
 // clientOf works out where a request comes from. The edge serves the panel
 // under its hostname by proxying to it over loopback, and tells it the
@@ -120,7 +138,7 @@ func (s *Server) gate(ctx huma.Context, next func(huma.Context)) {
 		huma.WriteErr(s.api, ctx, err.Status, err.Message, err)
 		return
 	}
-	if err := s.stepUp(actor, op, ctx.Query("dryRun") == "true"); err != nil {
+	if err := s.stepUp(actor, op, previewOnly(ctx, op)); err != nil {
 		p := httpapi.FromError(err)
 		huma.WriteErr(s.api, ctx, p.Status, p.Detail, err)
 		return
@@ -128,16 +146,35 @@ func (s *Server) gate(ctx huma.Context, next func(huma.Context)) {
 	next(ctx)
 }
 
+// previewOnly reports whether a request only previews its change: the
+// operation answers dryRun with a change set and changes nothing, and the
+// request asks for one. Operations that don't take dryRun ignore it and go
+// ahead, so for them it never counts. The query is read both the way Huma
+// fills typed inputs and the way url.Values does, and only a request both
+// read as a dry run is one, so no handler can read it otherwise.
+func previewOnly(ctx huma.Context, op *huma.Operation) bool {
+	if takes, _ := op.Extensions[ExtDryRun].(bool); !takes {
+		return false
+	}
+	typed, err := strconv.ParseBool(ctx.Query("dryRun"))
+	if err != nil || !typed {
+		return false
+	}
+	u := ctx.URL()
+	values, err := strconv.ParseBool(u.Query().Get("dryRun"))
+	return err == nil && values
+}
+
 // stepUp says whether an operation needs the actor to confirm it's them
 // first: those only people in the panel use refuse API tokens, and those
 // marked as needing it, or critical, need a recent confirmation from people
 // in the panel. Previews change nothing, so they never need it.
-func (s *Server) stepUp(actor *auth.Actor, op *huma.Operation, dryRun bool) error {
+func (s *Server) stepUp(actor *auth.Actor, op *huma.Operation, preview bool) error {
 	if session, _ := op.Extensions[ExtSession].(bool); session && actor.Type != auth.ActorUser {
 		return auth.ErrPanelOnly.New()
 	}
 	id := s.opts.Identity
-	if id == nil || dryRun {
+	if id == nil || preview {
 		return nil
 	}
 	if marked, _ := op.Extensions[ExtStepUp].(bool); marked {

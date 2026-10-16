@@ -323,7 +323,7 @@ func detailTable(w io.Writer, o *object, kind *store.KindInfo) {
 						lists = append(lists, k)
 						continue
 					}
-					fmt.Fprintf(tw, "%s:\t%d items\n", name, len(t))
+					fmt.Fprintf(tw, "%s:\t%s\n", name, itemCount(len(t)))
 					continue
 				}
 				if text := cell(t, ""); text != "" {
@@ -342,6 +342,14 @@ func detailTable(w io.Writer, o *object, kind *store.KindInfo) {
 		fmt.Fprintf(w, "\n%s:\n", heading(k))
 		listTable(w, o.values[k].([]any), kind)
 	}
+}
+
+// itemCount says how many objects a list nested in a detail holds.
+func itemCount(n int) string {
+	if n == 1 {
+		return "1 item"
+	}
+	return strconv.Itoa(n) + " items"
 }
 
 func formatFor(key string) string {

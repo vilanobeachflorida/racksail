@@ -101,6 +101,10 @@ type challenge struct {
 	// data is what the ceremony keeps between its two halves, such as
 	// WebAuthn session data or an add-on's MFA state.
 	data []byte
+	// device is the trusted-browser cookie a sign-in through a provider's
+	// page started with: the browser comes back from another site, so the
+	// cookie, which is SameSite=Strict, doesn't come with it.
+	device string
 	// failures counts wrong codes, so one challenge can't be used to guess
 	// forever.
 	failures int

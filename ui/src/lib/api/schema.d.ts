@@ -406,7 +406,7 @@ export interface paths {
         get: operations["listCoreAccounts"];
         put?: never;
         /**
-         * Create a account
+         * Create an account
          * @description A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreAccount"];
@@ -427,7 +427,7 @@ export interface paths {
         put?: never;
         /**
          * Open an account
-         * @description Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. With dryRun=true the answer is the preview and nothing is added.
+         * @description Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. An owner is a new user, so in the panel it takes having confirmed it's you, as adding a user does. With dryRun=true the answer is the preview and nothing is added.
          */
         post: operations["openCoreAccount"];
         delete?: never;
@@ -444,18 +444,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a account
+         * Get an account
          * @description Returns one account: its settings (spec), and what Racksail last saw of it (status). A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts.
          */
         get: operations["getCoreAccount"];
         /**
-         * Change a account
+         * Change an account
          * @description Replaces the account's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreAccount"];
         post?: never;
         /**
-         * Delete a account
+         * Delete an account
          * @description Deletes the account and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreAccount"];
@@ -472,7 +472,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a account's history
+         * Show an account's history
          * @description Returns every recorded version of the account's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreAccountHistory"];
@@ -4496,7 +4496,10 @@ export interface operations {
                 /** @description The sign-in provider's ID */
                 id: string;
             };
-            cookie?: never;
+            cookie?: {
+                /** @description A trusted browser's cookie */
+                racksail_device?: string;
+            };
         };
         requestBody?: never;
         responses: {

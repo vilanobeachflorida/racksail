@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -306,39 +307,70 @@ func TestKindsWithoutReconcilersAreReadyOnceStored(t *testing.T) {
 	}
 }
 
-// A change is planned from the version of a resource it read. When another
-// change lands before it is written, it fails rather than putting back what
-// the other one changed, whether or not it named a revision.
+// A change is written only at the revision it was planned against, so a
+// change that lands meanwhile is never undone. A request that names no
+// revision is planned again from what landed; one that names a revision
+// fails, as it asked.
 func TestChangesDontOverwriteWhatLandedMeanwhile(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)
 	cs := e.submit(t, false, e.create("test.label", labelSpec{Name: "draft"}))
 	id := cs.Changes[0].ID
-	e.hooks.during = func(ctx context.Context, point string) {
-		if point != "test.label.update.validate" {
-			return
-		}
-		e.hooks.during = nil
-		err := e.store.Write(ctx, store.WriteMeta{Actor: "test"}, func(tx store.Tx) error {
-			cur, err := tx.Get(ctx, id)
-			if err != nil {
-				return err
+	// land has another write label the resource while the update is
+	// checked, at the first attempts.
+	land := func(attempts int) {
+		var mu sync.Mutex
+		landed := 0
+		e.hooks.during = func(ctx context.Context, point string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if point != "test.label.update.validate" || landed == attempts {
+				return
 			}
-			cur.Spec = json.RawMessage(`{"name":"reviewed"}`)
-			return tx.Update(ctx, cur)
-		})
-		if err != nil {
-			t.Error(err)
+			landed++
+			err := e.store.Write(ctx, store.WriteMeta{Actor: "test"}, func(tx store.Tx) error {
+				cur, err := tx.Get(ctx, id)
+				if err != nil {
+					return err
+				}
+				cur.Labels = map[string]string{"reviewed": strconv.Itoa(landed)}
+				return tx.Update(ctx, cur)
+			})
+			if err != nil {
+				t.Error(err)
+			}
 		}
 	}
-	_, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"mine"}`)}}})
-	if !store.ErrConflict.Is(err) {
+	rename := func(name string, revision int64) (*ChangeSet, error) {
+		return e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{
+			{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"` + name + `"}`), Revision: revision},
+		}})
+	}
+	land(1)
+	applied, err := rename("mine", 0)
+	if err != nil {
 		t.Fatalf("an update planned before another landed = %v", err)
 	}
+	e.wait(t, applied)
 	got, err := labelKind.Get(ctx, e.store, id)
-	if err != nil || got.Spec.Name != "reviewed" {
-		t.Errorf("label = %+v, %v", got, err)
+	if err != nil || got.Spec.Name != "mine" || got.Labels["reviewed"] != "1" {
+		t.Errorf("the label keeps what landed and gets the update: %+v, %v", got, err)
 	}
+
+	land(1)
+	if _, err := rename("theirs", got.Revision); !store.ErrConflict.Is(err) {
+		t.Errorf("an update naming the revision it was made against = %v", err)
+	}
+	// A request that keeps losing to other writes gives up in the end.
+	land(replans)
+	if _, err := rename("yours", 0); !store.ErrConflict.Is(err) {
+		t.Errorf("an update overtaken every time = %v", err)
+	}
+	e.hooks.during = nil
+	if got, _ := labelKind.Get(ctx, e.store, id); got.Spec.Name != "mine" {
+		t.Errorf("label = %+v", got.Spec)
+	}
+
 	// Several changes of one resource in a request build on each other.
 	next := e.submit(t, false,
 		Change{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"one"}`)},

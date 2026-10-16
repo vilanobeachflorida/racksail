@@ -123,7 +123,16 @@ func NewEngine(opts Options) (*Engine, error) {
 	return e, nil
 }
 
-// Submit implements Pipeline.
+// replans is how many times a request that names no revision is planned
+// before a change that keeps landing first makes it fail.
+const replans = 3
+
+// Submit implements Pipeline. A change is written only at the revision it
+// was planned against, so a change that lands meanwhile is never undone.
+// When that happens to a request that names no revision, which asks for the
+// change whatever is there, it is planned again from what landed, the way
+// it would have been planned had it come a moment later. A request that
+// names a revision fails with core.conflict instead, as it asked.
 func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 	var key string
 	if !req.DryRun {
@@ -132,12 +141,18 @@ func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 			return earlier, err
 		}
 	}
-	p, err := e.plan(ctx, req, "", "")
-	if err != nil {
-		e.settle(ctx, key, "")
-		return nil, err
+	named := slices.ContainsFunc(req.Changes, func(c Change) bool { return c.Revision != 0 })
+	for attempt := 1; ; attempt++ {
+		p, err := e.plan(ctx, req, "", "")
+		if err != nil {
+			e.settle(ctx, key, "")
+			return nil, err
+		}
+		cs, err := e.finish(ctx, p, req, key, !named && attempt < replans)
+		if !errors.Is(err, errReplan) {
+			return cs, err
+		}
 	}
-	return e.finish(ctx, p, req, key)
 }
 
 // Get implements Pipeline.
@@ -597,8 +612,14 @@ func storedRequest(req Request, cs *ChangeSet) *StoredRequest {
 	return out
 }
 
-// finish returns a planned change set as a preview, or applies it.
-func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string) (*ChangeSet, error) {
+// errReplan says a request is to be planned again: another change of a
+// resource it changes landed between its planning and its writes.
+var errReplan = errors.New("changeset: planned against a version that changed meanwhile")
+
+// finish returns a planned change set as a preview, or applies it. With
+// replan, a conflict with a change that landed meanwhile is errReplan, and
+// nothing about the attempt is recorded.
+func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string, replan bool) (*ChangeSet, error) {
 	cs := p.cs
 	cs.DryRun = req.DryRun
 	if req.DryRun {
@@ -618,6 +639,9 @@ func (e *Engine) finish(ctx context.Context, p *draft, req Request, key string) 
 	}
 	written, err := e.apply(ctx, cs, p.secrets, key)
 	if !written {
+		if replan && store.ErrConflict.Is(err) {
+			return nil, errReplan
+		}
 		e.failed(ctx, p, cs.Changes, err)
 		e.settle(ctx, key, "")
 		return nil, err
@@ -1287,7 +1311,7 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	return e.finish(ctx, p, request, key)
+	return e.finish(ctx, p, request, key, false)
 }
 
 // markUndone records that a change set was undone by another. Only one that
@@ -1473,7 +1497,7 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 		}
 		return nil, ErrPreviewStale.New("title", preview.Title, "preview", string(fresh.ID))
 	}
-	return e.finish(ctx, p, request, key)
+	return e.finish(ctx, p, request, key, false)
 }
 
 // samePlan reports whether a new plan does what a preview showed: the same

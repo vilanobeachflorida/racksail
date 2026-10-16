@@ -151,6 +151,16 @@ func TestSecretsAndCodes(t *testing.T) {
 	if len(codes) != RecoveryCodeCount || len(seen) != RecoveryCodeCount {
 		t.Errorf("recovery codes = %v", codes)
 	}
+	key, other := NewCodeKey(), NewCodeKey()
+	hash := KeyedCodeHash(key, codes[0])
+	switch {
+	case len(key) != CodeKeySize || len(hash) != 64:
+		t.Errorf("key = %x, hash = %s", key, hash)
+	case KeyedCodeHash(key, strings.ToLower(strings.ReplaceAll(codes[0], "-", ""))) != hash:
+		t.Error("keyed codes match whatever their case and separators")
+	case KeyedCodeHash(other, codes[0]) == hash || hash == HashCode(codes[0]):
+		t.Error("a keyed hash depends on its key")
+	}
 }
 
 func TestErrorsAreDefined(t *testing.T) {

@@ -68,7 +68,7 @@ func (s *Server) registerKind(k store.Kind) {
 	s.docs[info.Name] = d
 	tags := []string{s.tagOf(info)}
 	base := KindPath(info)
-	title := strings.ToLower(info.Title)
+	title := sentenceTitle(info)
 	many := plural(info)
 	listID := "list" + camel(info.Module(), info.Plural)
 	idParam := pathParam("id", "The "+title+"'s ID, which starts with "+info.Prefix+"_")
@@ -95,7 +95,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// Get.
 	op = &huma.Operation{
 		OperationID: "get" + d.name, Method: http.MethodGet, Path: base + "/{id}", Tags: tags, Security: Protected,
-		Summary:     "Get a " + title,
+		Summary:     "Get " + withArticle(title),
 		Description: "Returns one " + title + ": its settings (spec), and what Racksail last saw of it (status). " + info.Description,
 		Parameters:  []*huma.Param{idParam, fieldsParam()},
 		Responses:   map[string]*huma.Response{"200": jsonResponse("The "+title, d.resource)},
@@ -106,7 +106,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// Create.
 	op = &huma.Operation{
 		OperationID: "create" + d.name, Method: http.MethodPost, Path: base, Tags: tags, Security: Protected,
-		Summary: "Create a " + title,
+		Summary: "Create " + withArticle(title),
 		Description: info.Description + " Creating one is a change like any other: with dryRun=true the answer is the change set, " +
 			"what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
 		Parameters:  changeParams(),
@@ -119,7 +119,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// Update.
 	op = &huma.Operation{
 		OperationID: "update" + d.name, Method: http.MethodPut, Path: base + "/{id}", Tags: tags, Security: Protected,
-		Summary: "Change a " + title,
+		Summary: "Change " + withArticle(title),
 		Description: "Replaces the " + title + "'s settings with new ones, previewed and applied like any change. " +
 			"Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
 		Parameters:  append([]*huma.Param{idParam}, changeParams()...),
@@ -133,7 +133,7 @@ func (s *Server) registerKind(k store.Kind) {
 	revision := queryParam("revision", huma.TypeInteger, "The revision you read; when someone changed the "+title+" since, the delete fails with a conflict")
 	op = &huma.Operation{
 		OperationID: "delete" + d.name, Method: http.MethodDelete, Path: base + "/{id}", Tags: tags, Security: Protected,
-		Summary: "Delete a " + title,
+		Summary: "Delete " + withArticle(title),
 		Description: "Deletes the " + title + " and removes what it set up on the server, previewed and applied like any change. " +
 			"Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
 		Parameters: append([]*huma.Param{idParam, revision}, changeParams()...),
@@ -145,7 +145,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// History.
 	op = &huma.Operation{
 		OperationID: "get" + d.name + "History", Method: http.MethodGet, Path: base + "/{id}/history", Tags: tags, Security: Protected,
-		Summary:     "Show a " + title + "'s history",
+		Summary:     "Show " + withArticle(title) + "'s history",
 		Description: "Returns every recorded version of the " + title + "'s settings, oldest first, with the change set that wrote it and who made the change.",
 		Parameters:  []*huma.Param{idParam},
 		Responses:   map[string]*huma.Response{"200": jsonResponse("The versions", s.schemaOf(typeOfHistory, "History"))},

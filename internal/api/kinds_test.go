@@ -426,3 +426,22 @@ func TestSubmittingAndApplyingChangeSets(t *testing.T) {
 		t.Error("the admin sees every job")
 	}
 }
+
+// Summaries name a kind with the article its title takes.
+func TestWithArticle(t *testing.T) {
+	for noun, want := range map[string]string{
+		"account": "an account", "user": "a user", "sign-in policy": "a sign-in policy", "image": "an image",
+		"upstream": "an upstream", "unit": "a unit", "IP address": "an IP address", "SSH key": "an SSH key",
+		"DNS zone": "a DNS zone", "HTTP route": "an HTTP route", "S3 bucket": "an S3 bucket", "NAT rule": "a NAT rule",
+		"hour": "an hour", "host": "a host", "one-time link": "a one-time link", "override": "an override",
+	} {
+		if got := withArticle(noun); got != want {
+			t.Errorf("withArticle(%q) = %q, want %q", noun, got, want)
+		}
+	}
+	for title, want := range map[string]string{"Account": "account", "Sign-in policy": "sign-in policy", "DNS zone": "DNS zone", "Mail DKIM key": "mail DKIM key"} {
+		if got := sentenceTitle(&store.KindInfo{Title: title}); got != want {
+			t.Errorf("sentenceTitle(%q) = %q, want %q", title, got, want)
+		}
+	}
+}

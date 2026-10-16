@@ -442,12 +442,14 @@ func (s *Service) provider(ctx context.Context, id store.ID, capability string) 
 
 // BeginProviderSignIn starts signing in through a provider's own page. It
 // returns where to send the browser, and a secret the browser keeps in a
-// cookie until it comes back to callback.
-func (s *Service) BeginProviderSignIn(ctx context.Context, id store.ID, callback string, remember bool, client auth.Client) (redirect, state string, err error) {
+// cookie until it comes back to callback. deviceSecret is the browser's
+// trusted-device cookie, if it has one, which skips the second step once
+// the browser is back.
+func (s *Service) BeginProviderSignIn(ctx context.Context, id store.ID, callback string, remember bool, deviceSecret string, client auth.Client) (redirect, state string, err error) {
 	if err := s.limiter.take(client.IP); err != nil {
 		return "", "", err
 	}
-	return s.beginRedirect(ctx, id, callback, &challenge{purpose: "provider", persistent: remember})
+	return s.beginRedirect(ctx, id, callback, &challenge{purpose: "provider", persistent: remember, device: deviceSecret})
 }
 
 // beginRedirect sends the browser to a redirect provider's page, keeping
@@ -537,6 +539,9 @@ func (s *Service) CompleteProviderSignIn(ctx context.Context, state, callback st
 	u, err := s.userFor(ctx, p, identity)
 	if err != nil {
 		return nil, err
+	}
+	if deviceSecret == "" {
+		deviceSecret = c.device
 	}
 	res, err := s.afterFirstStep(ctx, u, "provider:"+p.Spec.Provider, c.persistent, deviceSecret, client)
 	if err != nil {

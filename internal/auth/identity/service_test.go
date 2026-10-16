@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -411,6 +412,18 @@ func TestTOTPAndRecovery(t *testing.T) {
 	if h.eventTypes()["core.user.recovery_code_used"] != 1 {
 		t.Error("using a recovery code is published")
 	}
+	// The codes' hashes are keyed with a secret of the user's, which the
+	// secrets store keeps, so the database alone can't be guessed against.
+	if used, _ := h.store.UseRecoveryCode(ctx, actor.ID, auth.HashCode(codes[1])); used {
+		t.Error("a recovery code is kept as its plain hash")
+	}
+	if key, err := h.vault.Get(ctx, secretRef(actor.ID, recoverySecret)); err != nil || len(key) != auth.CodeKeySize {
+		t.Errorf("the recovery codes' key = %x, %v", key, err)
+	}
+	fourth, _ := h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: password}, "", client)
+	if _, err := h.svc.SecondStep(ctx, SecondStepInput{Challenge: fourth.Challenge, Method: "recovery", Code: codes[1]}, client, ""); err != nil {
+		t.Errorf("another recovery code = %v", err)
+	}
 
 	// The trusted browser skips the second step.
 	skip, err := h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: password}, done.Issued.DeviceSecret, client)
@@ -552,6 +565,129 @@ func TestSessionsFollowGrantChanges(t *testing.T) {
 	}
 	if a := h.actor(issued.Secret); a.Grants[0].Role != auth.RoleReadOnly {
 		t.Errorf("the new secret acts with %+v", a.Grants)
+	}
+}
+
+// heldReads holds every session read by hash until release is closed, so
+// tests can line requests up as they would race on a busy panel.
+type heldReads struct {
+	Store
+	read    sync.WaitGroup
+	release chan struct{}
+}
+
+func (h *heldReads) SessionByHash(ctx context.Context, hash string) (*Session, error) {
+	x, err := h.Store.SessionByHash(ctx, hash)
+	h.read.Done()
+	<-h.release
+	return x, err
+}
+
+// Requests that read a session before either gives it a new secret give it
+// one between them, so the browser never keeps a cookie the panel lost.
+func TestSessionsGetOneNewSecretAtATime(t *testing.T) {
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	bob := h.user("bob", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	_, secret := h.signIn("bob")
+	if _, err := h.update(root(), bob.ID, func(s *UserSpec) {
+		s.Grants = []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(shop)}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const requests = 4
+	held := &heldReads{Store: h.svc.opts.Store, release: make(chan struct{})}
+	held.read.Add(requests)
+	h.svc.opts.Store = held
+	var wg sync.WaitGroup
+	issued := make([]*Issued, requests)
+	errs := make([]error, requests)
+	for i := range requests {
+		wg.Go(func() { _, issued[i], errs[i] = h.authenticateWith(secret) })
+	}
+	held.read.Wait()
+	close(held.release)
+	wg.Wait()
+	h.svc.opts.Store = held.Store
+	var fresh []string
+	for i := range requests {
+		if errs[i] != nil {
+			t.Fatalf("request %d = %v", i, errs[i])
+		}
+		if issued[i] != nil {
+			fresh = append(fresh, issued[i].Secret)
+		}
+	}
+	if len(fresh) != 1 {
+		t.Fatalf("%d requests gave the session a new secret", len(fresh))
+	}
+	h.clock.add(rotationGrace + time.Second)
+	if a := h.actor(fresh[0]); a.Grants[0].Role != auth.RoleReadOnly {
+		t.Errorf("the new secret acts with %+v", a.Grants)
+	}
+}
+
+// A request with the cookie from before a step-up records that the session
+// was used without putting that cookie's secret back.
+func TestUsingASessionKeepsTheSecretAStepUpGave(t *testing.T) {
+	h := newHarness(t)
+	h.admin("ada")
+	actor, secret := h.signIn("ada")
+	held := &heldReads{Store: h.svc.opts.Store, release: make(chan struct{})}
+	held.read.Add(1)
+	h.svc.opts.Store = held
+	done := make(chan error)
+	go func() {
+		_, err := h.authenticate(secret)
+		done <- err
+	}()
+	held.read.Wait()
+	h.svc.opts.Store = held.Store
+	issued, err := h.svc.StepUp(h.ctx, actor, StepUpInput{Password: password}, client, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The request was read before the step-up and is due to record its use.
+	h.clock.add(touchEvery + time.Second)
+	close(held.release)
+	if err := <-done; err != nil {
+		t.Fatalf("the request on its way = %v", err)
+	}
+	stepped := h.actor(issued.Secret)
+	if !h.svc.SteppedUp(stepped) {
+		t.Error("the step-up was undone")
+	}
+	if _, err := h.authenticate(secret); !auth.ErrSessionExpired.Is(err) {
+		t.Errorf("the secret before the step-up = %v", err)
+	}
+}
+
+// A wrong password for someone without one, or for a name nobody has, takes
+// as long as one checked against a hash, so how long an answer takes
+// doesn't say which names exist.
+func TestSignInTimingDoesntTellNamesApart(t *testing.T) {
+	h := newHarness(t)
+	h.admin("ada")
+	if _, err := h.create(root(), store.ServerScope(), UserSpec{Username: "newcomer"}); err != nil {
+		t.Fatal(err)
+	}
+	fastest := func(name string) time.Duration {
+		best := time.Duration(math.MaxInt64)
+		for range 3 {
+			start := time.Now()
+			_, err := h.svc.SignIn(h.ctx, SignInInput{Username: name, Password: "not the password at all"}, "", client)
+			if !auth.ErrBadCredentials.Is(err) {
+				t.Fatalf("signing in as %s = %v", name, err)
+			}
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	checked := fastest("ada")
+	for _, name := range []string{"newcomer", "nobody"} {
+		if took := fastest(name); took*3 < checked {
+			t.Errorf("a wrong password for %s took %s, and one checked against a hash %s", name, took, checked)
+		}
 	}
 }
 

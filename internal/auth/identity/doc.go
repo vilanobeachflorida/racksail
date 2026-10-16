@@ -21,11 +21,14 @@
 // set, preview or history ever holds one. What the service does to them is
 // recorded in the audit log and published as an event, in the user's scope.
 //
-// Secrets that sign people in are never stored as they are: sessions,
-// trusted browsers, tokens, sign-in links, recovery codes and the setup
-// code are kept as SHA-256 hashes of 256-bit secrets, passwords as Argon2id
-// hashes, and authenticator app secrets and alert channel settings in the
-// secrets store, encrypted.
+// Secrets that sign people in are never stored as they are. Sessions,
+// trusted browsers, tokens and sign-in links are 256-bit secrets, kept as
+// SHA-256 hashes, and so is the setup code, whose 20 characters are about
+// 98 bits. Recovery codes are ten characters, about 49 bits, few enough to
+// try them all against a plain hash, so theirs are HMAC-SHA-256 with a key
+// of the user's that the secrets store keeps. Passwords are Argon2id
+// hashes, and authenticator app secrets and alert channel settings are in
+// the secrets store, encrypted.
 //
 // The sign-in policy (core.signin_policy) and sign-in providers
 // (core.signin_provider) are resources too; the service follows them as

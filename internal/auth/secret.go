@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -80,8 +81,33 @@ func NormalizeCode(code string) string {
 	return b.String()
 }
 
-// HashCode hashes a code as typed, after NormalizeCode.
+// HashCode hashes a code as typed, after NormalizeCode, with a fast hash.
+// It is for codes long enough that guessing them from the hash is out of
+// reach, such as the setup code's 20 characters, about 98 bits; shorter
+// ones, such as recovery codes, are hashed with KeyedCodeHash.
 func HashCode(code string) string { return HashSecret(NormalizeCode(code)) }
+
+// KeyedCodeHash hashes a code as typed, after NormalizeCode, with
+// HMAC-SHA-256 and a key kept apart from the hashes. A recovery code's ten
+// characters are about 49 bits, few enough to try them all against a hash
+// taken from a stolen database; without the key, the hash gives nothing.
+func KeyedCodeHash(key []byte, code string) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(NormalizeCode(code)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// CodeKeySize is the size of the keys KeyedCodeHash takes.
+const CodeKeySize = 32
+
+// NewCodeKey returns a random key for KeyedCodeHash.
+func NewCodeKey() []byte {
+	key := make([]byte, CodeKeySize)
+	if _, err := rand.Read(key); err != nil {
+		panic("auth: no randomness: " + err.Error())
+	}
+	return key
+}
 
 // SameHash compares two hashes in constant time.
 func SameHash(a, b string) bool {

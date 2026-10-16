@@ -99,16 +99,17 @@ var SignedInOperations = map[string]string{
 }
 
 func init() {
+	server := []store.ScopeLevel{store.ScopeServer}
 	for _, p := range []auth.PermissionInfo{
-		{Name: PermChangeSetRead, Description: "See every change set, not only your own and those of resources you may read."},
+		{Name: PermChangeSetRead, Description: "See every change set, not only your own and those of resources you may read.", Levels: server},
 		{Name: PermJobRead, Description: "See every job and its log, not only your own."},
 		{Name: PermJobCancel, Description: "Cancel anyone's jobs."},
 		{Name: PermJobRetry, Description: "Retry anyone's jobs."},
 		{Name: PermEventRead, Description: "See the event timeline where your grants reach."},
 		{Name: PermAuditRead, Description: "Read and export the audit log where your grants reach."},
-		{Name: PermMetricsRead, Description: "Read the panel's metrics."},
+		{Name: PermMetricsRead, Description: "Read the panel's metrics.", Levels: server},
 	} {
-		auth.RegisterPermission(p.Name, p.Description)
+		auth.RegisterPermission(p.Name, p.Description, p.Levels...)
 	}
 }
 
@@ -141,18 +142,16 @@ func CheckMatrix(ops []Operation, kinds []store.Kind) []string {
 // PermissionMatrix lists every permission, of kinds, of the core and of the
 // API's operations, with how far each role reaches with it.
 func (s *Server) PermissionMatrix() []MatrixEntry {
-	infos := auth.Permissions(s.kinds.All())
+	perms := auth.Permissions(s.kinds.All())
 	described := map[auth.Permission]string{}
-	var perms []auth.Permission
-	for _, p := range infos {
+	for _, p := range perms {
 		described[p.Name] = p.Description
-		perms = append(perms, p.Name)
 	}
 	for _, op := range s.Catalog() {
 		p := auth.Permission(op.Permission)
 		if p != "" && described[p] == "" {
 			described[p] = op.Summary + "."
-			perms = append(perms, p)
+			perms = append(perms, auth.PermissionInfo{Name: p, Description: described[p]})
 		}
 	}
 	rows := auth.MatrixFor(perms)

@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
@@ -22,7 +21,7 @@ func (s *Service) visible(ctx context.Context, actor *auth.Actor, id store.ID, p
 	if err != nil {
 		return nil, err
 	}
-	if actor.Person() == u.ID && perm == auth.PermUserRead {
+	if actor.Person() == u.ID && perm == auth.PermUserRead && auth.SelfAllowed(actor, perm) {
 		return u, nil
 	}
 	if err := s.authorize(ctx, actor, auth.PermUserRead, u.Home); err != nil {
@@ -35,6 +34,26 @@ func (s *Service) visible(ctx context.Context, actor *auth.Actor, id store.ID, p
 		}
 	}
 	return u, nil
+}
+
+// ReadOwn checks that the actor may see their own user's records, as
+// everyone may, unless they're an API token narrowed to permissions that
+// leave their user out or to some accounts: then their grants decide.
+func (s *Service) ReadOwn(ctx context.Context, actor *auth.Actor) error {
+	if actor == nil {
+		return i18n.ErrUnauthenticated.New()
+	}
+	if auth.SelfAllowed(actor, auth.PermUserRead) {
+		return nil
+	}
+	u, err := s.User(ctx, actor.Person())
+	if err != nil {
+		return err
+	}
+	if s.opts.Authorizer == nil {
+		return i18n.ErrForbidden.New("action", string(auth.PermUserRead))
+	}
+	return s.opts.Authorizer.Authorize(ctx, actor, auth.PermUserRead, auth.Target{Scope: u.Home, Object: u.ID})
 }
 
 // helps checks that actor may help a user back in: they need every grant
@@ -106,7 +125,7 @@ func (s *Service) ResetUser(ctx context.Context, actor *auth.Actor, id store.ID,
 		}
 		s.forget(ctx, u.ID)
 		out.SessionsEnded = n
-		did = append(did, fmt.Sprintf("ended %d sessions", n))
+		did = append(did, "ended "+count(n, "session", "sessions"))
 	}
 	if in.RevokeTokens {
 		n, err := s.opts.Store.DeleteTokens(ctx, u.ID)
@@ -114,7 +133,7 @@ func (s *Service) ResetUser(ctx context.Context, actor *auth.Actor, id store.ID,
 			return out, err
 		}
 		out.TokensRevoked = n
-		did = append(did, fmt.Sprintf("revoked %d API tokens", n))
+		did = append(did, "revoked "+count(n, "API token", "API tokens"))
 	}
 	if in.Unlock {
 		if err := s.opts.Store.Unlock(ctx, u.ID); err != nil {

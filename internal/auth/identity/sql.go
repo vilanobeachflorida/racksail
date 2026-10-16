@@ -35,6 +35,10 @@ const MigrationOwner = "core.identity"
 // later one, was used already.
 var ErrStepUsed = errors.New("identity: that code's time step was used already")
 
+// ErrSessionRotated is returned by RotateSession when another request gave
+// the session a new secret first.
+var ErrSessionRotated = errors.New("identity: the session was given a new secret meanwhile")
+
 // SQL is the Store kept in the panel database.
 type SQL struct {
 	db *store.DB
@@ -416,13 +420,40 @@ func (s *SQL) CreateSession(ctx context.Context, x *Session) error {
 		x.IP, x.UserAgent, x.Method, x.SecondFactor, ftime(x.SteppedUpAt), x.Impersonator, x.Parent, flag(x.Persistent), x.Pending)
 }
 
-// UpdateSession implements Store.
-func (s *SQL) UpdateSession(ctx context.Context, x *Session) error {
-	res, err := s.db.Exec(ctx, `UPDATE identity_sessions SET hash = ?, previous_hash = ?, rotated_at = ?, grants_hash = ?, last_seen_at = ?,
-		expires_at = ?, ip = ?, user_agent = ?, second_factor = ?, stepped_up_at = ?, persistent = ?, pending = ? WHERE id = ?`,
-		x.Hash, x.PreviousHash, ftime(x.RotatedAt), x.GrantsHash, ftime(x.LastSeenAt), ftime(x.ExpiresAt), x.IP, x.UserAgent,
-		x.SecondFactor, ftime(x.SteppedUpAt), flag(x.Persistent), x.Pending, x.ID)
-	return affected(res, err, string(x.ID))
+// TouchSession implements Store.
+func (s *SQL) TouchSession(ctx context.Context, id store.ID, at time.Time, ip string) error {
+	res, err := s.db.Exec(ctx, `UPDATE identity_sessions SET last_seen_at = ?, ip = ? WHERE id = ?`, ftime(at), ip, id)
+	return affected(res, err, string(id))
+}
+
+// SetSessionPending implements Store.
+func (s *SQL) SetSessionPending(ctx context.Context, id store.ID, pending string) error {
+	res, err := s.db.Exec(ctx, `UPDATE identity_sessions SET pending = ? WHERE id = ?`, pending, id)
+	return affected(res, err, string(id))
+}
+
+// RotateSession implements Store.
+func (s *SQL) RotateSession(ctx context.Context, x *Session, from string) error {
+	return s.db.Write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE identity_sessions SET hash = ?, previous_hash = ?, rotated_at = ?, grants_hash = ?,
+			stepped_up_at = ?, last_seen_at = ?, ip = ? WHERE id = ? AND hash = ?`,
+			x.Hash, x.PreviousHash, ftime(x.RotatedAt), x.GrantsHash, ftime(x.SteppedUpAt), ftime(x.LastSeenAt), x.IP, x.ID, from)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil || n > 0 {
+			return err
+		}
+		var found int
+		err = tx.QueryRowContext(ctx, `SELECT 1 FROM identity_sessions WHERE id = ?`, x.ID).Scan(&found)
+		if errors.Is(err, sql.ErrNoRows) {
+			return notFound(string(x.ID))
+		}
+		if err != nil {
+			return err
+		}
+		return ErrSessionRotated
+	})
 }
 
 // Session implements Store.

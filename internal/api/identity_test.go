@@ -3,19 +3,25 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/humatest"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -189,6 +195,39 @@ func TestSigningInOverTheAPI(t *testing.T) {
 	}
 }
 
+// Too many sign-ins from one address answer as the API's rate limit does,
+// with Retry-After.
+func TestSignInLimitsSayWhenToTryAgain(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	s.setUp()
+	b := s.browser()
+	var resp *http.Response
+	for range 30 {
+		resp = b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "nobody", "password": "not a password at all"}, nil)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			break
+		}
+	}
+	if resp.StatusCode != http.StatusTooManyRequests || s.problem(resp) != i18n.ErrRateLimited.Code {
+		t.Fatalf("after many tries = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var p struct {
+		Detail string         `json:"detail"`
+		Params map[string]any `json:"params"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	if after := resp.Header.Get("Retry-After"); after == "" || after != fmt.Sprint(p.Params["retryAfter"]) {
+		t.Errorf("Retry-After = %q, params = %v", after, p.Params)
+	}
+	want := fmt.Sprintf("Too many requests. Wait %v seconds and try again.", p.Params["retryAfter"])
+	if p.Params["retryAfter"] == "1" {
+		want = "Too many requests. Wait 1 second and try again."
+	}
+	if p.Detail != want {
+		t.Errorf("detail = %q, want %q", p.Detail, want)
+	}
+}
+
 func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	b := s.setUp()
@@ -266,6 +305,47 @@ func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	}
 	if resp := b.do("DELETE", "/api/v1/me/tokens/"+string(other.ID), nil, nil); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("revoke = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// A token narrowed to some permissions sees no more of its own user than
+// they allow, while one kept to reading sees it all.
+func TestNarrowedTokensKeepToTheirNarrowing(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	b := s.setUp()
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var me Session
+	b.do("GET", "/api/v1/session", nil, &me)
+	token := func(perms ...string) string {
+		var created identity.CreatedToken
+		if resp := b.do("POST", "/api/v1/me/tokens", map[string]any{"name": strings.Join(perms, " "), "permissions": perms}, &created); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("token = %d %s", resp.StatusCode, bodyOf(resp))
+		}
+		return created.Token
+	}
+	get := func(secret, path string) int {
+		req, _ := http.NewRequest(http.MethodGet, s.http.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer "+secret)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	sites, reads := token("web.*"), token("*.read")
+	own := []string{"/api/v1/me", "/api/v1/me/ssh-keys", "/api/v1/me/tokens", "/api/v1/me/passkeys", "/api/v1/core/users/" + string(me.User.ID)}
+	for _, path := range own {
+		if code := get(sites, path); code == http.StatusOK {
+			t.Errorf("a token kept to sites reads %s", path)
+		}
+		if code := get(reads, path); code != http.StatusOK {
+			t.Errorf("a token kept to reading reads %s = %d", path, code)
+		}
+	}
+	// Who a token is stays its own to see.
+	if code := get(sites, "/api/v1/session"); code != http.StatusOK {
+		t.Errorf("a token kept to sites asking who it is = %d", code)
 	}
 }
 
@@ -355,6 +435,32 @@ func TestManagingUsersOverTheAPI(t *testing.T) {
 	_ = acct
 }
 
+// An account's owner is a new user, so opening an account with one asks
+// for the confirmation adding a user does; one without an owner doesn't.
+func TestOpeningAnAccountWithAnOwnerNeedsStepUp(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	s.setUp()
+	b := s.browser()
+	b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	withOwner := map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}
+	if resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+		t.Errorf("with an owner = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var preview OpenedAccount
+	if resp := b.do("POST", "/api/v1/core/accounts/open?dryRun=true", withOwner, &preview); resp.StatusCode != http.StatusOK || preview.ChangeSet == nil || preview.Link != nil {
+		t.Errorf("its preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var opened OpenedAccount
+	if resp := b.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "bare", "name": "Bare"}, &opened); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("without an owner = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	opened = OpenedAccount{}
+	if resp := b.do("POST", "/api/v1/core/accounts/open", withOwner, &opened); resp.StatusCode != http.StatusAccepted || opened.Link == nil {
+		t.Errorf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
 func TestResellersOpenTheirOwnAccounts(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	rival := store.NewID("rsl")
@@ -393,8 +499,15 @@ func TestPermissionMatrix(t *testing.T) {
 	s.call("nobody", "GET", "/api/v1/roles", nil, &roles)
 	found := false
 	for _, e := range roles.Matrix {
-		if e.Permission == "test.site.deploy" {
+		switch e.Permission {
+		case "test.site.deploy":
 			found = e.Roles[auth.RoleOwner] == auth.AccessOwnScope && e.Roles[auth.RoleReadOnly] == auth.AccessNone
+		case PermMetricsRead, "core.webhook.create", "core.signin_policy.update":
+			// Only checked against the whole server, which grants on a
+			// reseller or an account never reach.
+			if e.Roles[auth.RoleReseller] != auth.AccessNone || e.Roles[auth.RoleOwner] != auth.AccessNone || e.Roles[auth.RoleAdmin] != auth.AccessEverywhere {
+				t.Errorf("%s = %v", e.Permission, e.Roles)
+			}
 		}
 	}
 	if len(roles.Roles) != 5 || !found {
@@ -444,6 +557,86 @@ func TestCriticalChangesNeedStepUp(t *testing.T) {
 	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
 	if resp := b.do("POST", "/api/v1/changesets/"+preview.ID+"/apply", nil, nil); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// Asking for a dry run spares the confirmation only where the operation
+// previews the change: the others ignore dryRun and go ahead.
+func TestDryRunsOfOperationsWithoutPreviewsNeedStepUp(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var opened OpenedAccount
+	admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened)
+	s.finish("admin", opened.ChangeSet)
+	acct, owner := string(opened.ChangeSet.Changes[0].ID), string(opened.Owner.ID)
+	newUser := map[string]any{"scope": map[string]any{"level": "account", "id": acct}, "spec": map[string]any{
+		"username": "bea", "grants": []map[string]any{{"role": "readonly", "scope": map[string]any{"level": "account", "id": acct}}},
+	}}
+
+	// A fresh session hasn't confirmed anything.
+	b := s.browser()
+	b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{"POST", "/api/v1/me/tokens?dryRun=true", map[string]any{"name": "ci"}},
+		{"POST", "/api/v1/me/tokens?dryRun=1", map[string]any{"name": "ci"}},
+		{"PUT", "/api/v1/core/users/" + owner + "/password?dryRun=true", map[string]any{"password": "a passphrase of mine now"}},
+		{"POST", "/api/v1/core/users/" + owner + "/impersonate?dryRun=true", nil},
+		{"POST", "/api/v1/core/users/" + owner + "/link?dryRun=true", nil},
+		{"POST", "/api/v1/core/users/" + owner + "/reset?dryRun=true", map[string]any{"revokeTokens": true}},
+		{"POST", "/api/v1/me/recovery-codes?dryRun=true", nil},
+		// Huma reads a bare dryRun as true and url.Values as empty, so it
+		// isn't a dry run for the confirmation either.
+		{"POST", "/api/v1/core/users?dryRun", newUser},
+		{"POST", "/api/v1/core/users?dry%52un=false&dryRun=true", newUser},
+	} {
+		resp := b.do(c.method, c.path, c.body, nil)
+		if resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+			t.Errorf("%s %s = %d %s", c.method, c.path, resp.StatusCode, bodyOf(resp))
+		}
+	}
+	ctx := context.Background()
+	var session Session
+	b.do("GET", "/api/v1/session", nil, &session)
+	if session.Impersonation != nil || session.User.Username != "ada" {
+		t.Errorf("session = %+v", session)
+	}
+	if tokens, _ := s.identity.Store().Tokens(ctx, session.User.ID); len(tokens) != 0 {
+		t.Errorf("tokens = %+v", tokens)
+	}
+	if u, err := s.identity.User(ctx, opened.Owner.ID); err != nil || u.PasswordHash != "" {
+		t.Errorf("the owner's password was set: %v", err)
+	}
+	if names := usernames(t, admin); strings.Join(names, ",") != "ada,owen" {
+		t.Errorf("users = %v", names)
+	}
+
+	// Previews of operations that take dryRun need nothing.
+	resp := b.do("POST", "/api/v1/core/users?dryRun=true", newUser, nil)
+	if resp.StatusCode != http.StatusOK || !changeSetOf(t, resp).DryRun {
+		t.Errorf("a preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+func TestPreviewOnly(t *testing.T) {
+	previews := &huma.Operation{Extensions: map[string]any{ExtDryRun: true}}
+	acts := &huma.Operation{Extensions: map[string]any{}}
+	for query, want := range map[string]bool{
+		"dryRun=true": true, "dryRun=1": true, "dryRun=TRUE": true, "dryRun=false": false, "": false,
+		"dryRun": false, "dryRun=": false, "dryRun=yes": false, "dryRun=true&dryRun=false": true,
+		"dryRun=false&dryRun=true": false, "dry%52un=false&dryRun=true": false, "dryRun&dryRun=true": false,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/things?"+query, nil)
+		ctx := humatest.NewContext(previews, req, httptest.NewRecorder())
+		if got := previewOnly(ctx, previews); got != want {
+			t.Errorf("%q previews = %v, want %v", query, got, want)
+		}
+		if previewOnly(humatest.NewContext(acts, req, httptest.NewRecorder()), acts) {
+			t.Errorf("%q counts as a preview of an operation without dryRun", query)
+		}
 	}
 }
 

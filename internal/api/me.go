@@ -230,12 +230,21 @@ func (s *Server) registerMe() {
 		id, err := s.requireIdentity()
 		return actor, id, err
 	}
+	// ownRecords is withActor for reading the caller's own records, which an
+	// API token narrowed to other things doesn't reach.
+	ownRecords := func(ctx context.Context) (*auth.Actor, *identity.Service, error) {
+		actor, id, err := withActor(ctx)
+		if err == nil {
+			err = id.ReadOwn(ctx, actor)
+		}
+		return actor, id, err
+	}
 
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "getMe", Method: http.MethodGet, Path: base, Summary: "See your user",
 		Description: "Returns your user: your details, your roles, and how you sign in.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*meOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -336,7 +345,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMyPasskeys", Method: http.MethodGet, Path: base + "/passkeys", Summary: "List your passkeys",
 		Description: "Lists the passkeys that sign you in, with when each was last used.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*passkeysOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -401,7 +410,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMySessions", Method: http.MethodGet, Path: base + "/sessions", Summary: "List where you're signed in",
 		Description: "Lists your sessions, the browsers you're signed in from, with their address and when each was last used. The one asking is marked.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*sessionsOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -441,7 +450,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMyDevices", Method: http.MethodGet, Path: base + "/devices", Summary: "List your trusted browsers",
 		Description: "Lists the browsers you trusted to skip the second sign-in step, until when.",
 	}, store.RiskRead, anyone), func(ctx context.Context, in *devicesInput) (*devicesOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -479,7 +488,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMyTokens", Method: http.MethodGet, Path: base + "/tokens", Summary: "List your API tokens",
 		Description: "Lists your API tokens with what each may do, where, until when, and when each was last used. Their secrets are never shown again.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*tokensOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -523,7 +532,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMySSHKeys", Method: http.MethodGet, Path: base + "/ssh-keys", Summary: "List your SSH keys",
 		Description: "Lists your SSH public keys, which let you reach the files and shells your roles allow over SSH and SFTP.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*sshKeysOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -566,7 +575,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMyLinks", Method: http.MethodGet, Path: base + "/links", Summary: "List your outside sign-ins",
 		Description: "Lists the outside providers, such as a company directory, you sign in with.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*linksOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -624,7 +633,7 @@ func (s *Server) registerMe() {
 		OperationID: "listMyMfa", Method: http.MethodGet, Path: base + "/mfa", Summary: "List second steps from add-ons",
 		Description: "Lists the second sign-in steps add-ons provide, and whether you have each on.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*mfaOptionsOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -679,7 +688,7 @@ func (s *Server) registerMe() {
 		OperationID: "getMyAlerts", Method: http.MethodGet, Path: base + "/alerts", Summary: "See where your security alerts go",
 		Description: "Says where your security alerts go, sign-ins from new devices, lockouts and changes to how you sign in, and the channels they can go to.",
 	}, store.RiskRead, anyone), func(ctx context.Context, _ *struct{}) (*alertsOutput, error) {
-		actor, id, err := withActor(ctx)
+		actor, id, err := ownRecords(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -745,23 +754,16 @@ func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
 }
 
 // submitOwn sends a change of the person's own user through the change
-// pipeline, planning it again when something else changed the user while
-// it was planned.
+// pipeline. It names no revision, so the pipeline plans it again when
+// something else changed the user while it was planned.
 func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func() (changeset.Request, error)) (*ChangeSetOutput, error) {
 	p := s.pipeline()
 	if p == nil {
 		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 	}
-	var err error
-	for range 3 {
-		var req changeset.Request
-		if req, err = build(); err != nil {
-			return nil, err
-		}
-		var out *ChangeSetOutput
-		if out, err = Submit(ctx, p, params, req); !store.ErrConflict.Is(err) {
-			return out, err
-		}
+	req, err := build()
+	if err != nil {
+		return nil, err
 	}
-	return nil, err
+	return Submit(ctx, p, params, req)
 }

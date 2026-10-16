@@ -20,7 +20,13 @@ const (
 	totpSecret    = "totp"
 	totpPending   = "totp.pending"
 	alertSettings = "alerts"
+	// recoverySecret is the key the user's recovery codes are hashed with,
+	// so their hashes in the panel database give nothing away on their own.
+	recoverySecret = "recovery.key"
 )
+
+// userSecrets are the secrets kept for a user, which go with them.
+var userSecrets = []string{totpSecret, totpPending, alertSettings, recoverySecret}
 
 func secretRef(user store.ID, name string) secrets.Ref { return secrets.NewRef(user, name) }
 
@@ -203,17 +209,16 @@ func (s *Service) clearPending(ctx context.Context, actor *auth.Actor, done stri
 	if actor.SessionID == "" || actor.Pending != done {
 		return nil
 	}
-	x, err := s.opts.Store.Session(ctx, store.ID(actor.SessionID))
-	if err != nil {
-		return err
-	}
 	fresh, err := s.User(ctx, u.ID)
 	if err != nil {
 		return err
 	}
-	x.Pending = s.pendingFor(ctx, fresh, s.secondFactors(ctx, fresh))
-	actor.Pending = x.Pending
-	return s.opts.Store.UpdateSession(ctx, x)
+	pending := s.pendingFor(ctx, fresh, s.secondFactors(ctx, fresh))
+	if err := s.opts.Store.SetSessionPending(ctx, store.ID(actor.SessionID), pending); err != nil {
+		return err
+	}
+	actor.Pending = pending
+	return nil
 }
 
 // BeginTOTP starts setting up an authenticator app: the secret to scan or
@@ -347,15 +352,43 @@ func (s *Service) checkTOTP(ctx context.Context, u *User, code string) error {
 }
 
 func (s *Service) newRecoveryCodes(ctx context.Context, user store.ID) ([]string, error) {
+	key, err := s.recoveryKey(ctx, user, true)
+	if err != nil {
+		return nil, err
+	}
 	codes := auth.NewRecoveryCodes()
 	hashes := make([]string, len(codes))
 	for i, c := range codes {
-		hashes[i] = auth.HashCode(c)
+		hashes[i] = auth.KeyedCodeHash(key, c)
 	}
 	if err := s.opts.Store.ReplaceRecoveryCodes(ctx, user, hashes); err != nil {
 		return nil, err
 	}
 	return codes, nil
+}
+
+// recoveryKey returns the key a user's recovery codes are hashed with, from
+// the secrets store, making it first when create says so. Without one, and
+// without create, it returns nil: the user has no codes that could match.
+func (s *Service) recoveryKey(ctx context.Context, user store.ID, create bool) ([]byte, error) {
+	if s.opts.Secrets == nil {
+		return nil, i18n.ErrUnavailable.New("what", "The secrets store")
+	}
+	ref := secretRef(user, recoverySecret)
+	key, err := s.opts.Secrets.Get(ctx, ref)
+	switch {
+	case err == nil && len(key) == auth.CodeKeySize:
+		return key, nil
+	case err != nil && !secrets.ErrNotFound.Is(err):
+		return nil, err
+	case !create:
+		return nil, nil
+	}
+	key = auth.NewCodeKey()
+	if err := s.opts.Secrets.Put(ctx, ref, key); err != nil {
+		return nil, err
+	}
+	return key, nil
 }
 
 // NewRecoveryCodes replaces the actor's recovery codes. It takes a second
@@ -474,9 +507,10 @@ func (s *Service) StepUp(ctx context.Context, actor *auth.Actor, in StepUpInput,
 			return nil, err
 		}
 	}
-	secret := auth.NewSecret(auth.SessionPrefix)
-	x.SteppedUpAt, x.Hash = s.now(), auth.HashSecret(secret)
-	if err := s.opts.Store.UpdateSession(ctx, x); err != nil {
+	// A copy of the cookie from before gains nothing from the confirmation.
+	now := s.now()
+	issued, err := s.newSecret(ctx, x, func(x *Session) { x.SteppedUpAt = now })
+	if err != nil {
 		return nil, err
 	}
 	if err := s.opts.Store.Unlock(ctx, u.ID); err != nil {
@@ -488,8 +522,8 @@ func (s *Service) StepUp(ctx context.Context, actor *auth.Actor, in StepUpInput,
 		// secret is only needed once the impersonation ends.
 		return nil, nil
 	}
-	actor.SteppedUpAt = x.SteppedUpAt
-	return &Issued{Secret: secret, Session: x}, nil
+	actor.SteppedUpAt = now
+	return issued, nil
 }
 
 // SteppedUp reports whether actor confirmed it's them recently enough for a

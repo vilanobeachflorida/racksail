@@ -166,6 +166,15 @@ func TestTables(t *testing.T) {
 			t.Errorf("detail lacks %q:\n%s", s, out.String())
 		}
 	}
+	// Lists of objects further in are counted.
+	v, _ = decodeOrdered([]byte(`{"id":"user_1","owner":{"grants":[{"role":"owner"}],"keys":[{"id":"k1"},{"id":"k2"}]}}`))
+	out.Reset()
+	printTable(&out, v, nil)
+	for _, s := range []string{"owner.grants:  1 item\n", "owner.keys:    2 items\n"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("detail lacks %q:\n%s", s, out.String())
+		}
+	}
 
 	if got := candidates([]byte(`{"items":[{"id":"whk_1","spec":{"url":"https://a"}},{"id":"site_1","name":"blog"}]}`), "id", "whk"); strings.Join(got, ",") != "whk_1\thttps://a" {
 		t.Errorf("candidates = %q", got)

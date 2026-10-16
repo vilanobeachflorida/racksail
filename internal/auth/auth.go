@@ -138,6 +138,12 @@ type Actor struct {
 	// as choosing a new password; the API refuses everything else until
 	// they do.
 	Pending string `json:"-"`
+	// Limit and Accounts are what an API token was narrowed to: patterns of
+	// permissions and the accounts it may act on. Its grants carry them
+	// already; they keep what everyone may do to their own user to them
+	// too. Never serialized.
+	Limit    []string   `json:"-"`
+	Accounts []store.ID `json:"-"`
 }
 
 // String describes the actor for logs and audit records, such as
@@ -178,6 +184,7 @@ func (a *Actor) Clone() *Actor {
 			c.Grants[i] = g.Clone()
 		}
 	}
+	c.Limit, c.Accounts = slices.Clone(a.Limit), slices.Clone(a.Accounts)
 	return &c
 }
 
@@ -380,13 +387,26 @@ const (
 // them; changing roles, turning a user off and the rest take a grant.
 var SelfPermissions = []Permission{PermUserRead, PermUserUpdateProfile, PermUserAddSSHKey, PermUserRemoveSSHKey}
 
-// ownUser reports whether the actor may use perm on target because target
-// is their own user.
-func ownUser(actor *Actor, perm Permission, target Target) bool {
-	if target.Object == "" || target.Object != actor.Person() || !slices.Contains(SelfPermissions, perm) {
+// SelfAllowed reports whether the actor may use perm on their own user
+// because it's theirs, whatever their grants: one of SelfPermissions, and
+// beyond seeing it, only as a person signed in to the panel who isn't
+// viewing it as someone else. An API token narrowed to some permissions or
+// accounts gets no more of its user than its narrowing allows: its grants
+// decide.
+func SelfAllowed(actor *Actor, perm Permission) bool {
+	if actor == nil || !slices.Contains(SelfPermissions, perm) {
+		return false
+	}
+	if len(actor.Accounts) > 0 || (len(actor.Limit) > 0 && !matchAny(actor.Limit, string(perm))) {
 		return false
 	}
 	return perm == PermUserRead || (actor.Type == ActorUser && actor.Impersonator == "")
+}
+
+// ownUser reports whether the actor may use perm on target because target
+// is their own user.
+func ownUser(actor *Actor, perm Permission, target Target) bool {
+	return target.Object != "" && target.Object == actor.Person() && SelfAllowed(actor, perm)
 }
 
 // Authorize implements Authorizer.
@@ -824,8 +844,10 @@ func (DevAuthenticator) Authenticate(ctx context.Context, r *http.Request) (*Act
 	}, nil
 }
 
-// NoAuthenticator finds no credentials in any request. The panel uses it
-// until accounts exist, so every protected operation answers 401.
+// NoAuthenticator finds no credentials in any request, so every protected
+// operation answers 401. The API server uses it when it is built without a
+// way to sign anyone in, as when the API document is exported; the panel
+// signs people in through the identity service.
 type NoAuthenticator struct{}
 
 // Authenticate implements Authenticator.
