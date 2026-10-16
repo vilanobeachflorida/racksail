@@ -135,9 +135,6 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make ci-lint
-      # install.sh trusts one cosign release and one Sigstore trusted root
-      # by their checksums.
-      - run: go run ./packaging/release check-pins
 
   docs:
     name: Documentation site

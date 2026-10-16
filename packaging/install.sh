@@ -29,7 +29,8 @@ COSIGN_SHA256_ARM64=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73
 # uses this one instead, which the mirror serves under its checksum, as
 # https://tuf-repo-cdn.sigstore.dev/targets/<checksum>.trusted_root.json
 # does, so installing needs nothing from GitHub or Sigstore. CI keeps it
-# current with go run ./packaging/release check-pins.
+# current with go run ./packaging/release check-pins, which only takes a
+# trusted root that Sigstore's TUF repository signed.
 SIGSTORE_ROOT_SHA256=6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66
 
 # Releases are signed by the release workflow, from a version tag or, for

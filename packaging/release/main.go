@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -163,22 +164,36 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return os.WriteFile(filepath.Join(*dir, ManifestFile), append(data, '\n'), 0o644)
 
 	case "check-pins":
-		script := flags.String("script", "packaging/install.sh", "the install script")
-		write := flags.Bool("write", false, "write cosign's published checksums and Sigstore's current trusted root into the script")
+		pins := pinFiles{Script: "packaging/install.sh", TUFRoot: SigstoreRootFile}
+		flags.StringVar(&pins.Script, "script", pins.Script, "the install script")
+		flags.StringVar(&pins.TUFRoot, "sigstore-root", pins.TUFRoot, "the version of Sigstore's TUF root to start from")
+		write := flags.Bool("write", false, "write cosign's published checksums and Sigstore's current trusted root into the script, "+
+			"and the newest TUF root into -sigstore-root")
 		cosignBase := flags.String("cosign-releases", "https://github.com/sigstore/cosign/releases/download", "where cosign's releases are")
 		tuf := flags.String("sigstore-tuf", SigstoreTUF, "Sigstore's TUF repository")
 		if err := flags.Parse(args); err != nil {
 			return err
 		}
-		return checkPins(ctx, http.DefaultClient, *script, *cosignBase, *tuf, *write, stdout)
+		return checkPins(ctx, http.DefaultClient, pins, *cosignBase, *tuf, *write, stdout)
 	}
 	return fmt.Errorf("unknown command %q", cmd)
 }
 
+// pinFiles are the files check-pins reads and, with -write, updates.
+type pinFiles struct {
+	// Script is the install script, which pins cosign and Sigstore's
+	// trusted root by their checksums.
+	Script string
+	// TUFRoot is the version of Sigstore's TUF root to start from.
+	TUFRoot string
+}
+
 // checkPins compares what the install script trusts with what cosign and
-// Sigstore publish, or with write, brings the script up to date.
-func checkPins(ctx context.Context, client *http.Client, script, cosignBase, tuf string, write bool, stdout io.Writer) error {
-	data, err := os.ReadFile(script)
+// Sigstore publish, or with write, brings the script up to date. Sigstore's
+// trusted root is only believed when its TUF repository's signatures lead to
+// it from the TUF root in pins.TUFRoot, which write moves on to the newest.
+func checkPins(ctx context.Context, client *http.Client, pins pinFiles, cosignBase, tuf string, write bool, stdout io.Writer) error {
+	data, err := os.ReadFile(pins.Script)
 	if err != nil {
 		return err
 	}
@@ -190,13 +205,17 @@ func checkPins(ctx context.Context, client *http.Client, script, cosignBase, tuf
 	if err != nil {
 		return err
 	}
+	tufRoot, err := os.ReadFile(pins.TUFRoot)
+	if err != nil {
+		return err
+	}
 	published, err := fetch(ctx, client, cosignBase+"/"+version+"/cosign_checksums.txt")
 	if err != nil {
 		return err
 	}
-	root, err := CurrentTrustedRoot(ctx, client, tuf)
+	root, err := CurrentTrustedRoot(ctx, client, tuf, tufRoot, time.Now())
 	if err != nil {
-		return err
+		return fmt.Errorf("reading Sigstore's trusted root from %s: %w", tuf, err)
 	}
 	if write {
 		updated, err := UpdateCosignPins(data, published)
@@ -206,7 +225,16 @@ func checkPins(ctx context.Context, client *http.Client, script, cosignBase, tuf
 		if updated, err = UpdateSigstoreRootPin(updated, root.SHA256); err != nil {
 			return err
 		}
-		return os.WriteFile(script, updated, 0o755)
+		if err := os.WriteFile(pins.Script, updated, 0o755); err != nil {
+			return err
+		}
+		if !bytes.Equal(root.TUFRoot, tufRoot) {
+			if err := os.WriteFile(pins.TUFRoot, root.TUFRoot, 0o644); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "%s now holds version %d of Sigstore's TUF root\n", pins.TUFRoot, root.TUFVersion)
+		}
+		return nil
 	}
 	errs := []error{CheckCosignPins(sums, published)}
 	if pinned != root.SHA256 {
@@ -215,7 +243,8 @@ func checkPins(ctx context.Context, client *http.Client, script, cosignBase, tuf
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("%w; run go run ./packaging/release check-pins -write", err)
 	}
-	fmt.Fprintf(stdout, "the install script's cosign %s checksums match the release, and it pins Sigstore's current trusted root\n", version)
+	fmt.Fprintf(stdout, "the install script's cosign %s checksums match the release, and it pins Sigstore's current trusted root, "+
+		"which version %d of Sigstore's TUF root vouches for\n", version, root.TUFVersion)
 	return nil
 }
 
