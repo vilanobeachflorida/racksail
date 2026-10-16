@@ -273,6 +273,33 @@ func checkUnit(name string) error {
 	return nil
 }
 
+// systemUnits are the root-running units Racksail controls but whose
+// configuration it renders itself, from typed input: networkd, the clock
+// and the firewall. Drop-ins never reach them, so a compromised panel can't
+// change what they run, as whom or with which limits and dependencies.
+var systemUnits = []string{"systemd-networkd.service", "systemd-timesyncd.service", "nftables.service"}
+
+// agentRenderedUnit reports whether a unit is one the agent writes itself
+// from typed input, never from content the panel supplies: Racksail's
+// platform units (InstallPlatformUnits) and the add-on service family
+// (EnsureAddonService), which runs with a token credential.
+func agentRenderedUnit(name string) bool {
+	return system.IsPlatformUnit(name) || strings.HasPrefix(name, "racksail-addon@")
+}
+
+// checkDropInTarget validates the unit a drop-in adjusts: one Racksail
+// manages, but never a unit the agent renders itself or a root-running
+// system service.
+func checkDropInTarget(name string) error {
+	if err := checkUnit(name); err != nil {
+		return err
+	}
+	if agentRenderedUnit(name) || slices.Contains(systemUnits, name) {
+		return fmt.Errorf("unit %s is one of Racksail's own or a system service, which take no drop-ins", name)
+	}
+	return nil
+}
+
 // checkOwnedUnit validates the name of a unit Racksail installs: racksail-*
 // units, and mount units for Racksail's own locations.
 func checkOwnedUnit(name string) error {
@@ -307,8 +334,8 @@ func checkUnitFile(name string, content []byte) (system.CheckedUnit, error) {
 	if err := checkOwnedUnit(name); err != nil {
 		return system.CheckedUnit{}, err
 	}
-	if system.IsPlatformUnit(name) {
-		return system.CheckedUnit{}, fmt.Errorf("unit %s is one of Racksail's own; InstallPlatformUnits installs those", name)
+	if agentRenderedUnit(name) {
+		return system.CheckedUnit{}, fmt.Errorf("unit %s is one the agent renders itself; the panel doesn't supply its content", name)
 	}
 	if len(content) > 1<<20 {
 		return system.CheckedUnit{}, fmt.Errorf("unit %s is larger than 1 MiB", name)

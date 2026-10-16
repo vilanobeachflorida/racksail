@@ -246,13 +246,32 @@ func (s *Server) Handler() http.Handler {
 		ctx := context.WithValue(context.WithValue(r.Context(), callerKey{}, caller), auditedKey{}, st)
 		sw := &statusWriter{ResponseWriter: w}
 		inner.ServeHTTP(sw, r.WithContext(ctx))
-		op, isOp := strings.CutPrefix(r.URL.Path, "/v1/ops/")
-		if isOp && !st.done && s.runtime != nil {
-			// Huma refused the request before the operation saw it.
-			env := s.env(ctx, false, store.ID(r.Header.Get("Racksail-Owner")))
-			env.audit(op, nil, []byte{}, nil, refusal(op, sw.status), time.Now())
+		// Operations and streams record themselves once they are reached; the
+		// middleware records what was refused first, so every call is in the
+		// trail: a malformed operation or stream request, and any path under
+		// /v1 that no handler served.
+		if !st.done && s.runtime != nil {
+			if op := refusedCall(r.URL.Path, sw.status); op != "" {
+				env := s.env(ctx, false, store.ID(r.Header.Get("Racksail-Owner")))
+				env.audit(op, nil, []byte{}, nil, refusal(op, sw.status), time.Now())
+			}
 		}
 	})
+}
+
+// refusedCall names a call the middleware should record because no operation
+// or stream recorded it: an operation or stream request, or any other path
+// under /v1 that was refused. Paths that answer normally without reaching an
+// operation, such as the health check and the event stream, aren't calls to
+// record.
+func refusedCall(path string, status int) string {
+	switch {
+	case strings.HasPrefix(path, "/v1/ops/"), strings.HasPrefix(path, "/v1/streams/"):
+		return requestedOp(path)
+	case strings.HasPrefix(path, "/v1/") && status >= 400:
+		return requestedOp(path)
+	}
+	return ""
 }
 
 // refusal describes a request the API refused before it reached an

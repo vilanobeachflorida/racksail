@@ -7,6 +7,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -208,6 +209,44 @@ func (u *units) SetProperties(ctx context.Context, name string, runtime bool, pr
 		return fmt.Errorf("setting properties of %s: %w", name, err)
 	}
 	return nil
+}
+
+// d-Bus property names of the resource-control limits, in the order of
+// system.ResourceControlProperties. CPU quota is kept as microseconds of CPU
+// per second, and AllowedCPUs as a bitmask that CanonicalLimit won't reduce,
+// so it isn't read here.
+var resourceControlProps = map[string]string{
+	"MemoryMin": "MemoryMin", "MemoryLow": "MemoryLow", "MemoryHigh": "MemoryHigh",
+	"MemoryMax": "MemoryMax", "MemorySwapMax": "MemorySwapMax", "CPUQuota": "CPUQuotaPerSecUSec",
+	"CPUWeight": "CPUWeight", "IOWeight": "IOWeight", "TasksMax": "TasksMax",
+}
+
+func (u *units) ResourceControl(ctx context.Context, name string) (map[string]string, error) {
+	if err := checkUnit(name); err != nil {
+		return nil, err
+	}
+	props, err := u.systemd.Properties(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("resource limits of %s: %w", name, err)
+	}
+	out := map[string]string{}
+	for limit, prop := range resourceControlProps {
+		v, ok := props[prop]
+		if !ok {
+			continue
+		}
+		raw := num(v)
+		// systemd reports an unset limit as the maximum of a uint64, and a
+		// set one in the base unit CanonicalLimit produces: bytes for memory
+		// and tasks, microseconds of CPU per second for the quota, a plain
+		// number for the weights.
+		if raw == ^uint64(0) {
+			out[limit] = "infinity"
+		} else {
+			out[limit] = strconv.FormatUint(raw, 10)
+		}
+	}
+	return out, nil
 }
 
 func (u *units) Kill(ctx context.Context, name string, signal system.Signal) error {

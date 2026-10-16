@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
@@ -40,7 +41,11 @@ func (in EnsureGroupInput) Validate() error {
 	return nil
 }
 
-// EnsureGroup creates a group or sets its members.
+// EnsureGroup creates a group or sets its members. Racksail only touches
+// groups it owns: account groups and racksail-* system groups. A create is
+// held to an account group so the panel can't claim a system GID, and the
+// member list of a group Racksail doesn't own is never rewritten, since
+// that would let an account into a group such as ssl-cert.
 var EnsureGroup = Register(Def[EnsureGroupInput, Result]{
 	Name:    "EnsureGroup",
 	Summary: "Create a group",
@@ -51,6 +56,11 @@ var EnsureGroup = Register(Def[EnsureGroupInput, Result]{
 		u := env.System.Users
 		cur, err := u.LookupGroup(ctx, in.Name)
 		if errors.Is(err, system.ErrNotFound) {
+			// A fixed GID of a new group has to be an account's; the system
+			// chooses GIDs for racksail-* groups.
+			if in.GID != 0 && (in.GID < system.AccountUIDMin || in.GID > system.AccountUIDMax) {
+				return Result{}, fmt.Errorf("gid %d is outside the account range, so Racksail won't create group %s with it: %w", in.GID, in.Name, system.ErrInvalid)
+			}
 			effect := system.Effect{Type: system.EffectUser, Action: "create-group", Target: in.Name}
 			if env.Check {
 				return Changed(effect), nil
@@ -69,6 +79,9 @@ var EnsureGroup = Register(Def[EnsureGroupInput, Result]{
 		}
 		if in.Members == nil || sameSet(cur.Members, *in.Members) {
 			return Unchanged(), nil
+		}
+		if !ownedGroup(cur) {
+			return Result{}, ErrNotAllowed.New("op", "EnsureGroup", "target", in.Name)
 		}
 		effect := system.Effect{Type: system.EffectUser, Action: "update-group", Target: in.Name}
 		if env.Check {
@@ -136,6 +149,13 @@ func (in EnsureUserInput) Validate() error {
 	if err := cleanAbs(in.Home); err != nil {
 		return err
 	}
+	// An account's home stays in the accounts area, so it can't point at a
+	// location the panel itself writes. Racksail's own service users, which
+	// are system users, keep their homes elsewhere (the state directory, or
+	// none at all).
+	if !in.System && !strings.HasPrefix(in.Home, accountsArea+"/") {
+		return fmt.Errorf("an account's home must be under %s, not %s", accountsArea, in.Home)
+	}
 	if in.Shell != "" && !slices.Contains(allowedShells, in.Shell) {
 		return fmt.Errorf("shell %s isn't allowed", in.Shell)
 	}
@@ -159,11 +179,15 @@ func (in EnsureUserInput) user() system.User {
 	}
 }
 
-// EnsureUser creates a user or updates its settings.
+// EnsureUser creates a user or updates its settings. It only ever changes a
+// user Racksail manages: an account or a racksail-* system user. A create
+// over an existing name that isn't one of those, such as root or an
+// administrator's login user, is refused, so a compromised panel can't
+// rewrite another user's home, shell, groups or lock state.
 var EnsureUser = Register(Def[EnsureUserInput, Result]{
 	Name:        "EnsureUser",
 	Summary:     "Create a user",
-	Description: "Creates a Linux user, or updates the shell, groups, comment, lock state and subordinate IDs of an existing one. User and group IDs never change.",
+	Description: "Creates a Linux account or racksail-* system user, or updates the shell, groups, comment, lock state and subordinate IDs of one. It refuses to change any other user, and user and group IDs never change.",
 	Effects: func(in EnsureUserInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectUser, Action: "create", Target: in.Name}}
 	},
@@ -177,6 +201,9 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 				if err := checkPrimaryGroup(ctx, u, in.GID); err != nil {
 					return Result{}, err
 				}
+			}
+			if err := checkSupplementaryGroups(ctx, u, in.Groups, env.Check); err != nil {
+				return Result{}, err
 			}
 			if env.Check {
 				return Changed(effect), nil
@@ -200,6 +227,14 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		if same {
 			return Unchanged(), nil
 		}
+		// The user exists and a change is wanted: it has to be one Racksail
+		// manages, never root or an administrator's own login user.
+		if !managedUser(cur) {
+			return Result{}, ErrNotAllowed.New("op", "EnsureUser", "target", in.Name)
+		}
+		if err := checkSupplementaryGroups(ctx, u, want.Groups, env.Check); err != nil {
+			return Result{}, err
+		}
 		effect := system.Effect{Type: system.EffectUser, Action: "update", Target: in.Name}
 		if env.Check {
 			return Changed(effect), nil
@@ -207,6 +242,25 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		return Changed(effect), u.UpdateUser(ctx, want)
 	},
 })
+
+// checkSupplementaryGroups holds the groups an account is added to an
+// allowlist: account groups and racksail-* groups, never a privileged or a
+// system group such as ssl-cert that reads keys. A group an earlier step of
+// the plan creates isn't on the machine yet during a preview, so a missing
+// group passes in check mode.
+func checkSupplementaryGroups(ctx context.Context, u system.Users, names []string, check bool) error {
+	for _, name := range names {
+		g, err := u.LookupGroup(ctx, name)
+		switch {
+		case errors.Is(err, system.ErrNotFound) && check:
+		case err != nil:
+			return fmt.Errorf("supplementary group %s: %w", name, err)
+		case !ownedGroup(g):
+			return fmt.Errorf("group %s isn't an account's or one of Racksail's, so Racksail won't add a user to it: %w", name, system.ErrInvalid)
+		}
+	}
+	return nil
+}
 
 // checkPrimaryGroup refuses a fixed primary group that is privileged.
 func checkPrimaryGroup(ctx context.Context, u system.Users, gid int) error {
@@ -255,7 +309,7 @@ var DeleteUser = Register(Def[DeleteUserInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
-		if !removableUser(cur) {
+		if !managedUser(cur) {
 			return Result{}, ErrNotAllowed.New("op", "DeleteUser", "target", in.Name)
 		}
 		effect := system.Effect{Type: system.EffectUser, Action: "delete", Target: in.Name, Destructive: in.RemoveHome}
@@ -266,11 +320,29 @@ var DeleteUser = Register(Def[DeleteUserInput, Result]{
 	},
 })
 
-func removableUser(u system.User) bool {
+// managedUser reports whether a user is one Racksail manages, so an
+// operation may change or remove it: an account (its UID in the account
+// range) or a racksail-* system user. Every other user, root and the
+// administrators' own login users among them, is left alone.
+func managedUser(u system.User) bool {
 	if u.UID >= system.AccountUIDMin && u.UID <= system.AccountUIDMax {
 		return true
 	}
-	return u.System && len(u.Name) > 9 && u.Name[:9] == "racksail-"
+	return u.System && strings.HasPrefix(u.Name, "racksail-") && len(u.Name) > len("racksail-")
+}
+
+// ownedGroup reports whether a group is one Racksail manages: an account's
+// group (its GID in the account range) or a racksail-* system group.
+// Racksail never changes the membership of any other group, and never of a
+// privileged one such as racksail or racksail-edge.
+func ownedGroup(g system.Group) bool {
+	if slices.Contains(privilegedGroups, g.Name) {
+		return false
+	}
+	if g.GID >= system.AccountUIDMin && g.GID <= system.AccountUIDMax {
+		return true
+	}
+	return g.System && strings.HasPrefix(g.Name, "racksail-") && len(g.Name) > len("racksail-")
 }
 
 // NameInput names one thing.
@@ -297,7 +369,7 @@ var DeleteGroup = Register(Def[NameInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
-		if slices.Contains(privilegedGroups, g.Name) || (g.GID < system.AccountUIDMin && !(g.System && len(g.Name) > 9 && g.Name[:9] == "racksail-")) {
+		if !ownedGroup(g) {
 			return Result{}, ErrNotAllowed.New("op", "DeleteGroup", "target", in.Name)
 		}
 		effect := system.Effect{Type: system.EffectUser, Action: "delete-group", Target: in.Name}

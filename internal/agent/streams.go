@@ -91,6 +91,9 @@ func (in downloadInput) Validate() error { return checkRead(in.Path) }
 func runStream(ctx context.Context, env *Env, name string, in Input, run func() (bool, error)) error {
 	start := time.Now()
 	op := "streams/" + name
+	// The stream reached an operation, so it records itself; the middleware
+	// records only what it refused before this point.
+	markAudited(ctx)
 	if err := in.Validate(); err != nil {
 		err = ErrInvalidInput.Wrap(err, "op", op, "reason", err.Error())
 		env.audit(op, in, nil, nil, err, start)

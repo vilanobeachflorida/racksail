@@ -34,6 +34,11 @@ type Units interface {
 	// such as MemoryMax on an account slice. runtime changes don't persist
 	// across reboots.
 	SetProperties(ctx context.Context, name string, runtime bool, props ...UnitProperty) error
+	// ResourceControl returns the unit's effective resource-control limits,
+	// each value reduced to the base-unit form CanonicalLimit produces, so a
+	// caller can tell whether a limit it would set is already in place. Limits
+	// that aren't set, or can't be reduced with certainty, are left out.
+	ResourceControl(ctx context.Context, name string) (map[string]string, error)
 	Kill(ctx context.Context, name string, signal Signal) error
 	ResetFailed(ctx context.Context, name string) error
 }

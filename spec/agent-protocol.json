@@ -8178,7 +8178,7 @@
     },
     "/v1/ops/EnsureUser": {
       "post": {
-        "description": "Creates a Linux user, or updates the shell, groups, comment, lock state and subordinate IDs of an existing one. User and group IDs never change.",
+        "description": "Creates a Linux account or racksail-* system user, or updates the shell, groups, comment, lock state and subordinate IDs of one. It refuses to change any other user, and user and group IDs never change.",
         "operationId": "EnsureUser",
         "parameters": [
           {

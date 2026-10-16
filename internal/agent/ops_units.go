@@ -135,13 +135,11 @@ type DropInInput struct {
 
 // Validate implements Input. Drop-ins tune resources, restarts and
 // dependencies; they never change what a unit runs, as whom or with which
-// environment. The agent's own unit takes none.
+// environment. Racksail's own units and the root system services it renders
+// take none.
 func (in DropInInput) Validate() error {
-	if err := checkUnit(in.Unit); err != nil {
+	if err := checkDropInTarget(in.Unit); err != nil {
 		return err
-	}
-	if in.Unit == system.AgentUnit {
-		return fmt.Errorf("the agent's unit takes no drop-ins")
 	}
 	if !dropInNamePattern.MatchString(in.Name) {
 		return fmt.Errorf("drop-in name %q must start with racksail", in.Name)
@@ -375,13 +373,6 @@ var ListUnits = Register(Def[ListUnitsInput, UnitList]{
 	},
 })
 
-// resourceProperties are the unit properties SetUnitProperties may change:
-// resource control only.
-var resourceProperties = []string{
-	"MemoryMin", "MemoryLow", "MemoryHigh", "MemoryMax", "MemorySwapMax", "CPUQuota", "CPUWeight",
-	"AllowedCPUs", "IOWeight", "TasksMax",
-}
-
 // SetUnitPropertiesInput changes resource limits of a running unit.
 type SetUnitPropertiesInput struct {
 	Name       string                `json:"name" doc:"Unit name"`
@@ -398,7 +389,7 @@ func (in SetUnitPropertiesInput) Validate() error {
 		return fmt.Errorf("no properties given")
 	}
 	for _, p := range in.Properties {
-		if !slices.Contains(resourceProperties, p.Name) {
+		if !slices.Contains(system.ResourceControlProperties, p.Name) {
 			return fmt.Errorf("property %s isn't a resource limit", p.Name)
 		}
 	}
@@ -406,7 +397,9 @@ func (in SetUnitPropertiesInput) Validate() error {
 }
 
 // SetUnitProperties applies resource limits, such as plan limits on an
-// account slice, without restarting anything.
+// account slice, without restarting anything. It reports no change when the
+// limits already have the asked values, so running a plan twice does
+// nothing.
 var SetUnitProperties = Register(Def[SetUnitPropertiesInput, Result]{
 	Name:    "SetUnitProperties",
 	Summary: "Change the resource limits of a unit",
@@ -414,11 +407,24 @@ var SetUnitProperties = Register(Def[SetUnitPropertiesInput, Result]{
 		return []system.Effect{{Type: system.EffectService, Action: "limit", Target: in.Name}}
 	},
 	Run: func(ctx context.Context, env *Env, in SetUnitPropertiesInput) (Result, error) {
+		// A read error leaves current empty, so every property counts as a
+		// change and set-property runs, reporting any real problem itself.
+		current, _ := env.System.Units.ResourceControl(ctx, in.Name)
+		var todo []system.UnitProperty
+		for _, p := range in.Properties {
+			want, ok := system.CanonicalLimit(p.Name, p.Value)
+			if !ok || current[p.Name] != want {
+				todo = append(todo, p)
+			}
+		}
+		if len(todo) == 0 {
+			return Unchanged(), nil
+		}
 		effect := system.Effect{Type: system.EffectService, Action: "limit", Target: in.Name}
 		if env.Check {
 			return Changed(effect), nil
 		}
-		return Changed(effect), env.System.Units.SetProperties(ctx, in.Name, in.Runtime, in.Properties...)
+		return Changed(effect), env.System.Units.SetProperties(ctx, in.Name, in.Runtime, todo...)
 	},
 })
 

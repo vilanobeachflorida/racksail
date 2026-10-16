@@ -33,7 +33,9 @@ Racksail runs as root on machines connected to the internet and is trusted with 
 
 Site and worker services run with at least:
 
-`User=` the account user, `ProtectSystem=strict`, `ProtectHome=tmpfs` with the account's own directory bound in, `PrivateTmp=yes`, `PrivateDevices=yes`, `NoNewPrivileges=yes`, `ProtectKernelTunables=yes`, `ProtectKernelModules=yes`, `ProtectControlGroups=yes`, `RestrictSUIDSGID=yes`, `RestrictNamespaces=yes`, `LockPersonality=yes`, `MemoryDenyWriteExecute=yes` where the runtime allows it, `SystemCallFilter=@system-service`, `SocketBindAllow=` for the site's own socket or port, and `IPAddressDeny=` for the agent and panel sockets' addresses.
+`User=` the account user, `ProtectSystem=strict`, `ProtectHome=tmpfs` with the account's own directory bound in, `PrivateTmp=yes`, `PrivateDevices=yes`, `NoNewPrivileges=yes`, `ProtectKernelTunables=yes`, `ProtectKernelModules=yes`, `ProtectControlGroups=yes`, `RestrictSUIDSGID=yes`, `RestrictNamespaces=yes`, `LockPersonality=yes`, `MemoryDenyWriteExecute=yes` where the runtime allows it, `SystemCallFilter=@system-service`, and `SocketBindAllow=` for the site's own socket or port.
+
+The agent's socket and the edge's admin socket are Unix sockets under `/run/racksail`, which `InaccessiblePaths=-/run/racksail` hides from the sandbox, so reaching them doesn't depend on an address rule. The sandbox denies no addresses by default: the panel answers only those who sign in, as it does for anyone on the internet, and denying the server's own addresses would cut a site off from its database on the same server, which systemd can't tell apart by port. A module that keeps the panel on a management address of its own denies that address with `IPAddressDeny=`. The rendered profile is `system.Sandbox` in `internal/system`, and the system layer page in the documentation site explains the reasoning.
 
 End-of-life runtimes (for example PHP 5.x and 7.x) always get the strictest profile, the web application firewall in blocking mode, and a permanent warning badge.
 

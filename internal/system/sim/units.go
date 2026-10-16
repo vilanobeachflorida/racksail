@@ -510,6 +510,56 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
+// ResourceControl returns the unit's effective resource-control limits: the
+// values its unit file sets, with the properties SetProperties overrode on
+// top, each reduced to its base-unit form.
+func (u simUnits) ResourceControl(ctx context.Context, name string) (map[string]string, error) {
+	m := u.m
+	if err := m.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer m.mu.Unlock()
+	out := map[string]string{}
+	if !m.unitExists(name) {
+		return out, nil
+	}
+	raw := map[string]string{}
+	if content, ok := m.unitFile(name); ok {
+		for _, p := range system.ResourceControlProperties {
+			if v := lastDirective(content, p); v != "" {
+				raw[p] = v
+			}
+		}
+	}
+	if rt, ok := m.units[name]; ok {
+		for _, p := range system.ResourceControlProperties {
+			if v, ok := rt.props[p]; ok {
+				raw[p] = v
+			}
+		}
+	}
+	for k, v := range raw {
+		if canon, ok := system.CanonicalLimit(k, v); ok {
+			out[k] = canon
+		}
+	}
+	return out, nil
+}
+
+// lastDirective returns the last value of key in a unit file, as systemd
+// takes the last assignment of a setting.
+func lastDirective(content []byte, key string) string {
+	last := ""
+	sc := bufio.NewScanner(bytes.NewReader(content))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if v, ok := strings.CutPrefix(line, key+"="); ok {
+			last = strings.TrimSpace(v)
+		}
+	}
+	return last
+}
+
 // Property returns a property set with SetProperties, for tests.
 func (m *Machine) Property(unit, name string) (string, bool) {
 	m.mu.Lock()
