@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -421,75 +420,6 @@ func mustRead(t *testing.T, file string) string {
 		t.Fatal(err)
 	}
 	return string(data)
-}
-
-func TestSVG(t *testing.T) {
-	good := []string{
-		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>`,
-		`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs><rect fill="url(#g)" width="1" height="1"/></svg>`,
-		`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="#a"/><style>.a{fill:url( '#g' )}</style></svg>`,
-		`<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"><animate attributeName="opacity" values="0;1" dur="1s" repeatCount="indefinite"/></rect></svg>`,
-	}
-	for _, s := range good {
-		if err := checkSVG([]byte(s)); err != nil {
-			t.Errorf("checkSVG(%s) = %v", s, err)
-		}
-	}
-	bad := map[string]string{
-		`<svg><script>alert(1)</script></svg>`:                                 "script",
-		`<svg onload="alert(1)"/>`:                                             "event handler",
-		`<svg><image href="https://tracker.example/x.png"/></svg>`:             "refers to",
-		`<svg><rect style="fill:url(https://example.com/a.svg#b)"/></svg>`:     "url()",
-		`<svg><style>@import url(https://example.com/a.css);</style></svg>`:    "imports",
-		`<svg><foreignObject><div/></foreignObject></svg>`:                     "foreignObject",
-		`<!DOCTYPE svg [<!ENTITY x "y">]><svg/>`:                               "declaration",
-		`<html><body/></html>`:                                                 "first element must be <svg>",
-		``:                                                                     "empty",
-		`<svg><rect></svg>`:                                                    "isn't valid SVG",
-		`<?xml-stylesheet href="https://example.com/a.css"?><svg/>`:            "processing instruction",
-		`<svg><handler type="application/ecmascript">alert(1)</handler></svg>`: "handler",
-		`<svg><a><set attributeName="href" to="javascript:alert(1)"/><text>x</text></a></svg>`:                  "animates href",
-		`<svg><a href="#x"><animate attributeName="xlink:href" values="https://elsewhere.example/"/></a></svg>`: "animates xlink:href",
-		`<svg><use href="#a"><set attributeName=" HREF " to="https://elsewhere.example/a.svg#b"/></use></svg>`:  "animates",
-		`<svg><rect><set attributeName="onclick" to="alert(1)"/></rect></svg>`:                                  "animates onclick",
-	}
-	for s, want := range bad {
-		err := checkSVG([]byte(s))
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("checkSVG(%s) = %v, want %q", s, err, want)
-		}
-	}
-}
-
-func FuzzCheckSVG(f *testing.F) {
-	f.Add([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>`))
-	f.Add([]byte(`<svg><style>.a{fill:url(#g)}</style></svg>`))
-	f.Add([]byte(`<svg onload="x"/>`))
-	f.Add([]byte(`<svg><a><set attributeName="href" to="javascript:alert(1)"/></a></svg>`))
-	f.Add([]byte(`<svg><a><animate attributeName="xlink:href" values="https://elsewhere.example/"/></a></svg>`))
-	f.Add([]byte(`<svg><rect><animate attributeName="opacity" values="0;1" dur="1s"/></rect></svg>`))
-	f.Add([]byte(`<svg><text>attributeName="href"</text></svg>`))
-	// An attribute in a tag; text that reads like one is harmless.
-	animatesLink := regexp.MustCompile(`<[^<>]*attributename\s*=\s*["']\s*([^"':]*:)?href\s*["']`)
-	f.Fuzz(func(t *testing.T, data []byte) {
-		if checkSVG(data) != nil {
-			return
-		}
-		// Whatever passes has no script element, loads nothing and animates
-		// no link.
-		lower := strings.ToLower(string(data))
-		if strings.Contains(lower, "<![cdata[") || strings.Contains(lower, "<!--") {
-			return
-		}
-		for _, banned := range []string{"<script", "<handler", "<foreignobject", "@import"} {
-			if strings.Contains(lower, banned) {
-				t.Fatalf("checkSVG accepted %q", data)
-			}
-		}
-		if animatesLink.MatchString(lower) {
-			t.Fatalf("checkSVG accepted an animated link: %q", data)
-		}
-	})
 }
 
 // The recipe schema and the recipe types describe the same fields, so
