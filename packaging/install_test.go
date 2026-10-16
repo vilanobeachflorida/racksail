@@ -118,7 +118,7 @@ func newHarness(t *testing.T) *harness {
 	for name, body := range stubs {
 		h.write(filepath.Join(h.stubDir, name), "#!/bin/sh\n"+body+"\n", 0o755)
 	}
-	for _, tag := range []string{"v1.2.0", "v1.9.3", "v1.9.10", "v1.10.0-beta.2", "v1.10.0-rc.1", "v1.10.0-rc.1.nightly.20261014.7"} {
+	for _, tag := range []string{"v1.2.0", "v1.9.3", "v1.9.10", "v1.10.0-alpha.nightly.20261001.3", "v1.10.0-beta.2", "v1.10.0-rc.1", "v1.10.0-rc.1.nightly.20261014.7"} {
 		h.publish(tag, "amd64")
 	}
 	h.publish("v1.9.10", "arm64")
@@ -300,6 +300,21 @@ func TestInstallScriptOptions(t *testing.T) {
 		r := h.run("sh", "1.9.10", "--yes")
 		if r.err != nil || !strings.Contains(r.urls, "/v1.9.10/racksail-linux-arm64\n") {
 			t.Fatalf("%v\n%s\n%s", r.err, r.out, r.urls)
+		}
+	})
+	// Nightly builds are alphas of the next version until its first beta,
+	// and then follow the beta, so the channel moves on to them.
+	t.Run("nightly after a beta", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		for _, tag := range []string{"v1.11.0-alpha.nightly.20261015.8", "v1.11.0-beta.1", "v1.11.0-beta.1.nightly.20261016.9"} {
+			h.publish(tag, "amd64")
+		}
+		for channel, version := range map[string]string{"nightly": "1.11.0-beta.1.nightly.20261016.9", "beta": "1.11.0-beta.1", "stable": "1.9.10"} {
+			r := h.run("sh", version, "--dry-run", "--channel", channel)
+			if r.err != nil || !strings.Contains(r.urls, "/releases/download/v"+version+"/racksail-linux-amd64\n") {
+				t.Errorf("--channel %s: %v\n%s\n%s", channel, r.err, r.out, r.urls)
+			}
 		}
 	})
 	t.Run("hostname", func(t *testing.T) {

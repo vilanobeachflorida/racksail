@@ -44,7 +44,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          skip=false
           case "$GITHUB_REF" in
           refs/tags/v*)
             version=${GITHUB_REF_NAME#v}
@@ -53,7 +52,9 @@ jobs:
             # Nothing new since the last nightly build means no new build.
             last=$(git tag --list 'v*nightly*' --sort=-creatordate | head -n 1)
             if [ -n "$last" ] && [ "$(git rev-list -n 1 "$last")" = "$GITHUB_SHA" ]; then
-              skip=true
+              echo "skip=true" >>"$GITHUB_OUTPUT"
+              echo "main hasn't changed since the nightly build $last."
+              exit 0
             fi
             version=$(go run ./packaging/release nightly-version -run "$GITHUB_RUN_NUMBER")
             ;;
@@ -74,10 +75,10 @@ jobs:
             echo "version=$version"
             echo "channel=$channel"
             echo "tag=v$version"
-            echo "skip=$skip"
+            echo "skip=false"
             echo "upgrade_from=$upgrade_from"
           } >>"$GITHUB_OUTPUT"
-          echo "Racksail $version on the $channel channel (skip: $skip), upgrading from $upgrade_from"
+          echo "Racksail $version on the $channel channel, upgrading from $upgrade_from"
 
   build:
     name: Binaries and packages
@@ -263,11 +264,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           flags=(--title "Racksail $VERSION" --generate-notes --target "$GITHUB_SHA")
+          # GitHub's latest release is what releases/latest/download/install.sh
+          # serves, so it is the newest stable release, never a patch to an
+          # older release line published after a newer one.
+          latest=false
           if [ "$CHANNEL" = stable ]; then
-            flags+=(--latest)
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[] | select(.draft | not) | .tag_name' |
+              go run ./packaging/release latest -version "$VERSION")
           else
-            flags+=(--prerelease --latest=false)
+            flags+=(--prerelease)
           fi
+          flags+=("--latest=$latest")
           if [ "$CHANNEL" != nightly ]; then
             flags+=(--verify-tag)
           fi

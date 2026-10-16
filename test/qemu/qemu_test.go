@@ -351,7 +351,7 @@ func TestPanelChecks(t *testing.T) {
 }
 
 func TestCheckOlder(t *testing.T) {
-	if err := checkOlder("1.2.4", "1.3.0-nightly.20261015.42"); err != nil {
+	if err := checkOlder("1.2.4", "1.3.0-alpha.nightly.20261015.42"); err != nil {
 		t.Error(err)
 	}
 	for _, versions := range [][2]string{{"1.3.0", "1.3.0"}, {"1.3.0", "1.3.0-rc.1"}, {"0.0.0-dev", "next"}, {"dev", "1.3.0"}} {

@@ -50,9 +50,10 @@ Release binaries come from `make cross` with `VERSION` and `CHANNEL` set. `make 
 
 [release/](release/) decides what the workflow publishes:
 
-- `channel` names a version's channel: `1.2.3` is stable, `1.3.0-beta.1` and `1.3.0-rc.1` are beta, anything with a `nightly` part is nightly.
-- `nightly-version` names a nightly build so it sorts after everything released before it: `1.3.0-nightly.20261015.42` after 1.2.x, or `1.3.0-rc.1.nightly.20261015.42` after a release candidate.
+- `channel` names a version's channel: `1.2.3` is stable, `1.3.0-beta.1` and `1.3.0-rc.1` are beta, and nightly builds, such as `1.3.0-alpha.nightly.20261015.42`, are nightly.
+- `nightly-version` names a nightly build so it sorts after everything released or built before it and before the next release: after 1.2.x it is an alpha of the next minor version, `1.3.0-alpha.nightly.20261015.42`, which sorts before `1.3.0-beta.1`; after a beta or release candidate it follows it, as `1.3.0-rc.1.nightly.20261015.42`. A release candidate of a patch release, such as `1.2.1-rc.1`, leaves nightly builds on the version they were on, so servers on the nightly channel never move backwards.
 - `previous` reads release tags and names the newest release before a version on a channel, which is where the upgrade test starts: the workflow publishes nothing until servers on that release, and on the newest stable release, upgrade to the new one in the [QEMU harness](../test/README.md#upgrades).
+- `latest` tells whether a stable release is newer than every one published, and so becomes GitHub's latest release, which `releases/latest/download/install.sh` serves; a patch to an older release line doesn't.
 - `checksums` and `manifest` write `SHA256SUMS` and `release.json`, the second in the format `internal/updates` reads.
 
 ## Licenses

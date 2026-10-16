@@ -27,11 +27,13 @@ const (
 
 var (
 	betaPre    = regexp.MustCompile(`^(beta|rc)\.[0-9]+$`)
-	nightlyPre = regexp.MustCompile(`^((beta|rc)\.[0-9]+\.)?nightly\.[0-9]{8}\.[0-9]+$`)
+	nightlyPre = regexp.MustCompile(`^(alpha|(beta|rc)\.[0-9]+)\.nightly\.[0-9]{8}\.[0-9]+$`)
+	dateFormat = regexp.MustCompile(`^[0-9]{8}$`)
 )
 
 // Channel tells which channel a version is released on: 1.2.3 is stable,
-// 1.3.0-beta.1 and 1.3.0-rc.1 are beta, and versions with a nightly part are
+// 1.3.0-beta.1 and 1.3.0-rc.1 are beta, and nightly builds, such as
+// 1.3.0-alpha.nightly.20261015.42 or 1.3.0-rc.1.nightly.20261015.42, are
 // nightly. Other pre-release forms aren't releases.
 func Channel(version string) (updates.Channel, error) {
 	v, err := updates.ParseVersion(version)
@@ -53,36 +55,63 @@ func Channel(version string) (updates.Channel, error) {
 }
 
 // NightlyVersion names a nightly build so that it sorts after everything
-// released before it and before the next release: after the newest beta or
-// release candidate, as 1.3.0-rc.1.nightly.20261015.42, or else in the minor
-// version after the newest stable release, as 1.3.0-nightly.20261015.42.
-// date is the day as YYYYMMDD and run tells builds of one day apart.
+// released or built before it, and before the next release. After a beta or
+// release candidate it follows that pre-release, as
+// 1.3.0-rc.1.nightly.20261015.42. After a stable release it is an alpha of
+// the next minor version, as 1.3.0-alpha.nightly.20261015.42, which sorts
+// before 1.3.0-beta.1, so the first beta doesn't take servers backwards.
+// It never sorts before a nightly build already tagged: after a release
+// candidate of a patch release, such as 1.2.1-rc.1 while main works towards
+// 1.3.0, nightly builds stay on 1.3.0. date is the day as YYYYMMDD and run
+// tells builds of one day apart.
 func NightlyVersion(tags []string, date string, run int) (string, error) {
-	if ok, _ := regexp.MatchString(`^[0-9]{8}$`, date); !ok {
+	if !dateFormat.MatchString(date) {
 		return "", fmt.Errorf("the date %q must look like 20261015", date)
 	}
 	if run < 1 {
 		return "", errors.New("the run number starts at 1")
 	}
-	var newest *updates.Version
+	var newest, newestNightly *updates.Version
 	for _, tag := range tags {
 		ch, err := Channel(tag)
-		if err != nil || ch == updates.Nightly {
+		if err != nil {
 			continue
 		}
 		v, _ := updates.ParseVersion(tag)
+		if ch == updates.Nightly {
+			if newestNightly == nil || v.Compare(*newestNightly) > 0 {
+				newestNightly = &v
+			}
+			continue
+		}
 		if newest == nil || v.Compare(*newest) > 0 {
 			newest = &v
 		}
 	}
 	suffix := fmt.Sprintf("nightly.%s.%d", date, run)
+	var name string
 	switch {
 	case newest == nil:
-		return "0.1.0-" + suffix, nil
+		name = "0.1.0-alpha." + suffix
 	case newest.Pre != "":
-		return newest.String() + "." + suffix, nil
+		name = newest.String() + "." + suffix
+	default:
+		name = fmt.Sprintf("%d.%d.0-alpha.%s", newest.Major, newest.Minor+1, suffix)
 	}
-	return fmt.Sprintf("%d.%d.0-%s", newest.Major, newest.Minor+1, suffix), nil
+	if newestNightly == nil {
+		return name, nil
+	}
+	// The newest nightly build's version with this build's day and run.
+	prefix, _, _ := strings.Cut(newestNightly.Pre, "nightly.")
+	continued := fmt.Sprintf("%d.%d.%d-%s%s", newestNightly.Major, newestNightly.Minor, newestNightly.Patch, prefix, suffix)
+	v, _ := updates.ParseVersion(name)
+	if c, _ := updates.ParseVersion(continued); c.Compare(v) > 0 {
+		name, v = continued, c
+	}
+	if v.Compare(*newestNightly) <= 0 {
+		return "", fmt.Errorf("%s wouldn't be newer than the nightly build %s; check the date and the run number", name, newestNightly)
+	}
+	return name, nil
 }
 
 // Previous finds where an upgrade to version starts: the newest release
@@ -116,6 +145,27 @@ func Previous(tags []string, c updates.Channel, version string) (string, error) 
 		}
 	}
 	return best, nil
+}
+
+// Latest reports whether version becomes GitHub's latest release, which
+// releases/latest/download/install.sh serves: a stable release newer than
+// every stable release among tags. A patch to an older release line, such as
+// 1.2.5 after 1.3.0, doesn't.
+func Latest(tags []string, version string) (bool, error) {
+	ch, err := Channel(version)
+	if err != nil || ch != updates.Stable {
+		return false, err
+	}
+	v, _ := updates.ParseVersion(version)
+	for _, tag := range tags {
+		if ch, err := Channel(tag); err != nil || ch != updates.Stable || !strings.HasPrefix(tag, "v") {
+			continue
+		}
+		if other, _ := updates.ParseVersion(tag); other.Compare(v) > 0 {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // artifacts lists the files of a release directory that are checksummed and

@@ -1,11 +1,14 @@
 // Command release does the parts of publishing a release that need to agree
 // with how servers read releases: which channel a version belongs to, what
-// a nightly build is called, which release an upgrade test starts from, the
-// checksums file and the release manifest.
+// a nightly build is called, which release an upgrade test starts from,
+// whether a release becomes GitHub's latest, the checksums file and the
+// release manifest. check-pins compares what the install script trusts with
+// what cosign and Sigstore publish.
 //
 //	go run ./packaging/release channel v1.3.0-beta.1
 //	go run ./packaging/release nightly-version -date 20261015 -run 42
 //	git tag --list 'v*' | go run ./packaging/release previous -version 1.3.0
+//	git tag --list 'v*' | go run ./packaging/release latest -version 1.2.5
 //	go run ./packaging/release checksums -dir dist
 //	go run ./packaging/release manifest -dir dist -tag v1.2.3 -base-url URL
 //	go run ./packaging/release check-pins [-write]
@@ -37,7 +40,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: release channel | nightly-version | previous | checksums | manifest | check-pins")
+		return errors.New("usage: release channel | nightly-version | previous | latest | checksums | manifest | check-pins")
 	}
 	cmd, args := args[0], args[1:]
 	flags := flag.NewFlagSet(cmd, flag.ContinueOnError)
@@ -97,6 +100,25 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		if tag != "" {
 			fmt.Fprintln(stdout, tag)
 		}
+		return nil
+
+	case "latest":
+		version := flags.String("version", "", "the version being released")
+		if err := flags.Parse(args); err != nil {
+			return err
+		}
+		if *version == "" {
+			return errors.New("latest needs -version, and the release tags on its input")
+		}
+		tags, err := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		if err != nil {
+			return err
+		}
+		latest, err := Latest(strings.Fields(string(tags)), *version)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, latest)
 		return nil
 
 	case "checksums":

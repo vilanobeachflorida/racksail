@@ -101,7 +101,7 @@ CI runs every installation every night, and no release is published until server
 | `make catalog` | The official catalog's index, unsigned, into `bin/catalog/` |
 | `make release VERSION=1.2.3` | Everything a release publishes, into `dist/`, unsigned |
 
-Releases are signed and published by CI, never from a laptop: tag `v1.2.3` on `main` and the release workflow builds, signs and publishes it. Pre-releases are tagged `v1.3.0-beta.1` or `v1.3.0-rc.1`, and nightly builds come from `main` every day.
+Releases are signed and published by CI, never from a laptop: tag `v1.2.3` on `main` and the release workflow builds, signs and publishes it. Pre-releases are tagged `v1.3.0-beta.1` or `v1.3.0-rc.1`, and nightly builds come from `main` every day, named to sort between the releases around them, such as `1.3.0-alpha.nightly.20261015.42` before the first beta. A stable release becomes GitHub's latest release, which `releases/latest/download/install.sh` serves, only when it is the newest one, not when it patches an older release line.
 
 ## Where things are
 

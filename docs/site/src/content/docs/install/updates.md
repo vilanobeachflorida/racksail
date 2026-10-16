@@ -11,7 +11,9 @@ Racksail updates itself from the panel. It downloads the new release, checks its
 |---|---|---|
 | Stable | Releases such as `1.4.2` | Servers people depend on |
 | Beta | Betas and release candidates such as `1.5.0-beta.1` and `1.5.0-rc.1`, and stable releases | Trying the next release early |
-| Nightly | A build of every day's changes, such as `1.5.0-nightly.20261015.42`, and everything above | Testing and development |
+| Nightly | A build of every day's changes, such as `1.5.0-alpha.nightly.20261015.42`, and everything above | Testing and development |
+
+Nightly builds are named so that each sorts after everything before it and before the next release: an alpha of the next version, such as `1.5.0-alpha.nightly.20261015.42`, until its first beta, and after a beta or release candidate a build that follows it, such as `1.5.0-rc.1.nightly.20261020.47`. A server on the nightly channel therefore takes each beta, release candidate and release as it comes, and never moves backwards.
 
 A server follows the channel it was installed with. You can change it in **Settings**; a server never moves backwards, so leaving the nightly channel takes effect with the next release that's newer than what's installed.
 
