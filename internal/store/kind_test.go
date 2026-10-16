@@ -89,6 +89,12 @@ func TestDefineRejectsBadDefinitions(t *testing.T) {
 			i.Actions = []Action{{Name: "go", Summary: "x", Risk: RiskLow}, {Name: "go", Summary: "x", Risk: RiskLow}}
 		}, "twice"},
 		{"backup reason", func(i *KindInfo) { i.Backup = Backup{Exclude: true} }, "reason"},
+		{"resource field without a kind", func(i *KindInfo) {
+			i.UI.Fields = map[string]FieldHint{"database": {Widget: "resource"}}
+		}, "names their kind"},
+		{"kind without the resource widget", func(i *KindInfo) {
+			i.UI.Fields = map[string]FieldHint{"database": {Kind: "databases.database"}}
+		}, "doesn't show resources"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

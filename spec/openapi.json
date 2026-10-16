@@ -1191,6 +1191,9 @@
           "createOnly": {
             "type": "boolean"
           },
+          "kind": {
+            "type": "string"
+          },
           "order": {
             "format": "int64",
             "type": "integer"

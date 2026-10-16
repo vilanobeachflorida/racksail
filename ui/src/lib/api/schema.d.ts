@@ -1126,6 +1126,7 @@ export interface components {
         FieldHint: {
             advanced?: boolean;
             createOnly?: boolean;
+            kind?: string;
             /** Format: int64 */
             order?: number;
             placeholder?: string;
