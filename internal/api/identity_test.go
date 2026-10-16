@@ -8,11 +8,14 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
+	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -121,7 +124,7 @@ func TestCrossSiteRequests(t *testing.T) {
 	}
 	// Reads, and programs that send neither header, go through.
 	b.header.Del("Origin")
-	if resp := b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada L."}, nil); resp.StatusCode != http.StatusOK {
+	if resp := b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada L."}, nil); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("a program = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
@@ -239,14 +242,30 @@ func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	if resp := call("POST", "/api/v1/core/accounts/open?dryRun=true", map[string]any{"slug": "acme", "name": "Acme"}); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("a read-only token opening an account = %d", resp.StatusCode)
 	}
-	if resp := call("GET", "/api/v1/users", nil); resp.StatusCode != http.StatusOK {
+	if resp := call("GET", "/api/v1/core/users", nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("a read-only token listing users = %d %s", resp.StatusCode, bodyOf(resp))
 	}
-	if resp := b.do("DELETE", "/api/v1/me/tokens/"+string(created.ID), nil, nil); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("revoke = %d %s", resp.StatusCode, bodyOf(resp))
+	// What only the person in the panel changes stays theirs.
+	if resp := call("PUT", "/api/v1/session/preferences", map[string]any{"mode": "dark"}); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrPanelOnly.Code {
+		t.Errorf("a token changing display preferences = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := call("PUT", "/api/v1/me", map[string]any{"name": "Mallory", "email": "mallory@example.net"}); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("a read-only token changing the profile = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var other identity.CreatedToken
+	b.do("POST", "/api/v1/me/tokens", map[string]any{"name": "deploys"}, &other)
+	if resp := call("DELETE", "/api/v1/me/tokens/"+string(other.ID), nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrPanelOnly.Code {
+		t.Errorf("a token revoking another = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	// A token that leaked can always revoke itself.
+	if resp := call("DELETE", "/api/v1/me/tokens/"+string(created.ID), nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("a token revoking itself = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	if resp := call("GET", "/api/v1/session", nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("a revoked token = %d", resp.StatusCode)
+	}
+	if resp := b.do("DELETE", "/api/v1/me/tokens/"+string(other.ID), nil, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
 
@@ -256,7 +275,7 @@ func TestPendingStepsOverTheAPI(t *testing.T) {
 	s.identity.SetPolicy(identity.PolicySpec{RequireTwoFactor: []auth.Role{auth.RoleAdmin}})
 	fresh := s.browser()
 	fresh.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
-	if resp := fresh.do("GET", "/api/v1/users", nil, nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrTwoFactorRequired.Code {
+	if resp := fresh.do("GET", "/api/v1/core/users", nil, nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrTwoFactorRequired.Code {
 		t.Errorf("before setting up a second step = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	var session Session
@@ -294,21 +313,16 @@ func TestManagingUsersOverTheAPI(t *testing.T) {
 		t.Errorf("the owner's accounts = %+v", session.Accounts)
 	}
 
-	var users struct {
-		Users []identity.UserView `json:"users"`
+	if names := usernames(t, admin); strings.Join(names, ",") != "ada,owen" {
+		t.Errorf("users = %v", names)
 	}
-	admin.do("GET", "/api/v1/users", nil, &users)
-	if len(users.Users) != 2 {
-		t.Errorf("users = %+v", users.Users)
-	}
-	owner.do("GET", "/api/v1/users", nil, &users)
-	if len(users.Users) != 1 || users.Users[0].Username != "owen" {
-		t.Errorf("the owner sees = %+v", users.Users)
+	if names := usernames(t, owner); strings.Join(names, ",") != "owen" {
+		t.Errorf("the owner sees = %v", names)
 	}
 
 	// Viewing the panel as the owner shows the banner's details, and goes
 	// back.
-	if resp := admin.do("POST", "/api/v1/users/"+string(opened.Owner.ID)+"/impersonate", nil, nil); resp.StatusCode != http.StatusNoContent {
+	if resp := admin.do("POST", "/api/v1/core/users/"+string(opened.Owner.ID)+"/impersonate", nil, nil); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("impersonate = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	admin.do("GET", "/api/v1/session", nil, &session)
@@ -430,5 +444,388 @@ func TestCriticalChangesNeedStepUp(t *testing.T) {
 	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
 	if resp := b.do("POST", "/api/v1/changesets/"+preview.ID+"/apply", nil, nil); resp.StatusCode != http.StatusAccepted {
 		t.Errorf("after confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+// userItem is a user as the API lists them.
+type userItem struct {
+	ID       store.ID            `json:"id"`
+	Revision int64               `json:"revision"`
+	Spec     identity.UserSpec   `json:"spec"`
+	Status   identity.UserStatus `json:"status"`
+}
+
+// usernames lists the users a browser sees, by username.
+func usernames(t *testing.T, b *browser) []string {
+	t.Helper()
+	var page struct {
+		Items []userItem `json:"items"`
+	}
+	if resp := b.do("GET", "/api/v1/core/users?sort=username", nil, &page); resp.StatusCode != http.StatusOK {
+		t.Fatalf("users = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var out []string
+	for _, u := range page.Items {
+		out = append(out, u.Spec.Username)
+	}
+	return out
+}
+
+func (b *browser) user(id store.ID) userItem {
+	b.t.Helper()
+	var u userItem
+	if resp := b.do("GET", "/api/v1/core/users/"+string(id), nil, &u); resp.StatusCode != http.StatusOK {
+		b.t.Fatalf("user = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	return u
+}
+
+// changeSet decodes the change set an answer carries.
+func changeSetOf(t *testing.T, resp *http.Response) *changeset.ChangeSet {
+	t.Helper()
+	var cs changeset.ChangeSet
+	if err := json.Unmarshal([]byte(bodyOf(resp)), &cs); err != nil || cs.ID == "" {
+		t.Fatalf("not a change set: %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	return &cs
+}
+
+func TestUsersAreChangesOverTheAPI(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	acct := s.openAccount(admin, "acme")
+	newUser := map[string]any{"scope": map[string]any{"level": "account", "id": acct}, "spec": map[string]any{
+		"username": "bea", "name": "Bea", "grants": []map[string]any{{"role": "readonly", "scope": map[string]any{"level": "account", "id": acct}}},
+	}}
+
+	// Users are core.user resources: changing them needs the person to
+	// confirm it's them, previews them, and goes through change sets.
+	fresh := s.browser()
+	fresh.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	if resp := fresh.do("POST", "/api/v1/core/users", newUser, nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+		t.Errorf("adding a user without confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	resp := admin.do("POST", "/api/v1/core/users?dryRun=true", newUser, nil)
+	preview := changeSetOf(t, resp)
+	if resp.StatusCode != http.StatusOK || !preview.DryRun || preview.Changes[0].Kind != identity.KindUser {
+		t.Fatalf("a preview = %d %+v", resp.StatusCode, preview)
+	}
+	if names := usernames(t, admin); strings.Join(names, ",") != "ada" {
+		t.Errorf("a preview added a user: %v", names)
+	}
+	resp = admin.do("POST", "/api/v1/changesets/"+string(preview.ID)+"/apply", nil, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("applying = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+	bea := preview.Changes[0].ID
+	if u := admin.user(bea); u.Spec.Username != "bea" || u.Status.PasswordSet {
+		t.Errorf("bea = %+v", u)
+	}
+
+	// A change from what someone saw before the user changed is refused.
+	before := admin.user(bea)
+	update := func(rev int64, name string) *http.Response {
+		spec := before.Spec
+		spec.Name = name
+		return admin.do("PUT", "/api/v1/core/users/"+string(bea), map[string]any{"spec": spec, "revision": rev}, nil)
+	}
+	resp = update(before.Revision, "Beatrice")
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("renaming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	renamed := s.finish("admin", changeSetOf(t, resp))
+	if resp := update(before.Revision, "Bee"); resp.StatusCode != http.StatusConflict {
+		t.Errorf("a stale change = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := admin.do("POST", "/api/v1/changesets/"+string(renamed.ID)+"/undo", nil, nil); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("undo = %d %s", resp.StatusCode, bodyOf(resp))
+	} else {
+		s.finish("admin", changeSetOf(t, resp))
+	}
+	if u := admin.user(bea); u.Spec.Name != "Bea" {
+		t.Errorf("after the undo = %+v", u.Spec)
+	}
+	if resp := admin.do("POST", "/api/v1/core/users", newUser, nil); resp.StatusCode != http.StatusConflict || s.problem(resp) != auth.ErrUsernameTaken.Code {
+		t.Errorf("a taken username = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	resp = admin.do("DELETE", "/api/v1/core/users/"+string(bea), nil, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("removing = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+	if names := usernames(t, admin); strings.Join(names, ",") != "ada" {
+		t.Errorf("after removing bea = %v", names)
+	}
+}
+
+// openAccount opens an account through the API and returns it.
+func (s *stack) openAccount(b *browser, slug string) store.ID {
+	s.t.Helper()
+	var opened OpenedAccount
+	if resp := b.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": slug, "name": slug}, &opened); resp.StatusCode != http.StatusAccepted {
+		s.t.Fatalf("opening %s = %d %s", slug, resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", opened.ChangeSet)
+	return opened.ChangeSet.Changes[0].ID
+}
+
+func TestOwnChangesOverTheAPI(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	b := s.setUp()
+	resp := b.do("PUT", "/api/v1/me?dryRun=true", map[string]any{"name": "Ada Lovelace", "email": "ada@example.com"}, nil)
+	if resp.StatusCode != http.StatusOK || !changeSetOf(t, resp).DryRun {
+		t.Fatalf("a preview of a profile change = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	resp = b.do("PUT", "/api/v1/me", map[string]any{"name": "Ada Lovelace", "email": "ada@example.com"}, nil)
+	cs := changeSetOf(t, resp)
+	if cs.Changes[0].Action != "update_profile" || cs.Changes[0].Kind != identity.KindUser {
+		t.Fatalf("a profile change = %+v", cs.Changes)
+	}
+	s.finish("admin", cs)
+	var me identity.Me
+	b.do("GET", "/api/v1/me", nil, &me)
+	if me.Name != "Ada Lovelace" || me.Email != "ada@example.com" {
+		t.Errorf("me = %+v", me.UserView)
+	}
+
+	// Keys need the person to confirm it's them, and keys added at the same
+	// moment all land.
+	if resp := b.do("POST", "/api/v1/me/ssh-keys", map[string]any{"publicKey": testKeys[0]}, nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrStepUpRequired.Code {
+		t.Errorf("a key without confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var wg sync.WaitGroup
+	for _, key := range testKeys {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp := b.do("POST", "/api/v1/me/ssh-keys", map[string]any{"publicKey": key}, nil)
+			if resp.StatusCode != http.StatusAccepted {
+				t.Errorf("adding %s = %d %s", key, resp.StatusCode, bodyOf(resp))
+				return
+			}
+			s.finish("admin", changeSetOf(t, resp))
+		}()
+	}
+	wg.Wait()
+	var keys struct {
+		Keys []identity.SSHKey `json:"keys"`
+	}
+	b.do("GET", "/api/v1/me/ssh-keys", nil, &keys)
+	if len(keys.Keys) != len(testKeys) {
+		t.Fatalf("keys = %+v", keys.Keys)
+	}
+	resp = b.do("DELETE", "/api/v1/me/ssh-keys/"+string(keys.Keys[0].ID), nil, nil)
+	if resp.StatusCode != http.StatusAccepted || changeSetOf(t, resp).Changes[0].Action != "remove_ssh_key" {
+		t.Fatalf("removing a key = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+	b.do("GET", "/api/v1/me/ssh-keys", nil, &keys)
+	if len(keys.Keys) != len(testKeys)-1 {
+		t.Errorf("after removing one = %+v", keys.Keys)
+	}
+}
+
+var testKeys = []string{
+	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFw7LvwMxHf0FpGF5oxM8D5Gd+wMx3sVQyBO9g0R4e7 laptop",
+	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHaSw601QLuAPAILOu5mzYiHEjI06gxucUPArdc/9DHt one",
+	"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID/EzP50WHDiwNmfcfMP8GVsje3UHMHX09N2sNvmheLz two",
+}
+
+func TestSettingPasswordsOverTheAPI(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var opened OpenedAccount
+	admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened)
+	s.finish("admin", opened.ChangeSet)
+	owen := opened.Owner.ID
+
+	resp := admin.do("PUT", "/api/v1/core/users/"+string(owen)+"/password", map[string]any{"password": "chosen by the admin", "mustChange": true}, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("setting a password = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	owner := s.browser()
+	owner.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "owen", "password": "chosen by the admin"}, nil)
+	var session Session
+	owner.do("GET", "/api/v1/session", nil, &session)
+	if session.Pending != identity.PendingPassword {
+		t.Errorf("pending = %q", session.Pending)
+	}
+	if resp := owner.do("GET", "/api/v1/core/users", nil, nil); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("before choosing a password = %d", resp.StatusCode)
+	}
+	if resp := owner.do("PUT", "/api/v1/me/password", map[string]any{"new": "owner's own passphrase"}, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("choosing a password = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var now Session
+	owner.do("GET", "/api/v1/session", nil, &now)
+	if now.Pending != "" || now.User.Username != "owen" {
+		t.Errorf("after choosing a password = %+v", now)
+	}
+	if resp := admin.do("PUT", "/api/v1/core/users/"+string(owen)+"/password", map[string]any{"password": "short"}, nil); resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("a weak password = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	fresh := s.browser()
+	fresh.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	if resp := fresh.do("PUT", "/api/v1/core/users/"+string(owen)+"/password", map[string]any{"mustChange": true}, nil); s.problem(resp) != auth.ErrStepUpRequired.Code {
+		t.Errorf("without confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var me Session
+	admin.do("GET", "/api/v1/session", nil, &me)
+	if resp := admin.do("PUT", "/api/v1/core/users/"+string(me.User.ID)+"/password", map[string]any{"password": "my own new password"}, nil); s.problem(resp) != auth.ErrOwnPassword.Code {
+		t.Errorf("setting your own = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+}
+
+func TestOpeningAnAccountIsOneChange(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	// The owner's username is taken, so the account isn't opened either.
+	resp := admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "ADA"}}, nil)
+	if resp.StatusCode != http.StatusConflict || s.problem(resp) != auth.ErrUsernameTaken.Code {
+		t.Fatalf("an owner whose name is taken = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var accounts struct {
+		Items []map[string]any `json:"items"`
+	}
+	admin.do("GET", "/api/v1/core/accounts", nil, &accounts)
+	if len(accounts.Items) != 0 {
+		t.Errorf("the account was opened without its owner: %+v", accounts.Items)
+	}
+	var opened OpenedAccount
+	if resp := admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("opening = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if len(opened.ChangeSet.Changes) != 2 || opened.ChangeSet.Changes[1].Kind != identity.KindUser {
+		t.Errorf("the account and its owner are one change set: %+v", opened.ChangeSet.Changes)
+	}
+}
+
+func TestSessionsFollowGrantsOverTheAPI(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var opened OpenedAccount
+	admin.do("POST", "/api/v1/core/accounts/open", map[string]any{"slug": "acme", "name": "Acme", "owner": map[string]any{"username": "owen"}}, &opened)
+	s.finish("admin", opened.ChangeSet)
+	owner := s.browser()
+	owner.do("POST", "/api/v1/auth/links/use", map[string]any{"code": opened.Link.Code, "password": "an owner's own passphrase"}, nil)
+	before := owner.cookie(auth.SessionCookie)
+
+	u := admin.user(opened.Owner.ID)
+	spec := u.Spec
+	spec.Grants = []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(opened.ChangeSet.Changes[0].ID)}}
+	resp := admin.do("PUT", "/api/v1/core/users/"+string(u.ID), map[string]any{"spec": spec, "revision": u.Revision}, nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("making owen read-only = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("admin", changeSetOf(t, resp))
+
+	// The owner's next request gets a new session cookie for what he may do
+	// now.
+	var session Session
+	if resp := owner.do("GET", "/api/v1/session", nil, &session); resp.StatusCode != http.StatusOK {
+		t.Fatalf("session = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	after := owner.cookie(auth.SessionCookie)
+	if after == before || after == "" {
+		t.Error("the session kept its cookie after its grants changed")
+	}
+	if strings.Join(session.Permissions, ",") != "*.read" {
+		t.Errorf("permissions = %v", session.Permissions)
+	}
+}
+
+// directory is an outside provider for the API tests: a password one, and
+// a redirect one, as LDAP and OpenID Connect add-ons are.
+type directory struct{ method auth.ProviderMethod }
+
+func (d directory) Method() auth.ProviderMethod { return d.method }
+
+func (directory) CheckPassword(ctx context.Context, username, password string) (*auth.ExternalIdentity, error) {
+	if password != "directory pass" {
+		return nil, auth.ErrBadCredentials.New()
+	}
+	return &auth.ExternalIdentity{Subject: "uid=" + username, Username: username}, nil
+}
+
+func (directory) Begin(ctx context.Context, callback string) (string, []byte, error) {
+	return "https://idp.example/authorize?redirect_uri=" + url.QueryEscape(callback), []byte("nonce"), nil
+}
+
+func (directory) Complete(ctx context.Context, state []byte, callback string, q url.Values) (*auth.ExternalIdentity, error) {
+	if string(state) != "nonce" || q.Get("code") != "good" {
+		return nil, auth.ErrBadCredentials.New()
+	}
+	return &auth.ExternalIdentity{Subject: "sub-1", Username: "ada.sso"}, nil
+}
+
+func (s *stack) connectProvider(name string, method auth.ProviderMethod) store.ID {
+	s.t.Helper()
+	ctx := context.Background()
+	if err := s.hooks.Register(hooks.Registration{
+		Point: hooks.AuthProvider, Kind: hooks.Provide, Owner: "addon:" + name,
+		Provider: &hooks.Provider{Name: name, Title: name, Open: func(context.Context, json.RawMessage) (any, error) { return directory{method}, nil }},
+	}); err != nil {
+		s.t.Fatal(err)
+	}
+	raw, _ := json.Marshal(identity.ProviderSpec{Capability: "identity", Provider: name, Title: "The " + name})
+	r := &store.Resource{Meta: store.Meta{ID: store.NewID("signprov"), Kind: identity.ProviderKind.Name(), Scope: store.ServerScope()}, Spec: raw}
+	if err := s.store.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, r) }); err != nil {
+		s.t.Fatal(err)
+	}
+	return r.ID
+}
+
+func TestLinkingProvidersOverTheAPI(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	b := s.setUp()
+	dir := s.connectProvider("ldap", auth.MethodPassword)
+	sso := s.connectProvider("oidc", auth.MethodRedirect)
+
+	// Linking changes how someone signs in, so it needs them to confirm
+	// it's them.
+	link := map[string]any{"username": "ada.d", "password": "directory pass"}
+	if resp := b.do("POST", "/api/v1/me/links/"+string(dir), link, nil); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("linking without confirming = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	var linked identity.LinkView
+	if resp := b.do("POST", "/api/v1/me/links/"+string(dir), link, &linked); resp.StatusCode != http.StatusOK || linked.Username != "ada.d" {
+		t.Fatalf("linking = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	other := s.browser()
+	var answer SignInAnswer
+	if resp := other.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada.d", "password": "directory pass"}, &answer); !answer.SignedIn {
+		t.Errorf("signing in through the directory = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+
+	// A provider with its own page links through a trip there and back,
+	// which ends in the security settings.
+	var start LinkStart
+	if resp := b.do("POST", "/api/v1/me/links/"+string(sso)+"/start", nil, &start); resp.StatusCode != http.StatusOK || !strings.HasPrefix(start.Location, "https://idp.example/authorize") {
+		t.Fatalf("starting = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	b.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp := b.do("GET", "/api/v1/auth/providers/"+string(sso)+"/callback?code=good", nil, nil)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/settings/security#linked="+string(sso) {
+		t.Fatalf("back from the provider = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	var links struct {
+		Links []identity.LinkView `json:"links"`
+	}
+	b.do("GET", "/api/v1/me/links", nil, &links)
+	if len(links.Links) != 2 {
+		t.Errorf("links = %+v", links.Links)
+	}
+	// What goes wrong on the way back shows there too.
+	b.do("POST", "/api/v1/me/links/"+string(sso)+"/start", nil, &start)
+	resp = b.do("GET", "/api/v1/auth/providers/"+string(sso)+"/callback?code=bad", nil, nil)
+	if !strings.HasPrefix(resp.Header.Get("Location"), "/settings/security#error=") {
+		t.Errorf("a link that failed = %s", resp.Header.Get("Location"))
 	}
 }

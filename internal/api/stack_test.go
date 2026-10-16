@@ -184,7 +184,7 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	}
 	t.Cleanup(func() { db.Close() })
 	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{siteKind, webhook.Kind, account.Kind, identity.PolicyKind, identity.ProviderKind} {
+	for _, k := range []store.Kind{siteKind, webhook.Kind, account.Kind, identity.PolicyKind, identity.ProviderKind, identity.UserKind} {
 		if err := kinds.Register(k); err != nil {
 			t.Fatal(err)
 		}
@@ -273,10 +273,14 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 			Grants: []auth.Grant{{Role: auth.RoleReseller, Scope: store.ResellerScope(s.reseller)}}},
 	}
 	s.identity = identity.New(identity.Options{
-		Store: identity.NewMemory(), Resources: st, Secrets: vault, Events: log, Audit: log,
+		Store: identity.NewMemory(), Resources: st, Pipeline: engine, Refresh: runner.Enqueue, Secrets: vault, Events: log, Audit: log,
 		Hooks: &hooks.Runner{Registry: registry, Events: log}, Authorizer: authz, Hostname: "localhost",
 		Log: slog.New(slog.DiscardHandler),
 	})
+	if err := recs.Register(s.identity.UserReconciler()); err != nil {
+		t.Fatal(err)
+	}
+	go runner.Run(ctx, time.Hour)
 	s.server = New(Options{
 		Auth: testAuth{actors: s.actors, identity: s.identity}, Modules: modules.NewRegistry(), Identity: s.identity, Accounts: s.owners,
 		Services: &modules.Services{
@@ -327,9 +331,11 @@ func (s *stack) call(actor, method, path string, body any, out any, header ...st
 	return resp
 }
 
-// bodyOf reads what call left of a response.
+// bodyOf reads what call left of a response, and leaves it there to be read
+// again.
 func bodyOf(resp *http.Response) string {
 	b, _ := io.ReadAll(resp.Body)
+	resp.Body = io.NopCloser(strings.NewReader(string(b)))
 	return string(b)
 }
 

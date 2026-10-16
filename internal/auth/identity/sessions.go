@@ -2,6 +2,9 @@ package identity
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net"
 	"net/http"
 	"slices"
@@ -86,11 +89,28 @@ func (s *Service) checkAddress(u *User, ip string) error {
 	return nil
 }
 
+// rotationGrace is how long a session's previous secret keeps working
+// after the session got a new one because its user's roles changed, for
+// requests the browser had already sent with it.
+const rotationGrace = 30 * time.Second
+
+// grantsHash identifies a set of grants, so a session knows whether the
+// roles it was issued for are still its user's.
+func grantsHash(grants []auth.Grant) string {
+	raw, err := json.Marshal(grants)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 func (s *Service) authenticateSession(ctx context.Context, secret string, client auth.Client) (*auth.Actor, error) {
 	if !strings.HasPrefix(secret, auth.SessionPrefix) {
 		return nil, auth.ErrSessionExpired.New()
 	}
-	x, err := s.opts.Store.SessionByHash(ctx, auth.HashSecret(secret))
+	hash := auth.HashSecret(secret)
+	x, err := s.opts.Store.SessionByHash(ctx, hash)
 	if store.ErrNotFound.Is(err) {
 		return nil, auth.ErrSessionExpired.New()
 	}
@@ -98,12 +118,17 @@ func (s *Service) authenticateSession(ctx context.Context, secret string, client
 		return nil, err
 	}
 	now := s.now()
+	previous := x.Hash != hash
+	if previous && now.After(x.RotatedAt.Add(rotationGrace)) {
+		return nil, auth.ErrSessionExpired.New()
+	}
 	if now.After(x.ExpiresAt) || now.After(x.LastSeenAt.Add(s.Policy().Idle())) {
 		s.opts.Store.DeleteSession(ctx, x.ID)
 		return nil, auth.ErrSessionExpired.New()
 	}
-	u, err := s.opts.Store.User(ctx, x.User)
+	u, err := s.User(ctx, x.User)
 	if store.ErrNotFound.Is(err) {
+		s.opts.Store.DeleteSession(ctx, x.ID)
 		return nil, auth.ErrSessionExpired.New()
 	}
 	if err != nil {
@@ -128,8 +153,24 @@ func (s *Service) authenticateSession(ctx context.Context, secret string, client
 			return nil, auth.ErrSessionExpired.New()
 		}
 		actor.Impersonator = x.Impersonator
+		if by, err := s.User(ctx, x.Impersonator); err == nil {
+			actor.ImpersonatorName = by.Username
+		}
 		// Confirming it's them is the impersonator's, from their session.
 		actor.SteppedUpAt = parent.SteppedUpAt
+	}
+	if current := grantsHash(u.Grants); !previous && x.GrantsHash != current {
+		// What the session may do changed since its secret was issued, so
+		// it gets a new one, which the answer sets as its cookie.
+		next := auth.NewSecret(auth.SessionPrefix)
+		x.PreviousHash, x.Hash, x.RotatedAt, x.GrantsHash = x.Hash, auth.HashSecret(next), now, current
+		x.LastSeenAt, x.IP = now, client.IP
+		if err := s.opts.Store.UpdateSession(ctx, x); err != nil {
+			return nil, err
+		}
+		s.touched.Store(string(x.ID), now)
+		reissue(ctx, &Issued{Secret: next, Session: x})
+		return actor, nil
 	}
 	if s.due(string(x.ID), now) || x.IP != client.IP {
 		x.LastSeenAt, x.IP = now, client.IP
@@ -138,6 +179,27 @@ func (s *Service) authenticateSession(ctx context.Context, secret string, client
 		}
 	}
 	return actor, nil
+}
+
+type reissueKey struct{}
+
+// Reissue is where Authenticate leaves the new secret it gave a session,
+// for the answer to the request to set as the session's cookie.
+type Reissue struct {
+	Issued *Issued
+}
+
+// WithReissue returns a context Authenticate leaves a session's new
+// secret in, when it gives the session one.
+func WithReissue(ctx context.Context) (context.Context, *Reissue) {
+	r := &Reissue{}
+	return context.WithValue(ctx, reissueKey{}, r), r
+}
+
+func reissue(ctx context.Context, issued *Issued) {
+	if r, ok := ctx.Value(reissueKey{}).(*Reissue); ok {
+		r.Issued = issued
+	}
 }
 
 // due reports whether a session or token was last written as used long
@@ -171,7 +233,7 @@ func (s *Service) authenticateToken(ctx context.Context, secret string, client a
 	if t.Expired(now) {
 		return nil, auth.ErrTokenInvalid.New()
 	}
-	u, err := s.opts.Store.User(ctx, t.User)
+	u, err := s.User(ctx, t.User)
 	if store.ErrNotFound.Is(err) {
 		return nil, auth.ErrTokenInvalid.New()
 	}
@@ -201,7 +263,7 @@ func (s *Service) authenticateToken(ctx context.Context, secret string, client a
 			s.opts.Log.Warn("recording a token's use", "token", t.ID, "error", err)
 		}
 	}
-	return &auth.Actor{Type: auth.ActorToken, ID: t.ID, Name: t.Name, User: u.ID, Source: source, IP: client.IP, Grants: grants}, nil
+	return &auth.Actor{Type: auth.ActorToken, ID: t.ID, Name: t.Name, User: u.ID, UserName: u.Username, Source: source, IP: client.IP, Grants: grants}, nil
 }
 
 // tokenGrants narrows a user's grants to what a token may do: its
@@ -268,8 +330,8 @@ func (s *Service) issue(ctx context.Context, u *User, method, secondFactor strin
 	now := s.now()
 	secret := auth.NewSecret(auth.SessionPrefix)
 	x := &Session{
-		ID: store.NewID(PrefixSession), User: u.ID, Hash: auth.HashSecret(secret), CreatedAt: now, LastSeenAt: now,
-		ExpiresAt: now.Add(p.Lifetime()), IP: client.IP, UserAgent: truncate(client.UserAgent, 512), Method: method,
+		ID: store.NewID(PrefixSession), User: u.ID, Hash: auth.HashSecret(secret), GrantsHash: grantsHash(u.Grants), CreatedAt: now,
+		LastSeenAt: now, ExpiresAt: now.Add(p.Lifetime()), IP: client.IP, UserAgent: truncate(client.UserAgent, 512), Method: method,
 		SecondFactor: secondFactor, Persistent: persistent,
 	}
 	x.Pending = s.pendingFor(ctx, u, s.secondFactors(ctx, u))
@@ -324,7 +386,7 @@ func (s *Service) SignOut(ctx context.Context, actor *auth.Actor) error {
 }
 
 func (s *Service) homeOf(ctx context.Context, user store.ID) store.Scope {
-	if u, err := s.opts.Store.User(ctx, user); err == nil {
+	if u, err := s.User(ctx, user); err == nil {
 		return u.Home
 	}
 	return store.ServerScope()
@@ -363,7 +425,8 @@ func (s *Service) EndMySession(ctx context.Context, actor *auth.Actor, id store.
 	if err := s.opts.Store.DeleteSession(ctx, id); err != nil {
 		return err
 	}
-	u, err := s.opts.Store.User(ctx, x.User)
+	s.touched.Delete(string(id))
+	u, err := s.User(ctx, x.User)
 	if err == nil {
 		s.audit(ctx, actor, "core.session.end", u.ID, u.Home, events.OutcomeSuccess, "", "End a session of "+u.Username+" on "+DescribeAgent(x.UserAgent))
 		s.publish(ctx, SessionsEnded, u, actor, "A session of "+u.Username+" was ended.", UserEvent{Username: u.Username, Detail: "1", Device: DescribeAgent(x.UserAgent), IP: x.IP})
@@ -379,7 +442,7 @@ func (s *Service) EndOtherSessions(ctx context.Context, actor *auth.Actor) (int,
 	if actor.Impersonator != "" {
 		return 0, auth.ErrImpersonating.New("user", actor.Name, "action", "sign them out elsewhere")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return 0, err
 	}

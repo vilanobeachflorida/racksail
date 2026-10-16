@@ -53,8 +53,8 @@ func (oc *opCommand) completeArgs(cmd *cobra.Command, args []string, toComplete 
 }
 
 // listFor finds the operation that lists what the nth argument names: the
-// GET of the path up to that argument, such as /api/v1/users for the user
-// in /api/v1/users/{id}/tokens/{token}.
+// GET of the path up to that argument, such as /api/v1/core/users for the
+// user in /api/v1/core/users/{id}/tokens/{token}.
 func (oc *opCommand) listFor(n int) *Operation {
 	params := oc.op.PathParams()
 	marker := "/{" + params[n].Name + "}"
@@ -106,7 +106,7 @@ func candidates(raw []byte, param, prefix string) []string {
 			}
 		}
 		if spec, ok := o.get("spec").(*object); ok && label == "" {
-			for _, k := range []string{"name", "title", "slug", "domain", "url"} {
+			for _, k := range []string{"name", "username", "title", "slug", "domain", "url"} {
 				if text, ok := spec.get(k).(string); ok && text != "" {
 					label = text
 					break

@@ -51,12 +51,14 @@ function Details({ me }: { me: Me }) {
     setError(null);
     try {
       const chosen = locale === browser ? "" : locale;
-      const updated = await updateMe(api, {
+      // The profile changes through a change set of the person's own user,
+      // which is in place once it's answered.
+      await updateMe(api, {
         name: name.trim(),
         email: email.trim(),
         locale: chosen,
       });
-      client.setQueryData(["me"], updated);
+      await client.invalidateQueries({ queryKey: ["me"] });
       setLocaleChoice(chosen === "" ? null : chosen);
       await refresh();
       toast.success(intl.formatMessage(t.profileSaved));

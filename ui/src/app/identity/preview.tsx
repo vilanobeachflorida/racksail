@@ -20,15 +20,18 @@ const kinds: Record<string, typeof t.kindAccount> = {
   "core.account": t.kindAccount,
   "core.signin_policy": t.kindSigninPolicy,
   "core.signin_provider": t.kindSigninProvider,
+  "core.user": t.kindUser,
 };
 
 /**
- * What a critical change asks people to type: an account's short name,
- * a provider's title, or the resource's ID.
+ * What a critical change asks people to type: an account's short name, a
+ * user's username, a provider's title, or the resource's ID.
  */
-function resourceName(change: { id: string; before?: unknown; after?: unknown }): string {
-  const spec = (change.before ?? change.after) as { slug?: string; title?: string } | undefined;
-  return spec?.slug ?? spec?.title ?? change.id;
+export function resourceName(change: { id: string; before?: unknown; after?: unknown }): string {
+  const spec = (change.before ?? change.after) as
+    | { slug?: string; username?: string; title?: string }
+    | undefined;
+  return spec?.slug ?? spec?.username ?? spec?.title ?? change.id;
 }
 
 /**

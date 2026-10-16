@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -145,11 +148,12 @@ func readToken(cmd *cobra.Command, server string, fromStdin bool) (string, error
 }
 
 func newLogoutCommand(opts *Options) *cobra.Command {
+	var revoke bool
 	cmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Forget a profile and its API token",
 		Long: "Removes the current profile, or the one --profile names, with its API token. The token itself still works until it expires " +
-			"or someone revokes it in the panel, under Your account, API tokens.",
+			"or someone revokes it in the panel, under Your account, API tokens, unless --revoke revokes it first.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			profiles, err := LoadProfiles()
@@ -167,6 +171,12 @@ func newLogoutCommand(opts *Options) *cobra.Command {
 				}
 				return fmt.Errorf("there's no profile called %s; racksail profile list shows them", name)
 			}
+			still := "Its token still works until it expires or someone revokes it in the panel."
+			if revoke {
+				if still, err = revokeToken(cmd, name, prof); err != nil {
+					return err
+				}
+			}
 			delete(profiles.Profiles, name)
 			if profiles.Current == name {
 				profiles.Current = ""
@@ -174,13 +184,41 @@ func newLogoutCommand(opts *Options) *cobra.Command {
 			if err := profiles.Save(); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed the profile %s for %s. Its token still works until it expires or someone revokes it in the panel.\n", name, prof.Server)
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed the profile %s for %s. %s\n", name, prof.Server, still)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&opts.Profile, "profile", "", "profile to remove instead of the current one")
+	cmd.Flags().BoolVar(&revoke, "revoke", false, "revoke the profile's API token first, so it stops working everywhere")
 	cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
 	return cmd
+}
+
+// revokeToken has a profile's token revoke itself, and says how that went
+// for the message that follows. A token the panel no longer takes needs
+// nothing more.
+func revokeToken(cmd *cobra.Command, name string, prof *Profile) (string, error) {
+	c, err := NewClient(prof.Server, prof.Token, prof.CAFile, name)
+	if err != nil {
+		return "", err
+	}
+	var session api.Session
+	if _, err := c.Get(cmd.Context(), api.Prefix+"/session", &session); err != nil {
+		var p *Problem
+		if errors.As(err, &p) && p.Status == http.StatusUnauthorized {
+			return "Its token no longer worked.", nil
+		}
+		return "", fmt.Errorf("the token couldn't be revoked, so the profile is kept: %w", err)
+	}
+	if session.Token == nil {
+		return "", fmt.Errorf("%s didn't take the profile's token as an API token, so the profile is kept", prof.Server)
+	}
+	resp, err := c.Do(cmd.Context(), Request{Method: http.MethodDelete, Path: api.Prefix + "/me/tokens/" + url.PathEscape(string(session.Token.ID))})
+	if err != nil {
+		return "", fmt.Errorf("the token couldn't be revoked, so the profile is kept: %w", err)
+	}
+	resp.Body.Close()
+	return "Its token " + strconv.Quote(session.Token.Name) + " was revoked.", nil
 }
 
 func newWhoamiCommand(opts *Options) *cobra.Command {

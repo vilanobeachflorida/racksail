@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
-	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -34,161 +33,136 @@ func stores(t *testing.T, test func(t *testing.T, s Store)) {
 
 var epoch = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
-func newUser(name string, home store.Scope, grants ...auth.Grant) *User {
-	if grants == nil {
-		grants = []auth.Grant{}
-	}
-	return &User{
-		ID: store.NewID(PrefixUser), Username: name, Name: "Person " + name, Email: name + "@example.test", Home: home, Grants: grants,
-		CreatedAt: epoch, UpdatedAt: epoch,
-	}
-}
-
-func TestUsers(t *testing.T) {
+func TestCredentials(t *testing.T) {
 	stores(t, func(t *testing.T, s Store) {
 		ctx := context.Background()
-		acct, other := store.NewID("acct"), store.NewID("acct")
-		admin := newUser("ada", store.ServerScope(), auth.Grant{Role: auth.RoleAdmin, Scope: store.ServerScope()})
-		owner := newUser("bob", store.AccountScope(acct), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(acct)})
-		helper := newUser("cy", store.AccountScope(acct), auth.Grant{Role: auth.RoleCollaborator, Scope: store.AccountScope(acct), Object: store.NewID("site"), Permissions: []auth.Permission{"web.site.deploy"}})
-		stranger := newUser("dee", store.AccountScope(other), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(other)})
-		for _, u := range []*User{helper, admin, stranger, owner} {
-			if err := s.CreateUser(ctx, u); err != nil {
-				t.Fatal(err)
-			}
+		ada, bob := store.NewID(PrefixUser), store.NewID(PrefixUser)
+		if _, err := s.Credentials(ctx, ada); !store.ErrNotFound.Is(err) {
+			t.Errorf("credentials of nobody yet = %v", err)
 		}
-		if n, _ := s.CountUsers(ctx); n != 4 {
-			t.Errorf("count = %d", n)
-		}
-		dup := newUser("bob", store.ServerScope())
-		if err := s.CreateUser(ctx, dup); !auth.ErrUsernameTaken.Is(err) {
-			t.Errorf("duplicate username = %v", err)
-		}
-
-		got, err := s.UserByName(ctx, "BOB")
-		if err != nil || got.ID != owner.ID || got.Grants[0].Role != auth.RoleOwner || got.Revision != 1 || got.AllowFrom == nil {
-			t.Fatalf("by name = %+v, %v", got, err)
-		}
-		got, _ = s.User(ctx, helper.ID)
-		if got.Grants[0].Object != helper.Grants[0].Object || got.Grants[0].Permissions[0] != "web.site.deploy" {
-			t.Errorf("grants = %+v", got.Grants)
-		}
-		if _, err := s.User(ctx, store.NewID(PrefixUser)); !store.ErrNotFound.Is(err) {
-			t.Errorf("missing user = %v", err)
-		}
-
-		names := func(us []*User) (out []string) {
-			for _, u := range us {
-				out = append(out, u.Username)
-			}
-			return out
-		}
-		all, next, err := s.ListUsers(ctx, UserQuery{})
-		if err != nil || next != "" || len(all) != 4 || all[0].Username != "ada" {
-			t.Errorf("all = %v %q %v", names(all), next, err)
-		}
-		page, next, _ := s.ListUsers(ctx, UserQuery{Limit: 3})
-		rest, last, _ := s.ListUsers(ctx, UserQuery{Limit: 3, Cursor: next})
-		if len(page) != 3 || next == "" || len(rest) != 1 || rest[0].Username != "dee" || last != "" {
-			t.Errorf("pages = %v %v", names(page), names(rest))
-		}
-		inAcct, _, _ := s.ListUsers(ctx, UserQuery{Homes: []store.Scope{store.AccountScope(acct)}})
-		if len(inAcct) != 2 {
-			t.Errorf("homes = %v", names(inAcct))
-		}
-		if none, _, _ := s.ListUsers(ctx, UserQuery{Homes: []store.Scope{}}); len(none) != 0 {
-			t.Errorf("no homes = %v", names(none))
-		}
-		granted, _, _ := s.ListUsers(ctx, UserQuery{Grant: ptr(store.AccountScope(acct))})
-		if len(granted) != 2 {
-			t.Errorf("grant = %v", names(granted))
-		}
-		admins, _, _ := s.ListUsers(ctx, UserQuery{Role: auth.RoleAdmin})
-		if len(admins) != 1 || admins[0].ID != admin.ID {
-			t.Errorf("admins = %v", names(admins))
-		}
-		found, _, _ := s.ListUsers(ctx, UserQuery{Search: "PERSON D"})
-		if len(found) != 1 || found[0].Username != "dee" {
-			t.Errorf("search = %v", names(found))
-		}
-		if pct, _, _ := s.ListUsers(ctx, UserQuery{Search: "%"}); len(pct) != 0 {
-			t.Errorf("search for %% = %v", names(pct))
-		}
-
-		// Updates replace details and grants, guarded by the revision.
-		edit, _ := s.User(ctx, owner.ID)
-		edit.Name, edit.Disabled, edit.Grants = "Robert", true, []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(acct)}}
-		edit.AllowFrom, edit.Preferences, edit.Locale = []string{"192.0.2.0/24"}, json.RawMessage(`{"mode":"dark"}`), "de"
-		if err := s.UpdateUser(ctx, edit, 1); err != nil || edit.Revision != 2 {
-			t.Fatalf("update = %v, revision %d", err, edit.Revision)
-		}
-		if err := s.UpdateUser(ctx, edit, 1); !i18n.ErrConflict.Is(err) {
-			t.Errorf("stale update = %v", err)
-		}
-		got, _ = s.User(ctx, owner.ID)
-		if got.Name != "Robert" || !got.Disabled || got.Grants[0].Role != auth.RoleReadOnly || got.Locale != "de" ||
-			string(got.Preferences) != `{"mode":"dark"}` || got.AllowFrom[0] != "192.0.2.0/24" || got.Revision != 2 {
-			t.Errorf("updated = %+v", got)
-		}
-		if owners, _, _ := s.ListUsers(ctx, UserQuery{Role: auth.RoleOwner}); len(owners) != 1 {
-			t.Errorf("grants follow updates: %v", names(owners))
-		}
-		edit.Username = "ada"
-		if err := s.UpdateUser(ctx, edit, 0); !auth.ErrUsernameTaken.Is(err) {
-			t.Errorf("renaming onto another = %v", err)
-		}
-
-		// Credentials change on their own, without touching the revision.
-		if err := s.SetPassword(ctx, admin.ID, "$argon2id$x", true, epoch); err != nil {
+		// Writing anything of a user's makes their record.
+		if err := s.SetPassword(ctx, ada, "$argon2id$x", true, epoch); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetTOTP(ctx, admin.ID, true, 10); err != nil {
+		if err := s.SetPreferences(ctx, bob, json.RawMessage(`{"mode":"dark"}`)); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.UseTOTPStep(ctx, admin.ID, 10); !errors.Is(err, ErrStepUsed) {
+		if users, _ := s.Users(ctx); len(users) != 2 || users[ada].IsZero() {
+			t.Errorf("users = %v", users)
+		}
+		if err := s.SetTOTP(ctx, ada, true, 10); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.UseTOTPStep(ctx, ada, 10); !errors.Is(err, ErrStepUsed) {
 			t.Errorf("a used step = %v", err)
 		}
-		if err := s.UseTOTPStep(ctx, admin.ID, 11); err != nil {
+		if err := s.UseTOTPStep(ctx, ada, 9); !errors.Is(err, ErrStepUsed) {
+			t.Errorf("an earlier step = %v", err)
+		}
+		if err := s.UseTOTPStep(ctx, ada, 11); err != nil {
 			t.Errorf("a new step = %v", err)
 		}
-		locked := epoch.Add(time.Hour)
-		if err := s.RecordSignIn(ctx, admin.ID, 3, locked, time.Time{}, ""); err != nil {
+		if err := s.SetAlertChannel(ctx, ada, "provider:memo"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.RecordSignIn(ctx, admin.ID, 0, time.Time{}, epoch, "192.0.2.7"); err != nil {
+		if err := s.SetSSHKeysSeen(ctx, ada, []string{"SHA256:a", "SHA256:b"}); err != nil {
 			t.Fatal(err)
 		}
-		got, _ = s.User(ctx, admin.ID)
-		if got.PasswordHash != "$argon2id$x" || !got.MustChangePassword || !got.PasswordChangedAt.Equal(epoch) || !got.TOTP || got.TOTPStep != 11 ||
-			got.FailedSignIns != 0 || !got.LockedUntil.IsZero() || !got.LastSignInAt.Equal(epoch) || got.LastSignInIP != "192.0.2.7" || got.Revision != 1 {
-			t.Errorf("credentials = %+v", got)
-		}
-		got.Name = "Ada L."
-		if err := s.UpdateUser(ctx, got, got.Revision); err != nil {
+		if err := s.RecordSignIn(ctx, ada, epoch.Add(time.Minute), "192.0.2.7"); err != nil {
 			t.Fatal(err)
 		}
-		if again, _ := s.User(ctx, admin.ID); again.PasswordHash != "$argon2id$x" || !again.TOTP {
-			t.Error("updating details kept the credentials")
+		c, err := s.Credentials(ctx, ada)
+		if err != nil || c.PasswordHash != "$argon2id$x" || !c.MustChangePassword || !c.PasswordChangedAt.Equal(epoch) || !c.TOTP || c.TOTPStep != 11 ||
+			c.AlertChannel != "provider:memo" || len(c.SSHKeysSeen) != 2 || !c.LastSignInAt.Equal(epoch.Add(time.Minute)) || c.LastSignInIP != "192.0.2.7" {
+			t.Errorf("credentials = %+v, %v", c, err)
+		}
+		if err := s.SetMustChangePassword(ctx, ada, false); err != nil {
+			t.Fatal(err)
+		}
+		if c, _ := s.Credentials(ctx, ada); c.MustChangePassword || c.PasswordHash != "$argon2id$x" {
+			t.Errorf("only must-change changed: %+v", c)
+		}
+		if c, _ := s.Credentials(ctx, bob); string(c.Preferences) != `{"mode":"dark"}` || c.PasswordHash != "" {
+			t.Errorf("bob = %+v", c)
 		}
 
-		if err := s.DeleteUser(ctx, stranger.ID); err != nil {
+		if err := s.DeleteUser(ctx, bob); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.DeleteUser(ctx, stranger.ID); !store.ErrNotFound.Is(err) {
-			t.Errorf("deleting twice = %v", err)
+		if _, err := s.Credentials(ctx, bob); !store.ErrNotFound.Is(err) {
+			t.Errorf("after deleting = %v", err)
+		}
+		if err := s.DeleteUser(ctx, bob); err != nil {
+			t.Errorf("deleting what isn't there = %v", err)
 		}
 	})
 }
 
-func ptr[T any](v T) *T { return &v }
+func TestLockouts(t *testing.T) {
+	stores(t, func(t *testing.T, s Store) {
+		ctx := context.Background()
+		u := store.NewID(PrefixUser)
+		for i := 1; i < 3; i++ {
+			if locked, _, err := s.RecordFailure(ctx, u, 3, time.Hour, epoch); err != nil || locked {
+				t.Fatalf("failure %d = %v, %v", i, locked, err)
+			}
+		}
+		locked, until, err := s.RecordFailure(ctx, u, 3, time.Hour, epoch.Add(time.Minute))
+		if err != nil || !locked || !until.Equal(epoch.Add(time.Hour+time.Minute)) {
+			t.Fatalf("the third failure = %v, %v, %v", locked, until, err)
+		}
+		// Failures while locked out neither count nor push the end back.
+		if locked, until, _ := s.RecordFailure(ctx, u, 3, time.Hour, epoch.Add(30*time.Minute)); locked || !until.Equal(epoch.Add(time.Hour+time.Minute)) {
+			t.Errorf("a failure during the lockout = %v, %v", locked, until)
+		}
+		c, _ := s.Credentials(ctx, u)
+		if c.FailedSignIns != 0 || !c.LockedUntil.Equal(epoch.Add(time.Hour+time.Minute)) {
+			t.Errorf("credentials = %+v", c)
+		}
+		if err := s.Unlock(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+		if c, _ := s.Credentials(ctx, u); !c.LockedUntil.IsZero() || c.FailedSignIns != 0 {
+			t.Errorf("unlocked = %+v", c)
+		}
+		s.RecordFailure(ctx, u, 3, time.Hour, epoch.Add(2*time.Hour))
+		if err := s.RecordSignIn(ctx, u, epoch.Add(2*time.Hour), "192.0.2.1"); err != nil {
+			t.Fatal(err)
+		}
+		if c, _ := s.Credentials(ctx, u); c.FailedSignIns != 0 {
+			t.Errorf("a sign-in clears the failures: %+v", c)
+		}
+
+		// Failures at the same moment each count, and one locks out.
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		lockouts := 0
+		for range 12 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				locked, _, err := s.RecordFailure(ctx, u, 5, time.Hour, epoch.Add(3*time.Hour))
+				if err != nil {
+					t.Error(err)
+				}
+				if locked {
+					mu.Lock()
+					lockouts++
+					mu.Unlock()
+				}
+			}()
+		}
+		wg.Wait()
+		if lockouts != 1 {
+			t.Errorf("%d failures at once locked out %d times", 12, lockouts)
+		}
+	})
+}
 
 func TestCredentialsAndSessions(t *testing.T) {
 	stores(t, func(t *testing.T, s Store) {
 		ctx := context.Background()
-		u := newUser("eve", store.ServerScope())
-		if err := s.CreateUser(ctx, u); err != nil {
-			t.Fatal(err)
-		}
+		u := &User{ID: store.NewID(PrefixUser)}
 
 		if err := s.ReplaceRecoveryCodes(ctx, u.ID, []string{"a", "b", "c"}); err != nil {
 			t.Fatal(err)
@@ -243,9 +217,21 @@ func TestCredentialsAndSessions(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.SessionByHash(ctx, "h1"); !store.ErrNotFound.Is(err) {
-			t.Error("a rotated session's old hash finds nothing")
+			t.Error("a session's replaced hash finds nothing")
 		}
-		got, err := s.SessionByHash(ctx, "h3")
+		// A session given a new secret for new grants is still found by the
+		// one before, for requests already on their way.
+		sess.PreviousHash, sess.Hash, sess.RotatedAt, sess.GrantsHash = "h3", "h4", epoch.Add(3*time.Minute), "g2"
+		if err := s.UpdateSession(ctx, sess); err != nil {
+			t.Fatal(err)
+		}
+		for _, hash := range []string{"h3", "h4"} {
+			if got, err := s.SessionByHash(ctx, hash); err != nil || got.ID != sess.ID || got.Hash != "h4" || got.PreviousHash != "h3" ||
+				got.GrantsHash != "g2" || !got.RotatedAt.Equal(epoch.Add(3*time.Minute)) {
+				t.Errorf("by %s = %+v, %v", hash, got, err)
+			}
+		}
+		got, err := s.SessionByHash(ctx, "h4")
 		if err != nil || got.ID != sess.ID || got.Method != "password" || got.SecondFactor != "totp" || !got.Persistent || got.Pending != PendingPassword ||
 			!got.SteppedUpAt.Equal(epoch.Add(time.Second)) {
 			t.Errorf("session = %+v, %v", got, err)
@@ -317,22 +303,6 @@ func TestCredentialsAndSessions(t *testing.T) {
 			t.Errorf("revoked %d", n)
 		}
 
-		key := &SSHKey{ID: store.NewID(PrefixSSHKey), User: u.ID, Name: "laptop", Type: "ssh-ed25519", Fingerprint: "SHA256:abc", PublicKey: "ssh-ed25519 AAAA", CreatedAt: epoch}
-		if err := s.AddSSHKey(ctx, key); err != nil {
-			t.Fatal(err)
-		}
-		again := *key
-		again.ID, again.Name = store.NewID(PrefixSSHKey), "copy"
-		if err := s.AddSSHKey(ctx, &again); !auth.ErrSSHKeyExists.Is(err) || !strings.Contains(err.Error(), "laptop") {
-			t.Errorf("the same key twice = %v", err)
-		}
-		if keys, _ := s.SSHKeys(ctx, u.ID); len(keys) != 1 || keys[0].Fingerprint != "SHA256:abc" {
-			t.Errorf("keys = %v", keys)
-		}
-		if err := s.DeleteSSHKey(ctx, u.ID, key.ID); err != nil {
-			t.Fatal(err)
-		}
-
 		inv := &Invite{ID: store.NewID(PrefixInvite), User: u.ID, Hash: "i1", Purpose: InviteReset, CreatedAt: epoch, ExpiresAt: epoch.Add(time.Hour)}
 		if err := s.CreateInvite(ctx, inv); err != nil {
 			t.Fatal(err)
@@ -347,20 +317,26 @@ func TestCredentialsAndSessions(t *testing.T) {
 			t.Errorf("a link works once: %v", err)
 		}
 
-		provider := store.NewID("idp")
+		provider := store.NewID("signprov")
 		if err := s.LinkIdentity(ctx, &Link{User: u.ID, Provider: provider, Subject: "uid=eve", Username: "eve", LinkedAt: epoch}); err != nil {
 			t.Fatal(err)
 		}
-		if got, err := s.UserByIdentity(ctx, provider, "uid=eve"); err != nil || got.ID != u.ID {
+		if got, err := s.LinkedUser(ctx, provider, "uid=eve"); err != nil || got != u.ID {
 			t.Errorf("by identity = %v, %v", got, err)
 		}
-		someone := newUser("fay", store.ServerScope())
-		s.CreateUser(ctx, someone)
-		if err := s.LinkIdentity(ctx, &Link{User: someone.ID, Provider: provider, Subject: "uid=eve", LinkedAt: epoch}); err == nil {
-			t.Error("an identity links to one user")
+		someone := store.NewID(PrefixUser)
+		if err := s.LinkIdentity(ctx, &Link{User: someone, Provider: provider, Subject: "uid=eve", LinkedAt: epoch}); !auth.ErrIdentityTaken.Is(err) {
+			t.Errorf("an identity links to one user: %v", err)
 		}
-		if links, _ := s.Links(ctx, u.ID); len(links) != 1 {
+		// Linking again replaces the user's link to the provider.
+		if err := s.LinkIdentity(ctx, &Link{User: u.ID, Provider: provider, Subject: "uid=eve2", Username: "eve2", LinkedAt: epoch}); err != nil {
+			t.Fatal(err)
+		}
+		if links, _ := s.Links(ctx, u.ID); len(links) != 1 || links[0].Subject != "uid=eve2" {
 			t.Errorf("links = %v", links)
+		}
+		if _, err := s.LinkedUser(ctx, provider, "uid=eve"); !store.ErrNotFound.Is(err) {
+			t.Errorf("the replaced link = %v", err)
 		}
 		if err := s.UnlinkIdentity(ctx, u.ID, provider); err != nil {
 			t.Fatal(err)

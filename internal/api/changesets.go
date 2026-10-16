@@ -232,6 +232,9 @@ func (s *Server) registerChangeSets() {
 			if err := s.stepUpFor(actor, s.requestRisk(in.Body.Changes)); err != nil {
 				return nil, err
 			}
+			if err := s.stepUpForKinds(actor, s.requestConfirms(in.Body.Changes)); err != nil {
+				return nil, err
+			}
 		}
 		return Submit(ctx, p, in.ChangeParams, changeset.Request{Title: in.Body.Title, Changes: in.Body.Changes})
 	})
@@ -257,6 +260,9 @@ func (s *Server) registerChangeSets() {
 			return nil, err
 		}
 		if err := s.stepUpFor(actor, preview.Risk); err != nil {
+			return nil, err
+		}
+		if err := s.stepUpForKinds(actor, s.changeSetConfirms(preview)); err != nil {
 			return nil, err
 		}
 		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, IdempotencyKey: in.IdempotencyKey})
@@ -289,6 +295,9 @@ func (s *Server) registerChangeSets() {
 		}
 		if !in.DryRun {
 			if err := s.stepUpFor(actor, s.undoRisk(original)); err != nil {
+				return nil, err
+			}
+			if err := s.stepUpForKinds(actor, s.changeSetConfirms(original)); err != nil {
 				return nil, err
 			}
 		}

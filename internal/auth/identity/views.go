@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -12,8 +13,8 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// UserView is a user as the API shows them: never their password or
-// secrets.
+// UserView is a user as the API shows them to themselves: who they are,
+// what they may do and how they sign in, never their secrets.
 type UserView struct {
 	ID       store.ID     `json:"id"`
 	Username string       `json:"username"`
@@ -33,7 +34,7 @@ type UserView struct {
 	LastSignInIP       string     `json:"lastSignInIp,omitempty"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
-	Revision           int64      `json:"revision" doc:"Send it back with changes, so nobody's changes are lost"`
+	Revision           int64      `json:"revision" doc:"The revision of the user's settings"`
 }
 
 func timePtr(t time.Time) *time.Time {
@@ -61,6 +62,16 @@ func (s *Service) view(u *User, twoFactor bool) UserView {
 		v.Grants = []auth.Grant{}
 	}
 	return v
+}
+
+// UserView returns a user as the API shows them, for operations that found
+// the caller may see them already.
+func (s *Service) UserView(ctx context.Context, id store.ID) (UserView, error) {
+	u, err := s.User(ctx, id)
+	if err != nil {
+		return UserView{}, err
+	}
+	return s.view(u, s.hasTwoFactor(ctx, u)), nil
 }
 
 // SessionView is a session as its user sees it.

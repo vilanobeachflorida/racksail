@@ -113,7 +113,17 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		"secrets": secrets,
 	}
 	required := []string{"spec"}
-	if info.Scope != store.ScopeServer {
+	switch {
+	case len(info.Levels) > 0:
+		levels := append([]string{string(info.Scope)}, levelNames(info.Levels)...)
+		description := "Where it belongs: the " + strings.Join(levels[:len(levels)-1], ", the ") + " or the " + levels[len(levels)-1]
+		if info.Scope == store.ScopeServer {
+			description += "; the server when left out"
+		} else {
+			required = append(required, "scope")
+		}
+		createProps["scope"] = &huma.Schema{AllOf: []*huma.Schema{s.schemaOf(reflect.TypeFor[store.Scope](), "Scope")}, Description: description}
+	case info.Scope != store.ScopeServer:
 		createProps["scope"] = s.schemaOf(reflect.TypeFor[store.Scope](), "Scope")
 		createProps["scope"] = &huma.Schema{AllOf: []*huma.Schema{createProps["scope"]}, Description: "The " + string(info.Scope) + " it belongs to"}
 		required = append(required, "scope")
@@ -220,4 +230,12 @@ func standaloneIn(reg huma.Registry, schema *huma.Schema) (json.RawMessage, erro
 		return nil, err
 	}
 	return bytes.ReplaceAll(out, []byte(`"#/components/schemas/`), []byte(`"#/$defs/`)), nil
+}
+
+func levelNames(levels []store.ScopeLevel) []string {
+	out := make([]string, len(levels))
+	for i, l := range levels {
+		out[i] = string(l)
+	}
+	return out
 }

@@ -121,7 +121,12 @@ type Actor struct {
 	Source Source   `json:"source"`
 	// Impersonator is set while an admin or reseller views as a customer.
 	Impersonator store.ID `json:"impersonator,omitempty"`
-	IP           string   `json:"ip,omitempty"`
+	// UserName and ImpersonatorName are the names of User and Impersonator,
+	// so the records of what the actor does say who without looking them
+	// up, as they were called then.
+	UserName         string `json:"userName,omitempty"`
+	ImpersonatorName string `json:"impersonatorName,omitempty"`
+	IP               string `json:"ip,omitempty"`
 	// Grants are what the actor may do. They are never serialized.
 	Grants []Grant `json:"-"`
 	// SessionID identifies the session for revocation; never serialized.
@@ -361,10 +366,36 @@ func (r *RoleAuthorizer) ownership() Ownership {
 	return r.owners
 }
 
+// What everyone may do to their own user, whatever their roles.
+const (
+	PermUserUpdateProfile Permission = "core.user.update_profile"
+	PermUserAddSSHKey     Permission = "core.user.add_ssh_key"
+	PermUserRemoveSSHKey  Permission = "core.user.remove_ssh_key"
+)
+
+// SelfPermissions are what everyone may do to their own user, whatever
+// their roles: see it, change their name, email address and language, and
+// add and remove their SSH keys. Only people signed in to the panel change
+// their user this way, not API tokens and not someone viewing the panel as
+// them; changing roles, turning a user off and the rest take a grant.
+var SelfPermissions = []Permission{PermUserRead, PermUserUpdateProfile, PermUserAddSSHKey, PermUserRemoveSSHKey}
+
+// ownUser reports whether the actor may use perm on target because target
+// is their own user.
+func ownUser(actor *Actor, perm Permission, target Target) bool {
+	if target.Object == "" || target.Object != actor.Person() || !slices.Contains(SelfPermissions, perm) {
+		return false
+	}
+	return perm == PermUserRead || (actor.Type == ActorUser && actor.Impersonator == "")
+}
+
 // Authorize implements Authorizer.
 func (r *RoleAuthorizer) Authorize(ctx context.Context, actor *Actor, perm Permission, target Target) error {
 	if actor == nil {
 		return i18n.ErrUnauthenticated.New()
+	}
+	if ownUser(actor, perm, target) {
+		return nil
 	}
 	for _, g := range actor.Grants {
 		if !g.Role.Valid() || !permits(g, perm) {

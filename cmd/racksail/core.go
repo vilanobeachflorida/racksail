@@ -193,9 +193,14 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	ownership := account.NewOwnership(st, owners)
 	authorizer.SetOwnership(ownership)
 	ids := identity.New(identity.Options{
-		Store: people, Resources: st, Secrets: vault, Events: timeline, Audit: timeline, Hooks: hookRunner,
-		Authorizer: authorizer, Hostname: cfg.Panel.Hostname, Log: log,
+		Store: people, Resources: st, Pipeline: pipeline, Refresh: runner.Enqueue, Secrets: vault, Events: timeline, Audit: timeline,
+		Hooks: hookRunner, Authorizer: authorizer, Hostname: cfg.Panel.Hostname, SetupFile: filepath.Join(cfg.Paths.State, setupCodeFile), Log: log,
 	})
+	// Users are reconciled by the service that signs them in, which only
+	// exists once the pipeline that changes them does.
+	if err := recs.Register(ids.UserReconciler()); err != nil {
+		return nil, err
+	}
 	svc.Identity = ids.Directory()
 	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
 	c = &core{

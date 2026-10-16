@@ -3,13 +3,16 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/notify"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -63,28 +66,6 @@ func (p *push) Verify(ctx context.Context, u auth.MFAUser, state []byte, respons
 		return auth.ErrPending.New()
 	}
 	return nil
-}
-
-func (h *harness) provide(point hooks.Point, name string, open func(settings json.RawMessage) (any, error)) {
-	h.t.Helper()
-	err := h.hooks.Register(hooks.Registration{
-		Point: point, Kind: hooks.Provide, Owner: "addon:" + name,
-		Provider: &hooks.Provider{Name: name, Title: name, Open: func(ctx context.Context, s json.RawMessage) (any, error) { return open(s) }},
-	})
-	if err != nil {
-		h.t.Fatal(err)
-	}
-}
-
-func (h *harness) connect(spec ProviderSpec) store.ID {
-	h.t.Helper()
-	ctx := context.Background()
-	raw, _ := json.Marshal(spec)
-	r := &store.Resource{Meta: store.Meta{ID: store.NewID("signprov"), Kind: ProviderKind.Name(), Scope: store.ServerScope()}, Spec: raw}
-	if err := h.resources.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, r) }); err != nil {
-		h.t.Fatal(err)
-	}
-	return r.ID
 }
 
 func TestPasswordProviders(t *testing.T) {
@@ -143,10 +124,12 @@ func TestRedirectProviders(t *testing.T) {
 	h := newHarness(t)
 	h.provide(hooks.AuthProvider, "oidc", func(json.RawMessage) (any, error) { return redirector{}, nil })
 	id := h.connect(ProviderSpec{Capability: "identity", Provider: "oidc", Title: "Single sign-on", Match: "email"})
-	ada := h.admin("ada")
-	u, _ := h.store.User(ctx, ada.ID)
-	u.Email = "ada@example.test"
-	h.store.UpdateUser(ctx, u, 0)
+	h.admin("root")
+	shop := h.createAccount("shop", "")
+	ada := h.user("ada", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	if _, err := h.update(root(), ada.ID, func(s *UserSpec) { s.Email = "ada@example.test" }); err != nil {
+		t.Fatal(err)
+	}
 
 	callback := "https://panel.example.test/api/v1/auth/providers/" + string(id) + "/callback"
 	to, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, true, client)
@@ -288,13 +271,227 @@ func TestSecurityAlerts(t *testing.T) {
 	}
 }
 
-func waitFor(t *testing.T, ok func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for !ok() {
-		if time.Now().After(deadline) {
-			t.Fatal("waited too long")
+func TestLockoutsCoverProviders(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	h.provide(hooks.AuthProvider, "ldap", func(json.RawMessage) (any, error) { return ldap{secret: "x"}, nil })
+	h.connect(ProviderSpec{
+		Capability: "identity", Provider: "ldap", Title: "Company directory",
+		Match: "username", NewUsers: true, NewUserGrants: []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(shop)}},
+	})
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "carol", Password: "directory pass x"}, "", client); err != nil {
+		t.Fatal(err)
+	}
+	// Wrong passwords at the directory count as they would here, and the
+	// lockout stops the right one too.
+	for range DefaultPolicy().LockoutAttempts {
+		if _, err := h.svc.SignIn(ctx, SignInInput{Username: "carol", Password: "guess"}, "", client); !auth.ErrBadCredentials.Is(err) {
+			t.Fatalf("a wrong directory password = %v", err)
 		}
-		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "carol", Password: "directory pass x"}, "", client); !auth.ErrLocked.Is(err) {
+		t.Errorf("the right directory password while locked out = %v", err)
+	}
+	if h.eventTypes()["core.user.locked_out"] != 1 {
+		t.Errorf("events = %v", h.eventTypes())
+	}
+	h.clock.add(time.Duration(DefaultPolicy().LockoutMinutes+1) * time.Minute)
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "carol", Password: "directory pass x"}, "", client); err != nil {
+		t.Errorf("after the lockout = %v", err)
+	}
+}
+
+func TestProvidersNeverMatchAdmins(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	h.provide(hooks.AuthProvider, "ldap", func(json.RawMessage) (any, error) { return ldap{secret: "x"}, nil })
+	p := h.connect(ProviderSpec{Capability: "identity", Provider: "ldap", Title: "Company directory", Match: "username"})
+	// erin manages the whole server and has no password here; someone who
+	// calls themselves erin at the directory doesn't become her.
+	erin, err := h.create(root(), store.ServerScope(), UserSpec{Username: "erin", Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "erin", Password: "directory pass x"}, "", client); !auth.ErrLinkByHand.Is(err) {
+		t.Errorf("matching an admin by username = %v", err)
+	}
+	if links, _ := h.store.Links(ctx, erin); len(links) != 0 {
+		t.Errorf("an admin was linked: %+v", links)
+	}
+	if denied := h.audit("auth.sign_in"); len(denied) == 0 || denied[len(denied)-1].Outcome != events.OutcomeDenied {
+		t.Errorf("the refusal isn't audited: %+v", denied)
+	}
+
+	// Linked by hand from her own settings, the directory signs her in.
+	h.admin("root")
+	hash, _ := auth.HashPassword(ctx, password)
+	h.store.SetPassword(ctx, erin, hash, false, h.clock.now())
+	actor, _ := h.signIn("erin")
+	if _, err := h.svc.LinkMine(ctx, actor, p, LinkInput{Username: "erin.d", Password: "nope"}, client); !auth.ErrBadCredentials.Is(err) {
+		t.Errorf("linking with a wrong directory password = %v", err)
+	}
+	view, err := h.svc.LinkMine(ctx, actor, p, LinkInput{Username: "erin.d", Password: "directory pass x"}, client)
+	if err != nil || view.Username != "erin.d" || view.Title != "Company directory" {
+		t.Fatalf("linking = %+v, %v", view, err)
+	}
+	res, err := h.svc.SignIn(ctx, SignInInput{Username: "erin.d", Password: "directory pass x"}, "", client)
+	if err != nil || res.Issued == nil || h.actor(res.Issued.Secret).ID != erin {
+		t.Fatalf("signing in with the linked identity = %+v, %v", res, err)
+	}
+	// An identity signs in as one user only.
+	other := h.user("fred", store.ServerScope(), auth.Grant{Role: auth.RoleReadOnly, Scope: store.ServerScope()})
+	fred, _ := h.signIn(other.Username)
+	if _, err := h.svc.LinkMine(ctx, fred, p, LinkInput{Username: "erin.d", Password: "directory pass x"}, client); !auth.ErrIdentityTaken.Is(err) {
+		t.Errorf("linking someone else's identity = %v", err)
+	}
+	if err := h.svc.UnlinkMine(ctx, actor, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "erin.d", Password: "directory pass x"}, "", client); !auth.ErrIdentityUnlinked.Is(err) {
+		t.Errorf("after unlinking = %v", err)
+	}
+}
+
+func TestLinkingThroughARedirect(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	h.provide(hooks.AuthProvider, "oidc", func(json.RawMessage) (any, error) { return redirector{}, nil })
+	id := h.connect(ProviderSpec{Capability: "identity", Provider: "oidc", Title: "Single sign-on"})
+	ada := h.admin("ada")
+	actor, _ := h.signIn("ada")
+	callback := "https://panel.example.test/api/v1/auth/providers/" + string(id) + "/callback"
+
+	// Without a link, the provider signs nobody in.
+	to, state, err := h.svc.BeginProviderSignIn(ctx, id, callback, false, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client); !auth.ErrIdentityUnlinked.Is(err) {
+		t.Errorf("an identity linked to nobody = %v (%s)", err, to)
+	}
+
+	_, state, err = h.svc.BeginLinkMine(ctx, actor, id, callback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ret, err := h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client)
+	if err != nil || ret.Linked == nil || ret.Linked.ID != id || ret.SignInResult != nil {
+		t.Fatalf("linking = %+v, %v", ret, err)
+	}
+	_, state, _ = h.svc.BeginProviderSignIn(ctx, id, callback, false, client)
+	res, err := h.svc.CompleteProviderSignIn(ctx, state, callback, url.Values{"code": {"good"}}, "", client)
+	if err != nil || res.Issued == nil || h.actor(res.Issued.Secret).ID != ada.ID {
+		t.Fatalf("signing in once linked = %+v, %v", res, err)
+	}
+	if h.eventTypes()["core.user.identity_linked"] != 1 {
+		t.Errorf("events = %v", h.eventTypes())
+	}
+}
+
+// remote is a provider that runs apart from the panel, as an add-on does:
+// what it takes and answers goes through JSON, as over the add-on's socket.
+type remote struct {
+	mu      sync.Mutex
+	methods []string
+	answer  func(method string, in json.RawMessage) (string, error)
+}
+
+func (r *remote) Call(ctx context.Context, method string, in, out any) error {
+	r.mu.Lock()
+	r.methods = append(r.methods, method)
+	r.mu.Unlock()
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	answer, err := r.answer(method, raw)
+	if err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal([]byte(answer), out)
+}
+
+func TestProvidersFromAddons(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	directory := &remote{answer: func(method string, in json.RawMessage) (string, error) {
+		switch method {
+		case auth.MethodDescribe:
+			return `{"method":"password"}`, nil
+		case auth.MethodCheckPassword:
+			var check auth.PasswordCheck
+			if err := json.Unmarshal(in, &check); err != nil {
+				return "", err
+			}
+			if check.Password != "from the add-on" {
+				return `{"refused":true,"reason":"wrong password"}`, nil
+			}
+			return `{"identity":{"subject":"guid-1","username":"` + check.Username + `","name":"Hana","email":"hana@corp.example"}}`, nil
+		}
+		return "", errors.New("no such method")
+	}}
+	h.provide(hooks.AuthProvider, "ldap-sign-in", func(json.RawMessage) (any, error) { return directory, nil })
+	h.connect(ProviderSpec{Capability: "identity", Provider: "ldap-sign-in", Title: "Directory", NewUsers: true,
+		NewUserGrants: []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(shop)}}})
+	if options, err := h.svc.SignInOptions(ctx); err != nil || len(options) != 1 || options[0].Method != auth.MethodPassword {
+		t.Fatalf("options = %+v, %v", options, err)
+	}
+	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "hana", Password: "wrong"}, "", client); !auth.ErrBadCredentials.Is(err) {
+		t.Errorf("a refusal = %v", err)
+	}
+	res, err := h.svc.SignIn(ctx, SignInInput{Username: "hana", Password: "from the add-on"}, "", client)
+	if err != nil || res.Issued == nil {
+		t.Fatalf("signing in through the add-on = %+v, %v", res, err)
+	}
+	if u := h.get(h.actor(res.Issued.Secret).ID); u.Username != "hana" || u.Email != "hana@corp.example" || u.Home != store.AccountScope(shop) {
+		t.Errorf("the user the add-on's identity added = %+v", u)
+	}
+
+	// A second step from an add-on asks, then hears whether it passed.
+	approved := false
+	phone := &remote{answer: func(method string, in json.RawMessage) (string, error) {
+		var call struct {
+			User  auth.MFAUser `json:"user"`
+			State []byte       `json:"state"`
+		}
+		if err := json.Unmarshal(in, &call); err != nil || call.User.Username != "root" {
+			return "", errors.New("the call doesn't say who")
+		}
+		switch method {
+		case auth.MethodChallenge:
+			return `{"prompt":"Approve it on your phone","input":false,"state":"cGhvbmU="}`, nil
+		case auth.MethodVerify:
+			switch {
+			case string(call.State) != "phone":
+				return `{"result":"failed"}`, nil
+			case !approved:
+				return `{"result":"pending"}`, nil
+			}
+			return `{"result":"passed"}`, nil
+		}
+		return "", errors.New("no such method")
+	}}
+	h.provide(hooks.AuthMFA, "push-approval", func(json.RawMessage) (any, error) { return phone, nil })
+	mfa := h.connect(ProviderSpec{Capability: "mfa", Provider: "push-approval", Title: "Phone"})
+	h.admin("root")
+	actor, _ := h.signIn("root")
+	ceremony, ch, err := h.svc.BeginMFA(ctx, actor, mfa)
+	if err != nil || ch.Prompt != "Approve it on your phone" || ch.Input {
+		t.Fatalf("begin = %+v, %v", ch, err)
+	}
+	if err := h.svc.FinishMFA(ctx, actor, ceremony, ""); !auth.ErrPending.Is(err) {
+		t.Errorf("before approving = %v", err)
+	}
+	approved = true
+	if err := h.svc.FinishMFA(ctx, actor, ceremony, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(phone.methods, auth.MethodVerify) {
+		t.Errorf("calls = %v", phone.methods)
 	}
 }

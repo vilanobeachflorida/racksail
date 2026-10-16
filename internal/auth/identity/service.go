@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/account"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -21,10 +23,17 @@ import (
 
 // Options are what the identity service works with.
 type Options struct {
+	// Store keeps users' credentials, sessions and tokens.
 	Store Store
-	// Resources is the resource store, which keeps the sign-in policy,
-	// accounts and identity providers.
+	// Resources is the resource store, which keeps users, the sign-in
+	// policy, accounts and identity providers.
 	Resources store.Store
+	// Pipeline makes the changes to users the service makes itself, such
+	// as adding the first admin or someone's own SSH key.
+	Pipeline changeset.Pipeline
+	// Refresh asks for a user's resource to be reconciled again, so its
+	// status says how they sign in now; the reconcile queue's Enqueue.
+	Refresh func(id store.ID, reason string)
 	// Secrets keeps authenticator app secrets and alert channel settings.
 	Secrets    secrets.Store
 	Events     events.Bus
@@ -36,8 +45,11 @@ type Options struct {
 	Hostname string
 	// Issuer names the panel in authenticator apps; Racksail by default.
 	Issuer string
-	Log    *slog.Logger
-	Now    func() time.Time
+	// SetupFile is where the setup code is kept for the server's console,
+	// which the service removes once the panel has its first admin.
+	SetupFile string
+	Log       *slog.Logger
+	Now       func() time.Time
 }
 
 // Service is the panel's identity: users and their roles, signing in,
@@ -54,7 +66,8 @@ type Service struct {
 	// setupMu keeps two first admins from being created at once.
 	setupMu sync.Mutex
 	// touched remembers when sessions and tokens were last written as
-	// used, so busy ones aren't written on every request.
+	// used, so busy ones aren't written on every request. Entries older
+	// than touchEvery are pruned, so it only holds those in use lately.
 	touched sync.Map
 }
 
@@ -78,7 +91,7 @@ func New(opts Options) *Service {
 
 func (s *Service) now() time.Time { return s.opts.Now().UTC() }
 
-// Store returns where the service keeps its records.
+// Store returns where the service keeps credentials.
 func (s *Service) Store() Store { return s.opts.Store }
 
 // Policy returns the sign-in policy in force.
@@ -115,6 +128,11 @@ func (s *Service) LoadPolicy(ctx context.Context) error {
 
 // cleanupEvery is how often what expired is removed.
 const cleanupEvery = 10 * time.Minute
+
+// orphanAge is how old credentials of a user who isn't there must be
+// before they're removed: the first admin's are written just before their
+// user is.
+const orphanAge = time.Hour
 
 // Run keeps the policy current as it changes, removes the users of
 // accounts that are gone, and clears out expired sessions, devices, links
@@ -156,33 +174,48 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 func (s *Service) cleanup(ctx context.Context) {
-	if err := s.opts.Store.DeleteExpired(ctx, s.now()); err != nil {
+	now := s.now()
+	if err := s.opts.Store.DeleteExpired(ctx, now); err != nil {
 		s.opts.Log.Warn("removing expired sessions", "error", err)
 	}
 	s.limiter.prune()
 	s.challenges.prune()
-	// Accounts removed while the panel wasn't watching still take their
-	// users along.
+	s.touched.Range(func(key, value any) bool {
+		if now.Sub(value.(time.Time)) >= touchEvery {
+			s.touched.Delete(key)
+		}
+		return true
+	})
 	if s.opts.Resources == nil {
 		return
 	}
+	// What a user left behind goes with them, also when the panel wasn't
+	// running to see them go.
+	kept, err := s.opts.Store.Users(ctx)
+	if err != nil {
+		s.opts.Log.Warn("listing users' credentials", "error", err)
+		return
+	}
+	for id, since := range kept {
+		if now.Sub(since) < orphanAge {
+			continue
+		}
+		if _, err := s.opts.Resources.Get(ctx, id); store.ErrNotFound.Is(err) {
+			s.forgetUser(ctx, id)
+		}
+	}
+	// Accounts removed while the panel wasn't watching still take their
+	// users along.
 	homes := map[store.ID]bool{}
-	q := UserQuery{Limit: store.MaxLimit}
-	for {
-		users, next, err := s.opts.Store.ListUsers(ctx, q)
-		if err != nil {
-			s.opts.Log.Warn("listing users", "error", err)
-			return
+	err = s.eachUser(ctx, store.Query{}, func(u *store.Object[UserSpec, UserStatus]) error {
+		if u.Scope.Level == store.ScopeAccount && !u.Deleted() {
+			homes[u.Scope.ID] = true
 		}
-		for _, u := range users {
-			if u.Home.Level == store.ScopeAccount {
-				homes[u.Home.ID] = true
-			}
-		}
-		if next == "" {
-			break
-		}
-		q.Cursor = next
+		return nil
+	})
+	if err != nil {
+		s.opts.Log.Warn("listing users", "error", err)
+		return
 	}
 	for id := range homes {
 		if _, err := s.opts.Resources.Get(ctx, id); store.ErrNotFound.Is(err) {
@@ -191,35 +224,167 @@ func (s *Service) cleanup(ctx context.Context) {
 	}
 }
 
+// forgetUser removes everything kept for a user who is gone: their
+// credentials, sessions, tokens and secrets.
+func (s *Service) forgetUser(ctx context.Context, id store.ID) {
+	if err := s.opts.Store.DeleteUser(ctx, id); err != nil {
+		s.opts.Log.Warn("removing a deleted user's credentials", "user", id, "error", err)
+	}
+	s.forget(ctx, id)
+	if s.opts.Secrets != nil {
+		for _, name := range []string{totpSecret, totpPending, alertSettings} {
+			if err := s.opts.Secrets.Delete(ctx, secretRef(id, name)); err != nil && !store.ErrNotFound.Is(err) {
+				s.opts.Log.Warn("removing a deleted user's secret", "user", id, "error", err)
+			}
+		}
+	}
+}
+
 // removeAccountUsers deletes the users who belonged to an account that is
-// gone, and the grants others held on it.
+// gone, and takes away the grants others held on it, as one change set.
 func (s *Service) removeAccountUsers(ctx context.Context, acct store.ID) {
 	scope := store.AccountScope(acct)
-	actor := auth.System("accounts")
-	users, _, err := s.opts.Store.ListUsers(ctx, UserQuery{Homes: []store.Scope{scope}, Limit: store.MaxLimit})
-	if err != nil {
-		s.opts.Log.Warn("listing the users of a removed account", "account", acct, "error", err)
-		return
-	}
-	for _, u := range users {
-		if err := s.opts.Store.DeleteUser(ctx, u.ID); err != nil && !store.ErrNotFound.Is(err) {
-			s.opts.Log.Warn("deleting the user of a removed account", "user", u.ID, "error", err)
-			continue
+	err := s.retry(ctx, func() error {
+		var changes []changeset.Change
+		err := s.eachUser(ctx, store.Query{Scope: &scope}, func(u *store.Object[UserSpec, UserStatus]) error {
+			changes = append(changes, changeset.Change{Op: changeset.OpDelete, Kind: KindUser, ID: u.ID})
+			return nil
+		})
+		if err != nil {
+			return err
 		}
-		s.forget(ctx, u.ID)
-		s.audit(ctx, actor, "core.user.delete", u.ID, u.Home, events.OutcomeSuccess, "", "Delete "+u.Username+", whose account was removed")
-		s.publish(ctx, UserDeleted, u, actor, u.Username+" was deleted with their account.", UserEvent{Username: u.Username})
-	}
-	granted, _, err := s.opts.Store.ListUsers(ctx, UserQuery{Grant: &scope, Limit: store.MaxLimit})
-	if err != nil {
-		return
-	}
-	for _, u := range granted {
-		u.Grants = slices.DeleteFunc(u.Grants, func(g auth.Grant) bool { return g.Scope == scope })
-		u.UpdatedAt = s.now()
-		if err := s.opts.Store.UpdateUser(ctx, u, 0); err != nil {
-			s.opts.Log.Warn("removing grants on a removed account", "user", u.ID, "error", err)
+		err = s.eachUser(ctx, store.Query{Index: map[string]string{"grantOn": string(acct)}}, func(u *store.Object[UserSpec, UserStatus]) error {
+			if u.Scope == scope {
+				return nil
+			}
+			spec := u.Spec
+			spec.Grants = slices.DeleteFunc(slices.Clone(spec.Grants), func(g auth.Grant) bool { return g.Scope == scope })
+			raw, err := json.Marshal(spec)
+			if err != nil {
+				return err
+			}
+			changes = append(changes, changeset.Change{Op: changeset.OpUpdate, Kind: KindUser, ID: u.ID, Spec: raw, Revision: u.Revision})
+			return nil
+		})
+		if err != nil || len(changes) == 0 {
+			return err
 		}
+		_, err = s.submit(ctx, changeset.Request{Actor: auth.System("accounts"), Title: "Remove the users of a deleted account", Changes: changes})
+		return err
+	})
+	if err != nil {
+		s.opts.Log.Warn("removing the users of a deleted account", "account", acct, "error", err)
+	}
+}
+
+// eachUser calls fn for every user the query selects, deleted ones left
+// out.
+func (s *Service) eachUser(ctx context.Context, q store.Query, fn func(u *store.Object[UserSpec, UserStatus]) error) error {
+	if s.opts.Resources == nil {
+		return nil
+	}
+	q.Limit = store.MaxLimit
+	for {
+		list, next, err := UserKind.List(ctx, s.opts.Resources, q)
+		if err != nil {
+			return err
+		}
+		for _, u := range list {
+			if u.Deleted() {
+				continue
+			}
+			if err := fn(u); err != nil {
+				return err
+			}
+		}
+		if next == "" {
+			return nil
+		}
+		q.Cursor = next
+	}
+}
+
+// User returns a user: who they are and what they may do, with their
+// credentials. A user being deleted is reported as not found.
+func (s *Service) User(ctx context.Context, id store.ID) (*User, error) {
+	if s.opts.Resources == nil {
+		return nil, notFound(string(id))
+	}
+	obj, err := UserKind.Get(ctx, s.opts.Resources, id)
+	if err != nil {
+		return nil, err
+	}
+	if obj.Deleted() {
+		return nil, notFound(string(id))
+	}
+	return s.withCredentials(ctx, obj)
+}
+
+func (s *Service) withCredentials(ctx context.Context, obj *store.Object[UserSpec, UserStatus]) (*User, error) {
+	u := &User{
+		ID: obj.ID, Username: obj.Spec.Username, Name: obj.Spec.Name, Email: obj.Spec.Email, Home: obj.Scope,
+		Grants: obj.Spec.Grants, Disabled: obj.Spec.Disabled, Locale: obj.Spec.Locale, AllowFrom: obj.Spec.AllowFrom, SSHKeys: obj.Spec.SSHKeys,
+		CreatedAt: obj.CreatedAt, UpdatedAt: obj.UpdatedAt, Revision: obj.Revision,
+	}
+	if u.Grants == nil {
+		u.Grants = []auth.Grant{}
+	}
+	c, err := s.opts.Store.Credentials(ctx, obj.ID)
+	switch {
+	case err == nil:
+		u.Credentials = *c
+	case !store.ErrNotFound.Is(err):
+		return nil, err
+	}
+	return u, nil
+}
+
+// userByName returns the user with a username.
+func (s *Service) userByName(ctx context.Context, username string) (*User, error) {
+	name := NormalizeUsername(username)
+	var found *store.Object[UserSpec, UserStatus]
+	err := s.eachUser(ctx, store.Query{Index: map[string]string{"username": name}}, func(u *store.Object[UserSpec, UserStatus]) error {
+		found = u
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, notFound(name)
+	}
+	return s.withCredentials(ctx, found)
+}
+
+// conflictRetries is how often a change the service makes is planned again
+// when something else changed the user meanwhile.
+const conflictRetries = 3
+
+// retry runs fn again when it fails because a resource changed between
+// reading and writing it.
+func (s *Service) retry(ctx context.Context, fn func() error) error {
+	var err error
+	for range conflictRetries {
+		if err = fn(); !store.ErrConflict.Is(err) {
+			return err
+		}
+	}
+	return err
+}
+
+// submit sends a change the service makes through the change pipeline.
+func (s *Service) submit(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {
+	if s.opts.Pipeline == nil {
+		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
+	}
+	return s.opts.Pipeline.Submit(ctx, req)
+}
+
+// refresh asks for the user's status to be brought up to date with how
+// they sign in now.
+func (s *Service) refresh(id store.ID, reason string) {
+	if s.opts.Refresh != nil {
+		s.opts.Refresh(id, reason)
 	}
 }
 
@@ -298,19 +463,43 @@ func (s *Service) covers(ctx context.Context, outer, inner store.Scope) (bool, e
 	return gc.Covers(ctx, outer, inner)
 }
 
+// setupDone removes the setup code once the panel has its first admin, and
+// the copy the console shows.
+func (s *Service) setupDone(ctx context.Context) error {
+	if err := s.opts.Store.SetSetupCode(ctx, ""); err != nil {
+		return err
+	}
+	if s.opts.SetupFile != "" {
+		if err := os.Remove(s.opts.SetupFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.opts.Log.Warn("removing the used setup code", "file", s.opts.SetupFile, "error", err)
+		}
+	}
+	return nil
+}
+
 // Directory returns what modules learn about users through the service.
 func (s *Service) Directory() auth.Directory { return directory{s} }
 
 type directory struct{ s *Service }
 
-func directoryUser(u *User) auth.DirectoryUser {
-	return auth.DirectoryUser{ID: u.ID, Username: u.Username, Name: u.Name, Email: u.Email, Disabled: u.Disabled, Grants: u.Clone().Grants}
+func directoryUser(u *store.Object[UserSpec, UserStatus]) auth.DirectoryUser {
+	grants := make([]auth.Grant, len(u.Spec.Grants))
+	for i, g := range u.Spec.Grants {
+		grants[i] = g.Clone()
+	}
+	return auth.DirectoryUser{ID: u.ID, Username: u.Spec.Username, Name: u.Spec.Name, Email: u.Spec.Email, Disabled: u.Spec.Disabled, Grants: grants}
 }
 
 func (d directory) User(ctx context.Context, id store.ID) (auth.DirectoryUser, error) {
-	u, err := d.s.opts.Store.User(ctx, id)
+	if d.s.opts.Resources == nil {
+		return auth.DirectoryUser{}, notFound(string(id))
+	}
+	u, err := UserKind.Get(ctx, d.s.opts.Resources, id)
 	if err != nil {
 		return auth.DirectoryUser{}, err
+	}
+	if u.Deleted() {
+		return auth.DirectoryUser{}, notFound(string(id))
 	}
 	return directoryUser(u), nil
 }
@@ -319,42 +508,30 @@ func (d directory) Members(ctx context.Context, acct store.ID) ([]auth.Directory
 	scope := store.AccountScope(acct)
 	seen := map[store.ID]bool{}
 	var out []auth.DirectoryUser
-	add := func(q UserQuery, keep func(*User) (bool, error)) error {
-		q.Limit = store.MaxLimit
-		for {
-			users, next, err := d.s.opts.Store.ListUsers(ctx, q)
-			if err != nil {
-				return err
-			}
-			for _, u := range users {
-				if seen[u.ID] {
-					continue
-				}
-				ok, err := keep(u)
-				if err != nil {
-					return err
-				}
-				if ok {
-					seen[u.ID] = true
-					out = append(out, directoryUser(u))
-				}
-			}
-			if next == "" {
+	add := func(q store.Query, keep func(*store.Object[UserSpec, UserStatus]) (bool, error)) error {
+		return d.s.eachUser(ctx, q, func(u *store.Object[UserSpec, UserStatus]) error {
+			if seen[u.ID] {
 				return nil
 			}
-			q.Cursor = next
-		}
+			ok, err := keep(u)
+			if err != nil || !ok {
+				return err
+			}
+			seen[u.ID] = true
+			out = append(out, directoryUser(u))
+			return nil
+		})
 	}
-	all := func(*User) (bool, error) { return true, nil }
-	if err := add(UserQuery{Homes: []store.Scope{scope}}, all); err != nil {
+	all := func(*store.Object[UserSpec, UserStatus]) (bool, error) { return true, nil }
+	if err := add(store.Query{Scope: &scope}, all); err != nil {
 		return nil, err
 	}
-	if err := add(UserQuery{Grant: &scope}, all); err != nil {
+	if err := add(store.Query{Index: map[string]string{"grantOn": string(acct)}}, all); err != nil {
 		return nil, err
 	}
 	// Reseller grants reach the account through whose customer it is.
-	reaches := func(u *User) (bool, error) {
-		for _, g := range u.Grants {
+	reaches := func(u *store.Object[UserSpec, UserStatus]) (bool, error) {
+		for _, g := range u.Spec.Grants {
 			if g.Scope.Level == store.ScopeReseller {
 				ok, err := d.s.covers(ctx, g.Scope, scope)
 				if err != nil || ok {
@@ -364,20 +541,16 @@ func (d directory) Members(ctx context.Context, acct store.ID) ([]auth.Directory
 		}
 		return false, nil
 	}
-	if err := add(UserQuery{Role: auth.RoleReseller}, reaches); err != nil {
+	if err := add(store.Query{Index: map[string]string{"role": string(auth.RoleReseller)}}, reaches); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
 func (d directory) SSHKeys(ctx context.Context, user store.ID) ([]auth.SSHKey, error) {
-	keys, err := d.s.opts.Store.SSHKeys(ctx, user)
+	u, err := d.s.User(ctx, user)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]auth.SSHKey, len(keys))
-	for i, k := range keys {
-		out[i] = *k
-	}
-	return out, nil
+	return sshKeyViews(u), nil
 }

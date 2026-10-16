@@ -11,6 +11,8 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -19,6 +21,7 @@ type meOutput struct {
 }
 
 type profileInput struct {
+	ChangeParams
 	Body identity.ProfileInput
 }
 
@@ -119,12 +122,33 @@ type sshKeysOutput struct {
 }
 
 type sshKeyInput struct {
+	ChangeParams
 	Body identity.SSHKeyInput
 }
 
-type sshKeyOutput struct {
-	Status int
-	Body   auth.SSHKey
+type sshKeyPath struct {
+	ChangeParams
+	ID store.ID `path:"id" doc:"The key's ID, which starts with sshkey_"`
+}
+
+type linkInput struct {
+	Provider store.ID `path:"provider" doc:"The sign-in provider's ID"`
+	Body     identity.LinkInput
+}
+
+type linkedOutput struct {
+	Body identity.LinkView
+}
+
+// LinkStart is where to send the browser to link an identity at a
+// provider with its own page.
+type LinkStart struct {
+	Location string `json:"location" doc:"The provider's page, which sends the browser back to the panel"`
+}
+
+type linkStartOutput struct {
+	SetCookie []http.Cookie `header:"Set-Cookie" doc:"The cookie that carries the link through the provider's page and back"`
+	Body      LinkStart
 }
 
 type linksOutput struct {
@@ -219,16 +243,18 @@ func (s *Server) registerMe() {
 		return &meOutput{Body: me}, err
 	})
 
-	huma.Register(s.api, reg(huma.Operation{
+	updateMe := reg(huma.Operation{
 		OperationID: "updateMe", Method: http.MethodPut, Path: base, Summary: "Change your details",
-		Description: "Changes your name, email address and language.",
-	}, store.RiskLow, inPanel), func(ctx context.Context, in *profileInput) (*meOutput, error) {
+		Description: "Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.",
+		Responses:   changeSetResponses(s, "The change set, applied to your user"),
+	}, store.RiskLow, inPanel)
+	Describe(&updateMe, Info{Risk: store.RiskLow, DryRun: true, Reversible: true, Session: true})
+	huma.Register(s.api, updateMe, func(ctx context.Context, in *profileInput) (*ChangeSetOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
 		}
-		me, err := id.UpdateProfile(ctx, actor, in.Body)
-		return &meOutput{Body: me}, err
+		return s.submitOwn(ctx, in.ChangeParams, func() (changeset.Request, error) { return id.UpdateProfile(actor, in.Body) })
 	})
 
 	huma.Register(s.api, reg(huma.Operation{
@@ -482,9 +508,10 @@ func (s *Server) registerMe() {
 
 	huma.Register(s.api, reg(huma.Operation{
 		OperationID: "revokeMyToken", Method: http.MethodDelete, Path: base + "/tokens/{id}", Summary: "Revoke an API token",
-		Description:   "Stops one of your API tokens working, at once. A token may revoke itself.",
+		Description: "Stops one of your API tokens working, at once. In the panel you can revoke any of yours; with an API token, only that token itself, " +
+			"as racksail logout --revoke does.",
 		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, inPanel), func(ctx context.Context, in *idPath) (*struct{}, error) {
+	}, store.RiskMedium, anyone), func(ctx context.Context, in *idPath) (*struct{}, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
@@ -506,29 +533,33 @@ func (s *Server) registerMe() {
 		return out, err
 	})
 
-	huma.Register(s.api, reg(huma.Operation{
+	addKey := reg(huma.Operation{
 		OperationID: "addMySSHKey", Method: http.MethodPost, Path: base + "/ssh-keys", Summary: "Add an SSH key",
-		Description:   "Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options.",
-		DefaultStatus: http.StatusCreated,
-	}, store.RiskMedium, confirmed), func(ctx context.Context, in *sshKeyInput) (*sshKeyOutput, error) {
+		Description: "Adds an SSH public key to your user, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. " +
+			"It's a change to your user like any other: with dryRun=true the answer is its preview.",
+		Responses: changeSetResponses(s, "The change set, applied to your user"),
+	}, store.RiskMedium, confirmed)
+	Describe(&addKey, Info{Risk: store.RiskMedium, DryRun: true, Reversible: true, Session: true, StepUp: true})
+	huma.Register(s.api, addKey, func(ctx context.Context, in *sshKeyInput) (*ChangeSetOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
 		}
-		key, err := id.AddSSHKey(ctx, actor, in.Body)
-		return &sshKeyOutput{Status: http.StatusCreated, Body: key}, err
+		return s.submitOwn(ctx, in.ChangeParams, func() (changeset.Request, error) { return id.AddSSHKey(actor, in.Body) })
 	})
 
-	huma.Register(s.api, reg(huma.Operation{
+	removeKey := reg(huma.Operation{
 		OperationID: "removeMySSHKey", Method: http.MethodDelete, Path: base + "/ssh-keys/{id}", Summary: "Remove an SSH key",
-		Description:   "Removes one of your SSH keys.",
-		DefaultStatus: http.StatusNoContent,
-	}, store.RiskMedium, inPanel), func(ctx context.Context, in *idPath) (*struct{}, error) {
+		Description: "Removes one of your SSH keys, as a change to your user like any other: with dryRun=true the answer is its preview.",
+		Responses:   changeSetResponses(s, "The change set, applied to your user"),
+	}, store.RiskMedium, confirmed)
+	Describe(&removeKey, Info{Risk: store.RiskMedium, DryRun: true, Reversible: true, Session: true, StepUp: true})
+	huma.Register(s.api, removeKey, func(ctx context.Context, in *sshKeyPath) (*ChangeSetOutput, error) {
 		actor, id, err := withActor(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return nil, id.RemoveSSHKey(ctx, actor, in.ID)
+		return s.submitOwn(ctx, in.ChangeParams, func() (changeset.Request, error) { return id.RemoveSSHKey(ctx, actor, in.ID) })
 	})
 
 	huma.Register(s.api, reg(huma.Operation{
@@ -543,6 +574,38 @@ func (s *Server) registerMe() {
 		out := &linksOutput{}
 		out.Body.Links = list
 		return out, err
+	})
+
+	huma.Register(s.api, reg(huma.Operation{
+		OperationID: "linkMyIdentity", Method: http.MethodPost, Path: base + "/links/{provider}", Summary: "Sign in with a provider from now on",
+		Description: "Links your account at a provider that checks passwords, such as a company directory, to your user: the panel checks your username and password there, " +
+			"and doesn't keep them. From then on you can sign in with them.",
+	}, store.RiskMedium, confirmed), func(ctx context.Context, in *linkInput) (*linkedOutput, error) {
+		actor, id, err := withActor(ctx)
+		if err != nil {
+			return nil, err
+		}
+		view, err := id.LinkMine(ctx, actor, in.Provider, in.Body, auth.ClientFrom(ctx))
+		return &linkedOutput{Body: view}, err
+	})
+
+	huma.Register(s.api, reg(huma.Operation{
+		OperationID: "startLinkingMyIdentity", Method: http.MethodPost, Path: base + "/links/{provider}/start", Summary: "Start linking a provider",
+		Description: "Starts linking your account at a provider with its own sign-in page, such as an OpenID Connect provider, to your user. " +
+			"Send the browser to the location in the answer; the provider sends it back to the panel, which links the account and shows your security settings.",
+	}, store.RiskMedium, confirmed), func(ctx context.Context, in *linkProviderPath) (*linkStartOutput, error) {
+		actor, id, err := withActor(ctx)
+		if err != nil {
+			return nil, err
+		}
+		c := auth.ClientFrom(ctx)
+		to, state, err := id.BeginLinkMine(ctx, actor, in.Provider, providerCallback(ctx, in.Provider))
+		if err != nil {
+			return nil, err
+		}
+		out := &linkStartOutput{Body: LinkStart{Location: to}}
+		out.SetCookie = []http.Cookie{providerState(state, c.Secure), linkingCookie(true, c.Secure)}
+		return out, nil
 	})
 
 	huma.Register(s.api, reg(huma.Operation{
@@ -669,4 +732,36 @@ func nonNilStrings(v []string) []string {
 		return []string{}
 	}
 	return v
+}
+
+// changeSetResponses documents the answers of an operation that answers
+// with a change set: the preview of a dry run, or the applied change set.
+func changeSetResponses(s *Server, applied string) map[string]*huma.Response {
+	changeSet := s.schemaOf(typeOfChangeSet, "ChangeSet")
+	return map[string]*huma.Response{
+		"200": jsonResponse("The change set without applying it, for a dry run", changeSet),
+		"202": jsonResponse(applied, changeSet),
+	}
+}
+
+// submitOwn sends a change of the person's own user through the change
+// pipeline, planning it again when something else changed the user while
+// it was planned.
+func (s *Server) submitOwn(ctx context.Context, params ChangeParams, build func() (changeset.Request, error)) (*ChangeSetOutput, error) {
+	p := s.pipeline()
+	if p == nil {
+		return nil, i18n.ErrUnavailable.New("what", "The change pipeline")
+	}
+	var err error
+	for range 3 {
+		var req changeset.Request
+		if req, err = build(); err != nil {
+			return nil, err
+		}
+		var out *ChangeSetOutput
+		if out, err = Submit(ctx, p, params, req); !store.ErrConflict.Is(err) {
+			return out, err
+		}
+	}
+	return nil, err
 }

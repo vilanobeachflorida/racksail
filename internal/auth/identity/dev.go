@@ -38,7 +38,7 @@ func (d DevAuthenticator) Authenticate(ctx context.Context, r *http.Request) (*a
 // Developer makes sure racksail dev's developer exists, an admin who may
 // impersonate, and returns its ID.
 func (s *Service) Developer(ctx context.Context) (store.ID, error) {
-	u, err := s.EnsureUser(ctx, DeveloperName, firstAdminGrants())
+	u, err := s.EnsureUser(ctx, DeveloperName)
 	if err != nil {
 		return "", err
 	}

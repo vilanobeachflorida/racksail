@@ -19,7 +19,7 @@ import { EmptyState, ErrorState } from "@/design/components/ui/states";
 import { toast } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
 import { addMySSHKey, listMySSHKeys, removeMySSHKey, type SSHKey } from "../api";
-import { Item, ItemList, ListSkeleton, PageHeader, TimeText } from "../components";
+import { Item, ItemList, ListSkeleton, PageHeader } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
 import { useStepUp } from "../step-up";
@@ -47,7 +47,6 @@ export function KeyList({
               values={{
                 type: k.bits ? `${k.type} (${k.bits})` : k.type,
                 fingerprint: <span className="break-all font-mono">{k.fingerprint}</span>,
-                added: <TimeText value={k.createdAt} />,
               }}
             />
           }
@@ -70,7 +69,7 @@ export function KeyList({
   );
 }
 
-function NewKey({ onAdded, onCancel }: { onAdded: (key: SSHKey) => void; onCancel: () => void }) {
+function NewKey({ onAdded, onCancel }: { onAdded: (name: string) => void; onCancel: () => void }) {
   const intl = useIntl();
   const api = useApi();
   const { guard } = useStepUp();
@@ -83,14 +82,15 @@ function NewKey({ onAdded, onCancel }: { onAdded: (key: SSHKey) => void; onCance
     setBusy(true);
     setError(null);
     try {
-      onAdded(
-        await guard(() =>
-          addMySSHKey(api, {
-            publicKey: key.trim(),
-            ...(name.trim() ? { name: name.trim() } : {}),
-          }),
-        ),
+      // The key goes in through a change set of the person's own user.
+      const cs = await guard(() =>
+        addMySSHKey(api, {
+          publicKey: key.trim(),
+          ...(name.trim() ? { name: name.trim() } : {}),
+        }),
       );
+      const added = cs.changes?.[0]?.input as { name?: string } | undefined;
+      onAdded(added?.name ?? name.trim());
     } catch (e) {
       setError(e);
       setBusy(false);
@@ -138,9 +138,10 @@ function Keys() {
   const keys = useQuery({ queryKey: ["me", "ssh-keys"], queryFn: () => listMySSHKeys(api) });
   const [adding, setAdding] = useState(false);
   const reload = () => client.invalidateQueries({ queryKey: ["me", "ssh-keys"] });
+  const { guard } = useStepUp();
   const remove = async (k: SSHKey) => {
     try {
-      await removeMySSHKey(api, k.id);
+      await guard(() => removeMySSHKey(api, k.id));
       toast.success(intl.formatMessage(t.sshKeyRemoved, { name: k.name }));
       await reload();
     } catch (error) {
@@ -185,9 +186,9 @@ function Keys() {
           </DialogHeader>
           {adding ? (
             <NewKey
-              onAdded={(k) => {
+              onAdded={(name) => {
                 setAdding(false);
-                toast.success(intl.formatMessage(t.sshKeyAdded, { name: k.name }));
+                toast.success(intl.formatMessage(t.sshKeyAdded, { name }));
                 void reload();
               }}
               onCancel={() => setAdding(false)}

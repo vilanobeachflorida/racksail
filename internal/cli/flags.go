@@ -53,7 +53,10 @@ type field struct {
 	// secret fields of a kind's spec are sent in the request's secrets,
 	// which are kept apart from the settings.
 	secret bool
-	value  *flagValue
+	// password fields are read from a file or standard input, never from
+	// the command line, where shells keep them and other users see them.
+	password bool
+	value    *flagValue
 }
 
 // flagValue keeps what a flag was given until the command runs, when its
@@ -91,7 +94,7 @@ func (v *flagValue) IsBoolFlag() bool { return v.typ == "bool" }
 
 // globalFlags are the names the shared and per-command flags take, which
 // fields of requests can't.
-var globalFlags = []string{"profile", "server", "ca-file", "output", "dry-run", "detach", "all", "file", "set", "replace", "help"}
+var globalFlags = []string{"profile", "server", "ca-file", "output", "dry-run", "detach", "all", "file", "set", "replace", "yes", "help"}
 
 // renamed are flags for fields whose own names other flags take: the
 // cluster server a resource goes on can't be --server, the panel's address.
@@ -227,6 +230,7 @@ func (fs *flagSet) addField(parent *Schema, name string, path []string, prefix s
 	if len(path) == 0 {
 		f.required = parent.IsRequired(name)
 	}
+	f.password = sh == shapeScalar && s.Format == "password"
 	f.value = newFlagValue(fs.doc, f)
 	fs.fields = append(fs.fields, f)
 	fs.byPath[strings.Join(full, ".")] = flag
@@ -316,6 +320,9 @@ func (fs *flagSet) usage(f *field) string {
 		}
 		if f.secret {
 			notes = append(notes, "kept as a secret; @file reads it from a file and - from standard input")
+		}
+		if f.password {
+			notes = append(notes, "- asks for it, or reads it from standard input, and @file reads it from a file")
 		}
 	}
 	if f.required {

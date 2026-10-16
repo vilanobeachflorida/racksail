@@ -138,7 +138,7 @@ func (s *Service) BeginPasskeyRegistration(ctx context.Context, actor *auth.Acto
 	if err != nil {
 		return "", nil, err
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return "", nil, err
 	}
@@ -177,15 +177,14 @@ func (s *Service) FinishPasskeyRegistration(ctx context.Context, actor *auth.Act
 	if err != nil {
 		return PasskeyView{}, err
 	}
-	s.challenges.drop(ceremony)
-	if c.user != actor.Person() {
+	if !s.challenges.consume(ceremony) || c.user != actor.Person() {
 		return PasskeyView{}, auth.ErrChallengeExpired.New()
 	}
 	rp, err := s.relyingParty(origin)
 	if err != nil {
 		return PasskeyView{}, err
 	}
-	u, err := s.opts.Store.User(ctx, c.user)
+	u, err := s.User(ctx, c.user)
 	if err != nil {
 		return PasskeyView{}, err
 	}
@@ -218,6 +217,7 @@ func (s *Service) FinishPasskeyRegistration(ctx context.Context, actor *auth.Act
 	if err := s.opts.Store.AddPasskey(ctx, p); err != nil {
 		return PasskeyView{}, err
 	}
+	s.refresh(u.ID, "passkey")
 	s.audit(ctx, actor, "core.user.add_passkey", u.ID, u.Home, events.OutcomeSuccess, "", "Add the passkey "+p.Name)
 	s.publish(ctx, UserTwoFactorChanged, u, actor, u.Username+" added a passkey.", UserEvent{Username: u.Username, Detail: "passkey added: " + p.Name})
 	s.alert(ctx, u, "A passkey was added", "The passkey "+p.Name+" can now sign in as "+u.Username+". If you didn't add it, remove it from your security settings and change your password.", events.SeverityNotice)
@@ -271,7 +271,7 @@ func (s *Service) RemovePasskey(ctx context.Context, actor *auth.Actor, id store
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "remove passkeys")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return err
 	}
@@ -294,6 +294,7 @@ func (s *Service) RemovePasskey(ctx context.Context, actor *auth.Actor, id store
 	if err := s.opts.Store.DeletePasskey(ctx, u.ID, id); err != nil {
 		return err
 	}
+	s.refresh(u.ID, "passkey")
 	s.audit(ctx, actor, "core.user.remove_passkey", u.ID, u.Home, events.OutcomeSuccess, "", "Remove the passkey "+name)
 	s.publish(ctx, UserTwoFactorChanged, u, actor, u.Username+" removed a passkey.", UserEvent{Username: u.Username, Detail: "passkey removed: " + name})
 	s.alert(ctx, u, "A passkey was removed", "The passkey "+name+" no longer signs in as "+u.Username+".", events.SeverityNotice)
@@ -343,7 +344,9 @@ func (s *Service) FinishPasskeySignIn(ctx context.Context, ceremony string, resp
 	if err != nil {
 		return nil, err
 	}
-	s.challenges.drop(ceremony)
+	if !s.challenges.consume(ceremony) {
+		return nil, auth.ErrChallengeExpired.New()
+	}
 	rp, err := s.relyingParty(origin)
 	if err != nil {
 		return nil, err
@@ -365,7 +368,7 @@ func (s *Service) FinishPasskeySignIn(ctx context.Context, ceremony string, resp
 		if string(userHandle) != string(key.User) {
 			return nil, auth.ErrPasskeyUnknown.New()
 		}
-		u, err := s.opts.Store.User(ctx, key.User)
+		u, err := s.User(ctx, key.User)
 		if err != nil {
 			return nil, auth.ErrPasskeyUnknown.New()
 		}
@@ -425,7 +428,7 @@ func (s *Service) BeginSecondStepPasskey(ctx context.Context, challengeSecret, o
 	if err != nil {
 		return nil, err
 	}
-	u, err := s.opts.Store.User(ctx, c.user)
+	u, err := s.User(ctx, c.user)
 	if err != nil {
 		return nil, auth.ErrChallengeExpired.New()
 	}
@@ -433,7 +436,9 @@ func (s *Service) BeginSecondStepPasskey(ctx context.Context, challengeSecret, o
 	if err != nil {
 		return nil, err
 	}
-	c.data = data
+	if err := s.challenges.setData(challengeSecret, "signin", data); err != nil {
+		return nil, err
+	}
 	return options, nil
 }
 
@@ -462,10 +467,10 @@ func (s *Service) beginAssertion(ctx context.Context, u *User, origin string) (j
 	return options, data, err
 }
 
-// finishPasskey checks a passkey answer for u against the challenge's
-// ceremony.
-func (s *Service) finishPasskey(ctx context.Context, u *User, c *challenge, response json.RawMessage, origin string) (*webauthn.Credential, error) {
-	if len(c.data) == 0 {
+// finishPasskey checks a passkey answer for u against the ceremony a
+// challenge kept, which answers once.
+func (s *Service) finishPasskey(ctx context.Context, u *User, data []byte, response json.RawMessage, origin string) (*webauthn.Credential, error) {
+	if len(data) == 0 {
 		return nil, auth.ErrChallengeExpired.New()
 	}
 	rp, err := s.relyingParty(origin)
@@ -473,11 +478,9 @@ func (s *Service) finishPasskey(ctx context.Context, u *User, c *challenge, resp
 		return nil, err
 	}
 	var session webauthn.SessionData
-	if err := json.Unmarshal(c.data, &session); err != nil {
+	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, err
 	}
-	// A ceremony answers once.
-	c.data = nil
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
 		return nil, passkeyError(err)

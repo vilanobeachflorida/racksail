@@ -483,7 +483,14 @@ func (s *Server) Handler() http.Handler {
 		if strings.HasPrefix(r.URL.Path, providerPath+"/") {
 			ctx = context.WithValue(ctx, queryKey{}, r.URL.Query())
 		}
+		ctx, reissued := identity.WithReissue(ctx)
 		found, err := s.opts.Auth.Authenticate(ctx, r)
+		if reissued.Issued != nil {
+			// The session got a new secret because what its person may do
+			// changed; the browser keeps the new one from this answer on.
+			cookie := sessionCookie(reissued.Issued, client.Secure)
+			http.SetCookie(rec, &cookie)
+		}
 		switch {
 		case err != nil:
 			// Credentials that aren't valid, such as an expired session

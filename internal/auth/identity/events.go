@@ -5,9 +5,9 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// The kind names identity events and audit records are about. Users and
-// tokens aren't resources, but they're named like kinds so filters and
-// webhooks treat them the same way.
+// The kind names identity events and audit records are about. Users are
+// resources of core.user; tokens and sessions aren't, but they're named
+// like kinds so filters and webhooks treat them the same way.
 const (
 	KindUser    = "core.user"
 	KindToken   = "core.token"
@@ -40,11 +40,10 @@ type TokenEvent struct {
 	User store.ID `json:"user"`
 }
 
-// Event types of users, sessions and tokens.
+// Event types of signing in, sessions and tokens. Adding, changing and
+// deleting users, like changes to any resource, publish the events of
+// their kind, core.user.created and the rest.
 var (
-	UserCreated          = events.Type{Name: "core.user.created", Description: "A user was added.", Severity: events.SeverityInfo, Data: UserEvent{}}
-	UserUpdated          = events.Type{Name: "core.user.updated", Description: "A user's details or roles changed.", Severity: events.SeverityInfo, Data: UserEvent{}}
-	UserDeleted          = events.Type{Name: "core.user.deleted", Description: "A user was deleted.", Severity: events.SeverityNotice, Data: UserEvent{}}
 	UserSignedIn         = events.Type{Name: "core.user.signed_in", Description: "Someone signed in.", Severity: events.SeverityInfo, Data: SignInEvent{}}
 	UserLockedOut        = events.Type{Name: "core.user.locked_out", Description: "Too many failed sign-ins locked a user out for a while.", Severity: events.SeverityWarning, Data: UserEvent{}}
 	UserPasswordChanged  = events.Type{Name: "core.user.password_changed", Description: "A user's password changed.", Severity: events.SeverityNotice, Data: UserEvent{}}
@@ -52,7 +51,7 @@ var (
 	UserRecoveryUsed     = events.Type{Name: "core.user.recovery_code_used", Description: "A user signed in with one of their recovery codes.", Severity: events.SeverityWarning, Data: UserEvent{}}
 	UserImpersonated     = events.Type{Name: "core.user.impersonated", Description: "An admin or reseller started viewing the panel as a user.", Severity: events.SeverityNotice, Data: UserEvent{}}
 	UserLinkIssued       = events.Type{Name: "core.user.link_issued", Description: "A sign-in link was made for a user, to set a password.", Severity: events.SeverityNotice, Data: UserEvent{}}
-	UserSSHKeyChanged    = events.Type{Name: "core.user.ssh_keys_changed", Description: "A user's SSH keys changed.", Severity: events.SeverityInfo, Data: UserEvent{}}
+	UserIdentityLinked   = events.Type{Name: "core.user.identity_linked", Description: "An identity at an outside provider was linked to a user, so it signs in as them.", Severity: events.SeverityNotice, Data: UserEvent{}}
 	SessionsEnded        = events.Type{Name: "core.session.ended", Description: "Sessions were ended before they expired.", Severity: events.SeverityInfo, Data: UserEvent{}}
 	TokenCreated         = events.Type{Name: "core.token.created", Description: "An API token was created.", Severity: events.SeverityNotice, Data: TokenEvent{}}
 	TokenRevoked         = events.Type{Name: "core.token.revoked", Description: "An API token was revoked.", Severity: events.SeverityInfo, Data: TokenEvent{}}
@@ -60,8 +59,8 @@ var (
 
 // EventTypes lists the identity event types.
 var EventTypes = []events.Type{
-	UserCreated, UserUpdated, UserDeleted, UserSignedIn, UserLockedOut, UserPasswordChanged, UserTwoFactorChanged,
-	UserRecoveryUsed, UserImpersonated, UserLinkIssued, UserSSHKeyChanged, SessionsEnded, TokenCreated, TokenRevoked,
+	UserSignedIn, UserLockedOut, UserPasswordChanged, UserTwoFactorChanged, UserRecoveryUsed, UserImpersonated, UserLinkIssued,
+	UserIdentityLinked, SessionsEnded, TokenCreated, TokenRevoked,
 }
 
 func init() {

@@ -42,7 +42,8 @@ var PolicyKind = store.Define[PolicySpec, PolicyStatus](store.KindInfo{
 		"and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes.",
 	// A narrower allowlist or a second step for everyone changes how every
 	// person signs in.
-	Risks: store.Risks{Create: store.RiskHigh, Update: store.RiskHigh, Delete: store.RiskMedium},
+	Risks:   store.Risks{Create: store.RiskHigh, Update: store.RiskHigh, Delete: store.RiskMedium},
+	Confirm: true,
 	UI: store.UIHints{
 		Icon: "shield-check", Hidden: true,
 		Groups: []store.FieldGroup{

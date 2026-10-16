@@ -130,7 +130,9 @@ func (s *Server) registerSession() {
 		Description:   "Keeps the person's display preferences with their user, so they follow them to other browsers: light or dark, contrast, density, text size and motion.",
 		DefaultStatus: http.StatusNoContent,
 	}
-	Describe(&op, Info{Risk: store.RiskLow})
+	// Preferences are the web UI's, so only people in the panel keep them,
+	// not API tokens, which may be kept to reading.
+	Describe(&op, Info{Risk: store.RiskLow, Session: true})
 	huma.Register(s.api, op, func(ctx context.Context, in *preferencesInput) (*struct{}, error) {
 		actor, err := Actor(ctx)
 		if err != nil {
@@ -249,7 +251,7 @@ func (s *Server) session(ctx context.Context, actor *auth.Actor) (Session, error
 	if id == nil {
 		return doc, nil
 	}
-	if u, err := id.Store().User(ctx, actor.Person()); err == nil {
+	if u, err := id.User(ctx, actor.Person()); err == nil {
 		doc.User = SessionUser{ID: u.ID, Name: u.DisplayName(), Username: u.Username, Email: u.Email, Home: u.Home}
 		if len(u.Preferences) > 0 {
 			var p Preferences

@@ -65,7 +65,7 @@ func (s *Service) SetAlertChannel(ctx context.Context, actor *auth.Actor, in Ale
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change where their alerts go")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return err
 	}
@@ -86,8 +86,7 @@ func (s *Service) SetAlertChannel(ctx context.Context, actor *auth.Actor, in Ale
 			return err
 		}
 	}
-	u.AlertChannel, u.UpdatedAt = in.Type, s.now()
-	if err := s.opts.Store.UpdateUser(ctx, u, 0); err != nil {
+	if err := s.opts.Store.SetAlertChannel(ctx, u.ID, in.Type); err != nil {
 		return err
 	}
 	summary := "Turn security alerts off"
@@ -104,7 +103,7 @@ func (s *Service) TestAlert(ctx context.Context, actor *auth.Actor) error {
 	if err := requirePerson(actor); err != nil {
 		return err
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return err
 	}
@@ -118,7 +117,7 @@ func (s *Service) TestAlert(ctx context.Context, actor *auth.Actor) error {
 	ctx, cancel := context.WithTimeout(ctx, alertTimeout)
 	defer cancel()
 	return ch.Send(ctx, notify.Message{
-		Title: "Security alerts work", Severity: events.SeverityInfo, URL: s.panelURL("/settings/account/security"),
+		Title: "Security alerts work", Severity: events.SeverityInfo, URL: s.panelURL(securityPage),
 		Body: "Security alerts for " + u.Username + " come here: sign-ins from new devices, lockouts and changes to how you sign in.",
 	})
 }
@@ -149,6 +148,10 @@ func (r secretResolver) Resolve(ctx context.Context, ref string) (string, error)
 	return string(v), err
 }
 
+// securityPage is where people change how they sign in, which alerts link
+// to.
+const securityPage = "/settings/security"
+
 func (s *Service) panelURL(path string) string {
 	if s.opts.Hostname == "" || s.opts.Hostname == "localhost" {
 		return ""
@@ -162,7 +165,7 @@ func (s *Service) alert(ctx context.Context, u *User, title, body string, severi
 	if u.AlertChannel == "" || s.opts.Secrets == nil {
 		return
 	}
-	msg := notify.Message{Title: title, Body: body, Severity: severity, URL: s.panelURL("/settings/account/security")}
+	msg := notify.Message{Title: title, Body: body, Severity: severity, URL: s.panelURL(securityPage)}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertTimeout)
 		defer cancel()

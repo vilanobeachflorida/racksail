@@ -13,12 +13,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/vilanobeachflorida/racksail/internal/config"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 	"github.com/vilanobeachflorida/racksail/internal/updates"
 )
 
@@ -31,8 +34,37 @@ const (
 	ProfileEnv = "RACKSAIL_PROFILE"
 )
 
-// DefaultServer is where the panel listens on its own server.
-const DefaultServer = "http://127.0.0.1:7070"
+// DefaultServer is where a server's panel listens unless racksail.toml
+// says otherwise: HTTPS on port 8443, which the server reaches itself at
+// on loopback.
+const DefaultServer = "https://localhost:8443"
+
+// localPanel is the panel of the server the command runs on: where it
+// listens, as racksail.toml says when this is a Racksail server, and the
+// certificate it made for itself, which the command trusts for it when it
+// may read it.
+func localPanel() (server, caFile string) {
+	cfg, err := config.Load(system.ConfigFile)
+	if err != nil {
+		cfg = config.Default()
+	}
+	host, port, err := net.SplitHostPort(cfg.Panel.Listen)
+	if err != nil {
+		return DefaultServer, ""
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "localhost"
+	}
+	server = "https://" + net.JoinHostPort(host, port)
+	if cfg.Panel.TLSCert == "" {
+		cert := filepath.Join(cfg.Paths.State, "tls", "panel.crt")
+		if f, err := os.Open(cert); err == nil {
+			f.Close()
+			caFile = cert
+		}
+	}
+	return server, caFile
+}
 
 // Options are the settings commands that call a panel's API share.
 type Options struct {
@@ -69,7 +101,7 @@ var outputs = []string{"table", "json", "yaml"}
 func AddFlags(cmd *cobra.Command, o *Options) {
 	f := cmd.Flags()
 	f.StringVar(&o.Profile, "profile", "", "profile to use instead of the current one; "+ProfileEnv+" sets the default")
-	f.StringVar(&o.Server, "server", "", "panel address, instead of the profile's; "+ServerEnv+" sets the default, and "+DefaultServer+" is used without either")
+	f.StringVar(&o.Server, "server", "", "panel address, instead of the profile's; "+ServerEnv+" sets the default, and without either the panel on this server, "+DefaultServer+" unless racksail.toml says otherwise")
 	f.StringVar(&o.CAFile, "ca-file", "", "certificate authority to trust for the panel, such as its self-signed certificate")
 	f.StringVarP(&o.Output, "output", "o", "table", "output format: table, json or yaml")
 	if IsMutating(cmd) {
@@ -120,14 +152,18 @@ func (o *Options) Connect() (*Client, error) {
 	if server == "" && prof != nil {
 		server = prof.Server
 	}
+	caFile := o.CAFile
 	if server == "" {
-		server = DefaultServer
+		var local string
+		server, local = localPanel()
+		if caFile == "" {
+			caFile = local
+		}
 	}
 	server, err := NormalizeServer(server)
 	if err != nil {
 		return nil, err
 	}
-	caFile := o.CAFile
 	if prof != nil && sameServer(prof.Server, server) {
 		if token == "" {
 			token = prof.Token

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -36,8 +38,9 @@ type ProviderSpec struct {
 	// password or a client secret, which it gets as settings.secret.
 	Secret string `json:"secret,omitempty" doc:"A secret the provider needs, such as an LDAP bind password or an OpenID Connect client secret"`
 	// Match says how someone signing in for the first time is matched to a
-	// user here.
-	Match string `json:"match,omitempty" enum:"username,email,none" doc:"How someone signing in for the first time is matched to an existing user: by username, by email, or not at all"`
+	// user here. Users with a grant on the whole server are never matched:
+	// they link their outside identity themselves.
+	Match string `json:"match,omitempty" enum:"none,username,email" doc:"How someone signing in for the first time is matched to an existing user: not at all, so people link it themselves in their security settings, by username, or by email. Users with a grant on the whole server are never matched"`
 	// NewUsers adds a user for someone who matches nobody, with
 	// NewUserGrants.
 	NewUsers      bool         `json:"newUsers,omitempty" doc:"Add a user for someone who signs in for the first time and matches nobody"`
@@ -55,7 +58,8 @@ var ProviderKind = store.Define[ProviderSpec, ProviderStatus](store.KindInfo{
 	Title: "Sign-in provider", Plural: "signin-providers",
 	Description: "An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step " +
 		"an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings.",
-	Risks: store.Risks{Create: store.RiskHigh, Update: store.RiskHigh, Delete: store.RiskMedium},
+	Risks:   store.Risks{Create: store.RiskHigh, Update: store.RiskHigh, Delete: store.RiskMedium},
+	Confirm: true,
 	UI: store.UIHints{
 		Icon: "key-round", TitleField: "title", SubtitleField: "provider", Hidden: true,
 		Fields: map[string]store.FieldHint{
@@ -89,6 +93,28 @@ func validateProvider(ctx context.Context, obj, old *store.Object[ProviderSpec, 
 	}
 	if raw, err := json.Marshal(spec.Settings); err == nil && len(raw) > 32<<10 {
 		fields = append(fields, i18n.Field("spec.settings", i18n.ErrBadValue, "reason", "settings are at most 32 KiB"))
+	}
+	if len(fields) > 0 {
+		return i18n.Invalid(fields...)
+	}
+	// Whoever connects a provider that adds users gives those users their
+	// grants, so they must be able to give them.
+	actor, ok := auth.ActorFrom(ctx)
+	if !ok {
+		return nil
+	}
+	az, ok := auth.AuthorizerFrom(ctx)
+	if !ok {
+		return nil
+	}
+	gc, ok := az.(auth.GrantChecker)
+	if !ok {
+		return fmt.Errorf("identity: the authorizer can't check grants")
+	}
+	for i, g := range spec.NewUserGrants {
+		if err := gc.CanGrant(ctx, actor, g); err != nil {
+			fields = append(fields, i18n.Field(fmt.Sprintf("spec.newUserGrants[%d]", i), i18n.ErrBadValue, "reason", i18n.From(err).Message))
+		}
 	}
 	if len(fields) > 0 {
 		return i18n.Invalid(fields...)
@@ -166,16 +192,39 @@ func (s *Service) registry() *hooks.Registry {
 	return s.opts.Hooks.Registry
 }
 
-func (s *Service) openIdentity(ctx context.Context, p *store.Object[ProviderSpec, ProviderStatus]) (auth.IdentityProvider, error) {
+// openProvider connects the provider of a capability a sign-in provider
+// names, with its settings.
+func (s *Service) openProvider(ctx context.Context, point hooks.Point, p *store.Object[ProviderSpec, ProviderStatus]) (any, error) {
 	reg := s.registry()
 	if reg == nil {
-		return nil, hooks.ErrUnknownProvider.New("capability", string(hooks.AuthProvider), "provider", p.Spec.Provider)
+		return nil, hooks.ErrUnknownProvider.New("capability", string(point), "provider", p.Spec.Provider)
+	}
+	found, ok := reg.Provider(point, p.Spec.Provider)
+	if !ok {
+		return nil, hooks.ErrUnknownProvider.New("capability", string(point), "provider", p.Spec.Provider)
 	}
 	settings, err := s.settingsOf(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	return hooks.Open[auth.IdentityProvider](ctx, reg, hooks.AuthProvider, p.Spec.Provider, settings)
+	return found.Provider.Open(ctx, settings)
+}
+
+// openIdentity connects an identity provider. Providers that run apart
+// from the panel, as add-ons do, answer the capability's methods instead
+// of implementing its interface here.
+func (s *Service) openIdentity(ctx context.Context, p *store.Object[ProviderSpec, ProviderStatus]) (auth.IdentityProvider, error) {
+	v, err := s.openProvider(ctx, hooks.AuthProvider, p)
+	if err != nil {
+		return nil, err
+	}
+	switch ip := v.(type) {
+	case auth.IdentityProvider:
+		return ip, nil
+	case auth.Caller:
+		return auth.RemoteIdentityProvider(ctx, ip)
+	}
+	return nil, fmt.Errorf("identity: the provider %s gave %T, which signs nobody in", p.Spec.Provider, v)
 }
 
 // SignInOptions lists the outside providers the sign-in screen offers.
@@ -244,17 +293,18 @@ func (s *Service) userFor(ctx context.Context, p *store.Object[ProviderSpec, Pro
 	if identity == nil || identity.Subject == "" {
 		return nil, auth.ErrProviderFailed.New("provider", p.Spec.Title, "reason", "it didn't say who signed in")
 	}
-	u, err := s.opts.Store.UserByIdentity(ctx, p.ID, identity.Subject)
+	id, err := s.opts.Store.LinkedUser(ctx, p.ID, identity.Subject)
 	if err == nil {
-		return u, nil
+		return s.User(ctx, id)
 	}
 	if !store.ErrNotFound.Is(err) {
 		return nil, err
 	}
+	var u *User
 	switch p.Spec.Match {
-	case "", "username":
+	case "username":
 		if identity.Username != "" {
-			u, err = s.opts.Store.UserByName(ctx, NormalizeUsername(identity.Username))
+			u, err = s.userByName(ctx, identity.Username)
 		}
 	case "email":
 		if identity.Email != "" {
@@ -264,6 +314,13 @@ func (s *Service) userFor(ctx context.Context, p *store.Object[ProviderSpec, Pro
 	if err != nil && !store.ErrNotFound.Is(err) {
 		return nil, err
 	}
+	if u != nil && serverWide(u) {
+		// Usernames and email addresses are often the person's own choice
+		// at the provider, so nobody becomes an admin by picking one.
+		s.audit(ctx, auth.System("signin-provider"), "auth.sign_in", u.ID, u.Home, events.OutcomeDenied, "matched a user who manages the whole server",
+			"Sign in with "+p.Spec.Title+" as "+u.Username)
+		return nil, auth.ErrLinkByHand.New("provider", p.Spec.Title)
+	}
 	if u == nil && p.Spec.NewUsers {
 		if u, err = s.createProviderUser(ctx, p, identity); err != nil {
 			return nil, err
@@ -272,36 +329,64 @@ func (s *Service) userFor(ctx context.Context, p *store.Object[ProviderSpec, Pro
 	if u == nil {
 		return nil, auth.ErrIdentityUnlinked.New("provider", p.Spec.Title)
 	}
-	link := &Link{User: u.ID, Provider: p.ID, Subject: identity.Subject, Username: identity.Username, LinkedAt: s.now()}
-	if err := s.opts.Store.LinkIdentity(ctx, link); err != nil {
+	if err := s.link(ctx, auth.System("signin-provider"), u, p, identity); err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
+// serverWide reports whether one of u's grants is on the whole server.
+func serverWide(u *User) bool {
+	return slices.ContainsFunc(u.Grants, func(g auth.Grant) bool { return g.Scope.Level == store.ScopeServer })
+}
+
+// link connects an outside identity to u, so it signs in as them.
+func (s *Service) link(ctx context.Context, actor *auth.Actor, u *User, p *store.Object[ProviderSpec, ProviderStatus], identity *auth.ExternalIdentity) error {
+	l := &Link{User: u.ID, Provider: p.ID, Subject: identity.Subject, Username: identity.Username, LinkedAt: s.now()}
+	if err := s.opts.Store.LinkIdentity(ctx, l); err != nil {
+		if auth.ErrIdentityTaken.Is(err) {
+			return auth.ErrIdentityTaken.New("provider", p.Spec.Title)
+		}
+		return err
+	}
+	who := identity.Username
+	if who == "" {
+		who = identity.Subject
+	}
+	s.audit(ctx, actor, "core.user.link", u.ID, u.Home, events.OutcomeSuccess, "", "Link "+who+" at "+p.Spec.Title+" to "+u.Username)
+	s.publish(ctx, UserIdentityLinked, u, actor, who+" at "+p.Spec.Title+" now signs in as "+u.Username+".", UserEvent{Username: u.Username, Detail: p.Spec.Title})
+	s.alert(ctx, u, "An outside sign-in was linked", who+" at "+p.Spec.Title+" can now sign in as "+u.Username+
+		". If you didn't link it, stop signing in with it in your security settings.", events.SeverityNotice)
+	return nil
+}
+
 func (s *Service) userByEmail(ctx context.Context, email string) (*User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	users, _, err := s.opts.Store.ListUsers(ctx, UserQuery{Search: email, Limit: store.MaxLimit})
+	var found []*store.Object[UserSpec, UserStatus]
+	err := s.eachUser(ctx, store.Query{Index: map[string]string{"email": email}}, func(u *store.Object[UserSpec, UserStatus]) error {
+		found = append(found, u)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	var found *User
-	for _, u := range users {
-		if strings.EqualFold(u.Email, email) {
-			if found != nil {
-				// Two users with the address match neither.
-				return nil, notFound(email)
-			}
-			found = u
-		}
-	}
-	if found == nil {
+	// Two users with the address match neither.
+	if len(found) != 1 {
 		return nil, notFound(email)
 	}
-	return found, nil
+	return s.withCredentials(ctx, found[0])
 }
 
 var unsafeUsername = regexp.MustCompile(`[^a-z0-9._@-]+`)
+
+// providerActor is the panel adding users for a provider that adds them:
+// it gives what the admin who connected the provider chose, which never
+// includes an admin's role or core.override.
+func providerActor() *auth.Actor {
+	a := auth.System("signin-provider")
+	a.Grants = []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope(), Permissions: []auth.Permission{auth.PermImpersonate, auth.PermSecretsRead}}}
+	return a
+}
 
 func (s *Service) createProviderUser(ctx context.Context, p *store.Object[ProviderSpec, ProviderStatus], identity *auth.ExternalIdentity) (*User, error) {
 	name := identity.Username
@@ -312,23 +397,33 @@ func (s *Service) createProviderUser(ctx context.Context, p *store.Object[Provid
 	if len(name) < 2 {
 		return nil, auth.ErrProviderFailed.New("provider", p.Spec.Title, "reason", "it gave no username to add the user under")
 	}
-	in := UserInput{Username: name, Name: identity.Name, Email: identity.Email, Grants: p.Spec.NewUserGrants}
-	home, err := homeOf(&in)
+	home := store.ServerScope()
+	if len(p.Spec.NewUserGrants) > 0 {
+		home = p.Spec.NewUserGrants[0].Scope
+		for _, g := range p.Spec.NewUserGrants[1:] {
+			if g.Scope != home {
+				home = store.ServerScope()
+			}
+		}
+	}
+	spec := UserSpec{Username: name, Name: identity.Name, Email: identity.Email, Grants: p.Spec.NewUserGrants}
+	normalize(&spec)
+	if !emailPattern.MatchString(spec.Email) {
+		spec.Email = ""
+	}
+	raw, err := json.Marshal(spec)
 	if err != nil {
-		home = store.ServerScope()
-	}
-	if fields := checkDetails(&in); len(fields) > 0 {
-		return nil, i18n.Invalid(fields...)
-	}
-	now := s.now()
-	u := &User{ID: store.NewID(PrefixUser), Username: in.Username, Name: in.Name, Email: in.Email, Home: home, Grants: in.Grants, CreatedAt: now, UpdatedAt: now}
-	if err := s.opts.Store.CreateUser(ctx, u); err != nil {
 		return nil, err
 	}
-	actor := auth.System("signin-provider")
-	s.audit(ctx, actor, string(auth.PermUserCreate), u.ID, u.Home, events.OutcomeSuccess, "", "Add "+u.Username+" on their first sign-in with "+p.Spec.Title)
-	s.publish(ctx, UserCreated, u, actor, u.Username+" was added on their first sign-in with "+p.Spec.Title+".", UserEvent{Username: u.Username, Detail: p.Spec.Title})
-	return u, nil
+	id := store.NewID(PrefixUser)
+	_, err = s.submit(ctx, changeset.Request{
+		Actor: providerActor(), Title: "Add " + spec.Username + " on their first sign-in with " + p.Spec.Title,
+		Changes: []changeset.Change{{Op: changeset.OpCreate, Kind: KindUser, ID: id, Scope: home, Spec: raw}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.User(ctx, id)
 }
 
 func (s *Service) provider(ctx context.Context, id store.ID, capability string) (*store.Object[ProviderSpec, ProviderStatus], error) {
@@ -352,6 +447,12 @@ func (s *Service) BeginProviderSignIn(ctx context.Context, id store.ID, callback
 	if err := s.limiter.take(client.IP); err != nil {
 		return "", "", err
 	}
+	return s.beginRedirect(ctx, id, callback, &challenge{purpose: "provider", persistent: remember})
+}
+
+// beginRedirect sends the browser to a redirect provider's page, keeping
+// what the provider needs when it comes back with c.
+func (s *Service) beginRedirect(ctx context.Context, id store.ID, callback string, c *challenge) (string, string, error) {
 	p, err := s.provider(ctx, id, "identity")
 	if err != nil {
 		return "", "", err
@@ -372,21 +473,37 @@ func (s *Service) BeginProviderSignIn(ctx context.Context, id store.ID, callback
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", "", auth.ErrProviderFailed.New("provider", p.Spec.Title, "reason", "it gave an address the browser can't go to")
 	}
-	state = s.challenges.put(&challenge{purpose: "provider", method: string(p.ID), persistent: remember, data: data, expires: s.now().Add(10 * time.Minute)})
-	return to, state, nil
+	c.method, c.data, c.expires = string(p.ID), data, s.now().Add(10*time.Minute)
+	return to, s.challenges.put(c), nil
+}
+
+// ProviderReturn is how coming back from a provider's page went: signed
+// in, waiting for a second step, or an outside identity linked to the user
+// who started from their security settings.
+type ProviderReturn struct {
+	*SignInResult
+	// Linked is the provider whose identity was linked, when the browser
+	// came back from linking one.
+	Linked *store.Object[ProviderSpec, ProviderStatus]
 }
 
 // CompleteProviderSignIn finishes signing in through a provider's page,
-// with the query the browser came back with.
-func (s *Service) CompleteProviderSignIn(ctx context.Context, state, callback string, query url.Values, deviceSecret string, client auth.Client) (*SignInResult, error) {
+// or linking an identity there, with the query the browser came back with.
+func (s *Service) CompleteProviderSignIn(ctx context.Context, state, callback string, query url.Values, deviceSecret string, client auth.Client) (*ProviderReturn, error) {
 	if err := s.limiter.take(client.IP); err != nil {
 		return nil, err
 	}
-	c, err := s.challenges.get(state, "provider")
+	purpose := s.challenges.purposeOf(state)
+	if purpose != "provider-link" {
+		purpose = "provider"
+	}
+	c, err := s.challenges.get(state, purpose)
 	if err != nil {
 		return nil, err
 	}
-	s.challenges.drop(state)
+	if !s.challenges.consume(state) {
+		return nil, auth.ErrChallengeExpired.New()
+	}
 	p, err := s.provider(ctx, store.ID(c.method), "identity")
 	if err != nil {
 		return nil, err
@@ -406,11 +523,101 @@ func (s *Service) CompleteProviderSignIn(ctx context.Context, state, callback st
 		}
 		return nil, auth.ErrProviderFailed.Wrap(err, "provider", p.Spec.Title, "reason", "the sign-in didn't complete")
 	}
+	if purpose == "provider-link" {
+		u, err := s.User(ctx, c.user)
+		if err != nil {
+			return nil, auth.ErrChallengeExpired.New()
+		}
+		actor := signInActor(u, u.Username, client)
+		if err := s.linkChecked(ctx, actor, u, p, identity); err != nil {
+			return nil, err
+		}
+		return &ProviderReturn{Linked: p}, nil
+	}
 	u, err := s.userFor(ctx, p, identity)
 	if err != nil {
 		return nil, err
 	}
-	return s.afterFirstStep(ctx, u, "provider:"+p.Spec.Provider, c.persistent, deviceSecret, client)
+	res, err := s.afterFirstStep(ctx, u, "provider:"+p.Spec.Provider, c.persistent, deviceSecret, client)
+	if err != nil {
+		return nil, err
+	}
+	return &ProviderReturn{SignInResult: res}, nil
+}
+
+// linkChecked links an outside identity to u, unless it signs in as
+// someone else already.
+func (s *Service) linkChecked(ctx context.Context, actor *auth.Actor, u *User, p *store.Object[ProviderSpec, ProviderStatus], identity *auth.ExternalIdentity) error {
+	if identity == nil || identity.Subject == "" {
+		return auth.ErrProviderFailed.New("provider", p.Spec.Title, "reason", "it didn't say who signed in")
+	}
+	if other, err := s.opts.Store.LinkedUser(ctx, p.ID, identity.Subject); err == nil && other != u.ID {
+		return auth.ErrIdentityTaken.New("provider", p.Spec.Title)
+	}
+	return s.link(ctx, actor, u, p, identity)
+}
+
+// LinkInput links an identity at a provider that checks passwords, such as
+// an LDAP directory, to the actor's own user.
+type LinkInput struct {
+	Username string `json:"username" maxLength:"254" doc:"Your username at the provider"`
+	Password string `json:"password" maxLength:"1024" format:"password" doc:"Your password at the provider, which the panel checks with it and doesn't keep"`
+}
+
+// linking checks that the actor may link an outside identity to their own
+// user, in the panel.
+func (s *Service) linking(ctx context.Context, actor *auth.Actor) (*User, error) {
+	if err := ownChange(actor, "change how they sign in"); err != nil {
+		return nil, err
+	}
+	return s.User(ctx, actor.Person())
+}
+
+// LinkMine links the identity a password provider checks the credentials
+// of to the actor's own user, so it signs them in from then on.
+func (s *Service) LinkMine(ctx context.Context, actor *auth.Actor, id store.ID, in LinkInput, client auth.Client) (LinkView, error) {
+	if err := s.limiter.take(client.IP); err != nil {
+		return LinkView{}, err
+	}
+	u, err := s.linking(ctx, actor)
+	if err != nil {
+		return LinkView{}, err
+	}
+	p, err := s.provider(ctx, id, "identity")
+	if err != nil {
+		return LinkView{}, err
+	}
+	ip, err := s.openIdentity(ctx, p)
+	if err != nil {
+		return LinkView{}, err
+	}
+	pp, ok := ip.(auth.PasswordProvider)
+	if !ok || ip.Method() != auth.MethodPassword {
+		return LinkView{}, i18n.ErrBadRequest.New("reason", p.Spec.Title+" signs people in on its own page; start linking it there")
+	}
+	identity, err := pp.CheckPassword(ctx, in.Username, in.Password)
+	if auth.ErrBadCredentials.Is(err) {
+		s.audit(ctx, actor, "core.user.link", u.ID, u.Home, events.OutcomeFailed, "wrong username or password at "+p.Spec.Title, "Link an identity at "+p.Spec.Title)
+		s.failed(ctx, u, client)
+		return LinkView{}, err
+	}
+	if err != nil {
+		return LinkView{}, auth.ErrProviderFailed.Wrap(err, "provider", p.Spec.Title, "reason", "it couldn't check the password")
+	}
+	if err := s.linkChecked(ctx, actor, u, p, identity); err != nil {
+		return LinkView{}, err
+	}
+	return LinkView{Provider: p.ID, Title: p.Spec.Title, Username: identity.Username, LinkedAt: s.now()}, nil
+}
+
+// BeginLinkMine starts linking an identity at a provider with its own
+// page to the actor's user: the browser goes there, and back to callback.
+func (s *Service) BeginLinkMine(ctx context.Context, actor *auth.Actor, id store.ID, callback string) (redirect, state string, err error) {
+	u, err := s.linking(ctx, actor)
+	if err != nil {
+		return "", "", err
+	}
+	return s.beginRedirect(ctx, id, callback, &challenge{user: u.ID, purpose: "provider-link"})
 }
 
 // LinkView is an outside identity linked to the actor's user.
@@ -443,13 +650,7 @@ func (s *Service) MyLinks(ctx context.Context, actor *auth.Actor) ([]LinkView, e
 // UnlinkMine stops an outside identity signing in as the actor, unless it
 // is the only way they have.
 func (s *Service) UnlinkMine(ctx context.Context, actor *auth.Actor, provider store.ID) error {
-	if err := requirePerson(actor); err != nil {
-		return err
-	}
-	if actor.Impersonator != "" {
-		return auth.ErrImpersonating.New("user", actor.Name, "action", "change how they sign in")
-	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.linking(ctx, actor)
 	if err != nil {
 		return err
 	}
@@ -478,16 +679,19 @@ type MFAOption struct {
 	Enabled bool     `json:"enabled" doc:"Whether the person asking has it on"`
 }
 
+// openMFA connects a second step an add-on or a module provides.
 func (s *Service) openMFA(ctx context.Context, p *store.Object[ProviderSpec, ProviderStatus]) (auth.MFAMethod, error) {
-	reg := s.registry()
-	if reg == nil {
-		return nil, hooks.ErrUnknownProvider.New("capability", string(hooks.AuthMFA), "provider", p.Spec.Provider)
-	}
-	settings, err := s.settingsOf(ctx, p)
+	v, err := s.openProvider(ctx, hooks.AuthMFA, p)
 	if err != nil {
 		return nil, err
 	}
-	return hooks.Open[auth.MFAMethod](ctx, reg, hooks.AuthMFA, p.Spec.Provider, settings)
+	switch m := v.(type) {
+	case auth.MFAMethod:
+		return m, nil
+	case auth.Caller:
+		return auth.RemoteMFAMethod(m), nil
+	}
+	return nil, fmt.Errorf("identity: the second step %s gave %T, which checks nobody", p.Spec.Provider, v)
 }
 
 func mfaUser(u *User) auth.MFAUser {
@@ -515,17 +719,14 @@ func (s *Service) MFAOptions(ctx context.Context, actor *auth.Actor) ([]MFAOptio
 	return out, nil
 }
 
-// BeginMFA starts a check with an add-on's second step: to turn it on for
-// the actor, or as a sign-in's second step. It returns what to ask the
-// person, and the ceremony that finishes it.
+// BeginMFA starts a check with an add-on's second step, to turn it on for
+// the actor. It returns what to ask the person, and the ceremony that
+// finishes it.
 func (s *Service) BeginMFA(ctx context.Context, actor *auth.Actor, id store.ID) (string, *auth.MFAChallenge, error) {
-	if err := requirePerson(actor); err != nil {
+	if err := ownChange(actor, "change their second steps"); err != nil {
 		return "", nil, err
 	}
-	if actor.Impersonator != "" {
-		return "", nil, auth.ErrImpersonating.New("user", actor.Name, "action", "change their second steps")
-	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return "", nil, err
 	}
@@ -548,7 +749,7 @@ func (s *Service) BeginMFA(ctx context.Context, actor *auth.Actor, id store.ID) 
 // FinishMFA turns an add-on's second step on for the actor once a check
 // with it passed.
 func (s *Service) FinishMFA(ctx context.Context, actor *auth.Actor, ceremony, response string) error {
-	if err := requirePerson(actor); err != nil {
+	if err := ownChange(actor, "change their second steps"); err != nil {
 		return err
 	}
 	c, err := s.challenges.get(ceremony, "mfa-enroll")
@@ -558,7 +759,7 @@ func (s *Service) FinishMFA(ctx context.Context, actor *auth.Actor, ceremony, re
 	if c.user != actor.Person() {
 		return auth.ErrChallengeExpired.New()
 	}
-	u, err := s.opts.Store.User(ctx, c.user)
+	u, err := s.User(ctx, c.user)
 	if err != nil {
 		return err
 	}
@@ -577,10 +778,13 @@ func (s *Service) FinishMFA(ctx context.Context, actor *auth.Actor, ceremony, re
 		s.challenges.fail(ceremony)
 		return auth.ErrBadCode.New()
 	}
-	s.challenges.drop(ceremony)
+	if !s.challenges.consume(ceremony) {
+		return auth.ErrChallengeExpired.New()
+	}
 	if err := s.opts.Store.EnableMFA(ctx, &MFAEnrollment{User: u.ID, Method: string(p.ID), EnabledAt: s.now()}); err != nil {
 		return err
 	}
+	s.refresh(u.ID, "two-factor")
 	if err := s.clearPending(ctx, actor, PendingTwoFactor, u); err != nil {
 		return err
 	}
@@ -591,19 +795,17 @@ func (s *Service) FinishMFA(ctx context.Context, actor *auth.Actor, ceremony, re
 
 // DisableMFA turns an add-on's second step off for the actor.
 func (s *Service) DisableMFA(ctx context.Context, actor *auth.Actor, id store.ID) error {
-	if err := requirePerson(actor); err != nil {
+	if err := ownChange(actor, "change their second steps"); err != nil {
 		return err
 	}
-	if actor.Impersonator != "" {
-		return auth.ErrImpersonating.New("user", actor.Name, "action", "change their second steps")
-	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return err
 	}
 	if err := s.opts.Store.DisableMFA(ctx, u.ID, string(id)); err != nil {
 		return err
 	}
+	s.refresh(u.ID, "two-factor")
 	s.audit(ctx, actor, "core.user.disable_mfa", u.ID, u.Home, events.OutcomeSuccess, "", "Turn off "+string(id))
 	s.publish(ctx, UserTwoFactorChanged, u, actor, u.Username+" turned a second step off.", UserEvent{Username: u.Username, Detail: string(id) + " off"})
 	return nil
@@ -615,7 +817,7 @@ func (s *Service) BeginSecondStepMFA(ctx context.Context, challengeSecret string
 	if err != nil {
 		return nil, err
 	}
-	u, err := s.opts.Store.User(ctx, c.user)
+	u, err := s.User(ctx, c.user)
 	if err != nil {
 		return nil, auth.ErrChallengeExpired.New()
 	}
@@ -623,11 +825,7 @@ func (s *Service) BeginSecondStepMFA(ctx context.Context, challengeSecret string
 	if err != nil {
 		return nil, err
 	}
-	on := false
-	for _, e := range enabled {
-		on = on || e.Method == string(id)
-	}
-	if !on {
+	if !slices.ContainsFunc(enabled, func(e *MFAEnrollment) bool { return e.Method == string(id) }) {
 		return nil, notFound(string(id))
 	}
 	p, err := s.provider(ctx, id, "mfa")
@@ -646,7 +844,9 @@ func (s *Service) BeginSecondStepMFA(ctx context.Context, challengeSecret string
 	if err != nil {
 		return nil, err
 	}
-	c.data = state
+	if err := s.challenges.setData(challengeSecret, "signin", state); err != nil {
+		return nil, err
+	}
 	return ch, nil
 }
 
@@ -656,8 +856,13 @@ type mfaState struct {
 }
 
 // verifyMFA checks the response to an add-on's second step started with
-// BeginSecondStepMFA.
-func (s *Service) verifyMFA(ctx context.Context, u *User, c *challenge, method, response string) error {
+// BeginSecondStepMFA. The check stays open while the person hasn't
+// answered, for the screen to ask again.
+func (s *Service) verifyMFA(ctx context.Context, u *User, secret, method, response string) error {
+	c, err := s.challenges.get(secret, "signin")
+	if err != nil {
+		return err
+	}
 	var st mfaState
 	if len(c.data) == 0 || json.Unmarshal(c.data, &st) != nil || st.Method != method {
 		return auth.ErrChallengeExpired.New()
@@ -676,6 +881,5 @@ func (s *Service) verifyMFA(ctx context.Context, u *User, c *challenge, method, 
 		}
 		return auth.ErrBadCode.New()
 	}
-	c.data = nil
 	return nil
 }

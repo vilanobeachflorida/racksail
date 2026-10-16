@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
@@ -43,7 +45,7 @@ type Security struct {
 
 // MyProfile returns the actor's own user.
 func (s *Service) MyProfile(ctx context.Context, actor *auth.Actor) (Me, error) {
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return Me{}, err
 	}
@@ -87,48 +89,41 @@ func (s *Service) security(ctx context.Context, u *User) (Security, error) {
 	return sec, nil
 }
 
-// ProfileInput is what people change about themselves.
-type ProfileInput struct {
-	Name   string `json:"name" maxLength:"128" doc:"Your name, as the panel shows it"`
-	Email  string `json:"email,omitempty" maxLength:"254" doc:"Where you get notifications"`
-	Locale string `json:"locale,omitempty" maxLength:"35" doc:"The panel's language for you, such as en or pt-BR; empty follows your browser"`
-}
-
-// UpdateProfile changes the actor's name, email and language.
-func (s *Service) UpdateProfile(ctx context.Context, actor *auth.Actor, in ProfileInput) (Me, error) {
-	if err := requirePerson(actor); err != nil {
-		return Me{}, err
+// UpdateProfile is the change that sets the actor's own name, email
+// address and language.
+func (s *Service) UpdateProfile(actor *auth.Actor, in ProfileInput) (changeset.Request, error) {
+	if err := ownChange(actor, "change their profile"); err != nil {
+		return changeset.Request{}, err
 	}
-	if actor.Impersonator != "" {
-		return Me{}, auth.ErrImpersonating.New("user", actor.Name, "action", "change their profile")
+	if fields := checkProfile(in, ""); len(fields) > 0 {
+		return changeset.Request{}, i18n.Invalid(fields...)
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	in.Name, in.Email, in.Locale = strings.TrimSpace(in.Name), strings.TrimSpace(in.Email), strings.TrimSpace(in.Locale)
+	input, err := json.Marshal(in)
 	if err != nil {
-		return Me{}, err
+		return changeset.Request{}, err
 	}
-	check := UserInput{Username: u.Username, Name: in.Name, Email: in.Email, Locale: in.Locale}
-	if fields := checkDetails(&check); len(fields) > 0 {
-		return Me{}, i18n.Invalid(fields...)
-	}
-	u.Name, u.Email, u.Locale, u.UpdatedAt = check.Name, check.Email, check.Locale, s.now()
-	if err := s.opts.Store.UpdateUser(ctx, u, 0); err != nil {
-		return Me{}, err
-	}
-	s.audit(ctx, actor, "core.user.update_profile", u.ID, u.Home, events.OutcomeSuccess, "", "Change their profile")
-	return s.MyProfile(ctx, actor)
+	return changeset.Request{
+		Title:   "Change your profile",
+		Changes: []changeset.Change{{Op: changeset.OpAction, Kind: KindUser, ID: actor.Person(), Action: "update_profile", Input: input}},
+	}, nil
 }
 
 // Preferences returns the display preferences the actor keeps.
 func (s *Service) Preferences(ctx context.Context, actor *auth.Actor) (json.RawMessage, error) {
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return nil, err
 	}
 	return u.Preferences, nil
 }
 
-// SetPreferences keeps the actor's display preferences.
+// SetPreferences keeps the actor's display preferences, which are theirs
+// alone and nothing else about their user.
 func (s *Service) SetPreferences(ctx context.Context, actor *auth.Actor, prefs json.RawMessage) error {
+	if err := requirePerson(actor); err != nil {
+		return err
+	}
 	if len(prefs) > 8<<10 {
 		return i18n.ErrTooLarge.New("limit", "8 KiB")
 	}
@@ -136,12 +131,10 @@ func (s *Service) SetPreferences(ctx context.Context, actor *auth.Actor, prefs j
 	if err := json.Unmarshal(prefs, &check); err != nil {
 		return i18n.ErrBadRequest.New("reason", "preferences are a JSON object")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
-	if err != nil {
+	if _, err := s.User(ctx, actor.Person()); err != nil {
 		return err
 	}
-	u.Preferences, u.UpdatedAt = prefs, s.now()
-	return s.opts.Store.UpdateUser(ctx, u, 0)
+	return s.opts.Store.SetPreferences(ctx, actor.Person(), prefs)
 }
 
 // PasswordInput changes the actor's password.
@@ -162,7 +155,7 @@ func (s *Service) ChangePassword(ctx context.Context, actor *auth.Actor, in Pass
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "change their password")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return err
 	}
@@ -190,6 +183,7 @@ func (s *Service) ChangePassword(ctx context.Context, actor *auth.Actor, in Pass
 	if err := s.opts.Store.SetPassword(ctx, u.ID, hash, false, s.now()); err != nil {
 		return err
 	}
+	s.refresh(u.ID, "password")
 	if err := s.clearPending(ctx, actor, PendingPassword, u); err != nil {
 		return err
 	}
@@ -213,7 +207,7 @@ func (s *Service) clearPending(ctx context.Context, actor *auth.Actor, done stri
 	if err != nil {
 		return err
 	}
-	fresh, err := s.opts.Store.User(ctx, u.ID)
+	fresh, err := s.User(ctx, u.ID)
 	if err != nil {
 		return err
 	}
@@ -231,7 +225,7 @@ func (s *Service) BeginTOTP(ctx context.Context, actor *auth.Actor) (*auth.TOTPK
 	if actor.Impersonator != "" {
 		return nil, auth.ErrImpersonating.New("user", actor.Name, "action", "set up an authenticator app")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +252,7 @@ func (s *Service) ConfirmTOTP(ctx context.Context, actor *auth.Actor, code strin
 	if err := requirePerson(actor); err != nil {
 		return nil, err
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return nil, err
 	}
@@ -280,6 +274,7 @@ func (s *Service) ConfirmTOTP(ctx context.Context, actor *auth.Actor, code strin
 	if err := s.opts.Store.SetTOTP(ctx, u.ID, true, step); err != nil {
 		return nil, err
 	}
+	s.refresh(u.ID, "two-factor")
 	var codes []string
 	if left, err := s.opts.Store.RecoveryCodesLeft(ctx, u.ID); err == nil && left == 0 {
 		if codes, err = s.newRecoveryCodes(ctx, u.ID); err != nil {
@@ -304,7 +299,7 @@ func (s *Service) RemoveTOTP(ctx context.Context, actor *auth.Actor) error {
 	if actor.Impersonator != "" {
 		return auth.ErrImpersonating.New("user", actor.Name, "action", "remove their authenticator app")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return err
 	}
@@ -314,6 +309,7 @@ func (s *Service) RemoveTOTP(ctx context.Context, actor *auth.Actor) error {
 	if err := s.opts.Store.SetTOTP(ctx, u.ID, false, 0); err != nil {
 		return err
 	}
+	s.refresh(u.ID, "two-factor")
 	s.opts.Secrets.Delete(ctx, secretRef(u.ID, totpSecret))
 	u.TOTP = false
 	if len(s.secondFactors(ctx, u)) == 0 {
@@ -371,7 +367,7 @@ func (s *Service) NewRecoveryCodes(ctx context.Context, actor *auth.Actor) ([]st
 	if actor.Impersonator != "" {
 		return nil, auth.ErrImpersonating.New("user", actor.Name, "action", "make recovery codes")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +402,7 @@ func (s *Service) stepUpUser(ctx context.Context, actor *auth.Actor) (*User, err
 	if actor.Impersonator != "" {
 		id = actor.Impersonator
 	}
-	return s.opts.Store.User(ctx, id)
+	return s.User(ctx, id)
 }
 
 // BeginStepUpPasskey asks for one of the person's passkeys to confirm it's
@@ -444,12 +440,11 @@ func (s *Service) StepUp(ctx context.Context, actor *auth.Actor, in StepUpInput,
 		if cerr != nil {
 			return nil, cerr
 		}
-		s.challenges.drop(in.Ceremony)
-		if c.user != u.ID {
+		if !s.challenges.consume(in.Ceremony) || c.user != u.ID {
 			return nil, auth.ErrChallengeExpired.New()
 		}
 		how = "passkey"
-		_, err = s.finishPasskey(ctx, u, c, in.Credential, origin)
+		_, err = s.finishPasskey(ctx, u, c.data, in.Credential, origin)
 	case in.Code != "":
 		err, how = s.checkTOTP(ctx, u, in.Code), "totp"
 	case in.Password != "":
@@ -484,7 +479,9 @@ func (s *Service) StepUp(ctx context.Context, actor *auth.Actor, in StepUpInput,
 	if err := s.opts.Store.UpdateSession(ctx, x); err != nil {
 		return nil, err
 	}
-	s.opts.Store.RecordSignIn(ctx, u.ID, 0, u.LockedUntil, u.LastSignInAt, u.LastSignInIP)
+	if err := s.opts.Store.Unlock(ctx, u.ID); err != nil {
+		s.opts.Log.Warn("clearing failed sign-ins", "user", u.ID, "error", err)
+	}
 	s.audit(ctx, actor, "auth.step_up", u.ID, u.Home, events.OutcomeSuccess, "", "Confirm it's them with "+how)
 	if actor.Impersonator != "" {
 		// The impersonated session keeps its own cookie; the parent's new

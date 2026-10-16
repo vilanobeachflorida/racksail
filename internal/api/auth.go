@@ -194,7 +194,38 @@ type providerCallbackInput struct {
 	ID     store.ID `path:"id" doc:"The sign-in provider's ID"`
 	State  string   `cookie:"racksail_signin_state"`
 	Device string   `cookie:"racksail_device"`
+	// Linking is the cookie a link from the security settings carries, so
+	// its errors go back there.
+	Linking bool `cookie:"racksail_linking"`
 }
+
+// securityPage is where the browser goes back to after linking an outside
+// identity.
+const securityPage = "/settings/security"
+
+// providerCallback is where a provider sends the browser back to.
+func providerCallback(ctx context.Context, id store.ID) string {
+	return originOf(ctx) + providerPath + "/" + url.PathEscape(string(id)) + "/callback"
+}
+
+// providerState is the cookie that carries a sign-in or a link through a
+// provider's page and back.
+func providerState(state string, secure bool) http.Cookie {
+	return http.Cookie{Name: providerStateCookie, Value: state, Path: providerPath, MaxAge: 600, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}
+}
+
+// linkingCookie says a trip through a provider's page links an identity,
+// rather than signing in, so what goes wrong is shown in the security
+// settings. Off, it clears what an earlier trip left.
+func linkingCookie(on, secure bool) http.Cookie {
+	c := http.Cookie{Name: linkingCookieName, Value: "1", Path: providerPath, MaxAge: 600, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}
+	if !on {
+		c.Value, c.MaxAge = "", -1
+	}
+	return c
+}
+
+const linkingCookieName = "racksail_linking"
 
 type linkLookupInput struct {
 	Body struct {
@@ -408,15 +439,12 @@ func (s *Server) registerAuth() {
 			return nil, err
 		}
 		c := auth.ClientFrom(ctx)
-		callback := originOf(ctx) + providerPath + "/" + url.PathEscape(string(in.ID)) + "/callback"
-		to, state, err := id.BeginProviderSignIn(ctx, in.ID, callback, in.Remember, c)
+		to, state, err := id.BeginProviderSignIn(ctx, in.ID, providerCallback(ctx, in.ID), in.Remember, c)
 		if err != nil {
 			return nil, err
 		}
 		out := &redirectOutput{Status: http.StatusSeeOther, Location: to}
-		out.SetCookie = []http.Cookie{{
-			Name: providerStateCookie, Value: state, Path: providerPath, MaxAge: 600, HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteLaxMode,
-		}}
+		out.SetCookie = []http.Cookie{providerState(state, c.Secure), linkingCookie(false, c.Secure)}
 		return out, nil
 	})
 
@@ -435,15 +463,20 @@ func (s *Server) registerAuth() {
 		}
 		c := auth.ClientFrom(ctx)
 		out := &redirectOutput{Status: http.StatusSeeOther, Location: "/"}
-		out.SetCookie = []http.Cookie{{Name: providerStateCookie, Value: "", Path: providerPath, MaxAge: -1, HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteLaxMode}}
-		query := queryOf(ctx)
-		callback := originOf(ctx) + providerPath + "/" + url.PathEscape(string(in.ID)) + "/callback"
-		res, err := id.CompleteProviderSignIn(ctx, in.State, callback, query, in.Device, c)
+		out.SetCookie = []http.Cookie{
+			{Name: providerStateCookie, Value: "", Path: providerPath, MaxAge: -1, HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteLaxMode},
+			linkingCookie(false, c.Secure),
+		}
+		res, err := id.CompleteProviderSignIn(ctx, in.State, providerCallback(ctx, in.ID), queryOf(ctx), in.Device, c)
 		switch {
+		case err != nil && in.Linking:
+			out.Location = securityPage + "#error=" + url.QueryEscape(string(i18n.From(err).Code)) + "&provider=" + url.QueryEscape(string(in.ID))
 		case err != nil:
 			// The browser lands on the sign-in screen, which says what
 			// went wrong; the code is what the UI translates.
 			out.Location = "/sign-in#error=" + url.QueryEscape(string(i18n.From(err).Code))
+		case res.Linked != nil:
+			out.Location = securityPage + "#linked=" + url.QueryEscape(string(res.Linked.ID))
 		case res.Issued == nil:
 			out.Location = "/sign-in#challenge=" + url.QueryEscape(res.Challenge) + "&methods=" + url.QueryEscape(strings.Join(res.Methods, ","))
 		default:

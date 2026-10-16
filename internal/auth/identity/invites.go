@@ -7,10 +7,12 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -66,14 +68,8 @@ func (s *Service) IssueLink(ctx context.Context, actor *auth.Actor, id store.ID)
 	if err != nil {
 		return IssuedLink{}, err
 	}
-	gc, err := s.grantChecker()
-	if err != nil {
+	if err := s.helps(ctx, actor, u, auth.PermUserReset, "Make a sign-in link for "+u.Username); err != nil {
 		return IssuedLink{}, err
-	}
-	for _, g := range u.Grants {
-		if err := gc.CanGrant(ctx, actor, g); err != nil {
-			return IssuedLink{}, err
-		}
 	}
 	purpose := InviteReset
 	if u.PasswordHash == "" && u.LastSignInAt.IsZero() {
@@ -104,7 +100,7 @@ func (s *Service) invite(ctx context.Context, code string) (*Invite, *User, erro
 	if err != nil || s.now().After(inv.ExpiresAt) {
 		return nil, nil, auth.ErrInviteInvalid.New()
 	}
-	u, err := s.opts.Store.User(ctx, inv.User)
+	u, err := s.User(ctx, inv.User)
 	if err != nil {
 		return nil, nil, auth.ErrInviteInvalid.New()
 	}
@@ -155,9 +151,10 @@ func (s *Service) UseLink(ctx context.Context, in UseLinkInput, client auth.Clie
 	}
 	// Getting back in clears the lockout, and ends the sessions of whoever
 	// may have had the old password.
-	if err := s.opts.Store.RecordSignIn(ctx, u.ID, 0, time.Time{}, time.Time{}, ""); err != nil {
+	if err := s.opts.Store.Unlock(ctx, u.ID); err != nil {
 		return nil, err
 	}
+	s.refresh(u.ID, "password")
 	actor := signInActor(u, u.Username, client)
 	if inv.Purpose == InviteReset {
 		s.opts.Store.DeleteSessions(ctx, u.ID, "")
@@ -192,6 +189,15 @@ func firstAdminGrants() []auth.Grant {
 	return []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope(), Permissions: []auth.Permission{auth.PermImpersonate}}}
 }
 
+// hasUsers reports whether the panel has any user yet.
+func (s *Service) hasUsers(ctx context.Context) (bool, error) {
+	if s.opts.Resources == nil {
+		return false, nil
+	}
+	list, _, err := UserKind.List(ctx, s.opts.Resources, store.Query{Limit: 1, IncludeDeleted: true})
+	return len(list) > 0, err
+}
+
 // Bootstrap makes sure the panel has a way to get its first admin. A
 // panel with users needs nothing. Otherwise, when the installer left the
 // admin's account at answersFile, that user is created and the file
@@ -200,12 +206,12 @@ func firstAdminGrants() []auth.Grant {
 func (s *Service) Bootstrap(ctx context.Context, answersFile string) (string, error) {
 	s.setupMu.Lock()
 	defer s.setupMu.Unlock()
-	n, err := s.opts.Store.CountUsers(ctx)
+	exists, err := s.hasUsers(ctx)
 	if err != nil {
 		return "", err
 	}
-	if n > 0 {
-		return "", s.opts.Store.SetSetupCode(ctx, "")
+	if exists {
+		return "", s.setupDone(ctx)
 	}
 	if answersFile != "" {
 		data, err := os.ReadFile(answersFile)
@@ -234,41 +240,70 @@ func (s *Service) Bootstrap(ctx context.Context, answersFile string) (string, er
 	return code, nil
 }
 
-func (s *Service) createInstallerAdmin(ctx context.Context, acct InstallerAccount) error {
-	in := UserInput{Username: acct.Username, Name: acct.Username, Grants: firstAdminGrants()}
-	if fields := checkDetails(&in); len(fields) > 0 {
-		return i18n.Invalid(fields...)
+// firstAdmin adds the first admin through the change pipeline, as the
+// part of the panel named who, with their password hash, which is kept
+// before their user exists so the user is never there without it.
+func (s *Service) firstAdmin(ctx context.Context, who string, client auth.Client, spec UserSpec, hash, title string) (*User, error) {
+	// Nobody signed in hands out the first admin's grants, which the panel
+	// holds itself for the purpose.
+	actor := auth.System(who)
+	actor.Grants, actor.IP = firstAdminGrants(), client.IP
+	normalize(&spec)
+	spec.Grants = firstAdminGrants()
+	if fields := checkSpec(spec); len(fields) > 0 {
+		return nil, i18n.Invalid(fields...)
 	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return nil, err
+	}
+	id := store.NewID(PrefixUser)
+	if hash != "" {
+		if err := s.opts.Store.SetPassword(ctx, id, hash, false, s.now()); err != nil {
+			return nil, err
+		}
+	}
+	_, err = s.submit(ctx, changeset.Request{
+		Actor: actor, Title: title,
+		Changes: []changeset.Change{{Op: changeset.OpCreate, Kind: KindUser, ID: id, Scope: store.ServerScope(), Spec: raw}},
+	})
+	if err != nil {
+		if delErr := s.opts.Store.DeleteUser(context.WithoutCancel(ctx), id); delErr != nil {
+			s.opts.Log.Warn("removing the password of a first admin who wasn't added", "error", delErr)
+		}
+		return nil, err
+	}
+	if err := s.setupDone(ctx); err != nil {
+		return nil, err
+	}
+	return s.User(ctx, id)
+}
+
+func (s *Service) createInstallerAdmin(ctx context.Context, acct InstallerAccount) error {
 	if acct.PasswordHash != "" && !auth.KnownHash(acct.PasswordHash) {
 		return errors.New("identity: the installer's password hash is in a format Racksail doesn't read")
 	}
-	now := s.now()
-	u := &User{ID: store.NewID(PrefixUser), Username: in.Username, Name: in.Name, Home: store.ServerScope(), Grants: in.Grants, CreatedAt: now, UpdatedAt: now}
-	if err := s.opts.Store.CreateUser(ctx, u); err != nil {
-		return err
-	}
-	if acct.PasswordHash != "" {
-		// The crypt(3) hash works for the first sign-in, which replaces it
-		// with an Argon2id one.
-		if err := s.opts.Store.SetPassword(ctx, u.ID, acct.PasswordHash, false, now); err != nil {
-			return err
-		}
-	}
-	actor := auth.System("installer")
-	for _, k := range acct.SSHKeys {
-		if _, err := s.addSSHKey(ctx, actor, u, SSHKeyInput{PublicKey: k}); err != nil {
+	spec := UserSpec{Username: acct.Username, Name: acct.Username}
+	for _, line := range acct.SSHKeys {
+		key, err := newSSHKey(SSHKeyInput{PublicKey: line})
+		if err != nil {
 			s.opts.Log.Warn("an SSH key from the installer wasn't accepted", "error", err)
+			continue
+		}
+		if !slices.ContainsFunc(spec.SSHKeys, func(k UserSSHKey) bool { return k.ID == key.ID }) {
+			spec.SSHKeys = append(spec.SSHKeys, key)
 		}
 	}
-	s.audit(ctx, actor, string(auth.PermUserCreate), u.ID, u.Home, events.OutcomeSuccess, "", "Add the first admin, "+u.Username+", from the installer")
-	s.publish(ctx, UserCreated, u, actor, u.Username+" was added as the first admin.", UserEvent{Username: u.Username, Detail: "from the installer"})
-	return s.opts.Store.SetSetupCode(ctx, "")
+	// The crypt(3) hash works for the first sign-in, which replaces it with
+	// an Argon2id one.
+	_, err := s.firstAdmin(ctx, "installer", auth.Client{}, spec, acct.PasswordHash, "Add the first admin from the installer")
+	return err
 }
 
 // SetupRequired reports whether the panel still waits for its first admin.
 func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
-	n, err := s.opts.Store.CountUsers(ctx)
-	return n == 0, err
+	exists, err := s.hasUsers(ctx)
+	return !exists, err
 }
 
 // SetupInput creates the first admin with the setup code.
@@ -277,7 +312,7 @@ type SetupInput struct {
 	Username string `json:"username" minLength:"2" maxLength:"64" doc:"The admin's username"`
 	Name     string `json:"name,omitempty" maxLength:"128"`
 	Email    string `json:"email,omitempty" maxLength:"254"`
-	Password string `json:"password" maxLength:"1024"`
+	Password string `json:"password" maxLength:"1024" format:"password"`
 }
 
 // Setup creates the first admin with the one-time setup code and signs
@@ -288,11 +323,11 @@ func (s *Service) Setup(ctx context.Context, in SetupInput, client auth.Client) 
 	}
 	s.setupMu.Lock()
 	defer s.setupMu.Unlock()
-	n, err := s.opts.Store.CountUsers(ctx)
+	exists, err := s.hasUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if n > 0 {
+	if exists {
 		return nil, auth.ErrSetupDone.New()
 	}
 	want, err := s.opts.Store.SetupCode(ctx)
@@ -303,9 +338,10 @@ func (s *Service) Setup(ctx context.Context, in SetupInput, client auth.Client) 
 		s.opts.Log.Warn("a wrong setup code was tried", "address", client.IP)
 		return nil, auth.ErrBadSetupCode.New()
 	}
-	user := UserInput{Username: in.Username, Name: in.Name, Email: in.Email, Grants: firstAdminGrants()}
-	fields := checkDetails(&user)
-	if err := auth.CheckPasswordStrength(in.Password, user.Username); err != nil {
+	spec := UserSpec{Username: in.Username, Name: in.Name, Email: in.Email}
+	normalize(&spec)
+	fields := checkSpec(spec)
+	if err := auth.CheckPasswordStrength(in.Password, spec.Username); err != nil {
 		fields = append(fields, i18n.Field("password", auth.ErrWeakPassword, "reason", i18n.From(err).Params["reason"]))
 	}
 	if len(fields) > 0 {
@@ -315,45 +351,30 @@ func (s *Service) Setup(ctx context.Context, in SetupInput, client auth.Client) 
 	if err != nil {
 		return nil, err
 	}
-	now := s.now()
-	u := &User{ID: store.NewID(PrefixUser), Username: user.Username, Name: user.Name, Email: user.Email, Home: store.ServerScope(), Grants: user.Grants, CreatedAt: now, UpdatedAt: now}
-	if err := s.opts.Store.CreateUser(ctx, u); err != nil {
+	u, err := s.firstAdmin(ctx, "setup", client, spec, hash, "Add the first admin with the setup code")
+	if err != nil {
 		return nil, err
 	}
-	if err := s.opts.Store.SetPassword(ctx, u.ID, hash, false, now); err != nil {
-		return nil, err
-	}
-	u.PasswordHash = hash
-	if err := s.opts.Store.SetSetupCode(ctx, ""); err != nil {
-		return nil, err
-	}
-	actor := signInActor(u, u.Username, client)
-	s.audit(ctx, actor, string(auth.PermUserCreate), u.ID, u.Home, events.OutcomeSuccess, "", "Add the first admin, "+u.Username+", with the setup code")
-	s.publish(ctx, UserCreated, u, actor, u.Username+" was added as the first admin.", UserEvent{Username: u.Username, Detail: "with the setup code"})
 	return s.signedIn(ctx, u, "setup", "", false, client, true)
 }
 
-// EnsureUser returns the user with a username, creating it with grants
-// when there is none, as racksail dev does for the developer it signs
-// everyone in as.
-func (s *Service) EnsureUser(ctx context.Context, username string, grants []auth.Grant) (*User, error) {
-	u, err := s.opts.Store.UserByName(ctx, username)
+// EnsureUser returns the user with a username, adding an admin of the
+// whole server by that name when there is none, as racksail dev does for
+// the developer it signs everyone in as.
+func (s *Service) EnsureUser(ctx context.Context, username string) (*User, error) {
+	u, err := s.userByName(ctx, username)
 	if err == nil || !store.ErrNotFound.Is(err) {
 		return u, err
 	}
-	now := s.now()
-	u = &User{ID: store.NewID(PrefixUser), Username: NormalizeUsername(username), Name: username, Home: store.ServerScope(), Grants: grants, CreatedAt: now, UpdatedAt: now}
-	if err := s.opts.Store.CreateUser(ctx, u); err != nil {
-		return nil, err
-	}
-	s.audit(ctx, auth.System("dev"), string(auth.PermUserCreate), u.ID, u.Home, events.OutcomeSuccess, "", "Add "+u.Username)
-	return u, s.opts.Store.SetSetupCode(ctx, "")
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	return s.firstAdmin(ctx, "dev", auth.Client{}, UserSpec{Username: username, Name: username}, "", "Add "+username)
 }
 
 // Actor returns the actor a user acts as when signed in without a
 // session, as racksail dev signs everyone in as its developer.
 func (s *Service) Actor(ctx context.Context, id store.ID, client auth.Client) (*auth.Actor, error) {
-	u, err := s.opts.Store.User(ctx, id)
+	u, err := s.User(ctx, id)
 	if err != nil {
 		return nil, err
 	}

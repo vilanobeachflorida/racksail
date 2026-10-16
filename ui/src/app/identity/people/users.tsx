@@ -15,7 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/design/components/ui/dialog";
-import { Alert } from "@/design/components/ui/display";
 import { Field, Label } from "@/design/components/ui/field";
 import { Input } from "@/design/components/ui/input";
 import {
@@ -26,10 +25,12 @@ import {
   SelectValue,
 } from "@/design/components/ui/select";
 import { EmptyState, ErrorState, type Status, StatusDot } from "@/design/components/ui/states";
+import { toast } from "@/design/components/ui/toaster";
 import type { ApiClient } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { usePermission } from "../../modules";
 import {
+  type ChangeSet,
   createUser,
   type Grant,
   type IssuedLink,
@@ -37,8 +38,10 @@ import {
   listAccounts,
   listUsers,
   type Scope,
-  type UserInput,
+  setUserPassword,
+  type UserSpec,
   type UserView,
+  userView,
 } from "../api";
 import {
   CopyField,
@@ -51,14 +54,15 @@ import {
 import { GrantEditor, grantText, useAccountNames } from "../grants";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
+import { PreviewDialog } from "../preview";
 import { useSession } from "../session";
 import { useStepUp } from "../step-up";
 import { failureMessage, ownerLabel } from "../util";
 
-/** Every user the person can see, page after page. */
+/** Every user the person can see, page after page; scope narrows them to those of one owner. */
 export async function listAllUsers(
   api: ApiClient,
-  query: { home?: string } = {},
+  query: { scope?: string } = {},
 ): Promise<UserView[]> {
   const out: UserView[] = [];
   let cursor: string | undefined;
@@ -66,9 +70,10 @@ export async function listAllUsers(
     const { users, next } = await listUsers(api, {
       ...query,
       limit: 200,
+      sort: "username",
       ...(cursor ? { cursor } : {}),
     });
-    out.push(...users);
+    out.push(...users.map(userView));
     if (!next) {
       break;
     }
@@ -136,16 +141,18 @@ function where(intl: IntlShape, scope: Scope, names: ReadonlyMap<string, string>
   return ownerLabel(intl, scope, names);
 }
 
-function NewUser({
-  onCreated,
-  onCancel,
-}: {
-  onCreated: (user: UserView, link: IssuedLink | null) => void;
-  onCancel: () => void;
-}) {
+/** Who a new user is, and how they get in once they're added. */
+interface Draft {
+  scope: Scope;
+  spec: UserSpec;
+  access: Access;
+  password: string;
+  mustChange: boolean;
+}
+
+function NewUser({ onReady, onCancel }: { onReady: (draft: Draft) => void; onCancel: () => void }) {
   const intl = useIntl();
   const api = useApi();
-  const { guard } = useStepUp();
   const { session } = useSession();
   const names = useAccountNames();
   const accounts = useQuery({
@@ -178,29 +185,20 @@ function NewUser({
   const [access, setAccess] = useState<Access>("link");
   const [password, setPassword] = useState("");
   const [change, setChange] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const create = async (event: FormEvent) => {
+  const create = (event: FormEvent) => {
     event.preventDefault();
-    const scope = homes.find((h) => key(h) === home) ?? own;
-    const input: UserInput = {
-      username: username.trim(),
-      grants,
-      home: scope,
-      ...(name.trim() ? { name: name.trim() } : {}),
-      ...(email.trim() ? { email: email.trim() } : {}),
-      ...(access === "password" ? { password, mustChangePassword: change } : {}),
-    };
-    setBusy(true);
-    setError(null);
-    try {
-      const user = await guard(() => createUser(api, input));
-      const link = access === "link" ? await guard(() => issueSignInLink(api, user.id)) : null;
-      onCreated(user, link);
-    } catch (e) {
-      setError(e);
-      setBusy(false);
-    }
+    onReady({
+      scope: homes.find((h) => key(h) === home) ?? own,
+      spec: {
+        username: username.trim(),
+        grants,
+        ...(name.trim() ? { name: name.trim() } : {}),
+        ...(email.trim() ? { email: email.trim() } : {}),
+      },
+      access,
+      password,
+      mustChange: change,
+    });
   };
   return (
     <form onSubmit={create} className="flex flex-col gap-5">
@@ -301,16 +299,81 @@ function NewUser({
           </>
         ) : null}
       </fieldset>
-      {error ? <Alert tone="danger">{failureMessage(intl, error)}</Alert> : null}
       <DialogFooter>
-        <Button variant="outline" onClick={onCancel} disabled={busy}>
+        <Button variant="outline" onClick={onCancel}>
           {intl.formatMessage(t.cancel)}
         </Button>
-        <Button type="submit" busy={busy}>
-          {intl.formatMessage(t.userAdd)}
-        </Button>
+        <Button type="submit">{intl.formatMessage(t.userAddPreview)}</Button>
       </DialogFooter>
     </form>
+  );
+}
+
+/**
+ * Adds the user a draft describes, after a preview of the change set: the
+ * user is a resource like any other, so hooks and rules see it, and the
+ * change can be undone. Their way in, a sign-in link or a password, is set
+ * once they're there, since it's never part of a change set.
+ */
+function AddUser({
+  draft,
+  onAdded,
+  onClose,
+}: {
+  draft: Draft | null;
+  onAdded: (id: string, link: IssuedLink | null) => void;
+  onClose: () => void;
+}) {
+  const intl = useIntl();
+  const api = useApi();
+  const { guard } = useStepUp();
+  // The preview picks the user's ID, and applying it adds that same user.
+  const [previewed, setPreviewed] = useState<string | undefined>();
+  const preview = async (): Promise<ChangeSet> => {
+    if (!draft) {
+      throw new Error("nothing to add");
+    }
+    const cs = await createUser(api, { scope: draft.scope, spec: draft.spec }, true);
+    setPreviewed(cs.changes?.[0]?.id);
+    return cs;
+  };
+  const apply = async () => {
+    if (!draft) {
+      throw new Error("nothing to add");
+    }
+    const cs = await createUser(
+      api,
+      { scope: draft.scope, spec: draft.spec, ...(previewed ? { id: previewed } : {}) },
+      false,
+    );
+    return cs.changes?.[0]?.id ?? previewed ?? "";
+  };
+  const welcome = async (id: string) => {
+    try {
+      if (draft?.access === "password") {
+        await guard(() =>
+          setUserPassword(api, id, { password: draft.password, mustChange: draft.mustChange }),
+        );
+        onAdded(id, null);
+        return;
+      }
+      onAdded(id, await guard(() => issueSignInLink(api, id)));
+    } catch (e) {
+      // The user is there; only their way in is missing, which their page
+      // offers again.
+      toast.error(failureMessage(intl, e));
+      onAdded(id, null);
+    }
+  };
+  return (
+    <PreviewDialog
+      open={draft !== null}
+      title={intl.formatMessage(t.userAddTitle)}
+      preview={preview}
+      apply={apply}
+      onApplied={(id) => void welcome(id)}
+      onClose={onClose}
+    />
   );
 }
 
@@ -322,7 +385,10 @@ function UsersList() {
   const names = useAccountNames();
   const users = useQuery({ queryKey: ["users"], queryFn: () => listAllUsers(api) });
   const [adding, setAdding] = useState(false);
-  const [created, setCreated] = useState<{ user: UserView; link: IssuedLink | null } | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [created, setCreated] = useState<{ id: string; user: string; link: IssuedLink } | null>(
+    null,
+  );
   const columns: Column<UserView>[] = [
     {
       id: "username",
@@ -447,25 +513,35 @@ function UsersList() {
           </DialogHeader>
           {adding ? (
             <NewUser
-              onCreated={(user, link) => {
+              onReady={(d) => {
                 setAdding(false);
-                void users.refetch();
-                if (link) {
-                  setCreated({ user, link });
-                } else {
-                  void navigate({ to: `/users/${user.id}` });
-                }
+                setDraft(d);
               }}
               onCancel={() => setAdding(false)}
             />
           ) : null}
         </DialogContent>
       </Dialog>
+      <AddUser
+        draft={draft}
+        onAdded={(id, link) => {
+          const username = draft?.spec.username ?? "";
+          setDraft(null);
+          void users.refetch();
+          toast.success(intl.formatMessage(t.userAdded, { user: username }));
+          if (link) {
+            setCreated({ id, user: username, link });
+          } else {
+            void navigate({ to: `/users/${id}` });
+          }
+        }}
+        onClose={() => setDraft(null)}
+      />
       <SignInLink
         link={created?.link ?? null}
-        user={created?.user.username ?? ""}
+        user={created?.user ?? ""}
         onClose={() => {
-          const id = created?.user.id;
+          const id = created?.id;
           setCreated(null);
           if (id) {
             void navigate({ to: `/users/${id}` });

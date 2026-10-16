@@ -1,18 +1,8 @@
--- Users who sign in to the panel. Their grants are kept as JSON with the
--- user and, for finding who has access where, once more in identity_grants.
+-- What the panel keeps for each user apart from their core.user resource:
+-- how they sign in, and settings that are theirs alone. A row is made the
+-- first time something is kept for the user.
 CREATE TABLE identity_users (
 	id                   TEXT PRIMARY KEY,
-	username             TEXT NOT NULL UNIQUE,
-	name                 TEXT NOT NULL DEFAULT '',
-	email                TEXT NOT NULL DEFAULT '',
-	home_level           TEXT NOT NULL,
-	home_id              TEXT NOT NULL DEFAULT '',
-	grants               TEXT NOT NULL DEFAULT '[]',
-	disabled             INTEGER NOT NULL DEFAULT 0,
-	locale               TEXT NOT NULL DEFAULT '',
-	allow_from           TEXT NOT NULL DEFAULT '[]',
-	preferences          TEXT,
-	alert_channel        TEXT NOT NULL DEFAULT '',
 	password_hash        TEXT NOT NULL DEFAULT '',
 	password_changed_at  TEXT NOT NULL DEFAULT '',
 	must_change_password INTEGER NOT NULL DEFAULT 0,
@@ -22,23 +12,11 @@ CREATE TABLE identity_users (
 	locked_until         TEXT NOT NULL DEFAULT '',
 	last_sign_in_at      TEXT NOT NULL DEFAULT '',
 	last_sign_in_ip      TEXT NOT NULL DEFAULT '',
-	created_at           TEXT NOT NULL,
-	updated_at           TEXT NOT NULL,
-	revision             INTEGER NOT NULL DEFAULT 1
+	preferences          TEXT,
+	alert_channel        TEXT NOT NULL DEFAULT '',
+	ssh_keys_seen        TEXT NOT NULL DEFAULT '[]',
+	created_at           TEXT NOT NULL
 ) STRICT;
-
-CREATE INDEX identity_users_by_home ON identity_users (home_level, home_id, username);
-
-CREATE TABLE identity_grants (
-	user_id     TEXT NOT NULL REFERENCES identity_users (id) ON DELETE CASCADE,
-	role        TEXT NOT NULL,
-	scope_level TEXT NOT NULL,
-	scope_id    TEXT NOT NULL DEFAULT ''
-) STRICT;
-
-CREATE INDEX identity_grants_by_scope ON identity_grants (scope_level, scope_id);
-CREATE INDEX identity_grants_by_role ON identity_grants (role);
-CREATE INDEX identity_grants_by_user ON identity_grants (user_id);
 
 -- Recovery codes are kept hashed; using one removes it.
 CREATE TABLE identity_recovery_codes (
@@ -60,11 +38,16 @@ CREATE TABLE identity_passkeys (
 CREATE INDEX identity_passkeys_by_user ON identity_passkeys (user_id);
 
 -- Sessions are found by the hash of their cookie, so the database holds
--- nothing that signs anyone in.
+-- nothing that signs anyone in. A session given a new secret because its
+-- user's roles changed is still found by the old one for a moment, for
+-- requests that were already on their way.
 CREATE TABLE identity_sessions (
 	id            TEXT PRIMARY KEY,
 	user_id       TEXT NOT NULL REFERENCES identity_users (id) ON DELETE CASCADE,
 	hash          TEXT NOT NULL UNIQUE,
+	previous_hash TEXT NOT NULL DEFAULT '',
+	rotated_at    TEXT NOT NULL DEFAULT '',
+	grants_hash   TEXT NOT NULL DEFAULT '',
 	created_at    TEXT NOT NULL,
 	last_seen_at  TEXT NOT NULL,
 	expires_at    TEXT NOT NULL,
@@ -81,6 +64,7 @@ CREATE TABLE identity_sessions (
 
 CREATE INDEX identity_sessions_by_user ON identity_sessions (user_id);
 CREATE INDEX identity_sessions_by_expiry ON identity_sessions (expires_at);
+CREATE INDEX identity_sessions_by_previous ON identity_sessions (previous_hash) WHERE previous_hash <> '';
 
 CREATE TABLE identity_devices (
 	id           TEXT PRIMARY KEY,
@@ -111,18 +95,6 @@ CREATE TABLE identity_tokens (
 ) STRICT;
 
 CREATE INDEX identity_tokens_by_user ON identity_tokens (user_id);
-
-CREATE TABLE identity_ssh_keys (
-	id          TEXT PRIMARY KEY,
-	user_id     TEXT NOT NULL REFERENCES identity_users (id) ON DELETE CASCADE,
-	name        TEXT NOT NULL,
-	type        TEXT NOT NULL,
-	bits        INTEGER NOT NULL DEFAULT 0,
-	fingerprint TEXT NOT NULL,
-	public_key  TEXT NOT NULL,
-	created_at  TEXT NOT NULL,
-	UNIQUE (user_id, fingerprint)
-) STRICT;
 
 CREATE TABLE identity_invites (
 	id         TEXT PRIMARY KEY,

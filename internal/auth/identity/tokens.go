@@ -43,7 +43,7 @@ func (s *Service) CreateToken(ctx context.Context, actor *auth.Actor, in TokenIn
 	if actor.Impersonator != "" {
 		return CreatedToken{}, auth.ErrImpersonating.New("user", actor.Name, "action", "make API tokens for them")
 	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
+	u, err := s.User(ctx, actor.Person())
 	if err != nil {
 		return CreatedToken{}, err
 	}
@@ -178,11 +178,19 @@ func (s *Service) tokensOf(ctx context.Context, user store.ID) ([]TokenView, err
 	return out, nil
 }
 
-// RevokeMyToken revokes one of the actor's tokens. A token may revoke
-// itself.
+// RevokeMyToken revokes one of the actor's tokens. People in the panel may
+// revoke any of theirs; a token may only revoke itself, as racksail logout
+// does when it forgets a profile.
 func (s *Service) RevokeMyToken(ctx context.Context, actor *auth.Actor, id store.ID) error {
-	if err := requirePerson(actor); err != nil {
-		return err
+	switch {
+	case actor == nil:
+		return i18n.ErrUnauthenticated.New()
+	case actor.Type == auth.ActorToken && actor.ID != id:
+		return auth.ErrPanelOnly.New()
+	case actor.Type != auth.ActorToken && actor.Type != auth.ActorUser:
+		return auth.ErrPanelOnly.New()
+	case actor.Impersonator != "":
+		return auth.ErrImpersonating.New("user", actor.Name, "action", "revoke their API tokens")
 	}
 	return s.revoke(ctx, actor, actor.Person(), id)
 }
@@ -195,7 +203,7 @@ func (s *Service) revoke(ctx context.Context, actor *auth.Actor, user, id store.
 	if err := s.opts.Store.DeleteToken(ctx, user, id); err != nil {
 		return err
 	}
-	u, err := s.opts.Store.User(ctx, user)
+	u, err := s.User(ctx, user)
 	if err != nil {
 		return err
 	}

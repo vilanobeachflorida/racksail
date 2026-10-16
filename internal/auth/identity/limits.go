@@ -3,6 +3,7 @@ package identity
 import (
 	"math"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -86,11 +87,13 @@ func (l *attempts) prune() {
 }
 
 // challenge is a step of signing in that waits for the person: the second
-// step after a password, or a passkey ceremony.
+// step after a password, or a passkey ceremony. Once kept, only its data
+// and failures change, under the lock of the challenges it is in.
 type challenge struct {
 	user store.ID
 	// purpose says what the challenge is for: signin, passkey-signin,
-	// passkey-register, passkey-step-up or mfa.
+	// passkey-register, passkey-step-up, mfa-enroll, provider or
+	// provider-link.
 	purpose    string
 	method     string
 	persistent bool
@@ -110,7 +113,8 @@ const (
 
 // challenges keeps what waits for people, by the hash of the challenge's
 // secret, in memory: a sign-in that is half done when the panel restarts
-// starts again.
+// starts again. Requests only ever get copies, so two arriving together
+// for the same challenge never touch it at once.
 type challenges struct {
 	now func() time.Time
 	mu  sync.Mutex
@@ -129,14 +133,15 @@ func (cs *challenges) put(c *challenge) string {
 	if c.expires.IsZero() {
 		c.expires = cs.now().Add(challengeTTL)
 	}
-	cs.m[auth.HashSecret(secret)] = c
+	stored := *c
+	stored.data = slices.Clone(c.data)
+	cs.m[auth.HashSecret(secret)] = &stored
 	return secret
 }
 
-// get returns the challenge of a secret, for one purpose.
-func (cs *challenges) get(secret, purpose string) (*challenge, error) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+// find returns the challenge of a secret for one purpose; the lock must be
+// held.
+func (cs *challenges) find(secret, purpose string) (*challenge, error) {
 	key := auth.HashSecret(secret)
 	c, ok := cs.m[key]
 	if !ok || c.purpose != purpose || cs.now().After(c.expires) {
@@ -144,6 +149,59 @@ func (cs *challenges) get(secret, purpose string) (*challenge, error) {
 		return nil, auth.ErrChallengeExpired.New()
 	}
 	return c, nil
+}
+
+// get returns a copy of the challenge of a secret, for one purpose.
+func (cs *challenges) get(secret, purpose string) (challenge, error) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	c, err := cs.find(secret, purpose)
+	if err != nil {
+		return challenge{}, err
+	}
+	out := *c
+	out.data = slices.Clone(c.data)
+	return out, nil
+}
+
+// purposeOf says what a challenge is for, or "" when there is none.
+func (cs *challenges) purposeOf(secret string) string {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	c, ok := cs.m[auth.HashSecret(secret)]
+	if !ok || cs.now().After(c.expires) {
+		return ""
+	}
+	return c.purpose
+}
+
+// setData keeps what a challenge's ceremony needs between its halves.
+func (cs *challenges) setData(secret, purpose string, data []byte) error {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	c, err := cs.find(secret, purpose)
+	if err != nil {
+		return err
+	}
+	c.data = slices.Clone(data)
+	return nil
+}
+
+// takeData returns what a challenge's ceremony keeps and clears it, so a
+// ceremony answers once.
+func (cs *challenges) takeData(secret, purpose string) ([]byte, error) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	c, err := cs.find(secret, purpose)
+	if err != nil {
+		return nil, err
+	}
+	data := c.data
+	c.data = nil
+	if len(data) == 0 {
+		return nil, auth.ErrChallengeExpired.New()
+	}
+	return data, nil
 }
 
 // fail counts a wrong answer and drops the challenge after too many.
@@ -157,6 +215,17 @@ func (cs *challenges) fail(secret string) {
 			delete(cs.m, key)
 		}
 	}
+}
+
+// consume removes a challenge and reports whether it was still there, so
+// of two requests finishing the same one only the first does.
+func (cs *challenges) consume(secret string) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	key := auth.HashSecret(secret)
+	_, ok := cs.m[key]
+	delete(cs.m, key)
+	return ok
 }
 
 func (cs *challenges) drop(secret string) {

@@ -70,12 +70,18 @@ func (s *Service) SignIn(ctx context.Context, in SignInInput, deviceSecret strin
 		return nil, auth.ErrAddressNotAllowed.New("address", client.IP, "what", "the panel")
 	}
 	username := NormalizeUsername(in.Username)
-	u, err := s.opts.Store.UserByName(ctx, username)
+	u, err := s.userByName(ctx, username)
 	switch {
 	case store.ErrNotFound.Is(err):
 		u = nil
 	case err != nil:
 		return nil, err
+	}
+	// A lockout stops passwords whoever checks them, the panel or an
+	// outside directory.
+	if u != nil && u.Locked(s.now()) {
+		s.audit(ctx, signInActor(u, username, client), "auth.sign_in", u.ID, u.Home, events.OutcomeDenied, "locked out", "Sign in as "+username)
+		return nil, s.lockedError(u)
 	}
 	if u == nil || u.PasswordHash == "" {
 		// People who sign in through an outside directory have no password
@@ -94,11 +100,11 @@ func (s *Service) SignIn(ctx context.Context, in SignInInput, deviceSecret strin
 			}
 			return nil, auth.ErrBadCredentials.New()
 		}
+		if linked.user.Locked(s.now()) {
+			s.audit(ctx, signInActor(linked.user, linked.user.Username, client), "auth.sign_in", linked.user.ID, linked.user.Home, events.OutcomeDenied, "locked out", "Sign in as "+linked.user.Username)
+			return nil, s.lockedError(linked.user)
+		}
 		return s.afterFirstStep(ctx, linked.user, linked.method, in.Remember, deviceSecret, client)
-	}
-	if u.Locked(s.now()) {
-		s.audit(ctx, signInActor(u, username, client), "auth.sign_in", u.ID, u.Home, events.OutcomeDenied, "locked out", "Sign in as "+username)
-		return nil, s.lockedError(u)
 	}
 	ok, rehash, err := auth.VerifyPassword(ctx, u.PasswordHash, in.Password)
 	if errors.Is(err, auth.ErrHashFormat) {
@@ -144,28 +150,28 @@ func (s *Service) lockedError(u *User) error {
 }
 
 // failed counts a failed attempt against a user, and locks them out once
-// they reach the policy's limit.
+// they reach the policy's limit. Attempts made at the same moment each
+// count, and none made during a lockout ends it.
 func (s *Service) failed(ctx context.Context, u *User, client auth.Client) {
 	p := s.Policy()
-	failures := u.FailedSignIns + 1
-	var lockedUntil time.Time
-	if failures >= p.LockoutAttempts {
-		lockedUntil = s.now().Add(p.Lockout())
-		failures = 0
-	}
-	if err := s.opts.Store.RecordSignIn(ctx, u.ID, failures, lockedUntil, time.Time{}, ""); err != nil {
+	locked, until, err := s.opts.Store.RecordFailure(ctx, u.ID, p.LockoutAttempts, p.Lockout(), s.now())
+	if err != nil {
 		s.opts.Log.Warn("recording a failed sign-in", "user", u.ID, "error", err)
+		return
 	}
 	// The log line is what fail2ban-style bans of the network module read.
 	s.opts.Log.Warn("sign-in failed", "user", u.Username, "address", client.IP)
-	if !lockedUntil.IsZero() {
-		s.publish(ctx, UserLockedOut, u, signInActor(u, u.Username, client), u.Username+" was locked out after failed sign-ins.",
-			UserEvent{Username: u.Username, IP: client.IP, Device: DescribeAgent(client.UserAgent)})
-		s.alert(ctx, u, "Your user was locked out",
-			"Someone failed to sign in as "+u.Username+" "+itoa(p.LockoutAttempts)+" times in a row, from "+client.IP+
-				". Signing in with a password is blocked for "+itoa(p.LockoutMinutes)+" minutes; passkeys still work. If it wasn't you, choose a stronger password.",
-			events.SeverityWarning)
+	if !locked {
+		return
 	}
+	u.LockedUntil = until
+	s.refresh(u.ID, "locked out")
+	s.publish(ctx, UserLockedOut, u, signInActor(u, u.Username, client), u.Username+" was locked out after failed sign-ins.",
+		UserEvent{Username: u.Username, IP: client.IP, Device: DescribeAgent(client.UserAgent)})
+	s.alert(ctx, u, "Your user was locked out",
+		"Someone failed to sign in as "+u.Username+" "+itoa(p.LockoutAttempts)+" times in a row, from "+client.IP+
+			". Signing in with a password is blocked for "+itoa(p.LockoutMinutes)+" minutes; passkeys still work. If it wasn't you, choose a stronger password.",
+		events.SeverityWarning)
 }
 
 // afterFirstStep goes on once the first step checked out: the login
@@ -277,9 +283,10 @@ func (s *Service) signedIn(ctx context.Context, u *User, method, factor string, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.opts.Store.RecordSignIn(ctx, u.ID, 0, time.Time{}, s.now(), client.IP); err != nil {
+	if err := s.opts.Store.RecordSignIn(ctx, u.ID, s.now(), client.IP); err != nil {
 		s.opts.Log.Warn("recording a sign-in", "user", u.ID, "error", err)
 	}
+	s.refresh(u.ID, "signed in")
 	actor := signInActor(u, u.Username, client)
 	how := method
 	if factor != "" {
@@ -355,7 +362,7 @@ func (s *Service) SecondStep(ctx context.Context, in SecondStepInput, client aut
 	if err != nil {
 		return nil, err
 	}
-	u, err := s.opts.Store.User(ctx, c.user)
+	u, err := s.User(ctx, c.user)
 	if err != nil {
 		s.challenges.drop(in.Challenge)
 		return nil, auth.ErrChallengeExpired.New()
@@ -372,10 +379,13 @@ func (s *Service) SecondStep(ctx context.Context, in SecondStepInput, client aut
 		err = s.useRecoveryCode(ctx, u, in.Code, client)
 		factor = "recovery"
 	case in.Method == "passkey":
-		_, err = s.finishPasskey(ctx, u, c, in.Credential, origin)
+		var data []byte
+		if data, err = s.challenges.takeData(in.Challenge, "signin"); err == nil {
+			_, err = s.finishPasskey(ctx, u, data, in.Credential, origin)
+		}
 		factor = "passkey"
 	case strings.HasPrefix(in.Method, "mfa:"):
-		err = s.verifyMFA(ctx, u, c, strings.TrimPrefix(in.Method, "mfa:"), in.Code)
+		err = s.verifyMFA(ctx, u, in.Challenge, strings.TrimPrefix(in.Method, "mfa:"), in.Code)
 		factor = in.Method
 	default:
 		return nil, i18n.Invalid(i18n.Field("method", i18n.ErrBadValue, "reason", "use totp, recovery, passkey or mfa:<name>"))
@@ -389,7 +399,10 @@ func (s *Service) SecondStep(ctx context.Context, in SecondStepInput, client aut
 		s.failed(ctx, u, client)
 		return nil, err
 	}
-	s.challenges.drop(in.Challenge)
+	// Of two answers to the same challenge, only one signs in.
+	if !s.challenges.consume(in.Challenge) {
+		return nil, auth.ErrChallengeExpired.New()
+	}
 	if err := s.admit(ctx, u, c.method, client); err != nil {
 		return nil, err
 	}

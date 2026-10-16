@@ -159,6 +159,52 @@ func (s *Server) stepUpFor(actor *auth.Actor, risk store.Risk) error {
 	return id.RequireStepUp(actor)
 }
 
+// confirms reports whether a change of a kind asks people in the panel to
+// confirm it's them first, as its own operations do: every change of a
+// kind marked Confirm, but the actions of low risk.
+func (s *Server) confirms(kind string, op changeset.Op, action string) bool {
+	k, ok := s.kinds.Get(kind)
+	if !ok || !k.Info().Confirm {
+		return false
+	}
+	if op != changeset.OpAction {
+		return true
+	}
+	a, ok := k.Info().Action(action)
+	return !ok || a.Risk != store.RiskLow
+}
+
+// stepUpForKinds asks a person in the panel to confirm it's them before
+// changes of kinds that ask for it, however the changes are sent.
+func (s *Server) stepUpForKinds(actor *auth.Actor, confirms bool) error {
+	if !confirms {
+		return nil
+	}
+	return s.stepUpFor(actor, store.RiskCritical)
+}
+
+// requestConfirms reports whether a request's changes ask for a
+// confirmation.
+func (s *Server) requestConfirms(changes []changeset.Change) bool {
+	for _, c := range changes {
+		if s.confirms(c.Kind, c.Op, c.Action) {
+			return true
+		}
+	}
+	return false
+}
+
+// changeSetConfirms reports whether applying or undoing a change set asks
+// for a confirmation.
+func (s *Server) changeSetConfirms(cs *changeset.ChangeSet) bool {
+	for _, c := range cs.Changes {
+		if s.confirms(c.Kind, c.Op, c.Action) {
+			return true
+		}
+	}
+	return false
+}
+
 // requireIdentity refuses identity operations on a panel without the
 // identity service, such as when the API document is exported.
 func (s *Server) requireIdentity() (*identity.Service, error) {

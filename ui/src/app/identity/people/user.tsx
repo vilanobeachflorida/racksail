@@ -39,46 +39,40 @@ import {
   removeUserSSHKey,
   resetUser,
   revokeUserToken,
-  type UserInput,
+  setUserPassword,
+  type UserResource,
+  type UserSpec,
   type UserView,
   updateUser,
+  userView,
 } from "../api";
-import { ListSkeleton, PageHeader, Section, TimeText } from "../components";
+import { ListSkeleton, PageHeader, PasswordInput, Section, TimeText } from "../components";
 import { GrantEditor, GrantSummary } from "../grants";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
 import { page } from "../page";
+import { PreviewDialog } from "../preview";
 import { useSession } from "../session";
 import { useStepUp } from "../step-up";
 import { failureMessage, ownerLabel } from "../util";
 import { SignInLink, UserStatus, userState } from "./users";
 
-/** What a user is now, as the panel takes it back to change it. */
-function inputOf(user: UserView): UserInput {
-  return {
-    username: user.username,
-    name: user.name,
-    email: user.email ?? "",
-    locale: user.locale ?? "",
-    home: user.home,
-    grants: user.grants ?? [],
-    allowFrom: user.allowFrom ?? [],
-    disabled: user.disabled ?? false,
-    mustChangePassword: user.mustChangePassword ?? false,
-  };
-}
-
-function useSave(user: UserView) {
+/**
+ * Saves a change to a user's settings: a change set made from the
+ * revision the page shows, so a change someone else made meanwhile isn't
+ * lost but reported.
+ */
+function useSave(user: UserResource) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
   const { guard } = useStepUp();
-  return async (change: Partial<UserInput>, done: string): Promise<boolean> => {
+  return async (change: Partial<UserSpec>, done: string): Promise<boolean> => {
     try {
-      const updated = await guard(() =>
-        updateUser(api, user.id, user.revision, { ...inputOf(user), ...change }),
+      await guard(() =>
+        updateUser(api, user.id, user.revision, { ...user.spec, ...change }, false),
       );
-      client.setQueryData(["users", user.id], updated);
+      await client.invalidateQueries({ queryKey: ["users", user.id], exact: true });
       await client.invalidateQueries({ queryKey: ["users"], exact: true });
       toast.success(done);
       return true;
@@ -89,23 +83,22 @@ function useSave(user: UserView) {
   };
 }
 
-function Details({ user, editable }: { user: UserView; editable: boolean }) {
+function Details({ user, editable }: { user: UserResource; editable: boolean }) {
   const intl = useIntl();
   const save = useSave(user);
-  const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email ?? "");
-  const [locale, setLocale] = useState(user.locale ?? "");
-  const [allowFrom, setAllowFrom] = useState((user.allowFrom ?? []).join("\n"));
-  const [disabled, setDisabled] = useState(user.disabled ?? false);
-  const [mustChange, setMustChange] = useState(user.mustChangePassword ?? false);
+  const spec = user.spec;
+  const [name, setName] = useState(spec.name ?? "");
+  const [email, setEmail] = useState(spec.email ?? "");
+  const [locale, setLocale] = useState(spec.locale ?? "");
+  const [allowFrom, setAllowFrom] = useState((spec.allowFrom ?? []).join("\n"));
+  const [disabled, setDisabled] = useState(spec.disabled ?? false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setName(user.name);
-    setEmail(user.email ?? "");
-    setLocale(user.locale ?? "");
-    setAllowFrom((user.allowFrom ?? []).join("\n"));
-    setDisabled(user.disabled ?? false);
-    setMustChange(user.mustChangePassword ?? false);
+    setName(user.spec.name ?? "");
+    setEmail(user.spec.email ?? "");
+    setLocale(user.spec.locale ?? "");
+    setAllowFrom((user.spec.allowFrom ?? []).join("\n"));
+    setDisabled(user.spec.disabled ?? false);
   }, [user]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -117,9 +110,8 @@ function Details({ user, editable }: { user: UserView; editable: boolean }) {
         locale: locale.trim(),
         allowFrom: allowFrom.split(/[\s,]+/).filter(Boolean),
         disabled,
-        mustChangePassword: mustChange,
       },
-      intl.formatMessage(t.userSaved, { user: user.username }),
+      intl.formatMessage(t.userSaved, { user: spec.username }),
     );
     setBusy(false);
   };
@@ -158,7 +150,7 @@ function Details({ user, editable }: { user: UserView; editable: boolean }) {
           label={intl.formatMessage(t.fieldHome)}
           description={intl.formatMessage(t.userHomeFixed)}
         >
-          <Input value={ownerLabel(intl, user.home)} readOnly />
+          <Input value={ownerLabel(intl, user.scope)} readOnly />
         </Field>
       </div>
       <Field
@@ -184,17 +176,6 @@ function Details({ user, editable }: { user: UserView; editable: boolean }) {
           <p className="text-muted-foreground text-xs">{intl.formatMessage(t.userTurnOffHelp)}</p>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="must-change"
-          checked={mustChange}
-          onCheckedChange={(v) => setMustChange(v === true)}
-          disabled={!editable}
-        />
-        <Label htmlFor="must-change" className="font-normal">
-          {intl.formatMessage(t.userMustChange)}
-        </Label>
-      </div>
       {editable ? (
         <Button type="submit" busy={busy} className="self-start">
           {intl.formatMessage(t.save)}
@@ -204,43 +185,154 @@ function Details({ user, editable }: { user: UserView; editable: boolean }) {
   );
 }
 
-function Roles({ user, editable }: { user: UserView; editable: boolean }) {
+/** A user's roles, changed after a preview of what the change set does. */
+function Roles({ user, editable }: { user: UserResource; editable: boolean }) {
   const intl = useIntl();
-  const save = useSave(user);
-  const [grants, setGrants] = useState<Grant[]>(user.grants ?? []);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setGrants(user.grants ?? []), [user]);
-  const changed = JSON.stringify(grants) !== JSON.stringify(user.grants ?? []);
+  const api = useApi();
+  const client = useQueryClient();
+  const current = user.spec.grants ?? [];
+  const [grants, setGrants] = useState<Grant[]>(current);
+  const [previewing, setPreviewing] = useState(false);
+  useEffect(() => setGrants(user.spec.grants ?? []), [user]);
+  const changed = JSON.stringify(grants) !== JSON.stringify(current);
+  const spec = { ...user.spec, grants };
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">{intl.formatMessage(t.grantsHelp)}</p>
       {editable ? (
         <GrantEditor value={grants} onChange={setGrants} />
       ) : (
-        <GrantSummary grants={user.grants ?? []} />
+        <GrantSummary grants={current} />
       )}
       {editable && changed ? (
         <div className="flex flex-wrap gap-2">
-          <Button
-            busy={busy}
-            onClick={async () => {
-              setBusy(true);
-              await save({ grants }, intl.formatMessage(t.userRolesSaved, { user: user.username }));
-              setBusy(false);
-            }}
-          >
-            {intl.formatMessage(t.save)}
-          </Button>
-          <Button variant="outline" onClick={() => setGrants(user.grants ?? [])} disabled={busy}>
+          <Button onClick={() => setPreviewing(true)}>{intl.formatMessage(t.save)}</Button>
+          <Button variant="outline" onClick={() => setGrants(current)}>
             {intl.formatMessage(t.cancel)}
           </Button>
         </div>
       ) : null}
+      <PreviewDialog
+        open={previewing}
+        title={intl.formatMessage(t.userRolesPreview, { user: user.spec.username })}
+        preview={() => updateUser(api, user.id, user.revision, spec, true)}
+        apply={() => updateUser(api, user.id, user.revision, spec, false)}
+        onApplied={async () => {
+          setPreviewing(false);
+          toast.success(intl.formatMessage(t.userRolesSaved, { user: user.spec.username }));
+          await client.invalidateQueries({ queryKey: ["users", user.id], exact: true });
+          await client.invalidateQueries({ queryKey: ["users"], exact: true });
+        }}
+        onClose={() => setPreviewing(false)}
+      />
     </div>
   );
 }
 
-function SignIns({ user, canReset }: { user: UserView; canReset: boolean }) {
+/** Setting someone's password, or asking them to choose a new one. */
+function Password({ user }: { user: UserView }) {
+  const intl = useIntl();
+  const api = useApi();
+  const client = useQueryClient();
+  const { guard } = useStepUp();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [mustChange, setMustChange] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const refresh = () => client.invalidateQueries({ queryKey: ["users", user.id], exact: true });
+  const ask = async (on: boolean) => {
+    try {
+      await guard(() => setUserPassword(api, user.id, { mustChange: on }));
+      toast.success(
+        intl.formatMessage(on ? t.userMustChangeOn : t.userMustChangeOff, { user: user.username }),
+      );
+      await refresh();
+    } catch (e) {
+      toast.error(failureMessage(intl, e));
+    }
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await guard(() => setUserPassword(api, user.id, { password, mustChange }));
+      setOpen(false);
+      setPassword("");
+      toast.success(intl.formatMessage(t.userPasswordSet, { user: user.username }));
+      await refresh();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-start gap-3">
+        <Switch
+          id="must-change"
+          checked={user.mustChangePassword ?? false}
+          onCheckedChange={(on) => void ask(on)}
+          disabled={!user.passwordSet}
+        />
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="must-change">{intl.formatMessage(t.userMustChange)}</Label>
+          <p className="text-muted-foreground text-xs">
+            {intl.formatMessage(user.passwordSet ? t.userMustChangeHelp : t.userNoPassword)}
+          </p>
+        </div>
+      </div>
+      <Button variant="outline" className="self-start" onClick={() => setOpen(true)}>
+        {intl.formatMessage(t.userSetPassword)}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>
+                {intl.formatMessage(t.userSetPasswordTitle, { user: user.username })}
+              </DialogTitle>
+              <DialogDescription>{intl.formatMessage(t.userSetPasswordHelp)}</DialogDescription>
+            </DialogHeader>
+            <Field label={intl.formatMessage(t.fieldPassword)}>
+              <PasswordInput
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={10}
+                required
+                autoFocus
+              />
+            </Field>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="set-must-change"
+                checked={mustChange}
+                onCheckedChange={(v) => setMustChange(v === true)}
+              />
+              <Label htmlFor="set-must-change" className="font-normal">
+                {intl.formatMessage(t.userMustChange)}
+              </Label>
+            </div>
+            {error ? <Alert tone="danger">{failureMessage(intl, error)}</Alert> : null}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+                {intl.formatMessage(t.cancel)}
+              </Button>
+              <Button type="submit" busy={busy}>
+                {intl.formatMessage(t.userSetPassword)}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SignIns({ user, canReset, self }: { user: UserView; canReset: boolean; self: boolean }) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -259,7 +351,7 @@ function SignIns({ user, canReset }: { user: UserView; canReset: boolean }) {
     queryKey: ["users", user.id, "ssh-keys"],
     queryFn: () => listUserSSHKeys(api, user.id),
   });
-  const act = async (run: () => Promise<void>, key: string, done: string) => {
+  const act = async (run: () => Promise<unknown>, key: string, done: string) => {
     try {
       await guard(run);
       toast.success(done);
@@ -270,6 +362,14 @@ function SignIns({ user, canReset }: { user: UserView; canReset: boolean }) {
   };
   return (
     <div className="flex flex-col gap-6">
+      {canReset && !self ? (
+        <Section
+          title={intl.formatMessage(t.userPasswordTitle)}
+          description={intl.formatMessage(t.userPasswordDescription)}
+        >
+          <Password user={user} />
+        </Section>
+      ) : null}
       {canReset ? (
         <Section
           title={intl.formatMessage(t.sessionsTitle)}
@@ -323,7 +423,7 @@ function SignIns({ user, canReset }: { user: UserView; canReset: boolean }) {
             keys={keys.data}
             onRemove={(k) =>
               act(
-                () => removeUserSSHKey(api, user.id, k.id),
+                () => removeUserSSHKey(api, user.id, k.id, false),
                 "ssh-keys",
                 intl.formatMessage(t.sshKeyRemoved, { name: k.name }),
               )
@@ -447,6 +547,7 @@ function User({ id }: { id: string }) {
   const { guard } = useStepUp();
   const user = useQuery({ queryKey: ["users", id], queryFn: () => getUser(api, id) });
   const [link, setLink] = useState<IssuedLink | null>(null);
+  const [removing, setRemoving] = useState(false);
   if (user.isPending) {
     return <ListSkeleton rows={5} />;
   }
@@ -459,7 +560,8 @@ function User({ id }: { id: string }) {
       />
     );
   }
-  const u = user.data;
+  const resource = user.data;
+  const u = userView(resource);
   const self = session?.user.id === u.id;
   const canUpdate = can("core.user.update");
   const canReset = can("core.user.reset");
@@ -522,30 +624,26 @@ function User({ id }: { id: string }) {
               />
             ) : null}
             {can("core.user.delete") && !self ? (
-              <ConfirmDialog
-                trigger={
-                  <Button variant="outline">
-                    <Trash2 aria-hidden="true" />
-                    {intl.formatMessage(t.delete)}
-                  </Button>
-                }
-                title={intl.formatMessage(t.userDeleteTitle, { user: u.username })}
-                description={intl.formatMessage(t.userDeleteDescription)}
-                confirmLabel={intl.formatMessage(t.userDelete)}
-                typedConfirmation={u.username}
-                onConfirm={async () => {
-                  try {
-                    await guard(() => deleteUser(api, u.id));
-                    toast.success(intl.formatMessage(t.userDeleted, { user: u.username }));
-                    void navigate({ to: "/users" });
-                  } catch (error) {
-                    toast.error(failureMessage(intl, error));
-                  }
-                }}
-              />
+              <Button variant="outline" onClick={() => setRemoving(true)}>
+                <Trash2 aria-hidden="true" />
+                {intl.formatMessage(t.delete)}
+              </Button>
             ) : null}
           </>
         }
+      />
+      <PreviewDialog
+        open={removing}
+        title={intl.formatMessage(t.userDeleteTitle, { user: u.username })}
+        description={intl.formatMessage(t.userDeleteDescription)}
+        preview={() => deleteUser(api, u.id, true)}
+        apply={() => deleteUser(api, u.id, false)}
+        onApplied={() => {
+          setRemoving(false);
+          toast.success(intl.formatMessage(t.userDeleted, { user: u.username }));
+          void navigate({ to: "/users" });
+        }}
+        onClose={() => setRemoving(false)}
       />
       {self ? <Alert tone="info">{intl.formatMessage(t.userSelf)}</Alert> : null}
       <Tabs defaultValue="details">
@@ -555,13 +653,13 @@ function User({ id }: { id: string }) {
           <TabsTrigger value="access">{intl.formatMessage(t.userSignIns)}</TabsTrigger>
         </TabsList>
         <TabsContent value="details">
-          <Details user={u} editable={canUpdate && !self} />
+          <Details user={resource} editable={canUpdate && !self} />
         </TabsContent>
         <TabsContent value="roles">
-          <Roles user={u} editable={canUpdate && !self} />
+          <Roles user={resource} editable={canUpdate && !self} />
         </TabsContent>
         <TabsContent value="access">
-          <SignIns user={u} canReset={canReset} />
+          <SignIns user={u} canReset={canReset} self={self} />
         </TabsContent>
       </Tabs>
       <SignInLink link={link} user={u.username} onClose={() => setLink(null)} />

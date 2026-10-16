@@ -1,16 +1,19 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -185,6 +188,9 @@ type opCommand struct {
 		sets    flagValue
 		replace bool
 		all     bool
+		// yes goes ahead with an operation that removes data or is
+		// critical without asking.
+		yes bool
 	}
 	// current is the operation that reads what an update replaces.
 	current *Operation
@@ -236,8 +242,52 @@ func (b *builder) command(op *Operation, name string) *cobra.Command {
 	if op.Long || op.DryRun || isJobOperation(op) {
 		cmd.Flags().BoolVar(&oc.opts.Detach, "detach", false, "return once the work is queued, instead of following it until it's done")
 	}
+	if oc.confirms() {
+		cmd.Flags().BoolVarP(&oc.in.yes, "yes", "y", false, "go ahead without being asked to confirm, as scripts need to")
+	}
 	oc.flags.register(cmd)
 	return cmd
+}
+
+// confirms reports whether the operation asks to be confirmed before it
+// goes ahead: those that remove data, and critical ones.
+func (oc *opCommand) confirms() bool {
+	return oc.op.Mutating() && !oc.op.Stream && (oc.op.Destructive || oc.op.Risk == string(store.RiskCritical))
+}
+
+// confirm asks the person to type what the operation is about before it
+// removes data or does something critical: its first argument, such as
+// the ID of what it deletes. Without a terminal to ask on, it takes --yes.
+func (oc *opCommand) confirm(cmd *cobra.Command, args []string) error {
+	if !oc.confirms() || oc.in.yes || oc.opts.DryRun {
+		return nil
+	}
+	words := "racksail " + strings.Join(CommandPath(oc.op), " ")
+	what := "this"
+	if len(args) > 0 {
+		what = args[0]
+	}
+	in, ok := cmd.InOrStdin().(*os.File)
+	if !ok || !term.IsTerminal(int(in.Fd())) {
+		return fmt.Errorf("%s %s; run it again with --yes to go ahead, or --dry-run to see what it would do", words, oc.consequence())
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s %s. Type %s to go ahead: ", words, oc.consequence(), what)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if strings.TrimSpace(line) != what {
+		return errors.New("nothing was changed")
+	}
+	return nil
+}
+
+// consequence says why an operation is confirmed first.
+func (oc *opCommand) consequence() string {
+	if oc.op.Destructive {
+		return "removes data"
+	}
+	return "is critical"
 }
 
 // paged recognises lists that come a page at a time: they take a cursor
@@ -278,6 +328,9 @@ func (oc *opCommand) long() string {
 	}
 	if op.Destructive {
 		notes = append(notes, "It removes data.")
+	}
+	if oc.confirms() {
+		notes = append(notes, "It asks you to type what it's about before it goes ahead; --yes skips that, for scripts.")
 	}
 	if op.Stream {
 		notes = append(notes, "It goes on until you stop it with Ctrl-C.")
@@ -371,6 +424,9 @@ func (oc *opCommand) run(cmd *cobra.Command, args []string) error {
 	}
 	if oc.opts.DryRun && !oc.op.DryRun {
 		return describeRequest(out, c, req)
+	}
+	if err := oc.confirm(cmd, args); err != nil {
+		return err
 	}
 	if oc.op.ID == "streamJob" {
 		return oc.watchJob(ctx, c, args[0], cmd)

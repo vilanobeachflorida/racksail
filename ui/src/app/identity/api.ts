@@ -9,6 +9,7 @@ import type { paths } from "@/lib/api/schema";
  */
 
 export type SignInOptions = Schemas["SignInOptions"];
+export type SignInOption = Schemas["SignInOption"];
 export type SignInAnswer = Schemas["SignInAnswer"];
 export type LinkInfo = Schemas["LinkInfo"];
 export type Me = Schemas["Me"];
@@ -23,7 +24,9 @@ export type LinkView = Schemas["LinkView"];
 export type MFAOption = Schemas["MFAOption"];
 export type AlertChannelType = Schemas["AlertChannelTypeView"];
 export type UserView = Schemas["UserView"];
-export type UserInput = Schemas["UserInput"];
+export type UserResource = Schemas["CoreUser"];
+export type UserSpec = Schemas["UserSpec"];
+export type PasswordSetting = Schemas["PasswordSetting"];
 export type Grant = Schemas["Grant"];
 export type Role = Grant["role"];
 export type Scope = Schemas["Scope"];
@@ -99,15 +102,16 @@ export async function stopImpersonating(api: ApiClient): Promise<void> {
 }
 
 export async function impersonateUser(api: ApiClient, id: string): Promise<void> {
-  await unwrap(api.POST("/api/v1/users/{id}/impersonate", { params: { path: { id } } }));
+  await unwrap(api.POST("/api/v1/core/users/{id}/impersonate", { params: { path: { id } } }));
 }
 
 // The person's own account.
 
 export const getMe = (api: ApiClient) => unwrap(api.GET("/api/v1/me"));
 
-export const updateMe = (api: ApiClient, body: Schemas["ProfileInput"]) =>
-  unwrap(api.PUT("/api/v1/me", { body }));
+/** Changes the person's own profile, through a change set like any change to a user. */
+export const updateMe = (api: ApiClient, body: Schemas["ProfileInput"], dryRun = false) =>
+  unwrap(api.PUT("/api/v1/me", { params: { query: { dryRun } }, body }));
 
 export async function changeMyPassword(
   api: ApiClient,
@@ -179,15 +183,23 @@ export async function revokeMyToken(api: ApiClient, id: string): Promise<void> {
 export const listMySSHKeys = async (api: ApiClient) =>
   list((await unwrap(api.GET("/api/v1/me/ssh-keys"))).keys);
 
-export const addMySSHKey = (api: ApiClient, body: Schemas["SSHKeyInput"]) =>
-  unwrap(api.POST("/api/v1/me/ssh-keys", { body }));
+export const addMySSHKey = (api: ApiClient, body: Schemas["SSHKeyInput"], dryRun = false) =>
+  unwrap(api.POST("/api/v1/me/ssh-keys", { params: { query: { dryRun } }, body }));
 
-export async function removeMySSHKey(api: ApiClient, id: string): Promise<void> {
-  await unwrap(api.DELETE("/api/v1/me/ssh-keys/{id}", { params: { path: { id } } }));
-}
+export const removeMySSHKey = (api: ApiClient, id: string, dryRun = false) =>
+  unwrap(api.DELETE("/api/v1/me/ssh-keys/{id}", { params: { path: { id }, query: { dryRun } } }));
 
 export const listMyLinks = async (api: ApiClient) =>
   list((await unwrap(api.GET("/api/v1/me/links"))).links);
+
+/** Links the person's account at a provider that checks passwords, such as a directory. */
+export const linkMyIdentity = (api: ApiClient, provider: string, body: Schemas["LinkInput"]) =>
+  unwrap(api.POST("/api/v1/me/links/{provider}", { params: { path: { provider } }, body }));
+
+/** Starts linking at a provider with its own page; the browser goes to the location it answers with. */
+export const startLinkingMyIdentity = async (api: ApiClient, provider: string) =>
+  (await unwrap(api.POST("/api/v1/me/links/{provider}/start", { params: { path: { provider } } })))
+    .location;
 
 export async function unlinkMyIdentity(api: ApiClient, provider: string): Promise<void> {
   await unwrap(api.DELETE("/api/v1/me/links/{provider}", { params: { path: { provider } } }));
@@ -234,54 +246,115 @@ export async function testMyAlerts(api: ApiClient): Promise<void> {
   await unwrap(api.POST("/api/v1/me/alerts/test"));
 }
 
-// Users and roles.
+// Users and roles. Users are core.user resources: who they are and what
+// they may do. How they sign in is theirs alone, and the panel shows only
+// what it last saw of it, in the user's status.
 
-export type UserQuery = NonNullable<paths["/api/v1/users"]["get"]["parameters"]["query"]>;
+export type UserQuery = NonNullable<paths["/api/v1/core/users"]["get"]["parameters"]["query"]>;
+
+/** A user as the screens show them, from their resource. */
+export function userView(r: UserResource): UserView {
+  const spec = r.spec;
+  const status = r.status;
+  return {
+    id: r.id,
+    username: spec.username,
+    name: spec.name ?? "",
+    email: spec.email ?? "",
+    locale: spec.locale ?? "",
+    home: r.scope,
+    grants: list(spec.grants),
+    allowFrom: list(spec.allowFrom),
+    disabled: spec.disabled ?? false,
+    passwordSet: status?.passwordSet ?? false,
+    mustChangePassword: status?.mustChangePassword ?? false,
+    twoFactor: status?.twoFactor ?? false,
+    ...(status?.lockedUntil ? { lockedUntil: status.lockedUntil } : {}),
+    ...(status?.lastSignInAt ? { lastSignInAt: status.lastSignInAt } : {}),
+    ...(status?.lastSignInIp ? { lastSignInIp: status.lastSignInIp } : {}),
+    revision: r.revision,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
 
 export async function listUsers(api: ApiClient, query: UserQuery = {}) {
-  const answer = await unwrap(api.GET("/api/v1/users", { params: { query } }));
-  return { users: list(answer.users), next: answer.next ?? "" };
+  const answer = await unwrap(api.GET("/api/v1/core/users", { params: { query } }));
+  return { users: list(answer.items), next: answer.next ?? "" };
 }
 
 export const getUser = (api: ApiClient, id: string) =>
-  unwrap(api.GET("/api/v1/users/{id}", { params: { path: { id } } }));
+  unwrap(api.GET("/api/v1/core/users/{id}", { params: { path: { id } } }));
 
-export const createUser = (api: ApiClient, body: UserInput) =>
-  unwrap(api.POST("/api/v1/users", { body }));
+/** Adds a user; id, when given, is the one a preview showed, so applying it adds the same user. */
+export const createUser = (
+  api: ApiClient,
+  body: { scope: Scope; spec: UserSpec; id?: string },
+  dryRun: boolean,
+) => unwrap(api.POST("/api/v1/core/users", { params: { query: { dryRun } }, body }));
 
-export const updateUser = (api: ApiClient, id: string, revision: number, body: UserInput) =>
-  unwrap(api.PUT("/api/v1/users/{id}", { params: { path: { id }, query: { revision } }, body }));
+export const updateUser = (
+  api: ApiClient,
+  id: string,
+  revision: number,
+  spec: UserSpec,
+  dryRun: boolean,
+) =>
+  unwrap(
+    api.PUT("/api/v1/core/users/{id}", {
+      params: { path: { id }, query: { dryRun } },
+      body: { spec, revision },
+    }),
+  );
 
-export async function deleteUser(api: ApiClient, id: string): Promise<void> {
-  await unwrap(api.DELETE("/api/v1/users/{id}", { params: { path: { id } } }));
+export const deleteUser = (api: ApiClient, id: string, dryRun: boolean) =>
+  unwrap(api.DELETE("/api/v1/core/users/{id}", { params: { path: { id }, query: { dryRun } } }));
+
+/** Sets a user's password, or only whether they choose a new one when they next sign in. */
+export async function setUserPassword(
+  api: ApiClient,
+  id: string,
+  body: PasswordSetting,
+): Promise<void> {
+  await unwrap(api.PUT("/api/v1/core/users/{id}/password", { params: { path: { id } }, body }));
 }
 
 export const resetUser = (api: ApiClient, id: string, body: ResetInput) =>
-  unwrap(api.POST("/api/v1/users/{id}/reset", { params: { path: { id } }, body }));
+  unwrap(api.POST("/api/v1/core/users/{id}/reset", { params: { path: { id } }, body }));
 
 export const issueSignInLink = (api: ApiClient, id: string) =>
-  unwrap(api.POST("/api/v1/users/{id}/link", { params: { path: { id } } }));
+  unwrap(api.POST("/api/v1/core/users/{id}/link", { params: { path: { id } } }));
 
 export const listUserSessions = async (api: ApiClient, id: string) =>
   list(
-    (await unwrap(api.GET("/api/v1/users/{id}/sessions", { params: { path: { id } } }))).sessions,
+    (await unwrap(api.GET("/api/v1/core/users/{id}/sessions", { params: { path: { id } } })))
+      .sessions,
   );
 
 export const listUserTokens = async (api: ApiClient, id: string) =>
-  list((await unwrap(api.GET("/api/v1/users/{id}/tokens", { params: { path: { id } } }))).tokens);
+  list(
+    (await unwrap(api.GET("/api/v1/core/users/{id}/tokens", { params: { path: { id } } }))).tokens,
+  );
 
 export async function revokeUserToken(api: ApiClient, id: string, token: string): Promise<void> {
   await unwrap(
-    api.DELETE("/api/v1/users/{id}/tokens/{token}", { params: { path: { id, token } } }),
+    api.DELETE("/api/v1/core/users/{id}/tokens/{token}", { params: { path: { id, token } } }),
   );
 }
 
 export const listUserSSHKeys = async (api: ApiClient, id: string) =>
-  list((await unwrap(api.GET("/api/v1/users/{id}/ssh-keys", { params: { path: { id } } }))).keys);
+  list(
+    (await unwrap(api.GET("/api/v1/core/users/{id}/ssh-keys", { params: { path: { id } } }))).keys,
+  );
 
-export async function removeUserSSHKey(api: ApiClient, id: string, key: string): Promise<void> {
-  await unwrap(api.DELETE("/api/v1/users/{id}/ssh-keys/{key}", { params: { path: { id, key } } }));
-}
+/** Removes one of a user's SSH keys, through the change set of the user's remove_ssh_key action. */
+export const removeUserSSHKey = (api: ApiClient, id: string, key: string, dryRun: boolean) =>
+  unwrap(
+    api.POST("/api/v1/core/users/{id}/actions/remove_ssh_key", {
+      params: { path: { id }, query: { dryRun } },
+      body: { id: key },
+    }),
+  );
 
 export async function listRoles(api: ApiClient) {
   const answer = await unwrap(api.GET("/api/v1/roles"));

@@ -21,6 +21,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 var (
@@ -212,20 +213,14 @@ func TestUpdateStartsFromTheCurrentSettings(t *testing.T) {
 		t.Errorf("replace body = %s", got)
 	}
 
-	// An update that takes its revision as a parameter gets the one it
-	// started from.
-	p.json("GET /api/v1/users/user_1", http.StatusOK, `{"id":"user_1","username":"ada","name":"Ada","home":{"level":"server"},
-		"grants":[{"role":"admin","scope":{"level":"server"}}],"allowFrom":null,"passwordSet":true,"twoFactor":false,"revision":4,
-		"createdAt":"2026-10-15T10:00:00Z","updatedAt":"2026-10-15T10:00:00Z"}`)
-	p.json("PUT /api/v1/users/user_1", http.StatusOK, `{"id":"user_1","username":"ada","name":"Ada Lovelace","home":{"level":"server"},"grants":[],"revision":5}`)
-	if out, err := run(t, "", "user", "update", "user_1", "--server", p.URL, "--name", "Ada Lovelace"); err != nil {
+	// A user is changed the same way, from the revision it was read at.
+	p.json("GET /api/v1/core/users/user_1", http.StatusOK, `{"id":"user_1","kind":"core.user","scope":{"level":"server"},"revision":4,
+		"spec":{"username":"ada","name":"Ada","grants":[{"role":"admin","scope":{"level":"server"}}]},"status":{"phase":"ready","passwordSet":true}}`)
+	p.json("PUT /api/v1/core/users/user_1", http.StatusOK, fmt.Sprintf(changeSetJSON, "planned", true, ""))
+	if out, err := run(t, "", "user", "update", "user_1", "--server", p.URL, "--name", "Ada Lovelace", "--dry-run"); err != nil {
 		t.Fatal(err, out)
 	}
-	r := p.last("PUT", "/api/v1/users/user_1")
-	if r.Query.Get("revision") != "4" {
-		t.Errorf("revision = %q", r.Query.Get("revision"))
-	}
-	if got := jsonOf(r.Body); got != `{"allowFrom":null,"grants":[{"role":"admin","scope":{"level":"server"}}],"home":{"level":"server"},"name":"Ada Lovelace","username":"ada"}` {
+	if got := jsonOf(p.last("PUT", "/api/v1/core/users/user_1").Body); got != `{"revision":4,"spec":{"grants":[{"role":"admin","scope":{"level":"server"}}],"name":"Ada Lovelace","username":"ada"}}` {
 		t.Errorf("user body = %s", got)
 	}
 }
@@ -287,17 +282,20 @@ func TestValuesPeopleWrite(t *testing.T) {
 func TestDryRunWithoutAPreview(t *testing.T) {
 	isolate(t)
 	p := newPanel(t)
-	out, err := run(t, "", "user", "create", "--server", p.URL, "--username", "ada", "--grants", "owner@acct_9", "--grants", "admin", "--dry-run")
+	out, err := run(t, "a new password\n", "user", "password", "user_1", "--server", p.URL, "--password", "-", "--must-change", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(p.requests) != 0 {
 		t.Errorf("sent %+v", p.requests)
 	}
-	for _, s := range []string{"This would send POST " + p.URL + "/api/v1/users", `"role": "owner"`, `"id": "acct_9"`, `"level": "server"`} {
+	for _, s := range []string{"This would send PUT " + p.URL + "/api/v1/core/users/user_1/password", `"password": "(hidden)"`, `"mustChange": true`} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
+	}
+	if strings.Contains(out, "a new password") {
+		t.Errorf("the password shows:\n%s", out)
 	}
 	if hidden := hideSecrets(map[string]any{"secrets": map[string]any{"a": "b"}, "spec": map[string]any{"password": "pw", "name": "x"}}, ""); jsonOf(hidden) !=
 		`{"secrets":{"a":"(hidden)"},"spec":{"name":"x","password":"(hidden)"}}` {
@@ -580,8 +578,8 @@ func TestCompletingIDs(t *testing.T) {
 	isolate(t)
 	p := newPanel(t)
 	p.json("GET /api/v1/core/webhooks", http.StatusOK, `{"items":[{"id":"whk_1","spec":{"url":"https://a.example"}},{"id":"whk_2","spec":{"url":"https://b.example"}}],"next":""}`)
-	p.json("GET /api/v1/users", http.StatusOK, `{"users":[{"id":"user_1","username":"ada"}]}`)
-	p.json("GET /api/v1/users/user_1/tokens", http.StatusOK, `{"tokens":[{"id":"tok_1","name":"ci"}]}`)
+	p.json("GET /api/v1/core/users", http.StatusOK, `{"items":[{"id":"user_1","spec":{"username":"ada"}}],"next":""}`)
+	p.json("GET /api/v1/core/users/user_1/tokens", http.StatusOK, `{"tokens":[{"id":"tok_1","name":"ci"}]}`)
 	t.Setenv(ServerEnv, p.URL)
 	for _, tc := range []struct {
 		args []string
@@ -643,4 +641,122 @@ func (s *syncWriter) Write(b []byte) (int, error) {
 	n, err := s.w.Write(b)
 	s.onWrite()
 	return n, err
+}
+
+// Commands that remove data ask first, and without a terminal to ask on
+// they need --yes.
+func TestConfirmingWhatRemovesData(t *testing.T) {
+	isolate(t)
+	p := newPanel(t)
+	p.json("DELETE /api/v1/core/users/user_1", http.StatusAccepted, fmt.Sprintf(changeSetJSON, "applying", false, "job_1"))
+	_, err := run(t, "", "user", "delete", "user_1", "--server", p.URL, "--detach")
+	if err == nil || !strings.Contains(err.Error(), "--yes") || !strings.Contains(err.Error(), "removes data") {
+		t.Errorf("without --yes = %v", err)
+	}
+	if p.last("DELETE", "/api/v1/core/users/user_1") != nil {
+		t.Fatal("the user was removed without confirming")
+	}
+	// A preview changes nothing, so it doesn't ask.
+	p.json("DELETE /api/v1/core/users/user_1", http.StatusOK, fmt.Sprintf(changeSetJSON, "planned", true, ""))
+	if out, err := run(t, "", "user", "delete", "user_1", "--server", p.URL, "--dry-run"); err != nil {
+		t.Fatal(err, out)
+	}
+	if r := p.last("DELETE", "/api/v1/core/users/user_1"); r == nil || r.Query.Get("dryRun") != "true" {
+		t.Errorf("the preview = %+v", r)
+	}
+	p.json("DELETE /api/v1/core/users/user_1", http.StatusAccepted, fmt.Sprintf(changeSetJSON, "applying", false, "job_1"))
+	if out, err := run(t, "", "user", "delete", "user_1", "--server", p.URL, "--yes", "--detach"); err != nil {
+		t.Fatal(err, out)
+	}
+	if r := p.last("DELETE", "/api/v1/core/users/user_1"); r == nil || r.Query.Get("dryRun") == "true" {
+		t.Errorf("with --yes = %+v", r)
+	}
+	help, _ := run(t, "", "user", "delete", "--help")
+	if !strings.Contains(help, "--yes") || !strings.Contains(help, "type what it's about") {
+		t.Errorf("help doesn't say it asks:\n%s", help)
+	}
+}
+
+// Passwords never go on the command line, where shells keep them.
+func TestPasswordsStayOffTheCommandLine(t *testing.T) {
+	isolate(t)
+	p := newPanel(t)
+	p.on("PUT /api/v1/core/users/user_1/password", func(w http.ResponseWriter, r *sent) { w.WriteHeader(http.StatusNoContent) })
+	_, err := run(t, "", "user", "password", "user_1", "--server", p.URL, "--password", "hunter2 hunter2")
+	if err == nil || !strings.Contains(err.Error(), "history") {
+		t.Errorf("a password on the command line = %v", err)
+	}
+	if len(p.requests) != 0 {
+		t.Fatalf("sent %+v", p.requests)
+	}
+	file := filepath.Join(t.TempDir(), "password")
+	os.WriteFile(file, []byte("from a file\n"), 0o600)
+	if out, err := run(t, "", "user", "password", "user_1", "--server", p.URL, "--password", "@"+file); err != nil {
+		t.Fatal(err, out)
+	}
+	if got := p.last("PUT", "/api/v1/core/users/user_1/password").Body["password"]; got != "from a file" {
+		t.Errorf("from a file = %q", got)
+	}
+	if out, err := run(t, "from standard input\n", "user", "password", "user_1", "--server", p.URL, "--password", "-"); err != nil {
+		t.Fatal(err, out)
+	}
+	if got := p.last("PUT", "/api/v1/core/users/user_1/password").Body["password"]; got != "from standard input" {
+		t.Errorf("from standard input = %q", got)
+	}
+}
+
+// logout --revoke has the profile's token revoke itself before the profile
+// goes.
+func TestLogoutRevokes(t *testing.T) {
+	isolate(t)
+	p := newPanel(t)
+	revoked := false
+	p.on("GET /api/v1/session", func(w http.ResponseWriter, r *sent) {
+		if revoked || r.Header.Get("Authorization") != "Bearer rsk_good" {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusUnauthorized)
+			io.WriteString(w, `{"status":401,"code":"auth.token_invalid","detail":"The API token isn't valid."}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"user":{"id":"user_1","name":"Ada","username":"ada","home":{"level":"server"}},"permissions":["*"],
+			"modules":{},"token":{"id":"tok_1","name":"laptop"},"stepUpMethods":[],"accounts":[]}`)
+	})
+	p.on("DELETE /api/v1/me/tokens/tok_1", func(w http.ResponseWriter, r *sent) {
+		revoked = r.Header.Get("Authorization") == "Bearer rsk_good"
+		w.WriteHeader(http.StatusNoContent)
+	})
+	for _, name := range []string{"work", "spare"} {
+		if out, err := run(t, "rsk_good\n", "login", "--server", p.URL, "--token-stdin", "--profile", name); err != nil {
+			t.Fatal(err, out)
+		}
+	}
+	out, err := run(t, "", "logout", "--profile", "work", "--revoke")
+	if err != nil || !revoked || !strings.Contains(out, `Its token "laptop" was revoked`) {
+		t.Fatalf("logout --revoke = %s, %v", out, err)
+	}
+	// A token the panel no longer takes needs nothing more.
+	out, err = run(t, "", "logout", "--profile", "spare", "--revoke")
+	if err != nil || !strings.Contains(out, "no longer worked") {
+		t.Errorf("a token that no longer works = %s, %v", out, err)
+	}
+	if out, _ := run(t, "", "profile", "list"); !strings.Contains(out, "No profiles yet") {
+		t.Errorf("after logging out of both = %s", out)
+	}
+}
+
+// Without a server or a profile, commands call the panel of the server
+// they run on.
+func TestTheLocalPanelByDefault(t *testing.T) {
+	isolate(t)
+	if _, err := os.Stat(system.ConfigFile); err == nil {
+		t.Skip("this machine is a Racksail server, whose racksail.toml says where its panel is")
+	}
+	c, err := (&Options{Output: "table"}).Connect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Server != DefaultServer {
+		t.Errorf("server = %s, want %s", c.Server, DefaultServer)
+	}
 }

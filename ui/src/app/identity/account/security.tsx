@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, KeyRound, Laptop, Link2, Pencil, Puzzle, Smartphone, Trash2 } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 import { type FormResult, SchemaForm } from "@/design/components/schema-form";
 import { Button } from "@/design/components/ui/button";
@@ -25,6 +25,7 @@ import {
 } from "@/design/components/ui/select";
 import { ErrorState } from "@/design/components/ui/states";
 import { toast } from "@/design/components/ui/toaster";
+import { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { setAt } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
@@ -34,6 +35,8 @@ import {
   forgetMyDevices,
   getMe,
   getMyAlerts,
+  getSignInOptions,
+  linkMyIdentity,
   listMyDevices,
   listMyLinks,
   listMyMfa,
@@ -45,7 +48,9 @@ import {
   removePasskey,
   removeTotp,
   renamePasskey,
+  type SignInOption,
   setMyAlerts,
+  startLinkingMyIdentity,
   testMyAlerts,
   unlinkMyIdentity,
 } from "../api";
@@ -61,6 +66,7 @@ import {
 } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
+import { page } from "../page";
 import { useSession } from "../session";
 import { useStepUp } from "../step-up";
 import { AddonSetup, AddPasskey, TotpSetup } from "../two-factor";
@@ -467,13 +473,143 @@ function Addons() {
   );
 }
 
+/** What the browser came back with from linking at a provider's own page. */
+export function readLinkReturn(hash: string): {
+  linked?: string;
+  error?: string;
+  provider?: string;
+} {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const out: { linked?: string; error?: string; provider?: string } = {};
+  for (const key of ["linked", "error", "provider"] as const) {
+    const value = params.get(key);
+    if (value) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/** Linking an account at a provider that checks passwords, such as a company directory. */
+function LinkDialog({ provider, onClose }: { provider: SignInOption | null; onClose: () => void }) {
+  const intl = useIntl();
+  const api = useApi();
+  const client = useQueryClient();
+  const { guard } = useStepUp();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!provider) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await guard(() => linkMyIdentity(api, provider.id, { username: username.trim(), password }));
+      toast.success(intl.formatMessage(t.linkDone, { provider: provider.title }));
+      setPassword("");
+      await client.invalidateQueries({ queryKey: ["me"] });
+      onClose();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={provider !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>
+              {intl.formatMessage(t.linkTitleProvider, { provider: provider?.title ?? "" })}
+            </DialogTitle>
+            <DialogDescription>{intl.formatMessage(t.linkPasswordHelp)}</DialogDescription>
+          </DialogHeader>
+          <Field label={intl.formatMessage(t.fieldUsername)}>
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoCapitalize="none"
+              spellCheck={false}
+              autoComplete="off"
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label={intl.formatMessage(t.fieldPassword)}>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="off"
+              required
+            />
+          </Field>
+          {error ? <Alert tone="danger">{failureMessage(intl, error)}</Alert> : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              {intl.formatMessage(t.cancel)}
+            </Button>
+            <Button type="submit" busy={busy}>
+              {intl.formatMessage(t.link)}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Links() {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
   const act = useAction();
+  const { guard } = useStepUp();
   const links = useQuery({ queryKey: ["me", "links"], queryFn: () => listMyLinks(api) });
-  if (!links.data || links.data.length === 0) {
+  const options = useQuery({
+    queryKey: ["auth", "options"],
+    queryFn: () => getSignInOptions(api),
+    retry: false,
+  });
+  const [linking, setLinking] = useState<SignInOption | null>(null);
+  const providers = options.data?.providers ?? [];
+  const title = (id: string) => providers.find((p) => p.id === id)?.title ?? id;
+  // Coming back from a provider's page says how linking went, once.
+  const [arrival] = useState(() => readLinkReturn(window.location.hash));
+  useEffect(() => {
+    if (arrival.linked || arrival.error) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    if (arrival.linked) {
+      void client.invalidateQueries({ queryKey: ["me"] });
+    }
+  }, [arrival, client]);
+  const returned = arrival.error
+    ? new ApiError(400, {
+        type: "about:blank",
+        status: 400,
+        code: arrival.error,
+        params: { provider: title(arrival.provider ?? ""), reason: "" },
+      })
+    : null;
+  const unlinked = providers.filter((p) => !(links.data ?? []).some((l) => l.provider === p.id));
+  const start = async (p: SignInOption) => {
+    if (p.method === "password") {
+      setLinking(p);
+      return;
+    }
+    try {
+      page.load(await guard(() => startLinkingMyIdentity(api, p.id)));
+    } catch (error) {
+      toast.error(failureMessage(intl, error));
+    }
+  };
+  if ((links.data ?? []).length === 0 && unlinked.length === 0 && !returned) {
     return null;
   }
   return (
@@ -483,37 +619,67 @@ function Links() {
       }
       description={intl.formatMessage(t.linksDescription)}
     >
-      <ItemList label={intl.formatMessage(t.linksTitle)}>
-        {links.data.map((l) => (
-          <Item
-            key={l.provider}
-            title={l.title}
-            meta={
-              <FormattedMessage
-                {...t.linkMeta}
-                values={{ username: l.username || "none", linked: <TimeText value={l.linkedAt} /> }}
-              />
-            }
-            actions={
-              <ConfirmDialog
-                trigger={
-                  <Button variant="outline" size="sm">
-                    {intl.formatMessage(t.unlink)}
-                  </Button>
-                }
-                title={intl.formatMessage(t.unlinkTitle, { provider: l.title })}
-                description={intl.formatMessage(t.unlinkDescription)}
-                confirmLabel={intl.formatMessage(t.unlink)}
-                onConfirm={async () => {
-                  if (await act(() => unlinkMyIdentity(api, l.provider))) {
-                    await client.invalidateQueries({ queryKey: ["me", "links"] });
+      {arrival.linked ? (
+        <Alert tone="success">
+          {intl.formatMessage(t.linkDone, { provider: title(arrival.linked) })}
+        </Alert>
+      ) : null}
+      {returned ? <Alert tone="danger">{failureMessage(intl, returned)}</Alert> : null}
+      {(links.data ?? []).length > 0 ? (
+        <ItemList label={intl.formatMessage(t.linksTitle)}>
+          {(links.data ?? []).map((l) => (
+            <Item
+              key={l.provider}
+              title={l.title}
+              meta={
+                <FormattedMessage
+                  {...t.linkMeta}
+                  values={{
+                    username: l.username || "none",
+                    linked: <TimeText value={l.linkedAt} />,
+                  }}
+                />
+              }
+              actions={
+                <ConfirmDialog
+                  trigger={
+                    <Button variant="outline" size="sm">
+                      {intl.formatMessage(t.unlink)}
+                    </Button>
                   }
-                }}
-              />
-            }
-          />
-        ))}
-      </ItemList>
+                  title={intl.formatMessage(t.unlinkTitle, { provider: l.title })}
+                  description={intl.formatMessage(t.unlinkDescription)}
+                  confirmLabel={intl.formatMessage(t.unlink)}
+                  onConfirm={async () => {
+                    if (await act(() => unlinkMyIdentity(api, l.provider))) {
+                      await client.invalidateQueries({ queryKey: ["me", "links"] });
+                    }
+                  }}
+                />
+              }
+            />
+          ))}
+        </ItemList>
+      ) : null}
+      {unlinked.length > 0 ? (
+        <ItemList label={intl.formatMessage(t.linksAvailable)}>
+          {unlinked.map((p) => (
+            <Item
+              key={p.id}
+              title={p.title}
+              meta={intl.formatMessage(
+                p.method === "password" ? t.linkMethodPassword : t.linkMethodRedirect,
+              )}
+              actions={
+                <Button variant="outline" size="sm" onClick={() => void start(p)}>
+                  {intl.formatMessage(t.link)}
+                </Button>
+              }
+            />
+          ))}
+        </ItemList>
+      ) : null}
+      <LinkDialog provider={linking} onClose={() => setLinking(null)} />
     </Section>
   );
 }

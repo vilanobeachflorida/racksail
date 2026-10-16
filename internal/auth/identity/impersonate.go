@@ -110,7 +110,7 @@ func (s *Service) StopImpersonating(ctx context.Context, actor *auth.Actor) (*Is
 	if err := s.opts.Store.UpdateSession(ctx, parent); err != nil {
 		return nil, err
 	}
-	if target, err := s.opts.Store.User(ctx, x.User); err == nil {
+	if target, err := s.User(ctx, x.User); err == nil {
 		s.audit(ctx, actor, "core.impersonate.stop", target.ID, target.Home, events.OutcomeSuccess, "", "Stop viewing the panel as "+target.Username)
 	}
 	return &Issued{Secret: secret, Session: parent}, nil
@@ -134,7 +134,7 @@ func (s *Service) ImpersonationOf(ctx context.Context, actor *auth.Actor) *Imper
 	if err != nil {
 		return nil
 	}
-	by, err := s.opts.Store.User(ctx, actor.Impersonator)
+	by, err := s.User(ctx, actor.Impersonator)
 	if err != nil {
 		return nil
 	}

@@ -427,7 +427,7 @@ export interface paths {
         put?: never;
         /**
          * Open an account
-         * @description Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. Admins open accounts for anyone; resellers for themselves. With dryRun=true the answer is the preview and nobody is added.
+         * @description Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. With dryRun=true the answer is the preview and nothing is added.
          */
         post: operations["openCoreAccount"];
         delete?: never;
@@ -623,6 +623,298 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List users
+         * @description Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. Lists the users you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreUsers"];
+        put?: never;
+        /**
+         * Create a user
+         * @description Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a user
+         * @description Returns one user: its settings (spec), and what Racksail last saw of it (status). Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set.
+         */
+        get: operations["getCoreUser"];
+        /**
+         * Change a user
+         * @description Replaces the user's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreUser"];
+        post?: never;
+        /**
+         * Delete a user
+         * @description Deletes the user and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/actions/add_ssh_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an SSH public key to a user
+         * @description Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. The person gets an alert. Everyone may add keys to their own user. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["addSshKeyCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/actions/remove_ssh_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove one of a user's SSH keys
+         * @description Removes an SSH key, as when the laptop it was on is lost. Everyone may remove keys from their own user. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["removeSshKeyCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/actions/update_profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change a user's name, email address and language
+         * @description Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["updateProfileCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a user's history
+         * @description Returns every recorded version of the user's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreUserHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/impersonate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * View the panel as a user
+         * @description Starts viewing the panel as one of your customers' users, to see what they see and help them. Everything you do meanwhile is recorded with both your names, the panel shows a banner the whole time, and it ends after an hour at most. It needs core.impersonate, granted by name; admins of the whole server can't be impersonated.
+         */
+        post: operations["impersonateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a sign-in link
+         * @description Makes a sign-in link for a user to choose their password: a week to start using a new user, a day to get back in. It's shown once and replaces any earlier link.
+         */
+        post: operations["issueSignInLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a user's password
+         * @description Sets a user's password, which signs them out everywhere, or, without a password, only says whether they choose a new one when they next sign in. Passwords are never kept as they are, only as Argon2id hashes. You need every role they have.
+         */
+        put: operations["setUserPassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Help a user back in
+         * @description Helps a user who lost their way in: makes a sign-in link to choose a new password, removes their second steps, signs them out everywhere, revokes their API tokens or lifts a lockout, as you choose. You need every role they have.
+         */
+        post: operations["resetUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List where a user is signed in
+         * @description Lists a user's sessions, for helping them or looking into a problem.
+         */
+        get: operations["listUserSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/ssh-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a user's SSH keys
+         * @description Lists a user's SSH public keys as the panel reads them: each key's type, size and fingerprint. They are part of the user's settings, which add_ssh_key and remove_ssh_key change.
+         */
+        get: operations["listUserSSHKeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a user's API tokens
+         * @description Lists a user's API tokens, without their secrets.
+         */
+        get: operations["listUserTokens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/tokens/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a user's API token
+         * @description Stops one of a user's API tokens working, at once.
+         */
+        delete: operations["revokeUserToken"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1034,7 +1326,7 @@ export interface paths {
         get: operations["getMe"];
         /**
          * Change your details
-         * @description Changes your name, email address and language.
+         * @description Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.
          */
         put: operations["updateMe"];
         post?: never;
@@ -1161,12 +1453,36 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
+        /**
+         * Sign in with a provider from now on
+         * @description Links your account at a provider that checks passwords, such as a company directory, to your user: the panel checks your username and password there, and doesn't keep them. From then on you can sign in with them.
+         */
+        post: operations["linkMyIdentity"];
         /**
          * Stop signing in with a provider
          * @description Stops an outside provider signing you in. The last way you have to sign in can't be removed.
          */
         delete: operations["unlinkMyIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/links/{provider}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start linking a provider
+         * @description Starts linking your account at a provider with its own sign-in page, such as an OpenID Connect provider, to your user. Send the browser to the location in the answer; the provider sends it back to the panel, which links the account and shows your security settings.
+         */
+        post: operations["startLinkingMyIdentity"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1419,7 +1735,7 @@ export interface paths {
         put?: never;
         /**
          * Add an SSH key
-         * @description Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options.
+         * @description Adds an SSH public key to your user, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. It's a change to your user like any other: with dryRun=true the answer is its preview.
          */
         post: operations["addMySSHKey"];
         delete?: never;
@@ -1440,7 +1756,7 @@ export interface paths {
         post?: never;
         /**
          * Remove an SSH key
-         * @description Removes one of your SSH keys.
+         * @description Removes one of your SSH keys, as a change to your user like any other: with dryRun=true the answer is its preview.
          */
         delete: operations["removeMySSHKey"];
         options?: never;
@@ -1484,7 +1800,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke an API token
-         * @description Stops one of your API tokens working, at once. A token may revoke itself.
+         * @description Stops one of your API tokens working, at once. In the panel you can revoke any of yours; with an API token, only that token itself, as racksail logout --revoke does.
          */
         delete: operations["revokeMyToken"];
         options?: never;
@@ -1625,7 +1941,7 @@ export interface paths {
         };
         /**
          * List roles and permissions
-         * @description Lists the roles, what each carries and where it can be given, and every permission with how far each role reaches with it: the permission matrix. Collaborators get the permissions their grant names instead of read-only access.
+         * @description Lists the roles, what each carries and where it can be given, and every permission with how far each role reaches with it: the permission matrix. Collaborators get the permissions their grant names instead of read-only access, and everyone may see their own user and change their profile and SSH keys.
          */
         get: operations["listRoles"];
         put?: never;
@@ -1731,218 +2047,6 @@ export interface paths {
          */
         post: operations["beginStepUpPasskey"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List users
-         * @description Lists the users you manage, by username: those who belong where your core.user.read reaches. Filter by where they belong, where they have a grant, role and search text.
-         */
-        get: operations["listUsers"];
-        put?: never;
-        /**
-         * Add a user
-         * @description Adds a user where you manage users, with the roles you give them, which can't be more than you have there yourself. Without a first password, make them a sign-in link to choose one.
-         */
-        post: operations["createUser"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a user
-         * @description Returns a user you manage: their details, roles and how they sign in, never their secrets.
-         */
-        get: operations["getUser"];
-        /**
-         * Change a user
-         * @description Changes a user's details and roles, or turns them off, which signs them out everywhere. You can only give or take away roles you have yourself, and the last admin who can sign in stays one. Send the revision you read.
-         */
-        put: operations["updateUser"];
-        post?: never;
-        /**
-         * Delete a user
-         * @description Deletes a user with their sessions, API tokens, passkeys and SSH keys. You can't delete yourself, nor someone with roles you don't have.
-         */
-        delete: operations["deleteUser"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/impersonate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * View the panel as a user
-         * @description Starts viewing the panel as one of your customers' users, to see what they see and help them. Everything you do meanwhile is recorded with both your names, the panel shows a banner the whole time, and it ends after an hour at most. It needs core.impersonate, granted by name; admins of the whole server can't be impersonated.
-         */
-        post: operations["impersonateUser"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make a sign-in link
-         * @description Makes a sign-in link for a user to choose their password: a week to start using a new user, a day to get back in. It's shown once and replaces any earlier link.
-         */
-        post: operations["issueSignInLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/reset": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Help a user back in
-         * @description Helps a user who lost their way in: makes a sign-in link to choose a new password, removes their second steps, signs them out everywhere, revokes their API tokens or lifts a lockout, as you choose.
-         */
-        post: operations["resetUser"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List where a user is signed in
-         * @description Lists a user's sessions, for helping them or looking into a problem.
-         */
-        get: operations["listUserSessions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/ssh-keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List a user's SSH keys
-         * @description Lists a user's SSH public keys.
-         */
-        get: operations["listUserSSHKeys"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/ssh-keys/{key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a user's SSH key
-         * @description Removes one of a user's SSH keys, as when a laptop with it was lost.
-         */
-        delete: operations["removeUserSSHKey"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/tokens": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List a user's API tokens
-         * @description Lists a user's API tokens, without their secrets.
-         */
-        get: operations["listUserTokens"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/tokens/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke a user's API token
-         * @description Stops one of a user's API tokens working, at once.
-         */
-        delete: operations["revokeUserToken"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2071,11 +2175,13 @@ export interface components {
         Actor: {
             id?: string;
             impersonator?: string;
+            impersonatorName?: string;
             ip?: string;
             name: string;
             source: string;
             type: string;
             user?: string;
+            userName?: string;
         };
         AlertChannelInput: {
             /** @description The channel's settings, as its form asks for them. They're kept encrypted and never shown again */
@@ -2486,6 +2592,82 @@ export interface components {
             };
             spec: components["schemas"]["ProviderSpec"];
         };
+        /** @description User: Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. */
+        CoreUser: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["UserSpec"];
+            status?: components["schemas"]["UserStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new user. */
+        CoreUserCreateRequest: {
+            /** @description An ID chosen up front, starting with user_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Where it belongs: the server, the reseller or the account; the server when left out */
+            scope?: components["schemas"]["Scope"];
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["UserSpec"];
+        };
+        /** @description One page of users. */
+        CoreUserList: {
+            items: components["schemas"]["CoreUser"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a user. */
+        CoreUserUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["UserSpec"];
+        };
         /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
         CoreWebhook: {
             /** Format: date-time */
@@ -2892,6 +3074,8 @@ export interface components {
         KindDescription: {
             actions: components["schemas"]["ActionInfo"][] | null;
             backup: components["schemas"]["BackupInfo"];
+            /** @description Whether changing one asks people in the panel to confirm it's them */
+            confirm?: boolean;
             description: string;
             /** @description The event types the kind emits */
             events: string[] | null;
@@ -2900,6 +3084,8 @@ export interface components {
             inputs?: {
                 [key: string]: unknown;
             };
+            /** @description Further levels its resources may belong to, as users belong to the server, a reseller or an account */
+            levels?: string[] | null;
             module: string;
             /** @description <module>.<name> */
             name: string;
@@ -2943,9 +3129,22 @@ export interface components {
             purpose: "activate" | "reset";
             username: string;
         };
+        LinkInput: {
+            /**
+             * Format: password
+             * @description Your password at the provider, which the panel checks with it and doesn't keep
+             */
+            password: string;
+            /** @description Your username at the provider */
+            username: string;
+        };
         LinkLookupInputBody: {
             /** @description What the sign-in link carries, after the # */
             code: string;
+        };
+        LinkStart: {
+            /** @description The provider's page, which sends the browser back to the panel */
+            location: string;
         };
         LinkView: {
             /** Format: date-time */
@@ -3009,7 +3208,7 @@ export interface components {
             passwordSet: boolean;
             /**
              * Format: int64
-             * @description Send it back with changes, so nobody's changes are lost
+             * @description The revision of the user's settings
              */
             revision: number;
             security: components["schemas"]["Security"];
@@ -3166,6 +3365,15 @@ export interface components {
             /** @description The new password */
             new: string;
         };
+        PasswordSetting: {
+            /** @description Ask the user to choose a new password when they next sign in */
+            mustChange?: boolean;
+            /**
+             * Format: password
+             * @description The user's new password; leave it out to only say whether they choose a new one when they next sign in
+             */
+            password?: string;
+        };
         PolicySpec: {
             /** @description Addresses and networks people may sign in and use API tokens from; empty allows anywhere. The server itself is always allowed */
             allowFrom?: string[] | null;
@@ -3288,11 +3496,11 @@ export interface components {
             type: string;
         };
         ProfileInput: {
-            /** @description Where you get notifications */
+            /** @description Where notifications go */
             email?: string;
-            /** @description The panel's language for you, such as en or pt-BR; empty follows your browser */
+            /** @description The panel's language, such as en or pt-BR; empty follows the browser */
             locale?: string;
-            /** @description Your name, as the panel shows it */
+            /** @description The name the panel shows */
             name: string;
         };
         Progress: {
@@ -3318,10 +3526,10 @@ export interface components {
             /** @description Turn it off without removing it */
             disabled?: boolean;
             /**
-             * @description How someone signing in for the first time is matched to an existing user: by username, by email, or not at all
+             * @description How someone signing in for the first time is matched to an existing user: not at all, so people link it themselves in their security settings, by username, or by email. Users with a grant on the whole server are never matched
              * @enum {string}
              */
-            match?: "username" | "email" | "none";
+            match?: "none" | "username" | "email";
             /** @description What users added this way may do */
             newUserGrants?: components["schemas"]["Grant"][] | null;
             /** @description Add a user for someone who signs in for the first time and matches nobody */
@@ -3472,6 +3680,8 @@ export interface components {
             /** @description Every permission, and how far each role reaches with it */
             matrix: components["schemas"]["MatrixEntry"][] | null;
             roles: components["schemas"]["RoleInfo"][] | null;
+            /** @description What everyone may do to their own user, whatever their roles */
+            self: string[] | null;
         };
         SSHKey: {
             /**
@@ -3479,8 +3689,6 @@ export interface components {
              * @description The key's size, for RSA and ECDSA keys
              */
             bits?: number;
-            /** Format: date-time */
-            createdAt: string;
             /** @description The SHA256 fingerprint ssh-keygen -l shows */
             fingerprint: string;
             id: string;
@@ -3496,6 +3704,10 @@ export interface components {
             name?: string;
             /** @description The public key, as in a .pub file or an authorized_keys line, without options */
             publicKey: string;
+        };
+        SSHKeyRef: {
+            /** @description The key's ID, which starts with sshkey_ */
+            id: string;
         };
         Scope: {
             /** @description The owning reseller or account; empty for server-wide resources */
@@ -3621,6 +3833,7 @@ export interface components {
             code: string;
             email?: string;
             name?: string;
+            /** Format: password */
             password: string;
             /** @description The admin's username */
             username: string;
@@ -3781,36 +3994,71 @@ export interface components {
             /** @description The new password */
             password: string;
         };
-        UserInput: {
+        UserSSHKey: {
+            /** @description The key's ID, which starts with sshkey_ and comes from its fingerprint */
+            id: string;
+            /** @description What the key is for, such as the laptop it's on */
+            name: string;
+            /** @description The public key as an authorized_keys line, without options */
+            publicKey: string;
+        };
+        UserSpec: {
             /** @description Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does */
             allowFrom?: string[] | null;
-            /** @description Turn the user off: they can't sign in and their API tokens stop working */
+            /** @description Turn the user off: they can't sign in, their sessions end and their API tokens stop working */
             disabled?: boolean;
             /**
              * @description Where the person gets notifications
              * @example ada@example.com
              */
             email?: string;
-            /** @description What the user may do, and where */
-            grants: components["schemas"]["Grant"][] | null;
-            /** @description Where the user belongs, and so who manages them: the server, a reseller or an account. Set when the user is added; it never changes */
-            home?: components["schemas"]["Scope"];
-            /** @description The language of the panel for them, such as en or pt-BR; empty follows their browser */
+            /** @description What the user may do, and where. Grants never reach outside where the user belongs, and nobody gives a grant they couldn't use themselves */
+            grants?: components["schemas"]["Grant"][] | null;
+            /** @description The panel's language for the person, such as en or pt-BR; empty follows their browser */
             locale?: string;
-            /** @description Ask the user to choose a new password when they first sign in */
-            mustChangePassword?: boolean;
             /**
              * @description The person's name, as the panel shows it
              * @example Ada Lovelace
              */
             name?: string;
-            /** @description A first password for a new user; leave it out to send them a sign-in link instead */
-            password?: string;
+            /** @description SSH public keys that let the person reach the files and shells their roles allow */
+            sshKeys?: components["schemas"]["UserSSHKey"][] | null;
             /**
              * @description What the person signs in with: lowercase letters, digits, dots, dashes, underscores and @
              * @example ada
              */
             username: string;
+        };
+        UserStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /**
+             * Format: date-time
+             * @description When they last signed in
+             */
+            lastSignInAt?: string;
+            /** @description Where they last signed in from */
+            lastSignInIp?: string;
+            /**
+             * Format: date-time
+             * @description Until when failed sign-ins keep the user out
+             */
+            lockedUntil?: string;
+            /** @description English summary of the current state */
+            message?: string;
+            /** @description Whether they choose a new password when they next sign in */
+            mustChangePassword?: boolean;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @description Whether the user has a password */
+            passwordSet: boolean;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
+            twoFactor: boolean;
         };
         UserView: {
             allowFrom: string[] | null;
@@ -3838,7 +4086,7 @@ export interface components {
             passwordSet: boolean;
             /**
              * Format: int64
-             * @description Send it back with changes, so nobody's changes are lost
+             * @description The revision of the user's settings
              */
             revision: number;
             /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
@@ -3846,11 +4094,6 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             username: string;
-        };
-        UsersOutputBody: {
-            /** @description The cursor of the next page; empty on the last one */
-            next?: string;
-            users: components["schemas"]["UserView"][] | null;
         };
         Version: {
             /** @description Who made the change, and what acted for them */
@@ -4219,6 +4462,7 @@ export interface operations {
             cookie?: {
                 racksail_signin_state?: string;
                 racksail_device?: string;
+                racksail_linking?: boolean;
             };
         };
         requestBody?: never;
@@ -5553,6 +5797,693 @@ export interface operations {
             };
         };
     };
+    listCoreUsers: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, username, email, role, grantOn, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose username is this value, in any case */
+                username?: string;
+                /** @description Only those whose email is this value, in any case */
+                email?: string;
+                /** @description Only those whose grants.role is this value */
+                role?: string;
+                /** @description Only those whose grants.scope.id is this value */
+                grantOn?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreUserList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreUserCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreUser"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreUserUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreUser: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the user since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the user from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addSshKeyCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SSHKeyInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeSshKeyCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SSHKeyRef"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateProfileCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreUserHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    impersonateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    issueSignInLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedLink"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordSetting"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resetUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUserSSHKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SshKeysOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUserTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeUserToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID */
+                id: string;
+                /** @description The token's ID, which starts with tok_ */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listCoreWebhooks: {
         parameters: {
             query?: {
@@ -6477,8 +7408,14 @@ export interface operations {
     };
     updateMe: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6488,22 +7425,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The change set without applying it, for a dry run */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Me"];
+                    "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
-            default: {
+            /** @description The change set, applied to your user */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/json": components["schemas"]["ChangeSet"];
                 };
             };
         };
@@ -6711,6 +7648,42 @@ export interface operations {
             };
         };
     };
+    linkMyIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     unlinkMyIdentity: {
         parameters: {
             query?: never;
@@ -6729,6 +7702,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startLinkingMyIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkStart"];
+                };
             };
             /** @description Error */
             default: {
@@ -7196,8 +8202,14 @@ export interface operations {
     };
     addMySSHKey: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -7207,51 +8219,60 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created */
-            201: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SSHKey"];
+                    "application/json": components["schemas"]["ChangeSet"];
                 };
             };
-            /** @description Error */
-            default: {
+            /** @description The change set, applied to your user */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/json": components["schemas"]["ChangeSet"];
                 };
             };
         };
     };
     removeMySSHKey: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
             path: {
+                /** @description The key's ID, which starts with sshkey_ */
                 id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to your user */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
                 };
             };
         };
@@ -7751,441 +8772,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PasskeyOptions"];
                 };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    listUsers: {
-        parameters: {
-            query?: {
-                /** @description Only users who belong here: server, reseller:<id> or account:<id> */
-                home?: string;
-                /** @description Only users with a grant on this scope: server, reseller:<id> or account:<id> */
-                grant?: string;
-                /** @description Only users with this role somewhere */
-                role?: "admin" | "reseller" | "owner" | "collaborator" | "readonly";
-                /** @description Only users whose username, name or email contains this text */
-                q?: string;
-                /** @description Continues a list where the page before it ended */
-                cursor?: string;
-                /** @description How many to return; 50 when left out */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UsersOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserInput"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserView"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserView"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    updateUser: {
-        parameters: {
-            query?: {
-                /** @description The revision you read; when someone changed the user since, the change fails with a conflict */
-                revision?: number;
-            };
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserView"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    impersonateUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    issueSignInLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IssuedLink"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    resetUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResetInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResetResult"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    listUserSessions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionsOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    listUserSSHKeys: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SshKeysOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    removeUserSSHKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID */
-                id: string;
-                /** @description The key's ID, which starts with sshkey_ */
-                key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    listUserTokens: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID, which starts with user_ */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TokensOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    revokeUserToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The user's ID */
-                id: string;
-                /** @description The token's ID, which starts with tok_ */
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Error */
             default: {

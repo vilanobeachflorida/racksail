@@ -157,7 +157,7 @@ function People({ account }: { account: Account }) {
   const names = useAccountNames();
   const people = useQuery({
     queryKey: ["users", "home", account.id],
-    queryFn: () => listAllUsers(api, { home: `account:${account.id}` }),
+    queryFn: () => listAllUsers(api, { scope: `account:${account.id}` }),
   });
   return (
     <Section

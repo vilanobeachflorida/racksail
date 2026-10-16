@@ -9,9 +9,9 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// TypeID prefixes of identity records. Users, passkeys, devices, SSH keys
-// and sign-in links aren't resources, so their prefixes are reserved;
-// sessions and tokens use the store's own.
+// TypeID prefixes of identity records. Users are core.user resources;
+// passkeys, devices, SSH keys and sign-in links aren't resources, so their
+// prefixes are reserved; sessions and tokens use the store's own.
 const (
 	PrefixUser    = "user"
 	PrefixPasskey = "passkey"
@@ -24,14 +24,15 @@ const (
 
 func init() {
 	for prefix, purpose := range map[string]string{
-		PrefixUser: "users", PrefixPasskey: "passkeys", PrefixDevice: "trusted devices",
-		PrefixSSHKey: "SSH keys", PrefixInvite: "sign-in links",
+		PrefixPasskey: "passkeys", PrefixDevice: "trusted devices", PrefixSSHKey: "SSH keys", PrefixInvite: "sign-in links",
 	} {
 		store.ReservePrefix(prefix, purpose)
 	}
 }
 
-// User is someone who signs in to the panel.
+// User is someone who signs in to the panel, as the service works with
+// them: who they are and what they may do, from their core.user resource,
+// and how they sign in, from their credentials.
 type User struct {
 	ID       store.ID
 	Username string
@@ -39,16 +40,27 @@ type User struct {
 	Email    string
 	// Home is where the user belongs, and so who manages them: the server,
 	// a reseller or an account. Their grants never reach outside it.
-	Home        store.Scope
-	Grants      []auth.Grant
-	Disabled    bool
-	Locale      string
-	AllowFrom   []string
-	Preferences json.RawMessage
-	// AlertChannel is the type of channel sign-in alerts go to, empty for
-	// none. Its settings are kept as a secret.
-	AlertChannel string
+	Home      store.Scope
+	Grants    []auth.Grant
+	Disabled  bool
+	Locale    string
+	AllowFrom []string
+	SSHKeys   []UserSSHKey
 
+	Credentials
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// Revision is the resource's, which changes with every change of who
+	// the user is or what they may do.
+	Revision int64
+}
+
+// Credentials are how a user signs in and what the panel keeps for them
+// alone. They aren't part of the user's resource, so they never reach
+// change sets, history, hooks or previews, and change only through the
+// identity service.
+type Credentials struct {
 	PasswordHash       string
 	PasswordChangedAt  time.Time
 	MustChangePassword bool
@@ -60,12 +72,13 @@ type User struct {
 	LockedUntil   time.Time
 	LastSignInAt  time.Time
 	LastSignInIP  string
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	// Revision increases with every change of the user's details, so two
-	// people editing a user don't overwrite each other.
-	Revision int64
+	Preferences   json.RawMessage
+	// AlertChannel is the type of channel security alerts go to, empty for
+	// none. Its settings are kept as a secret.
+	AlertChannel string
+	// SSHKeysSeen are the fingerprints of the SSH keys the user was last
+	// told about, so a key someone adds gets an alert.
+	SSHKeysSeen []string
 }
 
 // Clone returns a copy of u whose lists can be changed without affecting u.
@@ -76,7 +89,9 @@ func (u *User) Clone() *User {
 		c.Grants[i] = g.Clone()
 	}
 	c.AllowFrom = slices.Clone(u.AllowFrom)
+	c.SSHKeys = slices.Clone(u.SSHKeys)
 	c.Preferences = slices.Clone(u.Preferences)
+	c.SSHKeysSeen = slices.Clone(u.SSHKeysSeen)
 	return &c
 }
 
@@ -92,8 +107,10 @@ func (u *User) DisplayName() string {
 func (u *User) Locked(now time.Time) bool { return now.Before(u.LockedUntil) }
 
 // Admin reports whether the user is an admin of the whole server.
-func (u *User) Admin() bool {
-	return slices.ContainsFunc(u.Grants, func(g auth.Grant) bool {
+func (u *User) Admin() bool { return adminGrants(u.Grants) }
+
+func adminGrants(grants []auth.Grant) bool {
+	return slices.ContainsFunc(grants, func(g auth.Grant) bool {
 		return g.Role == auth.RoleAdmin && g.Scope.Level == store.ScopeServer && g.Object == "" && len(g.Limit) == 0
 	})
 }
@@ -103,7 +120,15 @@ type Session struct {
 	ID   store.ID
 	User store.ID
 	// Hash is the SHA-256 of the cookie's secret.
-	Hash       string
+	Hash string
+	// PreviousHash is the secret the session had before it was last given
+	// a new one because the user's roles changed, which requests already
+	// on their way may still carry until RotatedAt plus rotationGrace.
+	PreviousHash string
+	RotatedAt    time.Time
+	// GrantsHash says which grants the secret was issued for; when the
+	// user's grants change, the session gets a new secret.
+	GrantsHash string
 	CreatedAt  time.Time
 	LastSeenAt time.Time
 	// ExpiresAt ends the session however active it is.
@@ -187,7 +212,7 @@ type Passkey struct {
 	LastUsedAt time.Time
 }
 
-// SSHKey is one of a user's SSH public keys.
+// SSHKey is one of a user's SSH public keys, as the panel shows it.
 type SSHKey = auth.SSHKey
 
 // Invite is a link that lets someone choose a password: to start using a

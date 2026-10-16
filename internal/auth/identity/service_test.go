@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,154 +13,11 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
-	"github.com/vilanobeachflorida/racksail/internal/auth/account"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
-	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
-
-// clock is a time the tests move by hand.
-type clock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func (c *clock) now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.t
-}
-
-func (c *clock) add(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
-}
-
-type harness struct {
-	t         *testing.T
-	svc       *Service
-	store     *Memory
-	resources store.Store
-	log       *events.Log
-	hooks     *hooks.Registry
-	owners    *account.Ownership
-	clock     *clock
-	vault     secrets.Store
-}
-
-func newHarness(t *testing.T) *harness {
-	t.Helper()
-	kinds := store.NewKindRegistry()
-	for _, k := range []store.Kind{account.Kind, PolicyKind, ProviderKind} {
-		if err := kinds.Register(k); err != nil {
-			t.Fatal(err)
-		}
-	}
-	resources := store.NewMemory(kinds)
-	owners := account.NewOwnership(resources, nil)
-	key, _ := secrets.NewKey()
-	box, _ := secrets.NewBox(key)
-	vault := secrets.NewMemory(box)
-	log := events.NewMemory(1000)
-	reg := hooks.NewRegistry()
-	c := &clock{t: time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)}
-	st := NewMemory()
-	svc := New(Options{
-		Store: st, Resources: resources, Secrets: vault, Events: log, Audit: log,
-		Hooks: &hooks.Runner{Registry: reg, Events: log}, Authorizer: auth.NewRoleAuthorizer(owners),
-		Hostname: "panel.example.test", Log: slog.New(slog.DiscardHandler), Now: c.now,
-	})
-	return &harness{t: t, svc: svc, store: st, resources: resources, log: log, hooks: reg, owners: owners, clock: c, vault: vault}
-}
-
-var client = auth.Client{IP: "198.51.100.7", UserAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"}
-
-const password = "tangerine kettle orbit"
-
-// user adds a user straight to the store, with a password.
-func (h *harness) user(name string, home store.Scope, grants ...auth.Grant) *User {
-	h.t.Helper()
-	ctx := context.Background()
-	if grants == nil {
-		grants = []auth.Grant{}
-	}
-	u := &User{ID: store.NewID(PrefixUser), Username: name, Name: strings.ToUpper(name[:1]) + name[1:], Home: home, Grants: grants, CreatedAt: h.clock.now(), UpdatedAt: h.clock.now()}
-	if err := h.store.CreateUser(ctx, u); err != nil {
-		h.t.Fatal(err)
-	}
-	hash, err := auth.HashPassword(ctx, password)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	if err := h.store.SetPassword(ctx, u.ID, hash, false, h.clock.now()); err != nil {
-		h.t.Fatal(err)
-	}
-	u.PasswordHash = hash
-	return u
-}
-
-func (h *harness) admin(name string) *User {
-	return h.user(name, store.ServerScope(), auth.Grant{Role: auth.RoleAdmin, Scope: store.ServerScope(), Permissions: []auth.Permission{auth.PermImpersonate}})
-}
-
-// signIn signs in with the password and returns the session's actor.
-func (h *harness) signIn(name string) (*auth.Actor, string) {
-	h.t.Helper()
-	res, err := h.svc.SignIn(context.Background(), SignInInput{Username: name, Password: password}, "", client)
-	if err != nil {
-		h.t.Fatalf("signing in as %s: %v", name, err)
-	}
-	if res.Issued == nil {
-		h.t.Fatalf("signing in as %s needs a second step: %v", name, res.Methods)
-	}
-	return h.actor(res.Issued.Secret), res.Issued.Secret
-}
-
-// actor authenticates a request carrying the session cookie.
-func (h *harness) actor(secret string) *auth.Actor {
-	h.t.Helper()
-	a, err := h.authenticate(secret)
-	if err != nil || a == nil {
-		h.t.Fatalf("authenticating = %v, %v", a, err)
-	}
-	return a
-}
-
-func (h *harness) authenticate(secret string) (*auth.Actor, error) {
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)
-	r.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: secret})
-	ctx := auth.WithClient(context.Background(), client)
-	return h.svc.Authenticate(ctx, r)
-}
-
-func (h *harness) bearer(secret string, ip string) (*auth.Actor, error) {
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)
-	r.Header.Set("Authorization", "Bearer "+secret)
-	r.Header.Set("User-Agent", "racksail/1.0.0")
-	ctx := auth.WithClient(context.Background(), auth.Client{IP: ip})
-	return h.svc.Authenticate(ctx, r)
-}
-
-func (h *harness) audit(action string) []events.AuditRecord {
-	h.t.Helper()
-	records, _, err := h.log.QueryAudit(context.Background(), events.Query{Types: []string{action}, Limit: 1000})
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	return records
-}
-
-func (h *harness) eventTypes() map[string]int {
-	list, _, _ := h.log.QueryEvents(context.Background(), events.Query{Limit: 1000})
-	out := map[string]int{}
-	for _, e := range list {
-		out[e.Type]++
-	}
-	return out
-}
 
 func TestSetupCode(t *testing.T) {
 	ctx := context.Background()
@@ -173,6 +28,11 @@ func TestSetupCode(t *testing.T) {
 	code, err := h.svc.Bootstrap(ctx, filepath.Join(t.TempDir(), "missing.json"))
 	if err != nil || len(code) != 23 {
 		t.Fatalf("code = %q, %v", code, err)
+	}
+	// The console's copy of the code goes once it is used.
+	h.svc.opts.SetupFile = filepath.Join(t.TempDir(), "setup-code")
+	if err := os.WriteFile(h.svc.opts.SetupFile, []byte(code+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	in := SetupInput{Code: "WRONG-CODE", Username: "Ada", Name: "Ada Lovelace", Password: password}
 	if _, err := h.svc.Setup(ctx, in, client); !auth.ErrBadSetupCode.Is(err) {
@@ -201,6 +61,18 @@ func TestSetupCode(t *testing.T) {
 	if left, _ := h.store.SetupCode(ctx); left != "" {
 		t.Error("the code is gone once used")
 	}
+	if _, err := os.Stat(h.svc.opts.SetupFile); !os.IsNotExist(err) {
+		t.Errorf("the console's copy of the code is still there: %v", err)
+	}
+	// The first admin is a user like any other, added through the change
+	// pipeline, with its record in the audit log.
+	created := h.audit("core.user.create")
+	if len(created) != 1 || created[0].Actor.Name != "setup" || created[0].Subject != actor.ID {
+		t.Errorf("the first admin's audit record = %+v", created)
+	}
+	if st := h.status(actor.ID); !st.PasswordSet || st.LastSignInAt == nil {
+		t.Errorf("the first admin's status = %+v", st)
+	}
 }
 
 func TestInstallerAdmin(t *testing.T) {
@@ -226,13 +98,15 @@ func TestInstallerAdmin(t *testing.T) {
 	if err != nil || res.Issued == nil {
 		t.Fatalf("signing in with the installer's password = %+v, %v", res, err)
 	}
-	u, _ := h.store.UserByName(ctx, "root2")
+	u, err := h.svc.userByName(ctx, "root2")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.HasPrefix(u.PasswordHash, "$argon2id$") {
 		t.Errorf("the crypt hash is replaced after the first sign-in: %s", u.PasswordHash)
 	}
-	keys, _ := h.store.SSHKeys(ctx, u.ID)
-	if len(keys) != 1 || keys[0].Name != "admin@laptop" {
-		t.Errorf("keys = %+v", keys)
+	if len(u.SSHKeys) != 1 || u.SSHKeys[0].Name != "admin@laptop" || !u.Admin() {
+		t.Errorf("the installer's admin = %+v", u)
 	}
 }
 
@@ -276,14 +150,42 @@ func TestPasswordSignIn(t *testing.T) {
 	}
 
 	// A user turned off can't sign in, and loses their sessions.
-	u, _ := h.store.User(ctx, owner.ID)
-	u.Disabled = true
-	h.store.UpdateUser(ctx, u, 0)
+	actor, secret = h.signIn("bob")
+	if _, err := h.update(root(), owner.ID, func(s *UserSpec) { s.Disabled = true }); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "bob", Password: password}, "", client); !auth.ErrDisabled.Is(err) {
 		t.Errorf("turned off = %v", err)
 	}
-	if _, err := h.authenticate(secret); !auth.ErrDisabled.Is(err) {
+	if _, err := h.authenticate(secret); !auth.ErrSessionExpired.Is(err) {
 		t.Errorf("a turned off user's session = %v", err)
+	}
+	if list, _ := h.store.Sessions(ctx, actor.ID); len(list) != 0 {
+		t.Errorf("turning bob off left %d sessions", len(list))
+	}
+}
+
+func TestLockoutsAreCountedOnce(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	h.admin("ada")
+	attempts := DefaultPolicy().LockoutAttempts
+	// Wrong passwords at the same moment each count, and exactly one of
+	// them locks the user out.
+	var wg sync.WaitGroup
+	for range attempts * 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: "not the password"}, "", auth.Client{IP: "192.0.2." + itoa(rand.N(200)+1)})
+		}()
+	}
+	wg.Wait()
+	if n := h.eventTypes()["core.user.locked_out"]; n != 1 {
+		t.Errorf("locked out %d times", n)
+	}
+	if st := h.status(h.get(h.mustFind("ada")).ID); st.LockedUntil == nil {
+		t.Error("the status doesn't say ada is locked out")
 	}
 }
 
@@ -439,11 +341,14 @@ func TestStepUp(t *testing.T) {
 	if _, err := h.svc.BeginTOTP(ctx, token); !auth.ErrPanelOnly.Is(err) {
 		t.Errorf("a token setting up an authenticator app = %v", err)
 	}
-	if _, err := h.svc.AddSSHKey(ctx, token, SSHKeyInput{Name: "laptop", PublicKey: "ssh-ed25519 AAAA"}); !auth.ErrPanelOnly.Is(err) {
+	if _, err := h.svc.AddSSHKey(token, SSHKeyInput{Name: "laptop", PublicKey: "ssh-ed25519 AAAA"}); !auth.ErrPanelOnly.Is(err) {
 		t.Errorf("a token adding an SSH key = %v", err)
 	}
-	if _, err := h.svc.UpdateProfile(ctx, token, ProfileInput{Name: "Ada", Email: "someone@example.net"}); !auth.ErrPanelOnly.Is(err) {
-		t.Errorf("a token changing the email address outside sign-ins match = %v", err)
+	if _, err := h.svc.UpdateProfile(token, ProfileInput{Name: "Ada", Email: "someone@example.net"}); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token changing the email address sign-ins match = %v", err)
+	}
+	if err := h.svc.SetPreferences(ctx, token, json.RawMessage(`{"theme":"dark"}`)); !auth.ErrPanelOnly.Is(err) {
+		t.Errorf("a token changing display preferences = %v", err)
 	}
 	if methods := h.svc.StepUpMethods(ctx, fresh); len(methods) != 1 || methods[0] != "password" {
 		t.Errorf("methods = %v", methods)
@@ -559,7 +464,7 @@ func TestPendingSteps(t *testing.T) {
 	}
 
 	// A user who must choose a new password does that first.
-	u, _ := h.store.UserByName(ctx, "bob")
+	u, _ := h.svc.userByName(ctx, "bob")
 	h.store.SetPassword(ctx, u.ID, u.PasswordHash, true, h.clock.now())
 	res, _ := h.svc.SignIn(ctx, SignInInput{Username: "bob", Password: password}, "", client)
 	code, _ = auth.TOTPCode(key.Secret, h.clock.now().Add(30*time.Second))
@@ -600,5 +505,75 @@ func TestChangePassword(t *testing.T) {
 	}
 	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: "another long passphrase"}, "", client); err != nil {
 		t.Errorf("the new password = %v", err)
+	}
+}
+
+// mustFind returns the ID of the user with a username.
+func (h *harness) mustFind(username string) store.ID {
+	h.t.Helper()
+	u, err := h.svc.userByName(h.ctx, username)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return u.ID
+}
+
+func TestSessionsFollowGrantChanges(t *testing.T) {
+	h := newHarness(t)
+	shop := h.createAccount("shop", "")
+	bob := h.user("bob", store.AccountScope(shop), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(shop)})
+	_, secret := h.signIn("bob")
+	if _, issued, err := h.authenticateWith(secret); err != nil || issued != nil {
+		t.Fatalf("a session whose grants didn't change = %v, %v", issued, err)
+	}
+
+	// Taking bob's owner role away gives his session a new secret, carrying
+	// what he may do now.
+	if _, err := h.update(root(), bob.ID, func(s *UserSpec) {
+		s.Grants = []auth.Grant{{Role: auth.RoleReadOnly, Scope: store.AccountScope(shop)}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, issued, err := h.authenticateWith(secret)
+	if err != nil || issued == nil || issued.Secret == secret {
+		t.Fatalf("after the grants changed = %v, %v", issued, err)
+	}
+	if a.Grants[0].Role != auth.RoleReadOnly {
+		t.Errorf("the session acts with %+v", a.Grants)
+	}
+	// Requests already on their way with the old secret still work for a
+	// moment, without giving out yet another one.
+	if _, again, err := h.authenticateWith(secret); err != nil || again != nil {
+		t.Errorf("the old secret within the grace = %v, %v", again, err)
+	}
+	h.clock.add(rotationGrace + time.Second)
+	if _, err := h.authenticate(secret); !auth.ErrSessionExpired.Is(err) {
+		t.Errorf("the old secret after the grace = %v", err)
+	}
+	if a := h.actor(issued.Secret); a.Grants[0].Role != auth.RoleReadOnly {
+		t.Errorf("the new secret acts with %+v", a.Grants)
+	}
+}
+
+func TestCleanupForgetsWhatWasTouchedLongAgo(t *testing.T) {
+	h := newHarness(t)
+	h.admin("ada")
+	_, secret := h.signIn("ada")
+	h.actor(secret)
+	count := func() (n int) {
+		h.svc.touched.Range(func(any, any) bool { n++; return true })
+		return n
+	}
+	if count() == 0 {
+		t.Fatal("using a session isn't remembered")
+	}
+	h.svc.cleanup(h.ctx)
+	if count() == 0 {
+		t.Error("a session used just now was forgotten")
+	}
+	h.clock.add(touchEvery + time.Second)
+	h.svc.cleanup(h.ctx)
+	if n := count(); n != 0 {
+		t.Errorf("%d sessions used long ago are still remembered", n)
 	}
 }

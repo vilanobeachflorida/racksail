@@ -165,9 +165,9 @@ func TestCommandsAgainstAPanel(t *testing.T) {
 	if err != nil || !strings.Contains(out, "spec.note:") || !strings.Contains(out, "acme") {
 		t.Errorf("get = %s, %v", out, err)
 	}
-	out, err = cmdIn("", "user", "list")
-	if err != nil || !strings.Contains(out, "acmeowner") || !strings.Contains(out, "account:"+acct) {
-		t.Errorf("users = %s, %v", out, err)
+	out, err = cmdIn("", "user", "list", "--scope", "account:"+acct)
+	if err != nil || !strings.Contains(out, "acmeowner") || strings.Contains(out, "developer") {
+		t.Errorf("the account's users = %s, %v", out, err)
 	}
 	out, err = cmdIn("", "audit", "list", "--action", "core.account.create")
 	if err != nil || !strings.Contains(out, "laptop") {

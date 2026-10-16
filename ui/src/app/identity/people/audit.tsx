@@ -97,12 +97,23 @@ function Outcome({ outcome }: { outcome: AuditRecord["outcome"] }) {
   return <Badge variant="danger">{intl.formatMessage(t.outcomeFailed)}</Badge>;
 }
 
-/** Who did something, for people: their name, through what, and for whom. */
-function who(intl: IntlShape, record: AuditRecord): string {
+/**
+ * Who did something, for people: their name, through what, and for whom.
+ * An API token acts for its person, and someone viewing the panel as a
+ * user is named as well as the user.
+ */
+export function who(intl: IntlShape, record: AuditRecord): string {
   const actor = record.actor;
-  const through = intl.formatMessage(t.auditVia, { name: actor.name, source: actor.source });
+  const name =
+    actor.type === "token" && actor.userName
+      ? intl.formatMessage(t.auditToken, { token: actor.name, user: actor.userName })
+      : actor.name;
+  const through = intl.formatMessage(t.auditVia, { name, source: actor.source });
   return actor.impersonator
-    ? intl.formatMessage(t.auditImpersonated, { who: through, admin: actor.impersonator })
+    ? intl.formatMessage(t.auditImpersonated, {
+        who: through,
+        admin: actor.impersonatorName || actor.impersonator,
+      })
     : through;
 }
 

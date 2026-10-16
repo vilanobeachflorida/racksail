@@ -113,7 +113,7 @@ func (s *Server) registerKind(k store.Kind) {
 		RequestBody: &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{"application/json": {Schema: d.create}}},
 		Responses:   changeResponses("The change set, applied to the settings; its job carries out the change on the server"),
 	}
-	Describe(op, Info{Kind: info.Name, Operation: "create", Permission: string(auth.KindPermission(info.Name, "create")), Risk: info.Risks.Create, DryRun: true, Reversible: true})
+	Describe(op, Info{Kind: info.Name, Operation: "create", Permission: string(auth.KindPermission(info.Name, "create")), Risk: info.Risks.Create, DryRun: true, Reversible: true, StepUp: info.Confirm})
 	s.handle(op, s.createKind(k))
 
 	// Update.
@@ -126,7 +126,7 @@ func (s *Server) registerKind(k store.Kind) {
 		RequestBody: &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{"application/json": {Schema: d.edit}}},
 		Responses:   changeResponses("The change set, applied to the settings; its job carries out the change on the server"),
 	}
-	Describe(op, Info{Kind: info.Name, Operation: "update", Permission: string(auth.KindPermission(info.Name, "update")), Risk: info.Risks.Update, DryRun: true, Reversible: true})
+	Describe(op, Info{Kind: info.Name, Operation: "update", Permission: string(auth.KindPermission(info.Name, "update")), Risk: info.Risks.Update, DryRun: true, Reversible: true, StepUp: info.Confirm})
 	s.handle(op, s.updateKind(k))
 
 	// Delete.
@@ -139,7 +139,7 @@ func (s *Server) registerKind(k store.Kind) {
 		Parameters: append([]*huma.Param{idParam, revision}, changeParams()...),
 		Responses:  changeResponses("The change set; its job removes the " + title + " from the server"),
 	}
-	Describe(op, Info{Kind: info.Name, Operation: "delete", Permission: string(auth.KindPermission(info.Name, "delete")), Risk: info.Risks.Delete, DryRun: true, Destructive: true, Reversible: true})
+	Describe(op, Info{Kind: info.Name, Operation: "delete", Permission: string(auth.KindPermission(info.Name, "delete")), Risk: info.Risks.Delete, DryRun: true, Destructive: true, Reversible: true, StepUp: info.Confirm})
 	s.handle(op, s.deleteKind(k))
 
 	// History.
@@ -184,7 +184,7 @@ func (s *Server) registerKind(k store.Kind) {
 		}
 		Describe(op, Info{
 			Kind: info.Name, Operation: a.Name, Permission: string(auth.KindPermission(info.Name, a.Name)), Risk: a.Risk,
-			DryRun: true, Long: a.Long, Destructive: a.Destructive, Reversible: a.Reversible,
+			DryRun: true, Long: a.Long, Destructive: a.Destructive, Reversible: a.Reversible, StepUp: info.Confirm && a.Risk != store.RiskLow,
 		})
 		s.handle(op, s.kindAction(k, a))
 	}
@@ -351,15 +351,19 @@ func (s *Server) createKind(k store.Kind) handler {
 			return 0, nil, i18n.Invalid(i18n.Field("body.spec", i18n.ErrRequired))
 		}
 		scope := store.ServerScope()
-		if info.Scope != store.ScopeServer {
+		switch {
+		case info.Scope != store.ScopeServer || len(info.Levels) > 0:
 			if body.Scope == nil {
-				return 0, nil, i18n.Invalid(i18n.Field("body.scope", i18n.ErrRequired))
+				if info.Scope != store.ScopeServer {
+					return 0, nil, i18n.Invalid(i18n.Field("body.scope", i18n.ErrRequired))
+				}
+				break
 			}
 			scope = *body.Scope
 			if scope.Level == "" {
 				scope.Level = info.Scope
 			}
-		} else if body.Scope != nil && *body.Scope != scope {
+		case body.Scope != nil && *body.Scope != scope:
 			return 0, nil, i18n.Invalid(i18n.Field("body.scope", i18n.ErrBadValue, "reason", info.Title+" resources belong to the server"))
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
@@ -509,14 +513,17 @@ type KindDescription struct {
 	Description string           `json:"description"`
 	Prefix      string           `json:"prefix" doc:"What its IDs start with, before the underscore"`
 	Scope       store.ScopeLevel `json:"scope" enum:"server,reseller,account" doc:"Who owns resources of the kind"`
-	Path        string           `json:"path" doc:"Where its operations are"`
-	Singleton   bool             `json:"singleton,omitempty" doc:"At most one per owner"`
-	Risks       KindRisks        `json:"risks"`
-	Actions     []ActionInfo     `json:"actions"`
-	Indexes     []IndexInfo      `json:"indexes"`
-	Events      []string         `json:"events" doc:"The event types the kind emits"`
-	UI          store.UIHints    `json:"ui"`
-	Backup      BackupInfo       `json:"backup"`
+	// Levels are where else its resources may belong.
+	Levels    []store.ScopeLevel `json:"levels,omitempty" doc:"Further levels its resources may belong to, as users belong to the server, a reseller or an account"`
+	Path      string             `json:"path" doc:"Where its operations are"`
+	Singleton bool               `json:"singleton,omitempty" doc:"At most one per owner"`
+	Confirm   bool               `json:"confirm,omitempty" doc:"Whether changing one asks people in the panel to confirm it's them"`
+	Risks     KindRisks          `json:"risks"`
+	Actions   []ActionInfo       `json:"actions"`
+	Indexes   []IndexInfo        `json:"indexes"`
+	Events    []string           `json:"events" doc:"The event types the kind emits"`
+	UI        store.UIHints      `json:"ui"`
+	Backup    BackupInfo         `json:"backup"`
 	// Schemas are filled in when one kind is asked for.
 	Spec    json.RawMessage            `json:"spec,omitempty" doc:"The JSON Schema of the settings"`
 	Status  json.RawMessage            `json:"status,omitempty" doc:"The JSON Schema of the status"`
@@ -562,7 +569,7 @@ func describeKind(k store.Kind) KindDescription {
 	info := k.Info()
 	d := KindDescription{
 		Name: info.Name, Module: info.Module(), Title: info.Title, Plural: info.Plural, Description: info.Description,
-		Prefix: info.Prefix, Scope: info.Scope, Path: KindPath(info), Singleton: info.Singleton, UI: info.UI,
+		Prefix: info.Prefix, Scope: info.Scope, Levels: info.Levels, Path: KindPath(info), Singleton: info.Singleton, Confirm: info.Confirm, UI: info.UI,
 		Risks:   KindRisks{Create: info.Risks.Create, Update: info.Risks.Update, Delete: info.Risks.Delete},
 		Backup:  BackupInfo{Covered: !info.Backup.Exclude, Reason: info.Backup.Reason},
 		Actions: []ActionInfo{}, Indexes: []IndexInfo{}, Events: []string{},

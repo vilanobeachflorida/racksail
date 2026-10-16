@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"net/url"
-	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -67,10 +66,10 @@ type ExternalIdentity struct {
 
 // MFAUser is who a second-factor method checks.
 type MFAUser struct {
-	ID       store.ID
-	Username string
-	Name     string
-	Email    string
+	ID       store.ID `json:"id"`
+	Username string   `json:"username"`
+	Name     string   `json:"name,omitempty"`
+	Email    string   `json:"email,omitempty"`
 }
 
 // MFAChallenge is what a second-factor method asks of the person.
@@ -107,14 +106,13 @@ type DirectoryUser struct {
 
 // SSHKey is one of a user's SSH public keys.
 type SSHKey struct {
-	ID          store.ID  `json:"id"`
-	User        store.ID  `json:"user"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type" doc:"The key's algorithm, such as ssh-ed25519"`
-	Bits        int       `json:"bits,omitempty" doc:"The key's size, for RSA and ECDSA keys"`
-	Fingerprint string    `json:"fingerprint" doc:"The SHA256 fingerprint ssh-keygen -l shows"`
-	PublicKey   string    `json:"publicKey" doc:"The key as an authorized_keys line, without options"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          store.ID `json:"id"`
+	User        store.ID `json:"user"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type" doc:"The key's algorithm, such as ssh-ed25519"`
+	Bits        int      `json:"bits,omitempty" doc:"The key's size, for RSA and ECDSA keys"`
+	Fingerprint string   `json:"fingerprint" doc:"The SHA256 fingerprint ssh-keygen -l shows"`
+	PublicKey   string   `json:"publicKey" doc:"The key as an authorized_keys line, without options"`
 }
 
 // Directory answers what modules need to know about the panel's users,

@@ -2,56 +2,56 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
-	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// UserQuery selects users, ordered by username.
-type UserQuery struct {
-	// Homes keeps users who belong to one of these scopes; nil keeps
-	// everyone.
-	Homes []store.Scope
-	// Grant keeps users with a grant on exactly this scope.
-	Grant *store.Scope
-	// Role keeps users with a grant of this role.
-	Role auth.Role
-	// Search keeps users whose username, name or email contains the text,
-	// ignoring case.
-	Search string
-	// Cursor continues after the user it names, from UserPage.Next.
-	Cursor string
-	Limit  int
-}
-
-// Store keeps users and their credentials, sessions, tokens and keys. The
-// SQL store keeps them in the panel database; Memory keeps them in memory
-// and passes the same tests. Methods that find one record return
-// store.ErrNotFound when there is none.
+// Store keeps users' credentials and what belongs to them alone: sessions,
+// trusted browsers, API tokens, passkeys, recovery codes, sign-in links,
+// links to outside identities and second steps from add-ons. Who users are
+// and what they may do is in their core.user resources. The SQL store keeps
+// them in the panel database; Memory keeps them in memory and passes the
+// same tests. Methods that find one record return store.ErrNotFound when
+// there is none.
+//
+// Writing a user's credentials, or anything that belongs to them, makes
+// the user's record when it isn't there yet.
 type Store interface {
-	CountUsers(ctx context.Context) (int, error)
-	CreateUser(ctx context.Context, u *User) error
-	// UpdateUser replaces a user's details and grants. revision must match
-	// the stored one, or be zero to skip the check; the new revision is set
-	// on u.
-	UpdateUser(ctx context.Context, u *User, revision int64) error
-	// DeleteUser removes a user with everything that belongs to them.
-	DeleteUser(ctx context.Context, id store.ID) error
-	User(ctx context.Context, id store.ID) (*User, error)
-	UserByName(ctx context.Context, username string) (*User, error)
-	ListUsers(ctx context.Context, q UserQuery) ([]*User, string, error)
+	// Credentials returns a user's credentials, or store.ErrNotFound when
+	// nothing was ever kept for the user.
+	Credentials(ctx context.Context, user store.ID) (*Credentials, error)
+	// Users lists the users something is kept for, with when it was first.
+	Users(ctx context.Context) (map[store.ID]time.Time, error)
+	// DeleteUser removes everything kept for a user.
+	DeleteUser(ctx context.Context, user store.ID) error
 	// SetPassword replaces a user's password hash; an empty hash leaves the
 	// user without one.
-	SetPassword(ctx context.Context, id store.ID, hash string, mustChange bool, at time.Time) error
-	SetTOTP(ctx context.Context, id store.ID, enabled bool, step int64) error
+	SetPassword(ctx context.Context, user store.ID, hash string, mustChange bool, at time.Time) error
+	// SetMustChangePassword says whether a user chooses a new password when
+	// they next sign in.
+	SetMustChangePassword(ctx context.Context, user store.ID, mustChange bool) error
+	SetTOTP(ctx context.Context, user store.ID, enabled bool, step int64) error
 	// UseTOTPStep records the time step of a code that was used. It fails
 	// with ErrStepUsed when that step, or a later one, was used already,
 	// so the same code can't count twice even when two requests race.
-	UseTOTPStep(ctx context.Context, id store.ID, step int64) error
-	// RecordSignIn keeps the outcome of a sign-in attempt: failures and the
-	// lockout they lead to, or when and where the last success came from.
-	RecordSignIn(ctx context.Context, id store.ID, failures int, lockedUntil, at time.Time, ip string) error
+	UseTOTPStep(ctx context.Context, user store.ID, step int64) error
+	// RecordSignIn keeps a successful sign-in, which clears the failures
+	// and any lockout.
+	RecordSignIn(ctx context.Context, user store.ID, at time.Time, ip string) error
+	// RecordFailure counts a failed sign-in at now. The attempts-th failure
+	// in a row locks the user out until now plus lockout; failures while a
+	// lockout lasts don't count and never shorten it. It reports whether
+	// this failure locked the user out, and until when they are.
+	RecordFailure(ctx context.Context, user store.ID, attempts int, lockout time.Duration, now time.Time) (locked bool, until time.Time, err error)
+	// Unlock clears a user's failures and lockout.
+	Unlock(ctx context.Context, user store.ID) error
+	SetPreferences(ctx context.Context, user store.ID, prefs json.RawMessage) error
+	SetAlertChannel(ctx context.Context, user store.ID, channel string) error
+	// SetSSHKeysSeen keeps the fingerprints of the SSH keys a user was told
+	// about.
+	SetSSHKeysSeen(ctx context.Context, user store.ID, fingerprints []string) error
 
 	// ReplaceRecoveryCodes keeps a new set of recovery code hashes.
 	ReplaceRecoveryCodes(ctx context.Context, user store.ID, hashes []string) error
@@ -67,9 +67,11 @@ type Store interface {
 	DeletePasskey(ctx context.Context, user, id store.ID) error
 
 	CreateSession(ctx context.Context, s *Session) error
-	// UpdateSession replaces what a session records, its hash included.
+	// UpdateSession replaces what a session records, its hashes included.
 	UpdateSession(ctx context.Context, s *Session) error
 	Session(ctx context.Context, id store.ID) (*Session, error)
+	// SessionByHash finds a session by the hash of its secret, or of the
+	// secret it had before it was last given a new one.
 	SessionByHash(ctx context.Context, hash string) (*Session, error)
 	Sessions(ctx context.Context, user store.ID) ([]*Session, error)
 	DeleteSession(ctx context.Context, id store.ID) error
@@ -95,10 +97,6 @@ type Store interface {
 	DeleteToken(ctx context.Context, user, id store.ID) error
 	DeleteTokens(ctx context.Context, user store.ID) (int, error)
 
-	AddSSHKey(ctx context.Context, k *SSHKey) error
-	SSHKeys(ctx context.Context, user store.ID) ([]*SSHKey, error)
-	DeleteSSHKey(ctx context.Context, user, id store.ID) error
-
 	CreateInvite(ctx context.Context, inv *Invite) error
 	InviteByHash(ctx context.Context, hash string) (*Invite, error)
 	// UseInvite removes a sign-in link, failing with store.ErrNotFound when
@@ -106,8 +104,12 @@ type Store interface {
 	UseInvite(ctx context.Context, id store.ID) error
 	DeleteInvites(ctx context.Context, user store.ID) error
 
+	// LinkIdentity links an outside identity to a user, replacing the
+	// user's earlier link to the same provider; an identity linked to
+	// another user already is auth.ErrIdentityTaken.
 	LinkIdentity(ctx context.Context, l *Link) error
-	UserByIdentity(ctx context.Context, provider store.ID, subject string) (*User, error)
+	// LinkedUser returns the user an outside identity is linked to.
+	LinkedUser(ctx context.Context, provider store.ID, subject string) (store.ID, error)
 	Links(ctx context.Context, user store.ID) ([]*Link, error)
 	UnlinkIdentity(ctx context.Context, user, provider store.ID) error
 

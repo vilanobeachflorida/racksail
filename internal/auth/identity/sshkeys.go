@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"encoding/json"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
-	"github.com/vilanobeachflorida/racksail/internal/events"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -28,16 +30,9 @@ var acceptedKeyTypes = []string{
 	ssh.KeyAlgoSKECDSA256, ssh.KeyAlgoRSA,
 }
 
-// SSHKeyInput is a new SSH key.
-type SSHKeyInput struct {
-	Name string `json:"name,omitempty" maxLength:"64" doc:"What the key is for; the key's comment when left out"`
-	// PublicKey is the key as in an authorized_keys file or a .pub file.
-	PublicKey string `json:"publicKey" minLength:"1" maxLength:"16384" doc:"The public key, as in a .pub file or an authorized_keys line, without options"`
-}
-
 // ParseSSHKey reads a public key as in an authorized_keys line and returns
-// it as Racksail keeps it. Options such as command= aren't accepted: what
-// a key may do is Racksail's to decide.
+// it as Racksail shows it, with the comment that followed it. Options such
+// as command= aren't accepted: what a key may do is Racksail's to decide.
 func ParseSSHKey(line string) (*SSHKey, string, error) {
 	line = strings.TrimSpace(line)
 	if strings.Contains(line, "\n") {
@@ -75,45 +70,16 @@ func ParseSSHKey(line string) (*SSHKey, string, error) {
 		}
 	}
 	authorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-	return &SSHKey{Type: typ, Bits: bits, Fingerprint: ssh.FingerprintSHA256(key), PublicKey: authorized}, strings.TrimSpace(comment), nil
+	fingerprint := ssh.FingerprintSHA256(key)
+	return &SSHKey{ID: keyID(fingerprint), Type: typ, Bits: bits, Fingerprint: fingerprint, PublicKey: authorized}, strings.TrimSpace(comment), nil
 }
 
-// MySSHKeys lists the actor's SSH keys.
-func (s *Service) MySSHKeys(ctx context.Context, actor *auth.Actor) ([]SSHKey, error) {
-	return s.sshKeysOf(ctx, actor.Person())
-}
-
-func (s *Service) sshKeysOf(ctx context.Context, user store.ID) ([]SSHKey, error) {
-	keys, err := s.opts.Store.SSHKeys(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SSHKey, len(keys))
-	for i, k := range keys {
-		out[i] = *k
-	}
-	return out, nil
-}
-
-// AddSSHKey adds an SSH key to the actor's user.
-func (s *Service) AddSSHKey(ctx context.Context, actor *auth.Actor, in SSHKeyInput) (SSHKey, error) {
-	if err := requirePerson(actor); err != nil {
-		return SSHKey{}, err
-	}
-	if actor.Impersonator != "" {
-		return SSHKey{}, auth.ErrImpersonating.New("user", actor.Name, "action", "add SSH keys")
-	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
-	if err != nil {
-		return SSHKey{}, err
-	}
-	return s.addSSHKey(ctx, actor, u, in)
-}
-
-func (s *Service) addSSHKey(ctx context.Context, actor *auth.Actor, u *User, in SSHKeyInput) (SSHKey, error) {
+// newSSHKey turns what someone gave into the key a user's settings keep:
+// named after its comment, or its type, when they gave no name.
+func newSSHKey(in SSHKeyInput) (UserSSHKey, error) {
 	key, comment, err := ParseSSHKey(in.PublicKey)
 	if err != nil {
-		return SSHKey{}, i18n.Invalid(i18n.Field("publicKey", auth.ErrSSHKeyInvalid, "reason", i18n.From(err).Params["reason"]))
+		return UserSSHKey{}, i18n.Invalid(i18n.Field("input.publicKey", auth.ErrSSHKeyInvalid, "reason", i18n.From(err).Params["reason"]))
 	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -122,78 +88,102 @@ func (s *Service) addSSHKey(ctx context.Context, actor *auth.Actor, u *User, in 
 	if name == "" {
 		name = key.Type
 	}
-	if len(name) > 64 || strings.ContainsAny(name, "\x00\n\r") {
-		return SSHKey{}, i18n.Invalid(i18n.Field("name", i18n.ErrBadValue, "reason", "use at most 64 characters on one line"))
+	if utf8.RuneCountInString(name) > 64 || strings.ContainsAny(name, "\x00\n\r") {
+		return UserSSHKey{}, i18n.Invalid(i18n.Field("input.name", i18n.ErrBadValue, "reason", "use at most 64 characters on one line"))
 	}
-	existing, err := s.opts.Store.SSHKeys(ctx, u.ID)
-	if err != nil {
-		return SSHKey{}, err
-	}
-	if len(existing) >= maxSSHKeys {
-		return SSHKey{}, auth.ErrTooMany.New("count", itoa(len(existing)), "what", "SSH keys")
-	}
-	key.ID, key.User, key.Name, key.CreatedAt = store.NewID(PrefixSSHKey), u.ID, name, s.now()
-	if err := s.opts.Store.AddSSHKey(ctx, key); err != nil {
-		return SSHKey{}, err
-	}
-	s.audit(ctx, actor, "core.user.add_ssh_key", u.ID, u.Home, events.OutcomeSuccess, "", "Add the SSH key "+name+" ("+key.Fingerprint+")")
-	s.publish(ctx, UserSSHKeyChanged, u, actor, u.Username+" added an SSH key.", UserEvent{Username: u.Username, Detail: "added " + key.Fingerprint})
-	s.alert(ctx, u, "An SSH key was added", "The SSH key "+name+" ("+key.Fingerprint+") was added to "+u.Username+". If you didn't add it, remove it from your settings.", events.SeverityNotice)
-	return *key, nil
+	return UserSSHKey{ID: key.ID, Name: name, PublicKey: key.PublicKey}, nil
 }
 
-// RemoveSSHKey removes one of the actor's SSH keys.
-func (s *Service) RemoveSSHKey(ctx context.Context, actor *auth.Actor, id store.ID) error {
-	if err := requirePerson(actor); err != nil {
-		return err
-	}
-	if actor.Impersonator != "" {
-		return auth.ErrImpersonating.New("user", actor.Name, "action", "remove SSH keys")
-	}
-	u, err := s.opts.Store.User(ctx, actor.Person())
-	if err != nil {
-		return err
-	}
-	return s.removeSSHKey(ctx, actor, u, id)
-}
-
-func (s *Service) removeSSHKey(ctx context.Context, actor *auth.Actor, u *User, id store.ID) error {
-	keys, err := s.opts.Store.SSHKeys(ctx, u.ID)
-	if err != nil {
-		return err
-	}
-	var key *SSHKey
-	for _, k := range keys {
-		if k.ID == id {
-			key = k
+// sshKeyViews are a user's SSH keys as the panel shows them.
+func sshKeyViews(u *User) []SSHKey {
+	out := make([]SSHKey, 0, len(u.SSHKeys))
+	for _, k := range u.SSHKeys {
+		v, _, err := ParseSSHKey(k.PublicKey)
+		if err != nil {
+			// A key a newer release stopped accepting still shows, so it
+			// can be removed.
+			v = &SSHKey{ID: k.ID, PublicKey: k.PublicKey}
 		}
+		v.ID, v.User, v.Name = k.ID, u.ID, k.Name
+		out = append(out, *v)
 	}
-	if key == nil {
-		return notFound(string(id))
-	}
-	if err := s.opts.Store.DeleteSSHKey(ctx, u.ID, id); err != nil {
-		return err
-	}
-	s.audit(ctx, actor, "core.user.remove_ssh_key", u.ID, u.Home, events.OutcomeSuccess, "", "Remove the SSH key "+key.Name+" ("+key.Fingerprint+")")
-	s.publish(ctx, UserSSHKeyChanged, u, actor, u.Username+" removed an SSH key.", UserEvent{Username: u.Username, Detail: "removed " + key.Fingerprint})
-	return nil
+	return out
 }
 
-// UserSSHKeys lists another user's SSH keys.
+// MySSHKeys lists the actor's SSH keys.
+func (s *Service) MySSHKeys(ctx context.Context, actor *auth.Actor) ([]SSHKey, error) {
+	u, err := s.User(ctx, actor.Person())
+	if err != nil {
+		return nil, err
+	}
+	return sshKeyViews(u), nil
+}
+
+// UserSSHKeys lists another user's SSH keys, for those who may see them.
 func (s *Service) UserSSHKeys(ctx context.Context, actor *auth.Actor, id store.ID) ([]SSHKey, error) {
 	u, err := s.visible(ctx, actor, id, auth.PermUserRead)
 	if err != nil {
 		return nil, err
 	}
-	return s.sshKeysOf(ctx, u.ID)
+	return sshKeyViews(u), nil
 }
 
-// RemoveUserSSHKey removes another user's SSH key, for whoever may help
+// ownChange checks that a change of the actor's own user is theirs to make
+// in the panel: not an API token's, and not someone's viewing the panel as
 // them.
-func (s *Service) RemoveUserSSHKey(ctx context.Context, actor *auth.Actor, user, id store.ID) error {
-	u, err := s.visible(ctx, actor, user, auth.PermUserReset)
-	if err != nil {
+func ownChange(actor *auth.Actor, action string) error {
+	if err := requirePerson(actor); err != nil {
 		return err
 	}
-	return s.removeSSHKey(ctx, actor, u, id)
+	if actor.Impersonator != "" {
+		return auth.ErrImpersonating.New("user", actor.Name, "action", action)
+	}
+	return nil
+}
+
+// AddSSHKey is the change that adds an SSH key to the actor's own user.
+func (s *Service) AddSSHKey(actor *auth.Actor, in SSHKeyInput) (changeset.Request, error) {
+	if err := ownChange(actor, "add SSH keys"); err != nil {
+		return changeset.Request{}, err
+	}
+	key, err := newSSHKey(in)
+	if err != nil {
+		return changeset.Request{}, err
+	}
+	input, err := json.Marshal(SSHKeyInput{Name: key.Name, PublicKey: key.PublicKey})
+	if err != nil {
+		return changeset.Request{}, err
+	}
+	return changeset.Request{
+		Title:   "Add the SSH key " + key.Name,
+		Changes: []changeset.Change{{Op: changeset.OpAction, Kind: KindUser, ID: actor.Person(), Action: "add_ssh_key", Input: input}},
+	}, nil
+}
+
+// RemoveSSHKey is the change that removes one of the actor's own SSH keys.
+func (s *Service) RemoveSSHKey(ctx context.Context, actor *auth.Actor, id store.ID) (changeset.Request, error) {
+	if err := ownChange(actor, "remove SSH keys"); err != nil {
+		return changeset.Request{}, err
+	}
+	u, err := s.User(ctx, actor.Person())
+	if err != nil {
+		return changeset.Request{}, err
+	}
+	var name string
+	for _, k := range u.SSHKeys {
+		if k.ID == id {
+			name = k.Name
+		}
+	}
+	if name == "" {
+		return changeset.Request{}, notFound(string(id))
+	}
+	input, err := json.Marshal(SSHKeyRef{ID: id})
+	if err != nil {
+		return changeset.Request{}, err
+	}
+	return changeset.Request{
+		Title:   "Remove the SSH key " + name,
+		Changes: []changeset.Change{{Op: changeset.OpAction, Kind: KindUser, ID: u.ID, Action: "remove_ssh_key", Input: input}},
+	}, nil
 }

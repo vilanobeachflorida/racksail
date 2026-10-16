@@ -228,6 +228,9 @@
           "impersonator": {
             "type": "string"
           },
+          "impersonatorName": {
+            "type": "string"
+          },
           "ip": {
             "type": "string"
           },
@@ -241,6 +244,9 @@
             "type": "string"
           },
           "user": {
+            "type": "string"
+          },
+          "userName": {
             "type": "string"
           }
         },
@@ -1321,6 +1327,169 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ProviderSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreUser": {
+        "additionalProperties": false,
+        "description": "User: Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/UserSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreUserCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new user.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with user_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "scope": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ],
+            "description": "Where it belongs: the server, the reseller or the account; the server when left out"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/UserSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreUserList": {
+        "additionalProperties": false,
+        "description": "One page of users.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreUser"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreUserUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a user.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/UserSpec"
           }
         },
         "required": [
@@ -2455,6 +2624,10 @@
           "backup": {
             "$ref": "#/components/schemas/BackupInfo"
           },
+          "confirm": {
+            "description": "Whether changing one asks people in the panel to confirm it's them",
+            "type": "boolean"
+          },
           "description": {
             "type": "string"
           },
@@ -2481,6 +2654,16 @@
             "additionalProperties": {},
             "description": "The JSON Schemas of the actions' inputs, by action",
             "type": "object"
+          },
+          "levels": {
+            "description": "Further levels its resources may belong to, as users belong to the server, a reseller or an account",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "module": {
             "type": "string"
@@ -2618,6 +2801,27 @@
         ],
         "type": "object"
       },
+      "LinkInput": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "description": "Your password at the provider, which the panel checks with it and doesn't keep",
+            "format": "password",
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "username": {
+            "description": "Your username at the provider",
+            "maxLength": 254,
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
       "LinkLookupInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -2629,6 +2833,19 @@
         },
         "required": [
           "code"
+        ],
+        "type": "object"
+      },
+      "LinkStart": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "description": "The provider's page, which sends the browser back to the panel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location"
         ],
         "type": "object"
       },
@@ -2820,7 +3037,7 @@
             "type": "boolean"
           },
           "revision": {
-            "description": "Send it back with changes, so nobody's changes are lost",
+            "description": "The revision of the user's settings",
             "format": "int64",
             "type": "integer"
           },
@@ -3287,6 +3504,22 @@
         ],
         "type": "object"
       },
+      "PasswordSetting": {
+        "additionalProperties": false,
+        "properties": {
+          "mustChange": {
+            "description": "Ask the user to choose a new password when they next sign in",
+            "type": "boolean"
+          },
+          "password": {
+            "description": "The user's new password; leave it out to only say whether they choose a new one when they next sign in",
+            "format": "password",
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "PolicySpec": {
         "additionalProperties": false,
         "properties": {
@@ -3541,17 +3774,17 @@
         "additionalProperties": false,
         "properties": {
           "email": {
-            "description": "Where you get notifications",
+            "description": "Where notifications go",
             "maxLength": 254,
             "type": "string"
           },
           "locale": {
-            "description": "The panel's language for you, such as en or pt-BR; empty follows your browser",
+            "description": "The panel's language, such as en or pt-BR; empty follows the browser",
             "maxLength": 35,
             "type": "string"
           },
           "name": {
-            "description": "Your name, as the panel shows it",
+            "description": "The name the panel shows",
             "maxLength": 128,
             "type": "string"
           }
@@ -3601,11 +3834,11 @@
             "type": "boolean"
           },
           "match": {
-            "description": "How someone signing in for the first time is matched to an existing user: by username, by email, or not at all",
+            "description": "How someone signing in for the first time is matched to an existing user: not at all, so people link it themselves in their security settings, by username, or by email. Users with a grant on the whole server are never matched",
             "enum": [
+              "none",
               "username",
-              "email",
-              "none"
+              "email"
             ],
             "type": "string"
           },
@@ -4036,11 +4269,22 @@
               "array",
               "null"
             ]
+          },
+          "self": {
+            "description": "What everyone may do to their own user, whatever their roles",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
           "roles",
-          "matrix"
+          "matrix",
+          "self"
         ],
         "type": "object"
       },
@@ -4051,10 +4295,6 @@
             "description": "The key's size, for RSA and ECDSA keys",
             "format": "int64",
             "type": "integer"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
           },
           "fingerprint": {
             "description": "The SHA256 fingerprint ssh-keygen -l shows",
@@ -4084,8 +4324,7 @@
           "name",
           "type",
           "fingerprint",
-          "publicKey",
-          "createdAt"
+          "publicKey"
         ],
         "type": "object"
       },
@@ -4106,6 +4345,19 @@
         },
         "required": [
           "publicKey"
+        ],
+        "type": "object"
+      },
+      "SSHKeyRef": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The key's ID, which starts with sshkey_",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
         ],
         "type": "object"
       },
@@ -4464,6 +4716,7 @@
             "type": "string"
           },
           "password": {
+            "format": "password",
             "maxLength": 1024,
             "type": "string"
           },
@@ -4990,7 +5243,34 @@
         ],
         "type": "object"
       },
-      "UserInput": {
+      "UserSSHKey": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The key's ID, which starts with sshkey_ and comes from its fingerprint",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the key is for, such as the laptop it's on",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "publicKey": {
+            "description": "The public key as an authorized_keys line, without options",
+            "maxLength": 16384,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "publicKey"
+        ],
+        "type": "object"
+      },
+      "UserSpec": {
         "additionalProperties": false,
         "properties": {
           "allowFrom": {
@@ -4998,13 +5278,14 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 100,
             "type": [
               "array",
               "null"
             ]
           },
           "disabled": {
-            "description": "Turn the user off: they can't sign in and their API tokens stop working",
+            "description": "Turn the user off: they can't sign in, their sessions end and their API tokens stop working",
             "type": "boolean"
           },
           "email": {
@@ -5016,27 +5297,20 @@
             "type": "string"
           },
           "grants": {
-            "description": "What the user may do, and where",
+            "description": "What the user may do, and where. Grants never reach outside where the user belongs, and nobody gives a grant they couldn't use themselves",
             "items": {
               "$ref": "#/components/schemas/Grant"
             },
+            "maxItems": 100,
             "type": [
               "array",
               "null"
             ]
           },
-          "home": {
-            "$ref": "#/components/schemas/Scope",
-            "description": "Where the user belongs, and so who manages them: the server, a reseller or an account. Set when the user is added; it never changes"
-          },
           "locale": {
-            "description": "The language of the panel for them, such as en or pt-BR; empty follows their browser",
+            "description": "The panel's language for the person, such as en or pt-BR; empty follows their browser",
             "maxLength": 35,
             "type": "string"
-          },
-          "mustChangePassword": {
-            "description": "Ask the user to choose a new password when they first sign in",
-            "type": "boolean"
           },
           "name": {
             "description": "The person's name, as the panel shows it",
@@ -5046,10 +5320,16 @@
             "maxLength": 128,
             "type": "string"
           },
-          "password": {
-            "description": "A first password for a new user; leave it out to send them a sign-in link instead",
-            "maxLength": 256,
-            "type": "string"
+          "sshKeys": {
+            "description": "SSH public keys that let the person reach the files and shells their roles allow",
+            "items": {
+              "$ref": "#/components/schemas/UserSSHKey"
+            },
+            "maxItems": 50,
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "username": {
             "description": "What the person signs in with: lowercase letters, digits, dots, dashes, underscores and @",
@@ -5063,8 +5343,75 @@
           }
         },
         "required": [
-          "username",
-          "grants"
+          "username"
+        ],
+        "type": "object"
+      },
+      "UserStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "description": "When they last signed in",
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastSignInIp": {
+            "description": "Where they last signed in from",
+            "type": "string"
+          },
+          "lockedUntil": {
+            "description": "Until when failed sign-ins keep the user out",
+            "format": "date-time",
+            "type": "string"
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "mustChangePassword": {
+            "description": "Whether they choose a new password when they next sign in",
+            "type": "boolean"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "passwordSet": {
+            "description": "Whether the user has a password",
+            "type": "boolean"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "twoFactor": {
+            "description": "Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "passwordSet",
+          "twoFactor"
         ],
         "type": "object"
       },
@@ -5133,7 +5480,7 @@
             "type": "boolean"
           },
           "revision": {
-            "description": "Send it back with changes, so nobody's changes are lost",
+            "description": "The revision of the user's settings",
             "format": "int64",
             "type": "integer"
           },
@@ -5161,28 +5508,6 @@
           "createdAt",
           "updatedAt",
           "revision"
-        ],
-        "type": "object"
-      },
-      "UsersOutputBody": {
-        "additionalProperties": false,
-        "properties": {
-          "next": {
-            "description": "The cursor of the next page; empty on the last one",
-            "type": "string"
-          },
-          "users": {
-            "items": {
-              "$ref": "#/components/schemas/UserView"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "users"
         ],
         "type": "object"
       },
@@ -5983,6 +6308,13 @@
             "name": "racksail_device",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "racksail_linking",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -7028,7 +7360,7 @@
     },
     "/api/v1/core/accounts/open": {
       "post": {
-        "description": "Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. Admins open accounts for anyone; resellers for themselves. With dryRun=true the answer is the preview and nobody is added.",
+        "description": "Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. With dryRun=true the answer is the preview and nothing is added.",
         "operationId": "openCoreAccount",
         "parameters": [
           {
@@ -7629,7 +7961,8 @@
         "x-racksail-operation": "create",
         "x-racksail-permission": "core.signin_policy.create",
         "x-racksail-reversible": true,
-        "x-racksail-risk": "high"
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
       }
     },
     "/api/v1/core/signin-policies/{id}": {
@@ -7722,7 +8055,8 @@
         "x-racksail-operation": "delete",
         "x-racksail-permission": "core.signin_policy.delete",
         "x-racksail-reversible": true,
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-step-up": true
       },
       "get": {
         "description": "Returns one sign-in policy: its settings (spec), and what Racksail last saw of it (status). How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes.",
@@ -7875,7 +8209,8 @@
         "x-racksail-operation": "update",
         "x-racksail-permission": "core.signin_policy.update",
         "x-racksail-reversible": true,
-        "x-racksail-risk": "high"
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
       }
     },
     "/api/v1/core/signin-policies/{id}/history": {
@@ -8149,7 +8484,8 @@
         "x-racksail-operation": "create",
         "x-racksail-permission": "core.signin_provider.create",
         "x-racksail-reversible": true,
-        "x-racksail-risk": "high"
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
       }
     },
     "/api/v1/core/signin-providers/{id}": {
@@ -8242,7 +8578,8 @@
         "x-racksail-operation": "delete",
         "x-racksail-permission": "core.signin_provider.delete",
         "x-racksail-reversible": true,
-        "x-racksail-risk": "medium"
+        "x-racksail-risk": "medium",
+        "x-racksail-step-up": true
       },
       "get": {
         "description": "Returns one sign-in provider: its settings (spec), and what Racksail last saw of it (status). An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings.",
@@ -8395,7 +8732,8 @@
         "x-racksail-operation": "update",
         "x-racksail-permission": "core.signin_provider.update",
         "x-racksail-reversible": true,
-        "x-racksail-risk": "high"
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
       }
     },
     "/api/v1/core/signin-providers/{id}/history": {
@@ -8451,6 +8789,1299 @@
         "x-racksail-operation": "history",
         "x-racksail-permission": "core.signin_provider.read",
         "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/users": {
+      "get": {
+        "description": "Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. Lists the users you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreUsers",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, username, email, role, grantOn, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose username is this value, in any case",
+            "in": "query",
+            "name": "username",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose email is this value, in any case",
+            "in": "query",
+            "name": "email",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose grants.role is this value",
+            "in": "query",
+            "name": "role",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose grants.scope.id is this value",
+            "in": "query",
+            "name": "grantOn",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreUserList"
+                }
+              }
+            },
+            "description": "A page of users"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List users",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.user.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreUser",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreUserCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a user",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.user.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}": {
+      "delete": {
+        "description": "Deletes the user and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the user since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the user from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a user",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.user.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
+      },
+      "get": {
+        "description": "Returns one user: its settings (spec), and what Racksail last saw of it (status). Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set.",
+        "operationId": "getCoreUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreUser"
+                }
+              }
+            },
+            "description": "The user"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a user",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.user.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the user's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreUserUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a user",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.user.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/actions/add_ssh_key": {
+      "post": {
+        "description": "Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. The person gets an alert. Everyone may add keys to their own user. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "addSshKeyCoreUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SSHKeyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add an SSH public key to a user",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "add_ssh_key",
+        "x-racksail-permission": "core.user.add_ssh_key",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/actions/remove_ssh_key": {
+      "post": {
+        "description": "Removes an SSH key, as when the laptop it was on is lost. Everyone may remove keys from their own user. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "removeSshKeyCoreUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SSHKeyRef"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove one of a user's SSH keys",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "remove_ssh_key",
+        "x-racksail-permission": "core.user.remove_ssh_key",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/actions/update_profile": {
+      "post": {
+        "description": "Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "updateProfileCoreUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a user's name, email address and language",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "update_profile",
+        "x-racksail-permission": "core.user.update_profile",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/users/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the user's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreUserHistory",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a user's history",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-kind": "core.user",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.user.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/users/{id}/impersonate": {
+      "post": {
+        "description": "Starts viewing the panel as one of your customers' users, to see what they see and help them. Everything you do meanwhile is recorded with both your names, the panel shows a banner the whole time, and it ends after an hour at most. It needs core.impersonate, granted by name; admins of the whole server can't be impersonated.",
+        "operationId": "impersonateUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "description": "The session cookie",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "View the panel as a user",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.impersonate",
+        "x-racksail-risk": "high",
+        "x-racksail-session": true,
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/link": {
+      "post": {
+        "description": "Makes a sign-in link for a user to choose their password: a week to start using a new user, a day to get back in. It's shown once and replaces any earlier link.",
+        "operationId": "issueSignInLink",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedLink"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Make a sign-in link",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.reset",
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/password": {
+      "put": {
+        "description": "Sets a user's password, which signs them out everywhere, or, without a password, only says whether they choose a new one when they next sign in. Passwords are never kept as they are, only as Argon2id hashes. You need every role they have.",
+        "operationId": "setUserPassword",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordSetting"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set a user's password",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.reset",
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/reset": {
+      "post": {
+        "description": "Helps a user who lost their way in: makes a sign-in link to choose a new password, removes their second steps, signs them out everywhere, revokes their API tokens or lifts a lockout, as you choose. You need every role they have.",
+        "operationId": "resetUser",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Help a user back in",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.reset",
+        "x-racksail-risk": "high",
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/core/users/{id}/sessions": {
+      "get": {
+        "description": "Lists a user's sessions, for helping them or looking into a problem.",
+        "operationId": "listUserSessions",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List where a user is signed in",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.reset",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/users/{id}/ssh-keys": {
+      "get": {
+        "description": "Lists a user's SSH public keys as the panel reads them: each key's type, size and fingerprint. They are part of the user's settings, which add_ssh_key and remove_ssh_key change.",
+        "operationId": "listUserSSHKeys",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshKeysOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List a user's SSH keys",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/users/{id}/tokens": {
+      "get": {
+        "description": "Lists a user's API tokens, without their secrets.",
+        "operationId": "listUserTokens",
+        "parameters": [
+          {
+            "description": "The user's ID, which starts with user_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID, which starts with user_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List a user's API tokens",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.reset",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/users/{id}/tokens/{token}": {
+      "delete": {
+        "description": "Stops one of a user's API tokens working, at once.",
+        "operationId": "revokeUserToken",
+        "parameters": [
+          {
+            "description": "The user's ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The token's ID, which starts with tok_",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "The token's ID, which starts with tok_",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Revoke a user's API token",
+        "tags": [
+          "Users"
+        ],
+        "x-racksail-permission": "core.user.reset",
+        "x-racksail-risk": "medium"
       }
     },
     "/api/v1/core/webhooks": {
@@ -10324,8 +11955,30 @@
         "x-racksail-risk": "read"
       },
       "put": {
-        "description": "Changes your name, email address and language.",
+        "description": "Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.",
         "operationId": "updateMe",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10341,21 +11994,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Me"
+                  "$ref": "#/components/schemas/ChangeSet"
                 }
               }
             },
-            "description": "OK"
+            "description": "The change set without applying it, for a dry run"
           },
-          "default": {
+          "202": {
             "content": {
-              "application/problem+json": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Problem"
+                  "$ref": "#/components/schemas/ChangeSet"
                 }
               }
             },
-            "description": "Error"
+            "description": "The change set, applied to your user"
           }
         },
         "security": [
@@ -10370,6 +12023,8 @@
         "tags": [
           "Your account"
         ],
+        "x-racksail-dry-run": true,
+        "x-racksail-reversible": true,
         "x-racksail-risk": "low",
         "x-racksail-session": true
       }
@@ -10703,6 +12358,132 @@
           }
         ],
         "summary": "Stop signing in with a provider",
+        "tags": [
+          "Your account"
+        ],
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true,
+        "x-racksail-step-up": true
+      },
+      "post": {
+        "description": "Links your account at a provider that checks passwords, such as a company directory, to your user: the panel checks your username and password there, and doesn't keep them. From then on you can sign in with them.",
+        "operationId": "linkMyIdentity",
+        "parameters": [
+          {
+            "description": "The sign-in provider's ID",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "description": "The sign-in provider's ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Sign in with a provider from now on",
+        "tags": [
+          "Your account"
+        ],
+        "x-racksail-risk": "medium",
+        "x-racksail-session": true,
+        "x-racksail-step-up": true
+      }
+    },
+    "/api/v1/me/links/{provider}/start": {
+      "post": {
+        "description": "Starts linking your account at a provider with its own sign-in page, such as an OpenID Connect provider, to your user. Send the browser to the location in the answer; the provider sends it back to the panel, which links the account and shows your security settings.",
+        "operationId": "startLinkingMyIdentity",
+        "parameters": [
+          {
+            "description": "The sign-in provider's ID",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "description": "The sign-in provider's ID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkStart"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "description": "The cookie that carries the link through the provider's page and back",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Start linking a provider",
         "tags": [
           "Your account"
         ],
@@ -11401,8 +13182,30 @@
         "x-racksail-risk": "read"
       },
       "post": {
-        "description": "Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options.",
+        "description": "Adds an SSH public key to your user, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. It's a change to your user like any other: with dryRun=true the answer is its preview.",
         "operationId": "addMySSHKey",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11414,25 +13217,25 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SSHKey"
+                  "$ref": "#/components/schemas/ChangeSet"
                 }
               }
             },
-            "description": "Created"
+            "description": "The change set without applying it, for a dry run"
           },
-          "default": {
+          "202": {
             "content": {
-              "application/problem+json": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Problem"
+                  "$ref": "#/components/schemas/ChangeSet"
                 }
               }
             },
-            "description": "Error"
+            "description": "The change set, applied to your user"
           }
         },
         "security": [
@@ -11447,6 +13250,8 @@
         "tags": [
           "Your account"
         ],
+        "x-racksail-dry-run": true,
+        "x-racksail-reversible": true,
         "x-racksail-risk": "medium",
         "x-racksail-session": true,
         "x-racksail-step-up": true
@@ -11454,31 +13259,60 @@
     },
     "/api/v1/me/ssh-keys/{id}": {
       "delete": {
-        "description": "Removes one of your SSH keys.",
+        "description": "Removes one of your SSH keys, as a change to your user like any other: with dryRun=true the answer is its preview.",
         "operationId": "removeMySSHKey",
         "parameters": [
           {
+            "description": "Plan the change and return its change set without applying it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the change and return its change set without applying it",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The key's ID, which starts with sshkey_",
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "description": "The key's ID, which starts with sshkey_",
               "type": "string"
             }
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
+          "200": {
             "content": {
-              "application/problem+json": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Problem"
+                  "$ref": "#/components/schemas/ChangeSet"
                 }
               }
             },
-            "description": "Error"
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to your user"
           }
         },
         "security": [
@@ -11493,8 +13327,11 @@
         "tags": [
           "Your account"
         ],
+        "x-racksail-dry-run": true,
+        "x-racksail-reversible": true,
         "x-racksail-risk": "medium",
-        "x-racksail-session": true
+        "x-racksail-session": true,
+        "x-racksail-step-up": true
       }
     },
     "/api/v1/me/tokens": {
@@ -11591,7 +13428,7 @@
     },
     "/api/v1/me/tokens/{id}": {
       "delete": {
-        "description": "Stops one of your API tokens working, at once. A token may revoke itself.",
+        "description": "Stops one of your API tokens working, at once. In the panel you can revoke any of yours; with an API token, only that token itself, as racksail logout --revoke does.",
         "operationId": "revokeMyToken",
         "parameters": [
           {
@@ -11630,8 +13467,7 @@
         "tags": [
           "Your account"
         ],
-        "x-racksail-risk": "medium",
-        "x-racksail-session": true
+        "x-racksail-risk": "medium"
       }
     },
     "/api/v1/me/totp": {
@@ -12048,7 +13884,7 @@
     },
     "/api/v1/roles": {
       "get": {
-        "description": "Lists the roles, what each carries and where it can be given, and every permission with how far each role reaches with it: the permission matrix. Collaborators get the permissions their grant names instead of read-only access.",
+        "description": "Lists the roles, what each carries and where it can be given, and every permission with how far each role reaches with it: the permission matrix. Collaborators get the permissions their grant names instead of read-only access, and everyone may see their own user and change their profile and SSH keys.",
         "operationId": "listRoles",
         "responses": {
           "200": {
@@ -12212,7 +14048,8 @@
         "tags": [
           "Session"
         ],
-        "x-racksail-risk": "low"
+        "x-racksail-risk": "low",
+        "x-racksail-session": true
       }
     },
     "/api/v1/session/step-up": {
@@ -12315,799 +14152,6 @@
         ],
         "x-racksail-risk": "read",
         "x-racksail-session": true
-      }
-    },
-    "/api/v1/users": {
-      "get": {
-        "description": "Lists the users you manage, by username: those who belong where your core.user.read reaches. Filter by where they belong, where they have a grant, role and search text.",
-        "operationId": "listUsers",
-        "parameters": [
-          {
-            "description": "Only users who belong here: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
-            "explode": false,
-            "in": "query",
-            "name": "home",
-            "schema": {
-              "description": "Only users who belong here: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only users with a grant on this scope: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
-            "explode": false,
-            "in": "query",
-            "name": "grant",
-            "schema": {
-              "description": "Only users with a grant on this scope: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only users with this role somewhere",
-            "explode": false,
-            "in": "query",
-            "name": "role",
-            "schema": {
-              "description": "Only users with this role somewhere",
-              "enum": [
-                "admin",
-                "reseller",
-                "owner",
-                "collaborator",
-                "readonly"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only users whose username, name or email contains this text",
-            "explode": false,
-            "in": "query",
-            "name": "q",
-            "schema": {
-              "description": "Only users whose username, name or email contains this text",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Continues a list where the page before it ended",
-            "explode": false,
-            "in": "query",
-            "name": "cursor",
-            "schema": {
-              "description": "Continues a list where the page before it ended",
-              "type": "string"
-            }
-          },
-          {
-            "description": "How many to return; 50 when left out",
-            "explode": false,
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "description": "How many to return; 50 when left out",
-              "format": "int64",
-              "maximum": 1000,
-              "minimum": 0,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UsersOutputBody"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "List users",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.read",
-        "x-racksail-risk": "read"
-      },
-      "post": {
-        "description": "Adds a user where you manage users, with the roles you give them, which can't be more than you have there yourself. Without a first password, make them a sign-in link to choose one.",
-        "operationId": "createUser",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Add a user",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.create",
-        "x-racksail-risk": "high",
-        "x-racksail-step-up": true
-      }
-    },
-    "/api/v1/users/{id}": {
-      "delete": {
-        "description": "Deletes a user with their sessions, API tokens, passkeys and SSH keys. You can't delete yourself, nor someone with roles you don't have.",
-        "operationId": "deleteUser",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Delete a user",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-destructive": true,
-        "x-racksail-permission": "core.user.delete",
-        "x-racksail-risk": "high",
-        "x-racksail-step-up": true
-      },
-      "get": {
-        "description": "Returns a user you manage: their details, roles and how they sign in, never their secrets.",
-        "operationId": "getUser",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Get a user",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.read",
-        "x-racksail-risk": "read"
-      },
-      "put": {
-        "description": "Changes a user's details and roles, or turns them off, which signs them out everywhere. You can only give or take away roles you have yourself, and the last admin who can sign in stays one. Send the revision you read.",
-        "operationId": "updateUser",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          },
-          {
-            "description": "The revision you read; when someone changed the user since, the change fails with a conflict",
-            "explode": false,
-            "in": "query",
-            "name": "revision",
-            "schema": {
-              "description": "The revision you read; when someone changed the user since, the change fails with a conflict",
-              "format": "int64",
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Change a user",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.update",
-        "x-racksail-risk": "high",
-        "x-racksail-step-up": true
-      }
-    },
-    "/api/v1/users/{id}/impersonate": {
-      "post": {
-        "description": "Starts viewing the panel as one of your customers' users, to see what they see and help them. Everything you do meanwhile is recorded with both your names, the panel shows a banner the whole time, and it ends after an hour at most. It needs core.impersonate, granted by name; admins of the whole server can't be impersonated.",
-        "operationId": "impersonateUser",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "description": "The session cookie",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "View the panel as a user",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.impersonate",
-        "x-racksail-risk": "high",
-        "x-racksail-session": true,
-        "x-racksail-step-up": true
-      }
-    },
-    "/api/v1/users/{id}/link": {
-      "post": {
-        "description": "Makes a sign-in link for a user to choose their password: a week to start using a new user, a day to get back in. It's shown once and replaces any earlier link.",
-        "operationId": "issueSignInLink",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IssuedLink"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Make a sign-in link",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.reset",
-        "x-racksail-risk": "high",
-        "x-racksail-step-up": true
-      }
-    },
-    "/api/v1/users/{id}/reset": {
-      "post": {
-        "description": "Helps a user who lost their way in: makes a sign-in link to choose a new password, removes their second steps, signs them out everywhere, revokes their API tokens or lifts a lockout, as you choose.",
-        "operationId": "resetUser",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResetInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResetResult"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Help a user back in",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.reset",
-        "x-racksail-risk": "high",
-        "x-racksail-step-up": true
-      }
-    },
-    "/api/v1/users/{id}/sessions": {
-      "get": {
-        "description": "Lists a user's sessions, for helping them or looking into a problem.",
-        "operationId": "listUserSessions",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionsOutputBody"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "List where a user is signed in",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.reset",
-        "x-racksail-risk": "read"
-      }
-    },
-    "/api/v1/users/{id}/ssh-keys": {
-      "get": {
-        "description": "Lists a user's SSH public keys.",
-        "operationId": "listUserSSHKeys",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SshKeysOutputBody"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "List a user's SSH keys",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.read",
-        "x-racksail-risk": "read"
-      }
-    },
-    "/api/v1/users/{id}/ssh-keys/{key}": {
-      "delete": {
-        "description": "Removes one of a user's SSH keys, as when a laptop with it was lost.",
-        "operationId": "removeUserSSHKey",
-        "parameters": [
-          {
-            "description": "The user's ID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID",
-              "type": "string"
-            }
-          },
-          {
-            "description": "The key's ID, which starts with sshkey_",
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "description": "The key's ID, which starts with sshkey_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Remove a user's SSH key",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.reset",
-        "x-racksail-risk": "medium"
-      }
-    },
-    "/api/v1/users/{id}/tokens": {
-      "get": {
-        "description": "Lists a user's API tokens, without their secrets.",
-        "operationId": "listUserTokens",
-        "parameters": [
-          {
-            "description": "The user's ID, which starts with user_",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID, which starts with user_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokensOutputBody"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "List a user's API tokens",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.reset",
-        "x-racksail-risk": "read"
-      }
-    },
-    "/api/v1/users/{id}/tokens/{token}": {
-      "delete": {
-        "description": "Stops one of a user's API tokens working, at once.",
-        "operationId": "revokeUserToken",
-        "parameters": [
-          {
-            "description": "The user's ID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The user's ID",
-              "type": "string"
-            }
-          },
-          {
-            "description": "The token's ID, which starts with tok_",
-            "in": "path",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "description": "The token's ID, which starts with tok_",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "token": []
-          }
-        ],
-        "summary": "Revoke a user's API token",
-        "tags": [
-          "Users"
-        ],
-        "x-racksail-permission": "core.user.reset",
-        "x-racksail-risk": "medium"
       }
     },
     "/api/v1/version": {

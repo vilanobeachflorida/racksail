@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/term"
 )
 
 // request makes the request for an operation from the command's arguments
@@ -63,8 +64,7 @@ func (oc *opCommand) request(ctx context.Context, c *Client, cmd *cobra.Command,
 
 // body makes the request body: what --file holds, or for a change to
 // something that already exists, what it is now; then what the flags and
-// --set say on top. An update that takes the revision it was made against
-// as a parameter gets the one it started from.
+// --set say on top.
 func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, req *Request) (map[string]any, error) {
 	doc := map[string]any{}
 	switch {
@@ -80,14 +80,11 @@ func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, re
 		}
 		doc = m
 	case oc.current != nil && !oc.in.replace:
-		current, revision, err := oc.currentBody(ctx, c, req.Path)
+		current, err := oc.currentBody(ctx, c, req.Path)
 		if err != nil {
 			return nil, err
 		}
 		doc = current
-		if revision != "" && oc.op.Param("query", "revision") != nil && req.Query.Get("revision") == "" {
-			req.Query.Set("revision", revision)
-		}
 	}
 	for _, f := range oc.flags.fields {
 		if f.in != "body" || !f.given(cmd) {
@@ -96,6 +93,11 @@ func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, re
 		v, err := f.json(oc.doc, cmd.InOrStdin())
 		if err != nil {
 			return nil, err
+		}
+		if f.password {
+			if v, err = readPassword(cmd, f); err != nil {
+				return nil, err
+			}
 		}
 		where := f.path
 		if f.secret {
@@ -134,21 +136,17 @@ func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, re
 // it is now that the update takes, its revision among them, so a change
 // someone else made in between makes the update fail instead of being
 // lost.
-func (oc *opCommand) currentBody(ctx context.Context, c *Client, path string) (map[string]any, string, error) {
+func (oc *opCommand) currentBody(ctx context.Context, c *Client, path string) (map[string]any, error) {
 	resp, err := c.Do(ctx, Request{Method: http.MethodGet, Path: path})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	var current map[string]any
 	dec := json.NewDecoder(io.LimitReader(resp.Body, maxAnswer))
 	dec.UseNumber()
 	if err := dec.Decode(&current); err != nil {
-		return nil, "", fmt.Errorf("unexpected answer from %s: %w", c.Server, err)
-	}
-	revision := ""
-	if n, ok := current["revision"].(json.Number); ok {
-		revision = n.String()
+		return nil, fmt.Errorf("unexpected answer from %s: %w", c.Server, err)
 	}
 	body := oc.doc.Resolve(oc.op.Body)
 	out := map[string]any{}
@@ -157,7 +155,29 @@ func (oc *opCommand) currentBody(ctx context.Context, c *Client, path string) (m
 			out[k] = v
 		}
 	}
-	return out, revision, nil
+	return out, nil
+}
+
+// readPassword reads what a password field is given: from a file for
+// @path, and for - by asking for it without showing it on a terminal, or
+// from standard input otherwise. A password on the command line itself is
+// refused, since shells keep it in their history and the process list
+// shows it to everyone on the machine.
+func readPassword(cmd *cobra.Command, f *field) (string, error) {
+	given := f.value.String()
+	switch {
+	case strings.HasPrefix(given, "@"):
+		return readSecret(given, cmd.InOrStdin())
+	case given != "-":
+		return "", fmt.Errorf("--%s takes - to type it or read it from standard input, or @file to read it from a file, so it stays out of the shell's history", f.flag)
+	}
+	if in, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(in.Fd())) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", strings.ReplaceAll(f.flag, "-", " "))
+		raw, err := term.ReadPassword(int(in.Fd()))
+		fmt.Fprintln(cmd.ErrOrStderr())
+		return string(raw), err
+	}
+	return readSecret("-", cmd.InOrStdin())
 }
 
 // readDocument reads JSON or YAML from a file, or from standard input

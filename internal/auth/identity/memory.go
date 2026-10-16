@@ -2,9 +2,9 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,17 +17,22 @@ import (
 // SQL store does.
 type Memory struct {
 	mu        sync.Mutex
-	users     map[store.ID]*User
+	users     map[store.ID]*memoryUser
 	recovery  map[store.ID][]string
 	passkeys  map[store.ID]*Passkey
 	sessions  map[store.ID]*Session
 	devices   map[store.ID]*Device
 	tokens    map[store.ID]*Token
-	sshKeys   map[store.ID]*SSHKey
 	invites   map[store.ID]*Invite
 	links     []*Link
 	mfa       []*MFAEnrollment
 	setupCode string
+	now       func() time.Time
+}
+
+type memoryUser struct {
+	creds   Credentials
+	created time.Time
 }
 
 var _ Store = (*Memory)(nil)
@@ -35,9 +40,9 @@ var _ Store = (*Memory)(nil)
 // NewMemory returns an empty store.
 func NewMemory() *Memory {
 	return &Memory{
-		users: map[store.ID]*User{}, recovery: map[store.ID][]string{}, passkeys: map[store.ID]*Passkey{},
+		users: map[store.ID]*memoryUser{}, recovery: map[store.ID][]string{}, passkeys: map[store.ID]*Passkey{},
 		sessions: map[store.ID]*Session{}, devices: map[store.ID]*Device{}, tokens: map[store.ID]*Token{},
-		sshKeys: map[store.ID]*SSHKey{}, invites: map[store.ID]*Invite{},
+		invites: map[store.ID]*Invite{}, now: time.Now,
 	}
 }
 
@@ -61,87 +66,58 @@ func cloneToken(t *Token) *Token {
 	return &c
 }
 
-func cloneUser(u *User) *User {
-	c := u.Clone()
-	if c.AllowFrom == nil {
-		c.AllowFrom = []string{}
+func cloneCredentials(c Credentials) *Credentials {
+	c.Preferences = slices.Clone(c.Preferences)
+	c.SSHKeysSeen = slices.Clone(c.SSHKeysSeen)
+	if c.SSHKeysSeen == nil {
+		c.SSHKeysSeen = []string{}
 	}
-	return c
+	return &c
 }
 
-// CountUsers implements Store.
-func (m *Memory) CountUsers(ctx context.Context) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.users), nil
-}
-
-func (m *Memory) nameTaken(username string, except store.ID) bool {
-	for _, u := range m.users {
-		if u.Username == username && u.ID != except {
-			return true
-		}
-	}
-	return false
-}
-
-// CreateUser implements Store.
-func (m *Memory) CreateUser(ctx context.Context, u *User) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.nameTaken(u.Username, "") {
-		return auth.ErrUsernameTaken.New("username", u.Username)
-	}
-	if _, ok := m.users[u.ID]; ok {
-		return i18n.ErrAlreadyExists.New("what", string(u.ID))
-	}
-	if u.Revision == 0 {
-		u.Revision = 1
-	}
-	m.users[u.ID] = cloneUser(u)
-	return nil
-}
-
-// UpdateUser implements Store.
-func (m *Memory) UpdateUser(ctx context.Context, u *User, revision int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cur, ok := m.users[u.ID]
+// user returns a user's record, making it when there is none, as the SQL
+// store does whenever something is kept for them.
+func (m *Memory) user(id store.ID) *memoryUser {
+	u, ok := m.users[id]
 	if !ok {
-		return notFound(string(u.ID))
+		u = &memoryUser{created: m.now().UTC()}
+		m.users[id] = u
 	}
-	if revision != 0 && revision != cur.Revision {
-		return i18n.ErrConflict.New("what", u.Username)
+	return u
+}
+
+// Credentials implements Store.
+func (m *Memory) Credentials(ctx context.Context, user store.ID) (*Credentials, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[user]
+	if !ok {
+		return nil, notFound(string(user))
 	}
-	if m.nameTaken(u.Username, u.ID) {
-		return auth.ErrUsernameTaken.New("username", u.Username)
+	return cloneCredentials(u.creds), nil
+}
+
+// Users implements Store.
+func (m *Memory) Users(ctx context.Context) (map[store.ID]time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[store.ID]time.Time{}
+	for id, u := range m.users {
+		out[id] = u.created
 	}
-	next := cloneUser(u)
-	// Credentials and sign-in records change through their own methods.
-	next.PasswordHash, next.PasswordChangedAt, next.MustChangePassword = cur.PasswordHash, cur.PasswordChangedAt, cur.MustChangePassword
-	next.TOTP, next.TOTPStep = cur.TOTP, cur.TOTPStep
-	next.FailedSignIns, next.LockedUntil, next.LastSignInAt, next.LastSignInIP = cur.FailedSignIns, cur.LockedUntil, cur.LastSignInAt, cur.LastSignInIP
-	next.CreatedAt = cur.CreatedAt
-	next.Revision = cur.Revision + 1
-	u.Revision = next.Revision
-	m.users[u.ID] = next
-	return nil
+	return out, nil
 }
 
 // DeleteUser implements Store.
 func (m *Memory) DeleteUser(ctx context.Context, id store.ID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.users[id]; !ok {
-		return notFound(string(id))
-	}
 	delete(m.users, id)
 	delete(m.recovery, id)
 	maps(m.passkeys, func(v *Passkey) bool { return v.User == id })
 	maps(m.sessions, func(v *Session) bool { return v.User == id })
 	maps(m.devices, func(v *Device) bool { return v.User == id })
 	maps(m.tokens, func(v *Token) bool { return v.User == id })
-	maps(m.sshKeys, func(v *SSHKey) bool { return v.User == id })
 	maps(m.invites, func(v *Invite) bool { return v.User == id })
 	m.links = slices.DeleteFunc(m.links, func(l *Link) bool { return l.User == id })
 	m.mfa = slices.DeleteFunc(m.mfa, func(e *MFAEnrollment) bool { return e.User == id })
@@ -157,103 +133,27 @@ func maps[T any](m map[store.ID]*T, drop func(*T) bool) {
 	}
 }
 
-// User implements Store.
-func (m *Memory) User(ctx context.Context, id store.ID) (*User, error) {
+// change changes a user's credentials, making their record when needed.
+func (m *Memory) change(id store.ID, fn func(c *Credentials)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	u, ok := m.users[id]
-	if !ok {
-		return nil, notFound(string(id))
-	}
-	return cloneUser(u), nil
-}
-
-// UserByName implements Store.
-func (m *Memory) UserByName(ctx context.Context, username string) (*User, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	name := strings.ToLower(username)
-	for _, u := range m.users {
-		if u.Username == name {
-			return cloneUser(u), nil
-		}
-	}
-	return nil, notFound(username)
-}
-
-// ListUsers implements Store.
-func (m *Memory) ListUsers(ctx context.Context, q UserQuery) ([]*User, string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var after string
-	if q.Cursor != "" {
-		var err error
-		if after, err = decodeCursor(q.Cursor); err != nil {
-			return nil, "", err
-		}
-	}
-	search := strings.ToLower(q.Search)
-	var all []*User
-	for _, u := range m.users {
-		switch {
-		case q.Homes != nil && !slices.Contains(q.Homes, u.Home):
-			continue
-		case q.Grant != nil && !slices.ContainsFunc(u.Grants, func(g auth.Grant) bool { return g.Scope == *q.Grant }):
-			continue
-		case q.Role != "" && !slices.ContainsFunc(u.Grants, func(g auth.Grant) bool { return g.Role == q.Role }):
-			continue
-		case search != "" && !strings.Contains(u.Username, search) && !strings.Contains(strings.ToLower(u.Name), search) &&
-			!strings.Contains(strings.ToLower(u.Email), search):
-			continue
-		case after != "" && u.Username <= after:
-			continue
-		}
-		all = append(all, u)
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Username < all[j].Username })
-	limit := limitOf(q.Limit)
-	var next string
-	if len(all) > limit {
-		all = all[:limit]
-		next = encodeCursor(all[limit-1].Username)
-	}
-	out := make([]*User, len(all))
-	for i, u := range all {
-		out[i] = cloneUser(u)
-	}
-	return out, next, nil
-}
-
-func (m *Memory) user(id store.ID) (*User, error) {
-	u, ok := m.users[id]
-	if !ok {
-		return nil, notFound(string(id))
-	}
-	return u, nil
+	fn(&m.user(id).creds)
+	return nil
 }
 
 // SetPassword implements Store.
 func (m *Memory) SetPassword(ctx context.Context, id store.ID, hash string, mustChange bool, at time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	u, err := m.user(id)
-	if err != nil {
-		return err
-	}
-	u.PasswordHash, u.MustChangePassword, u.PasswordChangedAt = hash, mustChange, at
-	return nil
+	return m.change(id, func(c *Credentials) { c.PasswordHash, c.MustChangePassword, c.PasswordChangedAt = hash, mustChange, at })
+}
+
+// SetMustChangePassword implements Store.
+func (m *Memory) SetMustChangePassword(ctx context.Context, id store.ID, mustChange bool) error {
+	return m.change(id, func(c *Credentials) { c.MustChangePassword = mustChange })
 }
 
 // SetTOTP implements Store.
 func (m *Memory) SetTOTP(ctx context.Context, id store.ID, enabled bool, step int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	u, err := m.user(id)
-	if err != nil {
-		return err
-	}
-	u.TOTP, u.TOTPStep = enabled, step
-	return nil
+	return m.change(id, func(c *Credentials) { c.TOTP, c.TOTPStep = enabled, step })
 }
 
 // UseTOTPStep implements Store.
@@ -261,32 +161,60 @@ func (m *Memory) UseTOTPStep(ctx context.Context, id store.ID, step int64) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[id]
-	if !ok || u.TOTPStep >= step {
+	if !ok || u.creds.TOTPStep >= step {
 		return ErrStepUsed
 	}
-	u.TOTPStep = step
+	u.creds.TOTPStep = step
 	return nil
 }
 
 // RecordSignIn implements Store.
-func (m *Memory) RecordSignIn(ctx context.Context, id store.ID, failures int, lockedUntil, at time.Time, ip string) error {
+func (m *Memory) RecordSignIn(ctx context.Context, id store.ID, at time.Time, ip string) error {
+	return m.change(id, func(c *Credentials) {
+		c.FailedSignIns, c.LockedUntil, c.LastSignInAt, c.LastSignInIP = 0, time.Time{}, at, ip
+	})
+}
+
+// RecordFailure implements Store.
+func (m *Memory) RecordFailure(ctx context.Context, id store.ID, attempts int, lockout time.Duration, now time.Time) (bool, time.Time, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	u, err := m.user(id)
-	if err != nil {
-		return err
-	}
-	u.FailedSignIns, u.LockedUntil = failures, lockedUntil
-	if !at.IsZero() {
-		u.LastSignInAt, u.LastSignInIP = at, ip
+	c := &m.user(id).creds
+	var locked bool
+	c.FailedSignIns, c.LockedUntil, locked = nextFailure(c.FailedSignIns, c.LockedUntil, attempts, lockout, now)
+	return locked, c.LockedUntil, nil
+}
+
+// Unlock implements Store.
+func (m *Memory) Unlock(ctx context.Context, id store.ID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if u, ok := m.users[id]; ok {
+		u.creds.FailedSignIns, u.creds.LockedUntil = 0, time.Time{}
 	}
 	return nil
+}
+
+// SetPreferences implements Store.
+func (m *Memory) SetPreferences(ctx context.Context, id store.ID, prefs json.RawMessage) error {
+	return m.change(id, func(c *Credentials) { c.Preferences = slices.Clone(prefs) })
+}
+
+// SetAlertChannel implements Store.
+func (m *Memory) SetAlertChannel(ctx context.Context, id store.ID, channel string) error {
+	return m.change(id, func(c *Credentials) { c.AlertChannel = channel })
+}
+
+// SetSSHKeysSeen implements Store.
+func (m *Memory) SetSSHKeysSeen(ctx context.Context, id store.ID, fingerprints []string) error {
+	return m.change(id, func(c *Credentials) { c.SSHKeysSeen = slices.Clone(fingerprints) })
 }
 
 // ReplaceRecoveryCodes implements Store.
 func (m *Memory) ReplaceRecoveryCodes(ctx context.Context, user store.ID, hashes []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.user(user)
 	m.recovery[user] = slices.Clone(hashes)
 	return nil
 }
@@ -320,6 +248,7 @@ func (m *Memory) AddPasskey(ctx context.Context, p *Passkey) error {
 			return i18n.ErrAlreadyExists.New("what", "This passkey")
 		}
 	}
+	m.user(p.User)
 	m.passkeys[p.ID] = copyOf(p)
 	return nil
 }
@@ -383,9 +312,7 @@ func (m *Memory) DeletePasskey(ctx context.Context, user, id store.ID) error {
 func (m *Memory) CreateSession(ctx context.Context, s *Session) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.user(s.User); err != nil {
-		return err
-	}
+	m.user(s.User)
 	m.sessions[s.ID] = copyOf(s)
 	return nil
 }
@@ -421,7 +348,7 @@ func (m *Memory) SessionByHash(ctx context.Context, hash string) (*Session, erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.sessions {
-		if s.Hash == hash {
+		if s.Hash == hash || (s.PreviousHash != "" && s.PreviousHash == hash) {
 			return copyOf(s), nil
 		}
 	}
@@ -477,9 +404,7 @@ func (m *Memory) DeleteExpired(ctx context.Context, now time.Time) error {
 func (m *Memory) AddDevice(ctx context.Context, d *Device) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.user(d.User); err != nil {
-		return err
-	}
+	m.user(d.User)
 	m.devices[d.ID] = copyOf(d)
 	return nil
 }
@@ -540,9 +465,7 @@ func (m *Memory) DeleteDevices(ctx context.Context, user store.ID) error {
 func (m *Memory) CreateToken(ctx context.Context, t *Token) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.user(t.User); err != nil {
-		return err
-	}
+	m.user(t.User)
 	m.tokens[t.ID] = cloneToken(t)
 	return nil
 }
@@ -623,49 +546,11 @@ func (m *Memory) DeleteTokens(ctx context.Context, user store.ID) (int, error) {
 	return n, nil
 }
 
-// AddSSHKey implements Store.
-func (m *Memory) AddSSHKey(ctx context.Context, k *SSHKey) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, err := m.user(k.User); err != nil {
-		return err
-	}
-	for _, other := range m.sshKeys {
-		if other.User == k.User && other.Fingerprint == k.Fingerprint {
-			return auth.ErrSSHKeyExists.New("name", other.Name)
-		}
-	}
-	m.sshKeys[k.ID] = copyOf(k)
-	return nil
-}
-
-// SSHKeys implements Store.
-func (m *Memory) SSHKeys(ctx context.Context, user store.ID) ([]*SSHKey, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return sortedBy(m.sshKeys, func(k *SSHKey) bool { return k.User == user }, func(a, b *SSHKey) bool {
-		return a.CreatedAt.Before(b.CreatedAt) || (a.CreatedAt.Equal(b.CreatedAt) && a.ID < b.ID)
-	}), nil
-}
-
-// DeleteSSHKey implements Store.
-func (m *Memory) DeleteSSHKey(ctx context.Context, user, id store.ID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if k, ok := m.sshKeys[id]; !ok || k.User != user {
-		return notFound(string(id))
-	}
-	delete(m.sshKeys, id)
-	return nil
-}
-
 // CreateInvite implements Store.
 func (m *Memory) CreateInvite(ctx context.Context, inv *Invite) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.user(inv.User); err != nil {
-		return err
-	}
+	m.user(inv.User)
 	m.invites[inv.ID] = copyOf(inv)
 	return nil
 }
@@ -705,31 +590,27 @@ func (m *Memory) DeleteInvites(ctx context.Context, user store.ID) error {
 func (m *Memory) LinkIdentity(ctx context.Context, l *Link) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.user(l.User); err != nil {
-		return err
-	}
 	for _, other := range m.links {
 		if other.Provider == l.Provider && other.Subject == l.Subject && other.User != l.User {
-			return i18n.ErrAlreadyExists.New("what", "A link to this identity")
+			return auth.ErrIdentityTaken.New("provider", string(l.Provider))
 		}
 	}
+	m.user(l.User)
 	m.links = slices.DeleteFunc(m.links, func(o *Link) bool { return o.User == l.User && o.Provider == l.Provider })
 	m.links = append(m.links, copyOf(l))
 	return nil
 }
 
-// UserByIdentity implements Store.
-func (m *Memory) UserByIdentity(ctx context.Context, provider store.ID, subject string) (*User, error) {
+// LinkedUser implements Store.
+func (m *Memory) LinkedUser(ctx context.Context, provider store.ID, subject string) (store.ID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, l := range m.links {
 		if l.Provider == provider && l.Subject == subject {
-			if u, ok := m.users[l.User]; ok {
-				return cloneUser(u), nil
-			}
+			return l.User, nil
 		}
 	}
-	return nil, notFound("The identity")
+	return "", notFound("The identity")
 }
 
 // Links implements Store.
@@ -762,9 +643,7 @@ func (m *Memory) UnlinkIdentity(ctx context.Context, user, provider store.ID) er
 func (m *Memory) EnableMFA(ctx context.Context, e *MFAEnrollment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, err := m.user(e.User); err != nil {
-		return err
-	}
+	m.user(e.User)
 	m.mfa = slices.DeleteFunc(m.mfa, func(o *MFAEnrollment) bool { return o.User == e.User && o.Method == e.Method })
 	m.mfa = append(m.mfa, copyOf(e))
 	return nil

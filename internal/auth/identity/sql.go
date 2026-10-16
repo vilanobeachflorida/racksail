@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,53 +90,30 @@ func isUnique(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
-const userColumns = `id, username, name, email, home_level, home_id, grants, disabled, locale, allow_from, preferences, alert_channel,
-	password_hash, password_changed_at, must_change_password, totp, totp_step, failed_sign_ins, locked_until,
-	last_sign_in_at, last_sign_in_ip, created_at, updated_at, revision`
+const credentialColumns = `password_hash, password_changed_at, must_change_password, totp, totp_step, failed_sign_ins, locked_until,
+	last_sign_in_at, last_sign_in_ip, preferences, alert_channel, ssh_keys_seen`
 
 type scanner interface{ Scan(dest ...any) error }
 
-func scanUser(row scanner) (*User, error) {
-	var u User
-	var grants, allow string
+func scanCredentials(row scanner) (*Credentials, error) {
+	var c Credentials
 	var prefs sql.NullString
-	var disabled, mustChange, totp int
-	var changed, locked, last, created, updated string
-	err := row.Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Home.Level, &u.Home.ID, &grants, &disabled, &u.Locale, &allow, &prefs,
-		&u.AlertChannel, &u.PasswordHash, &changed, &mustChange, &totp, &u.TOTPStep, &u.FailedSignIns, &locked, &last, &u.LastSignInIP,
-		&created, &updated, &u.Revision)
+	var mustChange, totp int
+	var changed, locked, last, seen string
+	err := row.Scan(&c.PasswordHash, &changed, &mustChange, &totp, &c.TOTPStep, &c.FailedSignIns, &locked, &last, &c.LastSignInIP,
+		&prefs, &c.AlertChannel, &seen)
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal([]byte(grants), &u.Grants); err != nil {
-		return nil, fmt.Errorf("identity: grants of %s: %w", u.ID, err)
-	}
-	if err := json.Unmarshal([]byte(allow), &u.AllowFrom); err != nil {
-		return nil, fmt.Errorf("identity: allowlist of %s: %w", u.ID, err)
-	}
 	if prefs.Valid {
-		u.Preferences = json.RawMessage(prefs.String)
+		c.Preferences = json.RawMessage(prefs.String)
 	}
-	u.Disabled, u.MustChangePassword, u.TOTP = disabled == 1, mustChange == 1, totp == 1
-	u.PasswordChangedAt, u.LockedUntil, u.LastSignInAt = ptime(changed), ptime(locked), ptime(last)
-	u.CreatedAt, u.UpdatedAt = ptime(created), ptime(updated)
-	if u.Grants == nil {
-		u.Grants = []auth.Grant{}
+	if err := json.Unmarshal([]byte(seen), &c.SSHKeysSeen); err != nil {
+		return nil, fmt.Errorf("identity: SSH keys seen: %w", err)
 	}
-	return &u, nil
-}
-
-func writeGrants(ctx context.Context, tx *sql.Tx, u *User) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM identity_grants WHERE user_id = ?`, u.ID); err != nil {
-		return err
-	}
-	for _, g := range u.Grants {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO identity_grants (user_id, role, scope_level, scope_id) VALUES (?, ?, ?, ?)`,
-			u.ID, g.Role, g.Scope.Level, g.Scope.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	c.MustChangePassword, c.TOTP = mustChange == 1, totp == 1
+	c.PasswordChangedAt, c.LockedUntil, c.LastSignInAt = ptime(changed), ptime(locked), ptime(last)
+	return &c, nil
 }
 
 func nullJSON(raw json.RawMessage) any {
@@ -147,67 +123,67 @@ func nullJSON(raw json.RawMessage) any {
 	return string(raw)
 }
 
-// CountUsers implements Store.
-func (s *SQL) CountUsers(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.Reader().QueryRowContext(ctx, `SELECT count(*) FROM identity_users`).Scan(&n)
-	return n, err
-}
-
-// CreateUser implements Store.
-func (s *SQL) CreateUser(ctx context.Context, u *User) error {
-	if u.Revision == 0 {
-		u.Revision = 1
-	}
-	err := s.db.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO identity_users (`+userColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			u.ID, u.Username, u.Name, u.Email, u.Home.Level, u.Home.ID, jsonText(u.Grants), flag(u.Disabled), u.Locale, jsonText(u.AllowFrom),
-			nullJSON(u.Preferences), u.AlertChannel, u.PasswordHash, ftime(u.PasswordChangedAt), flag(u.MustChangePassword), flag(u.TOTP),
-			u.TOTPStep, u.FailedSignIns, ftime(u.LockedUntil), ftime(u.LastSignInAt), u.LastSignInIP, ftime(u.CreatedAt), ftime(u.UpdatedAt), u.Revision)
-		if err != nil {
-			return err
-		}
-		return writeGrants(ctx, tx, u)
-	})
-	if isUnique(err) {
-		return auth.ErrUsernameTaken.New("username", u.Username)
-	}
+// ensureUser makes the record a user's credentials and everything else
+// kept for them hang off, when there isn't one yet.
+func ensureUser(ctx context.Context, tx *sql.Tx, user store.ID) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO identity_users (id, created_at) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`, user, ftime(time.Now().UTC()))
 	return err
 }
 
-// UpdateUser implements Store.
-func (s *SQL) UpdateUser(ctx context.Context, u *User, revision int64) error {
-	err := s.db.Write(ctx, func(tx *sql.Tx) error {
-		var current int64
-		if err := tx.QueryRowContext(ctx, `SELECT revision FROM identity_users WHERE id = ?`, u.ID).Scan(&current); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return notFound(string(u.ID))
-			}
+// update changes a user's record, making it first when there is none.
+func (s *SQL) update(ctx context.Context, user store.ID, query string, args ...any) error {
+	return s.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := ensureUser(ctx, tx, user); err != nil {
 			return err
 		}
-		if revision != 0 && revision != current {
-			return i18n.ErrConflict.New("what", u.Username)
-		}
-		_, err := tx.ExecContext(ctx, `UPDATE identity_users SET username = ?, name = ?, email = ?, home_level = ?, home_id = ?, grants = ?,
-			disabled = ?, locale = ?, allow_from = ?, preferences = ?, alert_channel = ?, updated_at = ?, revision = ? WHERE id = ?`,
-			u.Username, u.Name, u.Email, u.Home.Level, u.Home.ID, jsonText(u.Grants), flag(u.Disabled), u.Locale, jsonText(u.AllowFrom),
-			nullJSON(u.Preferences), u.AlertChannel, ftime(u.UpdatedAt), current+1, u.ID)
-		if err != nil {
-			return err
-		}
-		u.Revision = current + 1
-		return writeGrants(ctx, tx, u)
+		_, err := tx.ExecContext(ctx, query, append(args, user)...)
+		return err
 	})
-	if isUnique(err) {
-		return auth.ErrUsernameTaken.New("username", u.Username)
+}
+
+// insert adds a row of something that belongs to a user.
+func (s *SQL) insert(ctx context.Context, user store.ID, query string, args ...any) error {
+	return s.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := ensureUser(ctx, tx, user); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, query, args...)
+		return err
+	})
+}
+
+// Credentials implements Store.
+func (s *SQL) Credentials(ctx context.Context, user store.ID) (*Credentials, error) {
+	c, err := scanCredentials(s.db.Reader().QueryRowContext(ctx, `SELECT `+credentialColumns+` FROM identity_users WHERE id = ?`, user))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, notFound(string(user))
 	}
-	return err
+	return c, err
+}
+
+// Users implements Store.
+func (s *SQL) Users(ctx context.Context) (map[store.ID]time.Time, error) {
+	rows, err := s.db.Reader().QueryContext(ctx, `SELECT id, created_at FROM identity_users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[store.ID]time.Time{}
+	for rows.Next() {
+		var id store.ID
+		var created string
+		if err := rows.Scan(&id, &created); err != nil {
+			return nil, err
+		}
+		out[id] = ptime(created)
+	}
+	return out, rows.Err()
 }
 
 // DeleteUser implements Store.
-func (s *SQL) DeleteUser(ctx context.Context, id store.ID) error {
-	res, err := s.db.Exec(ctx, `DELETE FROM identity_users WHERE id = ?`, id)
-	return affected(res, err, string(id))
+func (s *SQL) DeleteUser(ctx context.Context, user store.ID) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM identity_users WHERE id = ?`, user)
+	return err
 }
 
 func affected(res sql.Result, err error, what string) error {
@@ -224,126 +200,25 @@ func affected(res sql.Result, err error, what string) error {
 	return nil
 }
 
-// User implements Store.
-func (s *SQL) User(ctx context.Context, id store.ID) (*User, error) {
-	u, err := scanUser(s.db.Reader().QueryRowContext(ctx, `SELECT `+userColumns+` FROM identity_users WHERE id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, notFound(string(id))
-	}
-	return u, err
-}
-
-// UserByName implements Store.
-func (s *SQL) UserByName(ctx context.Context, username string) (*User, error) {
-	u, err := scanUser(s.db.Reader().QueryRowContext(ctx, `SELECT `+userColumns+` FROM identity_users WHERE username = ?`, strings.ToLower(username)))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, notFound(username)
-	}
-	return u, err
-}
-
-func encodeCursor(username string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(username))
-}
-
-func decodeCursor(cursor string) (string, error) {
-	b, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return "", i18n.ErrBadRequest.New("reason", "the cursor is malformed")
-	}
-	return string(b), nil
-}
-
-func limitOf(n int) int {
-	if n <= 0 || n > store.MaxLimit {
-		return store.DefaultLimit
-	}
-	return n
-}
-
-// ListUsers implements Store.
-func (s *SQL) ListUsers(ctx context.Context, q UserQuery) ([]*User, string, error) {
-	var where []string
-	var args []any
-	if q.Homes != nil {
-		if len(q.Homes) == 0 {
-			return []*User{}, "", nil
-		}
-		var or []string
-		for _, h := range q.Homes {
-			or = append(or, "(home_level = ? AND home_id = ?)")
-			args = append(args, h.Level, h.ID)
-		}
-		where = append(where, "("+strings.Join(or, " OR ")+")")
-	}
-	if q.Grant != nil {
-		where = append(where, `id IN (SELECT user_id FROM identity_grants WHERE scope_level = ? AND scope_id = ?)`)
-		args = append(args, q.Grant.Level, q.Grant.ID)
-	}
-	if q.Role != "" {
-		where = append(where, `id IN (SELECT user_id FROM identity_grants WHERE role = ?)`)
-		args = append(args, q.Role)
-	}
-	if q.Search != "" {
-		like := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.ToLower(q.Search)) + "%"
-		where = append(where, `(username LIKE ? ESCAPE '\' OR lower(name) LIKE ? ESCAPE '\' OR lower(email) LIKE ? ESCAPE '\')`)
-		args = append(args, like, like, like)
-	}
-	if q.Cursor != "" {
-		after, err := decodeCursor(q.Cursor)
-		if err != nil {
-			return nil, "", err
-		}
-		where = append(where, "username > ?")
-		args = append(args, after)
-	}
-	query := `SELECT ` + userColumns + ` FROM identity_users`
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	limit := limitOf(q.Limit)
-	query += " ORDER BY username LIMIT ?"
-	args = append(args, limit+1)
-	rows, err := s.db.Reader().QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, "", err
-	}
-	defer rows.Close()
-	out := []*User{}
-	for rows.Next() {
-		u, err := scanUser(rows)
-		if err != nil {
-			return nil, "", err
-		}
-		out = append(out, u)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
-	}
-	var next string
-	if len(out) > limit {
-		out = out[:limit]
-		next = encodeCursor(out[limit-1].Username)
-	}
-	return out, next, nil
-}
-
 // SetPassword implements Store.
-func (s *SQL) SetPassword(ctx context.Context, id store.ID, hash string, mustChange bool, at time.Time) error {
-	res, err := s.db.Exec(ctx, `UPDATE identity_users SET password_hash = ?, must_change_password = ?, password_changed_at = ? WHERE id = ?`,
-		hash, flag(mustChange), ftime(at), id)
-	return affected(res, err, string(id))
+func (s *SQL) SetPassword(ctx context.Context, user store.ID, hash string, mustChange bool, at time.Time) error {
+	return s.update(ctx, user, `UPDATE identity_users SET password_hash = ?, must_change_password = ?, password_changed_at = ? WHERE id = ?`,
+		hash, flag(mustChange), ftime(at))
+}
+
+// SetMustChangePassword implements Store.
+func (s *SQL) SetMustChangePassword(ctx context.Context, user store.ID, mustChange bool) error {
+	return s.update(ctx, user, `UPDATE identity_users SET must_change_password = ? WHERE id = ?`, flag(mustChange))
 }
 
 // SetTOTP implements Store.
-func (s *SQL) SetTOTP(ctx context.Context, id store.ID, enabled bool, step int64) error {
-	res, err := s.db.Exec(ctx, `UPDATE identity_users SET totp = ?, totp_step = ? WHERE id = ?`, flag(enabled), step, id)
-	return affected(res, err, string(id))
+func (s *SQL) SetTOTP(ctx context.Context, user store.ID, enabled bool, step int64) error {
+	return s.update(ctx, user, `UPDATE identity_users SET totp = ?, totp_step = ? WHERE id = ?`, flag(enabled), step)
 }
 
 // UseTOTPStep implements Store.
-func (s *SQL) UseTOTPStep(ctx context.Context, id store.ID, step int64) error {
-	res, err := s.db.Exec(ctx, `UPDATE identity_users SET totp_step = ? WHERE id = ? AND totp_step < ?`, step, id, step)
+func (s *SQL) UseTOTPStep(ctx context.Context, user store.ID, step int64) error {
+	res, err := s.db.Exec(ctx, `UPDATE identity_users SET totp_step = ? WHERE id = ? AND totp_step < ?`, step, user, step)
 	if err != nil {
 		return err
 	}
@@ -357,21 +232,71 @@ func (s *SQL) UseTOTPStep(ctx context.Context, id store.ID, step int64) error {
 }
 
 // RecordSignIn implements Store.
-func (s *SQL) RecordSignIn(ctx context.Context, id store.ID, failures int, lockedUntil, at time.Time, ip string) error {
-	var res sql.Result
-	var err error
-	if at.IsZero() {
-		res, err = s.db.Exec(ctx, `UPDATE identity_users SET failed_sign_ins = ?, locked_until = ? WHERE id = ?`, failures, ftime(lockedUntil), id)
-	} else {
-		res, err = s.db.Exec(ctx, `UPDATE identity_users SET failed_sign_ins = ?, locked_until = ?, last_sign_in_at = ?, last_sign_in_ip = ? WHERE id = ?`,
-			failures, ftime(lockedUntil), ftime(at), ip, id)
+func (s *SQL) RecordSignIn(ctx context.Context, user store.ID, at time.Time, ip string) error {
+	return s.update(ctx, user, `UPDATE identity_users SET failed_sign_ins = 0, locked_until = '', last_sign_in_at = ?, last_sign_in_ip = ? WHERE id = ?`,
+		ftime(at), ip)
+}
+
+// RecordFailure implements Store.
+func (s *SQL) RecordFailure(ctx context.Context, user store.ID, attempts int, lockout time.Duration, now time.Time) (bool, time.Time, error) {
+	var locked bool
+	var until time.Time
+	err := s.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := ensureUser(ctx, tx, user); err != nil {
+			return err
+		}
+		var failures int
+		var current string
+		if err := tx.QueryRowContext(ctx, `SELECT failed_sign_ins, locked_until FROM identity_users WHERE id = ?`, user).Scan(&failures, &current); err != nil {
+			return err
+		}
+		failures, until, locked = nextFailure(failures, ptime(current), attempts, lockout, now)
+		_, err := tx.ExecContext(ctx, `UPDATE identity_users SET failed_sign_ins = ?, locked_until = ? WHERE id = ?`, failures, ftime(until), user)
+		return err
+	})
+	return locked, until, err
+}
+
+// nextFailure works out what one more failed sign-in makes of a user's
+// failures and lockout, the same way in both stores.
+func nextFailure(failures int, lockedUntil time.Time, attempts int, lockout time.Duration, now time.Time) (int, time.Time, bool) {
+	if now.Before(lockedUntil) {
+		return failures, lockedUntil, false
 	}
-	return affected(res, err, string(id))
+	failures++
+	if failures >= attempts {
+		return 0, now.Add(lockout), true
+	}
+	return failures, time.Time{}, false
+}
+
+// Unlock implements Store.
+func (s *SQL) Unlock(ctx context.Context, user store.ID) error {
+	_, err := s.db.Exec(ctx, `UPDATE identity_users SET failed_sign_ins = 0, locked_until = '' WHERE id = ?`, user)
+	return err
+}
+
+// SetPreferences implements Store.
+func (s *SQL) SetPreferences(ctx context.Context, user store.ID, prefs json.RawMessage) error {
+	return s.update(ctx, user, `UPDATE identity_users SET preferences = ? WHERE id = ?`, nullJSON(prefs))
+}
+
+// SetAlertChannel implements Store.
+func (s *SQL) SetAlertChannel(ctx context.Context, user store.ID, channel string) error {
+	return s.update(ctx, user, `UPDATE identity_users SET alert_channel = ? WHERE id = ?`, channel)
+}
+
+// SetSSHKeysSeen implements Store.
+func (s *SQL) SetSSHKeysSeen(ctx context.Context, user store.ID, fingerprints []string) error {
+	return s.update(ctx, user, `UPDATE identity_users SET ssh_keys_seen = ? WHERE id = ?`, jsonText(fingerprints))
 }
 
 // ReplaceRecoveryCodes implements Store.
 func (s *SQL) ReplaceRecoveryCodes(ctx context.Context, user store.ID, hashes []string) error {
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := ensureUser(ctx, tx, user); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM identity_recovery_codes WHERE user_id = ?`, user); err != nil {
 			return err
 		}
@@ -415,7 +340,7 @@ func scanPasskey(row scanner) (*Passkey, error) {
 
 // AddPasskey implements Store.
 func (s *SQL) AddPasskey(ctx context.Context, p *Passkey) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_passkeys (`+passkeyColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	err := s.insert(ctx, p.User, `INSERT INTO identity_passkeys (`+passkeyColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.User, p.Name, p.CredentialID, string(p.Credential), ftime(p.CreatedAt), ftime(p.LastUsedAt))
 	if isUnique(err) {
 		return i18n.ErrAlreadyExists.New("what", "This passkey")
@@ -467,36 +392,36 @@ func queryAll[T any](ctx context.Context, db *store.DB, scan func(scanner) (*T, 
 	return out, rows.Err()
 }
 
-const sessionColumns = `id, user_id, hash, created_at, last_seen_at, expires_at, ip, user_agent, method, second_factor, stepped_up_at,
-	impersonator, parent, persistent, pending`
+const sessionColumns = `id, user_id, hash, previous_hash, rotated_at, grants_hash, created_at, last_seen_at, expires_at, ip, user_agent,
+	method, second_factor, stepped_up_at, impersonator, parent, persistent, pending`
 
 func scanSession(row scanner) (*Session, error) {
 	var x Session
-	var created, seen, expires, stepped string
+	var rotated, created, seen, expires, stepped string
 	var persistent int
-	err := row.Scan(&x.ID, &x.User, &x.Hash, &created, &seen, &expires, &x.IP, &x.UserAgent, &x.Method, &x.SecondFactor, &stepped,
-		&x.Impersonator, &x.Parent, &persistent, &x.Pending)
+	err := row.Scan(&x.ID, &x.User, &x.Hash, &x.PreviousHash, &rotated, &x.GrantsHash, &created, &seen, &expires, &x.IP, &x.UserAgent,
+		&x.Method, &x.SecondFactor, &stepped, &x.Impersonator, &x.Parent, &persistent, &x.Pending)
 	if err != nil {
 		return nil, err
 	}
-	x.CreatedAt, x.LastSeenAt, x.ExpiresAt, x.SteppedUpAt = ptime(created), ptime(seen), ptime(expires), ptime(stepped)
+	x.RotatedAt, x.CreatedAt, x.LastSeenAt, x.ExpiresAt, x.SteppedUpAt = ptime(rotated), ptime(created), ptime(seen), ptime(expires), ptime(stepped)
 	x.Persistent = persistent == 1
 	return &x, nil
 }
 
 // CreateSession implements Store.
 func (s *SQL) CreateSession(ctx context.Context, x *Session) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_sessions (`+sessionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		x.ID, x.User, x.Hash, ftime(x.CreatedAt), ftime(x.LastSeenAt), ftime(x.ExpiresAt), x.IP, x.UserAgent, x.Method, x.SecondFactor,
-		ftime(x.SteppedUpAt), x.Impersonator, x.Parent, flag(x.Persistent), x.Pending)
-	return err
+	return s.insert(ctx, x.User, `INSERT INTO identity_sessions (`+sessionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		x.ID, x.User, x.Hash, x.PreviousHash, ftime(x.RotatedAt), x.GrantsHash, ftime(x.CreatedAt), ftime(x.LastSeenAt), ftime(x.ExpiresAt),
+		x.IP, x.UserAgent, x.Method, x.SecondFactor, ftime(x.SteppedUpAt), x.Impersonator, x.Parent, flag(x.Persistent), x.Pending)
 }
 
 // UpdateSession implements Store.
 func (s *SQL) UpdateSession(ctx context.Context, x *Session) error {
-	res, err := s.db.Exec(ctx, `UPDATE identity_sessions SET hash = ?, last_seen_at = ?, expires_at = ?, ip = ?, user_agent = ?,
-		second_factor = ?, stepped_up_at = ?, persistent = ?, pending = ? WHERE id = ?`,
-		x.Hash, ftime(x.LastSeenAt), ftime(x.ExpiresAt), x.IP, x.UserAgent, x.SecondFactor, ftime(x.SteppedUpAt), flag(x.Persistent), x.Pending, x.ID)
+	res, err := s.db.Exec(ctx, `UPDATE identity_sessions SET hash = ?, previous_hash = ?, rotated_at = ?, grants_hash = ?, last_seen_at = ?,
+		expires_at = ?, ip = ?, user_agent = ?, second_factor = ?, stepped_up_at = ?, persistent = ?, pending = ? WHERE id = ?`,
+		x.Hash, x.PreviousHash, ftime(x.RotatedAt), x.GrantsHash, ftime(x.LastSeenAt), ftime(x.ExpiresAt), x.IP, x.UserAgent,
+		x.SecondFactor, ftime(x.SteppedUpAt), flag(x.Persistent), x.Pending, x.ID)
 	return affected(res, err, string(x.ID))
 }
 
@@ -511,7 +436,8 @@ func (s *SQL) Session(ctx context.Context, id store.ID) (*Session, error) {
 
 // SessionByHash implements Store.
 func (s *SQL) SessionByHash(ctx context.Context, hash string) (*Session, error) {
-	x, err := scanSession(s.db.Reader().QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM identity_sessions WHERE hash = ?`, hash))
+	x, err := scanSession(s.db.Reader().QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM identity_sessions WHERE hash = ?
+		UNION ALL SELECT `+sessionColumns+` FROM identity_sessions WHERE previous_hash = ? AND previous_hash <> '' LIMIT 1`, hash, hash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, notFound("The session")
 	}
@@ -571,9 +497,8 @@ func scanDevice(row scanner) (*Device, error) {
 
 // AddDevice implements Store.
 func (s *SQL) AddDevice(ctx context.Context, d *Device) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_devices (`+deviceColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	return s.insert(ctx, d.User, `INSERT INTO identity_devices (`+deviceColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.User, d.Hash, d.Name, d.IP, ftime(d.CreatedAt), ftime(d.LastUsedAt), ftime(d.ExpiresAt))
-	return err
 }
 
 // DeviceByHash implements Store.
@@ -630,10 +555,9 @@ func scanToken(row scanner) (*Token, error) {
 
 // CreateToken implements Store.
 func (s *SQL) CreateToken(ctx context.Context, t *Token) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_tokens (`+tokenColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	return s.insert(ctx, t.User, `INSERT INTO identity_tokens (`+tokenColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.User, t.Name, t.Hash, t.Hint, jsonText(t.Permissions), jsonText(t.Accounts), jsonText(t.AllowFrom), ftime(t.ExpiresAt),
 		ftime(t.CreatedAt), ftime(t.LastUsedAt), t.LastUsedIP)
-	return err
 }
 
 // Token implements Store.
@@ -681,43 +605,6 @@ func (s *SQL) DeleteTokens(ctx context.Context, user store.ID) (int, error) {
 	return int(n), err
 }
 
-const sshKeyColumns = `id, user_id, name, type, bits, fingerprint, public_key, created_at`
-
-func scanSSHKey(row scanner) (*SSHKey, error) {
-	var k SSHKey
-	var created string
-	if err := row.Scan(&k.ID, &k.User, &k.Name, &k.Type, &k.Bits, &k.Fingerprint, &k.PublicKey, &created); err != nil {
-		return nil, err
-	}
-	k.CreatedAt = ptime(created)
-	return &k, nil
-}
-
-// AddSSHKey implements Store.
-func (s *SQL) AddSSHKey(ctx context.Context, k *SSHKey) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_ssh_keys (`+sshKeyColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.User, k.Name, k.Type, k.Bits, k.Fingerprint, k.PublicKey, ftime(k.CreatedAt))
-	if isUnique(err) {
-		var name string
-		if s.db.Reader().QueryRowContext(ctx, `SELECT name FROM identity_ssh_keys WHERE user_id = ? AND fingerprint = ?`, k.User, k.Fingerprint).Scan(&name) != nil {
-			name = k.Fingerprint
-		}
-		return auth.ErrSSHKeyExists.New("name", name)
-	}
-	return err
-}
-
-// SSHKeys implements Store.
-func (s *SQL) SSHKeys(ctx context.Context, user store.ID) ([]*SSHKey, error) {
-	return queryAll(ctx, s.db, scanSSHKey, `SELECT `+sshKeyColumns+` FROM identity_ssh_keys WHERE user_id = ? ORDER BY created_at, id`, user)
-}
-
-// DeleteSSHKey implements Store.
-func (s *SQL) DeleteSSHKey(ctx context.Context, user, id store.ID) error {
-	res, err := s.db.Exec(ctx, `DELETE FROM identity_ssh_keys WHERE id = ? AND user_id = ?`, id, user)
-	return affected(res, err, string(id))
-}
-
 const inviteColumns = `id, user_id, hash, purpose, created_by, created_at, expires_at`
 
 func scanInvite(row scanner) (*Invite, error) {
@@ -732,9 +619,8 @@ func scanInvite(row scanner) (*Invite, error) {
 
 // CreateInvite implements Store.
 func (s *SQL) CreateInvite(ctx context.Context, inv *Invite) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_invites (`+inviteColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	return s.insert(ctx, inv.User, `INSERT INTO identity_invites (`+inviteColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		inv.ID, inv.User, inv.Hash, inv.Purpose, inv.CreatedBy, ftime(inv.CreatedAt), ftime(inv.ExpiresAt))
-	return err
 }
 
 // InviteByHash implements Store.
@@ -760,31 +646,23 @@ func (s *SQL) DeleteInvites(ctx context.Context, user store.ID) error {
 
 // LinkIdentity implements Store.
 func (s *SQL) LinkIdentity(ctx context.Context, l *Link) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_links (user_id, provider, subject, username, linked_at) VALUES (?, ?, ?, ?, ?)
+	err := s.insert(ctx, l.User, `INSERT INTO identity_links (user_id, provider, subject, username, linked_at) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (user_id, provider) DO UPDATE SET subject = excluded.subject, username = excluded.username, linked_at = excluded.linked_at`,
 		l.User, l.Provider, l.Subject, l.Username, ftime(l.LinkedAt))
 	if isUnique(err) {
-		return i18n.ErrAlreadyExists.New("what", "A link to this identity")
+		return auth.ErrIdentityTaken.New("provider", string(l.Provider))
 	}
 	return err
 }
 
-// UserByIdentity implements Store.
-func (s *SQL) UserByIdentity(ctx context.Context, provider store.ID, subject string) (*User, error) {
-	u, err := scanUser(s.db.Reader().QueryRowContext(ctx, `SELECT `+prefixed("u.", userColumns)+` FROM identity_users u
-		JOIN identity_links l ON l.user_id = u.id WHERE l.provider = ? AND l.subject = ?`, provider, subject))
+// LinkedUser implements Store.
+func (s *SQL) LinkedUser(ctx context.Context, provider store.ID, subject string) (store.ID, error) {
+	var id store.ID
+	err := s.db.Reader().QueryRowContext(ctx, `SELECT user_id FROM identity_links WHERE provider = ? AND subject = ?`, provider, subject).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, notFound("The identity")
+		return "", notFound("The identity")
 	}
-	return u, err
-}
-
-func prefixed(prefix, columns string) string {
-	parts := strings.Split(columns, ",")
-	for i, p := range parts {
-		parts[i] = prefix + strings.TrimSpace(p)
-	}
-	return strings.Join(parts, ", ")
+	return id, err
 }
 
 // Links implements Store.
@@ -808,9 +686,8 @@ func (s *SQL) UnlinkIdentity(ctx context.Context, user, provider store.ID) error
 
 // EnableMFA implements Store.
 func (s *SQL) EnableMFA(ctx context.Context, e *MFAEnrollment) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO identity_mfa (user_id, method, enabled_at) VALUES (?, ?, ?)
+	return s.insert(ctx, e.User, `INSERT INTO identity_mfa (user_id, method, enabled_at) VALUES (?, ?, ?)
 		ON CONFLICT (user_id, method) DO UPDATE SET enabled_at = excluded.enabled_at`, e.User, e.Method, ftime(e.EnabledAt))
-	return err
 }
 
 // MFAMethods implements Store.

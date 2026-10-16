@@ -40,32 +40,27 @@ var coreCommands = map[string]string{
 	"getResource":     "resource get",
 	"streamResources": "resource watch",
 
-	"listUsers":        "user list",
-	"getUser":          "user get",
-	"createUser":       "user create",
-	"updateUser":       "user update",
-	"deleteUser":       "user delete",
 	"resetUser":        "user reset",
+	"setUserPassword":  "user password",
 	"issueSignInLink":  "user link",
 	"listUserSessions": "user sessions",
+	"listUserSSHKeys":  "user ssh-keys",
 	"listUserTokens":   "user tokens",
 	"revokeUserToken":  "user revoke-token",
-	"listUserSSHKeys":  "user ssh-keys",
-	"removeUserSSHKey": "user remove-ssh-key",
 	"listRoles":        "role list",
 
 	"getMe":          "me show",
 	"listMySessions": "me sessions",
 	"listMyDevices":  "me devices",
 	"listMyTokens":   "me tokens",
+	"revokeMyToken":  "me revoke-token",
 	"listMySSHKeys":  "me ssh-keys",
 	"listMyPasskeys": "me passkeys",
 	"listMyLinks":    "me links",
 	"listMyMfa":      "me mfa",
 	"getMyAlerts":    "me alerts",
 
-	"saveSessionPreferences": "preferences set",
-	"openCoreAccount":        "account open",
+	"openCoreAccount": "account open",
 }
 
 // handWritten are operations commands of this package cover by hand.
@@ -75,17 +70,16 @@ var handWritten = map[string]string{
 
 // groupTitles are the one-line help of the core's command groups.
 var groupTitles = map[string]string{
-	"changeset":   "Preview, apply and undo change sets",
-	"job":         "Follow, cancel and retry background jobs",
-	"event":       "Read and follow the event timeline",
-	"audit":       "Read and export the audit log",
-	"operation":   "List what the API can do",
-	"kind":        "Describe the kinds of resources",
-	"resource":    "Get any resource by its ID, and follow changes",
-	"user":        "Manage users, their grants and their access",
-	"role":        "List roles and the permission matrix",
-	"me":          "See your own user and how you sign in",
-	"preferences": "Keep your display preferences",
+	"changeset": "Preview, apply and undo change sets",
+	"job":       "Follow, cancel and retry background jobs",
+	"event":     "Read and follow the event timeline",
+	"audit":     "Read and export the audit log",
+	"operation": "List what the API can do",
+	"kind":      "Describe the kinds of resources",
+	"resource":  "Get any resource by its ID, and follow changes",
+	"user":      "Manage users, their grants and their access",
+	"role":      "List roles and the permission matrix",
+	"me":        "See your own user and how you sign in",
 }
 
 // CommandPath is the words of the command for an operation, after
