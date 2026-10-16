@@ -217,8 +217,8 @@ func jsonEqual(a, b json.RawMessage) bool {
 // checkMeta checks the metadata of a resource being written.
 func checkMeta(info *KindInfo, r *Resource) error {
 	var fields []i18n.FieldError
-	if r.Scope.Level != info.Scope {
-		fields = append(fields, i18n.Field("scope.level", i18n.ErrBadValue, "reason", fmt.Sprintf("%s resources are owned at %s level", info.Title, info.Scope)))
+	if !info.OwnedAt(r.Scope.Level) {
+		fields = append(fields, i18n.Field("scope.level", i18n.ErrBadValue, "reason", fmt.Sprintf("%s resources are owned at %s", info.Title, info.levelsText())))
 	} else if err := r.Scope.Validate(); err != nil {
 		fields = append(fields, i18n.Field("scope", i18n.ErrBadValue, "reason", err.Error()))
 	}

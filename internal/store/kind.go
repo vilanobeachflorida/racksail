@@ -183,6 +183,10 @@ type KindInfo struct {
 	// Prefix is the TypeID prefix, short and unique, for example "site".
 	Prefix string
 	Scope  ScopeLevel
+	// Levels are further levels resources of the kind may be owned at,
+	// for kinds whose resources belong wherever they're made, as users
+	// belong to the server, a reseller or an account.
+	Levels []ScopeLevel
 	// Title is the singular display name, "Site".
 	Title string
 	// Plural is lowercase and used in API paths: /api/v1/web/sites.
@@ -197,6 +201,28 @@ type KindInfo struct {
 	Backup      Backup
 	// Singleton kinds have at most one resource per scope, like settings.
 	Singleton bool
+	// Confirm asks people in the panel to confirm it's them before they
+	// change resources of the kind, whatever the change's risk, as for
+	// users and how everyone signs in.
+	Confirm bool
+}
+
+// OwnedAt reports whether resources of the kind may be owned at level.
+func (k *KindInfo) OwnedAt(level ScopeLevel) bool {
+	return level == k.Scope || slices.Contains(k.Levels, level)
+}
+
+// levelsText says where resources of the kind are owned, for messages.
+func (k *KindInfo) levelsText() string {
+	levels := append([]ScopeLevel{k.Scope}, k.Levels...)
+	parts := make([]string, len(levels))
+	for i, l := range levels {
+		parts[i] = string(l)
+	}
+	if len(parts) == 1 {
+		return parts[0] + " level"
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1] + " level"
 }
 
 // Module returns the module part of the kind name.
@@ -406,8 +432,8 @@ func (k *KindOf[S, T]) Default(ctx context.Context, r *Resource) error {
 // the kind's own validator.
 func (k *KindOf[S, T]) Validate(ctx context.Context, r, old *Resource) error {
 	var fields []i18n.FieldError
-	if r.Scope.Level != k.info.Scope {
-		fields = append(fields, i18n.Field("scope.level", i18n.ErrBadValue, "reason", fmt.Sprintf("%s resources are owned at %s level", k.info.Title, k.info.Scope)))
+	if !k.info.OwnedAt(r.Scope.Level) {
+		fields = append(fields, i18n.Field("scope.level", i18n.ErrBadValue, "reason", fmt.Sprintf("%s resources are owned at %s", k.info.Title, k.info.levelsText())))
 	} else if err := r.Scope.Validate(); err != nil {
 		fields = append(fields, i18n.Field("scope", i18n.ErrBadValue, "reason", err.Error()))
 	}
@@ -487,6 +513,14 @@ func checkKind(info *KindInfo, spec, status reflect.Type) error {
 	}
 	if !info.Scope.Valid() {
 		bad("unknown scope level %q", info.Scope)
+	}
+	for i, l := range info.Levels {
+		switch {
+		case !l.Valid():
+			bad("unknown scope level %q", l)
+		case l == info.Scope || slices.Contains(info.Levels[:i], l):
+			bad("scope level %q is named twice", l)
+		}
 	}
 	if strings.TrimSpace(info.Title) == "" || strings.TrimSpace(info.Description) == "" {
 		bad("title and description are required")
