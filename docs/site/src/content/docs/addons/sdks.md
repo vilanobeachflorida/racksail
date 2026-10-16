@@ -12,6 +12,8 @@ An add-on is a program that answers HTTP and JSON on a Unix socket. The panel ca
 | `GET /health` | After starting the add-on, and from its health checks | `{"status": "ok", "version": "1.0.0", "apiVersion": "v1"}`, or `degraded` when it can't take calls |
 | `POST /hooks/<point>` | A hook of the add-on runs | What the hook decided, below |
 | `POST /provide/<capability>/<method>` | The panel uses a capability the add-on provides | What the method returns |
+| `POST /kinds/<kind>/plan` | A change to a resource of a kind the add-on [adds](../hooks/#kinds-an-add-on-adds) is previewed, and again when it is applied | Its plan, [below](#kind-calls) |
+| `POST /kinds/<kind>/apply` | The steps of that plan have run | The resource's status, below |
 | `/routes/<path>`, any method | Someone calls `/api/v1/addons/<id>/<path>`, one of the add-on's [routes](../ui-extensions/#api-routes) | Whatever the route answers |
 | `GET /ui/<path>` | The panel shows one of the add-on's [screens](../ui-extensions/#screens) | The page |
 
@@ -44,6 +46,19 @@ It answers with:
 | modify | `{"changeSet": …}`: the change set it was sent, with new settings for the changes it is about and any changes or effects it adds |
 | observe | Anything; the panel doesn't wait for it to finish its work |
 | system | `{"config": …}`: the patched configuration |
+
+### Kind calls
+
+To plan and apply a resource of a kind the add-on adds, the panel posts to `/kinds/<kind>/plan` and then `/kinds/<kind>/apply`:
+
+| Field | What it holds |
+|---|---|
+| `resource` | The resource: its `id`, `kind`, `scope`, `labels`, `generation`, its settings in `spec`, its `status`, and `deleted` while it is deleted |
+| `action` | When an action of the resource is planned or applied rather than its settings, the action's `name` and its `input` |
+| `dir` | The only directory the plan's steps may touch, the add-on's own, which it can read |
+| `results` | For apply, what each step of the plan returned |
+
+The plan answers `{"steps": […], "effects": […]}`: the agent operations to run, `WriteFile`, `EnsureDir`, `RemovePath`, `ReadFile`, `StatPath` and `ListDir` of paths in `dir`, and what applying does besides, for the preview; an action that changes the resource's settings also answers its new `spec`. Planning must not change anything. Apply answers `{"status": {…}}`, the kind's own status fields, or for an action `{"output": …}`; an error answer fails the change.
 
 ## An example
 

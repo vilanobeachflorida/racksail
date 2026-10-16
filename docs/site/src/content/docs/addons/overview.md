@@ -22,6 +22,7 @@ An add-on is a program from a catalog that runs as its own sandboxed service and
 
 - attach [hooks](../hooks/) to any stage of any operation on any kind: validate hooks that allow or refuse a change, modify hooks that add to it before it's previewed, observe hooks that react once it's applied, and system hooks that patch a service's generated configuration;
 - provide a capability behind a standard interface, such as signing in with an LDAP directory or OpenID Connect, a second step for signing in or a notification channel;
+- add [kinds of resources](../hooks/#kinds-an-add-on-adds) of its own, which it plans and applies, with the preview, history and undo of every kind;
 - add [entries, screens and API routes](../ui-extensions/) to the panel.
 
 Its [manifest](../manifest/), `addon.yaml`, says all of it, with every [permission](../permissions/) it needs: the hook levels, the kinds and fields it reads or writes, the hosts it reaches and the CPU and memory it may use. The person installing it approves them, and the panel enforces them on every call: an add-on only ever receives what it was granted, and only changes what it may.
