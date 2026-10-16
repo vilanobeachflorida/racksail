@@ -21,6 +21,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
@@ -45,6 +46,7 @@ type core struct {
 	webhooks *webhook.Dispatcher
 	queue    *jobs.Manager
 	runner   *reconcile.Runner
+	inbox    *inbox.Service
 	// cancel ends the background work, which work counts, so stop can wait
 	// for it before closing the database.
 	cancel context.CancelFunc
@@ -181,9 +183,13 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		authorizer.SetOwnership(owners)
 	}
 	manager := modules.NewManager(reg, modules.ManagerOptions{Facts: facts, Services: svc, Log: log})
+	attention, err := newInbox(ctx, db, svc, timeline, reg, manager, router, log)
+	if err != nil {
+		return nil, err
+	}
 	c = &core{
 		log: log, agent: agentClient, modules: reg, manager: manager, services: svc, db: db, timeline: timeline, webhooks: dispatcher,
-		queue: queue, runner: runner, cancel: cancel,
+		queue: queue, runner: runner, inbox: attention, cancel: cancel,
 	}
 	c.health = append([]api.HealthCheck{
 		{Name: "agent", Check: func(ctx context.Context) error {
@@ -219,6 +225,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	c.work.Go(func() { runner.Run(ctx, reconcile.ResyncInterval) })
 	c.work.Go(func() { dispatcher.Run(ctx) })
 	c.work.Go(func() { timeline.Run(ctx, time.Hour) })
+	c.work.Go(func() { attention.Run(ctx, time.Minute) })
 	if err := timeline.Publish(ctx, events.Event{
 		Type: events.PanelStarted.Name, Severity: events.PanelStarted.Severity, Scope: store.ServerScope(),
 		Actor: auth.System("core"), Message: "Racksail " + updates.Build().Version + " started.",
@@ -322,7 +329,7 @@ func (c *core) apiServer(authn auth.Authenticator, dev bool) (*api.Server, error
 	}
 	return api.New(api.Options{
 		Auth: authn, Dev: dev, Modules: c.modules, Services: c.services, Timeline: c.timeline, Webhooks: c.webhooks,
-		Health: c.health, AllowFrom: allow, RateLimit: api.RateLimit{PerActor: cfg.API.RateLimit, PerAddress: cfg.API.AnonymousRateLimit},
+		Inbox: c.inbox, Health: c.health, AllowFrom: allow, RateLimit: api.RateLimit{PerActor: cfg.API.RateLimit, PerAddress: cfg.API.AnonymousRateLimit},
 		Metrics: c.metrics, UI: webui.Handler(assets), Log: c.log,
 	}), nil
 }

@@ -272,6 +272,9 @@ func Dev(dataDir string, addrs DevAddresses) (Config, error) {
 	c.Log = Log{Level: "debug", Format: "text"}
 	// A developer's webhook receivers usually run on the same machine.
 	c.Webhooks = Webhooks{AllowNetworks: []string{"127.0.0.0/8", "::1"}}
+	// Everyone racksail dev signs in is the same person, the developer's
+	// browser tabs and test suites at once, so that person isn't limited.
+	c.API.RateLimit = 0
 	return c, c.Validate()
 }
 

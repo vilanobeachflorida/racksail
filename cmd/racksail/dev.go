@@ -124,7 +124,7 @@ func newDevServer(ctx context.Context, cfg config.Config, dataDir string, fresh 
 		machine.Close()
 		return nil, err
 	}
-	if d.core, err = newCore(ctx, cfg, log, agent.NewLocalRuntime(d.runtime), table); err != nil {
+	if d.core, err = newCore(ctx, cfg, log, agent.NewLocalRuntime(d.runtime), devRouter{Table: table, edge: d.edge}); err != nil {
 		machine.Close()
 		return nil, err
 	}
@@ -164,6 +164,19 @@ func newDevServer(ctx context.Context, cfg config.Config, dataDir string, fresh 
 		}
 	}()
 	return d, nil
+}
+
+// devRouter is the routing table the panel writes to in racksail dev, and
+// the edge in the same process that serves it, which the inbox asks about
+// certificates.
+type devRouter struct {
+	*edge.Table
+	edge *edge.Edge
+}
+
+// Certificates lists the certificates the edge serves.
+func (r devRouter) Certificates(ctx context.Context) ([]edge.Certificate, error) {
+	return r.edge.Certificates(ctx), nil
 }
 
 // close stops the edge and the sockets, then the panel's modules, and

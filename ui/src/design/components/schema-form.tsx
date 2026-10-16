@@ -21,6 +21,7 @@ import {
   isFilled,
   setAt,
   type UIHints,
+  withoutEmptyObjects,
 } from "@/lib/forms/model";
 import { type JSONSchema, type SchemaIssue, validate } from "@/lib/schema";
 import { cn } from "@/lib/utils";
@@ -63,14 +64,21 @@ export interface SchemaFormProps {
   label?: (field: FieldNode) => string | undefined;
   /** A translated name for a group of fields. */
   groupLabel?: (name: string) => string;
-  /** Choices for fields that refer to other resources. */
-  resourceOptions?: (field: FieldNode) => readonly { value: string; label: string }[];
+  /** A translated name for one of a field's choices, when there is one; the value itself otherwise. */
+  optionLabel?: (field: FieldNode, value: string) => string | undefined;
+  /**
+   * Choices for fields that refer to other resources. A field it has no
+   * choices for, by answering undefined, takes the resource's ID as text.
+   */
+  resourceOptions?: (field: FieldNode) => readonly { value: string; label: string }[] | undefined;
   submitLabel: ReactNode;
   busy?: boolean;
   onSubmit: (result: FormResult) => void;
   onCancel?: () => void;
   /** Called with every change, for previews that update as people type. */
   onChange?: (value: unknown) => void;
+  /** More of the form that isn't in the schema, such as a resource's labels, shown before the buttons. */
+  extra?: ReactNode;
   className?: string;
 }
 
@@ -329,10 +337,13 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
         {description ? <p className="text-muted-foreground text-xs">{description}</p> : null}
         {items.map((_, i) => {
           const path = `${field.path}[${i}]`;
+          const itemLabel = intl.formatMessage(m.formItem, { item: label, n: i + 1 });
           const child: FieldNode = {
             ...item,
             path,
             key: `${field.key} ${i + 1}`,
+            // Items are named after their list, in the person's language.
+            schema: { ...item.schema, title: itemLabel },
             required: false,
             children: item.children?.map((c) => rebase(c, item.path, path)),
           };
@@ -346,7 +357,7 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
                 variant="ghost"
                 size="icon"
                 className={item.kind === "object" ? "mt-0" : "mt-6"}
-                aria-label={intl.formatMessage(m.formRemove, { item: `${label} ${i + 1}` })}
+                aria-label={intl.formatMessage(m.formRemove, { item: itemLabel })}
                 onClick={() => set(items.filter((__, j) => j !== i))}
                 disabled={locked}
               >
@@ -435,15 +446,15 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
             />
           );
         }
-        if (
-          field.kind === "enum" ||
-          field.hint.widget === "select" ||
-          field.hint.widget === "resource"
-        ) {
+        const resources =
+          field.hint.widget === "resource" ? ctx.props.resourceOptions?.(field) : undefined;
+        if (field.kind === "enum" || field.hint.widget === "select" || resources) {
           const options =
-            field.hint.widget === "resource"
-              ? (ctx.props.resourceOptions?.(field) ?? [])
-              : (field.schema.enum ?? []).map((o) => ({ value: String(o), label: String(o) }));
+            resources ??
+            (field.schema.enum ?? []).map((o) => ({
+              value: String(o),
+              label: ctx.props.optionLabel?.(field, String(o)) ?? String(o),
+            }));
           return (
             <Select
               value={value === undefined || value === null ? "" : String(value)}
@@ -648,7 +659,7 @@ export function SchemaForm(props: SchemaFormProps) {
       submitted ||
       touched.has(path) ||
       [...touched].some((t) => path.startsWith(`${t}.`) || path.startsWith(`${t}[`));
-    for (const issue of validate(schema, value, root)) {
+    for (const issue of validate(schema, withoutEmptyObjects(schema, value, root), root)) {
       const isSecret = sensitive.some((f) => f.path === issue.path);
       if (isSecret || out[issue.path] || !visible(issue.path)) {
         continue;
@@ -759,7 +770,7 @@ export function SchemaForm(props: SchemaFormProps) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setSubmitted(true);
-    const current = latest.current;
+    const current = withoutEmptyObjects(schema, latest.current, root);
     const issues = validate(schema, current, root).filter(
       (i) => !sensitive.some((f) => f.path === i.path),
     );
@@ -825,6 +836,7 @@ export function SchemaForm(props: SchemaFormProps) {
           </CollapsibleContent>
         </Collapsible>
       ) : null}
+      {props.extra}
       <div className="flex flex-wrap justify-end gap-2">
         {props.onCancel ? (
           <Button type="button" variant="outline" onClick={props.onCancel}>

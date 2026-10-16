@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Bell,
   CircleX,
@@ -8,6 +8,7 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/design/components/ui/card";
@@ -26,7 +27,15 @@ import { ariaKeyShortcuts } from "./shortcuts";
 
 const shown = 8;
 
-const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }> = {
+/** How many quick actions the card offers before the command bar. */
+const quickActions = 6;
+
+// New resources of kinds no module starts itself fill the card, with code
+// and words that load apart from the shell.
+const NewResourceActions = lazy(() => import("./screens/resources/quick"));
+
+/** How each severity looks: an icon, and the color that goes with it. */
+export const severityIcons: Record<Severity, { icon: LucideIcon; tone: string }> = {
   info: { icon: Info, tone: "text-muted-foreground" },
   notice: { icon: Bell, tone: "text-info" },
   warning: { icon: TriangleAlert, tone: "text-warning" },
@@ -104,14 +113,17 @@ export function RecentActivity() {
             })}
           </ol>
         )}
+        <Button asChild variant="link" className="mt-3">
+          <Link to="/events">{intl.formatMessage(messages.activityAll)}</Link>
+        </Button>
       </CardContent>
     </Card>
   );
 }
 
 /**
- * The home card of things to start: the command bar and the actions
- * modules offer to the person.
+ * The home card of things to start: the actions modules offer to the
+ * person, new resources of the kinds they may create, and the command bar.
  */
 export function QuickActions() {
   const intl = useIntl();
@@ -119,7 +131,7 @@ export function QuickActions() {
   const navigate = useNavigate();
   const modules = useActiveModules();
   const allowed = usePermission();
-  const actions = moduleCommands(modules, allowed).slice(0, 6);
+  const actions = moduleCommands(modules, allowed).slice(0, quickActions);
   return (
     <Card aria-labelledby="quick-actions-title">
       <CardHeader>
@@ -140,6 +152,9 @@ export function QuickActions() {
             {intl.formatMessage(action.label)}
           </Button>
         ))}
+        <Suspense fallback={null}>
+          <NewResourceActions count={quickActions - actions.length} />
+        </Suspense>
         <Button
           variant="ghost"
           className="justify-start text-muted-foreground"

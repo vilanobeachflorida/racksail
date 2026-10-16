@@ -37,7 +37,7 @@ func KindPath(info *store.KindInfo) string {
 
 // reservedModules are the first path segments of the core's own
 // operations, which no module's kinds may use.
-var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream", "metrics"}
+var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream", "metrics", "search", "inbox"}
 
 // registerKinds generates the operations of every registered kind.
 func (s *Server) registerKinds() {

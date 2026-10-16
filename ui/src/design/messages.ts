@@ -149,6 +149,7 @@ export const designMessages = {
   formShowSecret: m("design.form.showSecret"),
   formRequiredMark: m("design.form.requiredMark"),
   formCreateOnly: m("design.form.createOnly"),
+  formItem: m("design.form.item"),
   formRemove: m("design.form.remove"),
   formAdd: m("design.form.add"),
   formSecretUnchanged: m("design.form.secretUnchanged"),

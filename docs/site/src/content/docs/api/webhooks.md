@@ -9,7 +9,9 @@ Webhooks belong to the whole server, so managing them takes the `core.webhook` p
 
 ## Add a webhook
 
-A webhook needs the URL to send to, the events to send and a signing secret. Make the secret long and random; this makes one in the format [Standard Webhooks](https://www.standardwebhooks.com/) libraries expect:
+In the panel, open **Webhooks** from the command bar, or **Resources → Panel → Webhooks**, and choose **New webhook**. The form previews the change before it's made, and the webhook's page has its state, its history and its events, with **Send a test** in its **Actions**.
+
+From the API, a webhook needs the URL to send to, the events to send and a signing secret. Make the secret long and random; this makes one in the format [Standard Webhooks](https://www.standardwebhooks.com/) libraries expect:
 
 ```sh
 echo "whsec_$(openssl rand -base64 32)"

@@ -21,6 +21,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/inbox"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
@@ -141,6 +142,7 @@ type stack struct {
 	kinds   *store.KindRegistry
 	hooks   *hooks.Registry
 	authz   *auth.RoleAuthorizer
+	inbox   *inbox.Service
 	account store.ID
 	// reseller owns the account the stack makes.
 	reseller store.ID
@@ -246,6 +248,16 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dismissals, err := inbox.NewSQL(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.inbox = inbox.New(ctx, inbox.Options{Sources: []inbox.Registration{
+		{Name: "jobs", Source: inbox.FailedJobs{Queue: q, ChangeSets: engine.Get}},
+		{Name: "resources", Source: inbox.Resources{Store: st, Kinds: kinds}},
+		{Name: "alerts", Source: inbox.Alerts{Events: log}},
+		{Name: "updates", Source: inbox.Updates{Agent: agentClient}, Keep: time.Hour},
+	}, Dismissals: dismissals, Wait: 5 * time.Second, Log: slog.New(slog.DiscardHandler)})
 	q.Start()
 	go dispatcher.Run(ctx)
 	s.actors = map[string]*auth.Actor{
@@ -264,7 +276,7 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 		Services: &modules.Services{
 			Store: st, Kinds: kinds, Pipeline: engine, Jobs: q, Events: log, Audit: log, Agent: agentClient, Secrets: vault, Authorizer: authz,
 		},
-		Timeline: log, Webhooks: dispatcher, RateLimit: limits, Log: slog.New(slog.DiscardHandler),
+		Timeline: log, Webhooks: dispatcher, Inbox: s.inbox, RateLimit: limits, Log: slog.New(slog.DiscardHandler),
 	})
 	s.http = httptest.NewServer(s.server.Handler())
 	t.Cleanup(s.http.Close)

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useIntl } from "react-intl";
 import { Kbd } from "@/design/components/ui/display";
 import { withKeys } from "@/lib/utils";
+import { useGeneralPreferences } from "./general";
 import { messages } from "./messages";
 
 /** Whether the platform's command key is ⌘ rather than Ctrl. */
@@ -67,14 +68,27 @@ export interface Binding {
   global?: boolean;
 }
 
+/** Whether a shortcut is made of character keys alone, such as G then H or ?. */
+export function letterShortcut(keys: Shortcut): boolean {
+  return keys
+    .split(" ")
+    .map(parseChord)
+    .every((c) => !c.mod && !c.alt && c.key.length === 1);
+}
+
 /**
  * Listens for keyboard shortcuts on the whole page. Shortcuts without the
- * command key don't fire while someone types in a field.
+ * command key don't fire while someone types in a field, and those made of
+ * character keys alone not at all when the person turned them off.
  */
 export function useShortcuts(bindings: readonly Binding[]): void {
-  const latest = useRef(bindings);
+  const { preferences } = useGeneralPreferences();
+  const enabled = preferences.letterShortcuts
+    ? bindings
+    : bindings.filter((b) => !letterShortcut(b.keys));
+  const latest = useRef(enabled);
   useEffect(() => {
-    latest.current = bindings;
+    latest.current = enabled;
   });
   useEffect(() => {
     let pending: { first: Chord; until: number } | null = null;

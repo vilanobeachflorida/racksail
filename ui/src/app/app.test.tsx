@@ -279,7 +279,7 @@ describe("pseudo-locales", () => {
     expect(untranslatedText()).toEqual([]);
     unmount();
 
-    for (const path of ["/settings", "/settings/appearance"]) {
+    for (const path of ["/settings", "/settings/general", "/settings/appearance"]) {
       const { unmount: done } = renderApp(greek, path, { locale: "en-XA" });
       await screen.findByRole("heading", { level: 1 });
       expect(untranslatedText(), path).toEqual([]);
@@ -316,16 +316,16 @@ describe("pseudo-locales", () => {
     expect(document.documentElement.dir).toBe("rtl");
   });
 
-  it("can be chosen on the appearance page and are remembered", async () => {
+  it("can be chosen in the general settings and are remembered", async () => {
     const user = userEvent.setup();
-    renderApp(api, "/settings/appearance", { locale: undefined });
-    await screen.findByRole("heading", { level: 1, name: "Appearance" });
+    renderApp(api, "/settings/general", { locale: undefined });
+    await screen.findByRole("heading", { level: 1, name: "General" });
     await user.click(screen.getByRole("combobox", { name: "Language" }));
     await user.click(await screen.findByRole("option", { name: "en-XA" }));
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: pseudoMessage("Appearance", "en-XA"),
+        name: pseudoMessage("General", "en-XA"),
       }),
     ).toBeInTheDocument();
     expect(window.localStorage.getItem("racksail.locale")).toBe("en-XA");

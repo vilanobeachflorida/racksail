@@ -35,6 +35,10 @@ export interface ShellState {
   setCommandOpen: (open: boolean) => void;
   jobsOpen: boolean;
   setJobsOpen: (open: boolean) => void;
+  /** The job the jobs drawer was opened to show, which it expands and scrolls to. */
+  focusedJob: string | null;
+  /** Opens the jobs drawer on one job, such as the one applying a change. */
+  showJob: (id: string) => void;
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
   navOpen: boolean;
@@ -68,7 +72,18 @@ export function ShellStateProvider({
   const available = assistant && isOn(states, "ai") ? assistant : null;
   const docked = useMediaQuery(dockQuery);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [jobsOpen, setJobsOpen] = useState(false);
+  const [jobsOpen, setJobsOpenState] = useState(false);
+  const [focusedJob, setFocusedJob] = useState<string | null>(null);
+  const setJobsOpen = useCallback((open: boolean) => {
+    setJobsOpenState(open);
+    if (!open) {
+      setFocusedJob(null);
+    }
+  }, []);
+  const showJob = useCallback((id: string) => {
+    setFocusedJob(id);
+    setJobsOpenState(true);
+  }, []);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [dock, setDock] = useState<DockState>(loadDock);
@@ -99,6 +114,8 @@ export function ShellStateProvider({
       setCommandOpen,
       jobsOpen,
       setJobsOpen,
+      focusedJob,
+      showJob,
       shortcutsOpen,
       setShortcutsOpen,
       navOpen,
@@ -119,6 +136,9 @@ export function ShellStateProvider({
   }, [
     commandOpen,
     jobsOpen,
+    setJobsOpen,
+    focusedJob,
+    showJob,
     shortcutsOpen,
     navOpen,
     available,

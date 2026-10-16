@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { waitForQuota } from "../quota";
 import { screens } from "../screens";
 
 // Every screen meets WCAG 2.2 AA (docs/architecture/conventions.md): the
@@ -23,6 +24,7 @@ test("every screen meets WCAG 2.2 AA", async ({ page }) => {
   test.setTimeout(30_000 + all.length * 10_000);
   for (const screen of all) {
     await test.step(screen, async () => {
+      await waitForQuota(page.request);
       await page.goto(screen);
       await page.waitForLoadState("networkidle");
       expect.soft(await violations(page), `${screen} doesn't meet WCAG 2.2 AA`).toEqual([]);

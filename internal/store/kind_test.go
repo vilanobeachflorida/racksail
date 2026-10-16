@@ -89,6 +89,12 @@ func TestDefineRejectsBadDefinitions(t *testing.T) {
 			i.Actions = []Action{{Name: "go", Summary: "x", Risk: RiskLow}, {Name: "go", Summary: "x", Risk: RiskLow}}
 		}, "twice"},
 		{"backup reason", func(i *KindInfo) { i.Backup = Backup{Exclude: true} }, "reason"},
+		{"kind without the resource widget", func(i *KindInfo) {
+			i.UI.Fields = map[string]FieldHint{"database": {Kind: "databases.database"}}
+		}, "doesn't show resources"},
+		{"resource field naming no kind", func(i *KindInfo) {
+			i.UI.Fields = map[string]FieldHint{"database": {Widget: "resource", Kind: "Databases"}}
+		}, "isn't a kind's name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,6 +108,15 @@ func TestDefineRejectsBadDefinitions(t *testing.T) {
 	}
 	if err := Define[testSiteSpec, Status](good).Err(); err != nil {
 		t.Errorf("plain Status should be accepted: %v", err)
+	}
+	// A resource field may name its kind, for forms to list its resources,
+	// or leave it out and take an ID.
+	for _, hint := range []FieldHint{{Widget: "resource", Kind: "databases.database"}, {Widget: "resource"}} {
+		info := good
+		info.UI.Fields = map[string]FieldHint{"database": hint}
+		if err := Define[testSiteSpec, Status](info).Err(); err != nil {
+			t.Errorf("a resource field %+v should be accepted: %v", hint, err)
+		}
 	}
 	type noStatus struct{ X int }
 	if err := Define[testSiteSpec, noStatus](good).Err(); err == nil {

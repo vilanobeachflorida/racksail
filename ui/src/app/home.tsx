@@ -11,6 +11,9 @@ import { PanelStatus } from "./status";
 /** Who may see the event timeline, as internal/api checks it. */
 const eventReadPermission = "core.event.read";
 
+// The inbox's code loads apart from the shell; its words are the shell's.
+const InboxCard = lazy(() => import("./screens/inbox/card"));
+
 // One lazy component per card loader, so re-rendering the home screen never
 // loads or remounts a card.
 const lazyCards = new WeakMap<LazyComponent, ReturnType<typeof lazy>>();
@@ -31,17 +34,23 @@ const spans: Record<NonNullable<HomeCard["size"]>, string> = {
 };
 
 /**
- * The home screen: the panel's status, quick actions, recent activity and
- * the cards modules add.
+ * The home screen: what needs the person's attention first, then the
+ * panel's status, quick actions, recent activity and the cards modules add.
  */
 export function Home() {
   const intl = useIntl();
   const modules = useActiveModules();
   const allowed = usePermission();
+  const loading = <Skeleton className="h-40 w-full rounded-lg" />;
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <h1 className="font-semibold text-2xl">{intl.formatMessage(messages.homeTitle)}</h1>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className={spans.large}>
+          <Suspense fallback={loading}>
+            <InboxCard />
+          </Suspense>
+        </div>
         <PanelStatus />
         <QuickActions />
         {allowed(eventReadPermission) ? <RecentActivity /> : null}
@@ -49,7 +58,7 @@ export function Home() {
           const Card = lazyCard(card.card);
           return (
             <div key={card.key} className={cn(spans[card.size ?? "small"])}>
-              <Suspense fallback={<Skeleton className="h-40 w-full rounded-lg" />}>
+              <Suspense fallback={loading}>
                 <Card />
               </Suspense>
             </div>

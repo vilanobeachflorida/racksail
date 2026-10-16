@@ -1,13 +1,14 @@
-import { lazy, type ReactNode, Suspense } from "react";
+import { lazy, type ReactNode, Suspense, useSyncExternalStore } from "react";
 import { useIntl } from "react-intl";
 import type { ExternalToast, toast as sonnerToast } from "sonner";
 import { useOptionalTheme } from "@/design/theme/provider";
 import { cn } from "@/lib/utils";
 import { designMessages } from "../../messages";
 
-// Sonner loads after the shell, the first time a toast is shown or the
-// toaster renders. Toasts made before it has loaded wait for it; Sonner
-// shows those made before its toaster subscribed once it does.
+// Sonner loads the first time a toast is shown, and the toaster puts
+// itself on the page then, rather than with the shell. Toasts made before
+// it has loaded wait for it; Sonner shows those made before its toaster
+// subscribed once it does.
 type SonnerModule = typeof import("sonner");
 let sonner: Promise<SonnerModule> | undefined;
 const loadSonner = () => {
@@ -22,12 +23,29 @@ type PromiseData = Parameters<typeof sonnerToast.promise<unknown>>[1];
 
 let lastId = 0;
 
+// Whether a toast was asked for yet, which the toaster waits for.
+let wanted = false;
+const waiting = new Set<() => void>();
+const subscribe = (notify: () => void) => {
+  waiting.add(notify);
+  return () => {
+    waiting.delete(notify);
+  };
+};
+const isWanted = () => wanted;
+
 // Every toast gets its id here, so callers have it at once to update or
 // dismiss the toast, whether or not Sonner has loaded.
 function show(
   make: (toast: typeof sonnerToast, id: string | number) => void,
   id: string | number = `toast-${++lastId}`,
 ): string | number {
+  if (!wanted) {
+    wanted = true;
+    for (const notify of waiting) {
+      notify();
+    }
+  }
   void loadSonner().then((module) => make(module.toast, id));
   return id;
 }
@@ -64,6 +82,10 @@ const toastClasses =
 export function Toaster() {
   const intl = useIntl();
   const theme = useOptionalTheme();
+  const shown = useSyncExternalStore(subscribe, isWanted, isWanted);
+  if (!shown) {
+    return null;
+  }
   return (
     <Suspense fallback={null}>
       <Sonner

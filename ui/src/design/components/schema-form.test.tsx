@@ -2,7 +2,15 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { buildForm, defaultValue, getAt, humanize, parsePath, setAt } from "@/lib/forms/model";
+import {
+  buildForm,
+  defaultValue,
+  getAt,
+  humanize,
+  parsePath,
+  setAt,
+  withoutEmptyObjects,
+} from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { renderWithProviders } from "@/test/render";
 import { SchemaForm } from "./schema-form";
@@ -81,6 +89,35 @@ describe("the form model", () => {
     expect(getAt(v, "a.b[1]")).toBe(2);
     expect(setAt({ a: 1, b: 2 }, "a", undefined)).toEqual({ b: 2 });
     expect(humanize("alwaysOn")).toBe("Always on");
+  });
+
+  it("leaves out optional objects nobody filled in that can't be empty, and keeps the rest", () => {
+    const owner: JSONSchema = {
+      type: "object",
+      properties: {
+        owner: {
+          type: "object",
+          properties: { level: { type: "string" }, id: { type: "string" } },
+          required: ["level"],
+        },
+        limits: { $ref: "#/$defs/limits" },
+        // Empty, it still means something: turned on with the defaults.
+        cache: { type: "object", properties: { size: { type: "integer" } } },
+        name: { type: "string" },
+      },
+      required: ["limits"],
+      $defs: { limits: { type: "object", properties: { memory: { type: "integer" } } } },
+    };
+    expect(
+      withoutEmptyObjects(owner, { owner: {}, limits: {}, cache: {}, name: "a" }, owner),
+    ).toEqual({
+      limits: {},
+      cache: {},
+      name: "a",
+    });
+    expect(withoutEmptyObjects(owner, { owner: { level: "account" } }, owner)).toEqual({
+      owner: { level: "account" },
+    });
   });
 });
 
@@ -307,5 +344,48 @@ describe("the schema form", () => {
     await userEvent.type(screen.getByRole("textbox", { name: /Domain/ }), "abc");
     expect(onChange).toHaveBeenCalledTimes(3);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ domain: "abc" }));
+  });
+
+  it("offers the resources a field refers to, and takes an ID when it has none to offer", async () => {
+    const onSubmit = vi.fn();
+    const site: JSONSchema = {
+      type: "object",
+      properties: {
+        database: { type: "string", title: "Database" },
+        reseller: { type: "string", title: "Reseller" },
+      },
+    };
+    renderWithProviders(
+      <SchemaForm
+        schema={site}
+        hints={{
+          fields: {
+            database: { widget: "resource", kind: "databases.database" },
+            reseller: { widget: "resource" },
+          },
+        }}
+        resourceOptions={(field) =>
+          field.hint.kind === "databases.database"
+            ? [{ value: "db_01jq0000000000000000000001", label: "shop" }]
+            : undefined
+        }
+        submitLabel="Save"
+        onSubmit={onSubmit}
+      />,
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Database" }));
+    await userEvent.click(await screen.findByRole("option", { name: "shop" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Reseller" }),
+      "rsl_01jq0000000000000000000002",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      spec: {
+        database: "db_01jq0000000000000000000001",
+        reseller: "rsl_01jq0000000000000000000002",
+      },
+      secrets: {},
+    });
   });
 });

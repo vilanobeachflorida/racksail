@@ -153,6 +153,18 @@ func (l *Link) Routes(ctx context.Context) ([]Route, error) {
 	return l.opts.Client.Routes(ctx)
 }
 
+// Certificates lists the certificates the edge serves, with their state. A
+// stopped edge serves none and isn't started to say so.
+func (l *Link) Certificates(ctx context.Context) ([]Certificate, error) {
+	l.mu.Lock()
+	active := len(l.active) > 0
+	l.mu.Unlock()
+	if !active && !l.running(ctx) {
+		return []Certificate{}, nil
+	}
+	return l.opts.Client.Certificates(ctx)
+}
+
 // flush sends the changes that waited. The caller holds l.mu.
 func (l *Link) flush(ctx context.Context) error {
 	for _, owner := range slices.Sorted(maps.Keys(l.pending)) {

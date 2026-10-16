@@ -110,7 +110,11 @@ var Kind = store.Define[WebhookSpec, WebhookStatus](store.KindInfo{
 	UI: store.UIHints{
 		Icon: "webhook", TitleField: "url", SubtitleField: "description",
 		Columns: []store.Column{{Field: "spec.url", Format: "link"}, {Field: "spec.events", Format: "badge"}, {Field: "status.phase", Format: "status"}, {Field: "status.lastDelivery", Format: "date"}},
-		Fields:  map[string]store.FieldHint{"secret": {Sensitive: true, Widget: "password"}, "events": {Order: 1}, "url": {Order: 0}, "owner": {Advanced: true}},
+		// Fields without an order come first, so every field has one.
+		Fields: map[string]store.FieldHint{
+			"url": {Order: 1}, "events": {Order: 2}, "minSeverity": {Order: 3}, "secret": {Order: 4, Sensitive: true, Widget: "password"},
+			"description": {Order: 5}, "disabled": {Order: 6}, "owner": {Order: 7, Advanced: true},
+		},
 	},
 }).WithValidator(validate)
 

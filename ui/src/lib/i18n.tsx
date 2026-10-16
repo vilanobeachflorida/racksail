@@ -19,6 +19,30 @@ const appCatalogs = import.meta.glob<Messages>(
 const moduleCatalogs = import.meta.glob<Messages>("../modules/*/messages/*.json", {
   import: "default",
 });
+// The shell's screens, such as the lists and details of resources, the
+// jobs and the timeline, have a catalog of their own that loads with the
+// first of them, so the shell shows without it. The attention inbox, the
+// home screen's first card, has a small one of its own that loads with it,
+// and the core's kinds have their words apart, for the home screen to name
+// them without loading the screens' catalog.
+const screenCatalogs = import.meta.glob<Messages>(
+  [
+    "../app/screens/messages/*.json",
+    "../app/screens/inbox/messages/*.json",
+    "../app/screens/kinds/messages/*.json",
+  ],
+  { import: "default" },
+);
+
+/** The catalogs of the shell's screens: their words, the inbox's, and the core's kinds'. */
+export type ScreenCatalog = "screens" | "inbox" | "kinds";
+
+// The screens name the core's kinds too, so their catalog brings those words.
+const screenCatalogDirs: Record<ScreenCatalog, string[]> = {
+  screens: ["../app/screens/messages", "../app/screens/kinds/messages"],
+  inbox: ["../app/screens/inbox/messages"],
+  kinds: ["../app/screens/kinds/messages"],
+};
 
 function localeOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1, -".json".length);
@@ -95,6 +119,31 @@ export async function loadMessages(
   return Object.assign({}, ...(await Promise.all(loads)));
 }
 
+/**
+ * Loads the messages of the shell's screens, of the inbox or of the core's
+ * kinds, English with any translation on top, as loadMessages does for the
+ * shell.
+ */
+export async function loadScreenMessages(
+  locale: string,
+  catalog: ScreenCatalog = "screens",
+): Promise<Messages> {
+  if (isPseudoLocale(locale)) {
+    const [{ pseudoMessages }, english] = await Promise.all([
+      import("./pseudo"),
+      loadScreenMessages(defaultLocale, catalog),
+    ]);
+    return pseudoMessages(english, locale);
+  }
+  const layers = locale === defaultLocale ? [defaultLocale] : [defaultLocale, locale];
+  const loaded = await Promise.all(
+    layers.flatMap((layer) =>
+      screenCatalogDirs[catalog].map((dir) => load(screenCatalogs, `${dir}/${layer}.json`)),
+    ),
+  );
+  return Object.assign({}, ...loaded);
+}
+
 function load(catalogs: Record<string, Loader>, path: string): Promise<Messages> {
   const loader = catalogs[path];
   return loader ? loader() : Promise.resolve({});
@@ -168,22 +217,49 @@ export interface I18nProviderProps {
   messages: Messages;
   /** Called for formatting problems, such as a missing message; tests make it throw. */
   onError?: IntlConfig["onError"];
+  /** The time zone dates and times show in; the browser's when left out. */
+  timeZone?: string;
+  /** A 12-hour or 24-hour clock; the language's when left out. */
+  hourCycle?: "h12" | "h23";
   children: ReactNode;
 }
 
+const ShownLocaleContext = createContext<string>(defaultLocale);
+
+/**
+ * The locale the panel shows, pseudo-locales included, which react-intl
+ * formats as the language they stand in for.
+ */
+export function useShownLocale(): string {
+  return useContext(ShownLocaleContext);
+}
+
 /** Provides react-intl with the loaded messages. Pseudo-locales format like English. */
-export function I18nProvider({ locale, messages, onError, children }: I18nProviderProps) {
+export function I18nProvider({
+  locale,
+  messages,
+  onError,
+  timeZone,
+  hourCycle,
+  children,
+}: I18nProviderProps) {
+  const language = isPseudoLocale(locale) ? (locale === "ar-XB" ? "ar" : defaultLocale) : locale;
   return (
     <IntlProvider
-      locale={isPseudoLocale(locale) ? (locale === "ar-XB" ? "ar" : defaultLocale) : locale}
+      // The clock rides on the locale as a Unicode extension, so every
+      // date and time formatter follows it.
+      locale={hourCycle && !language.includes("-u-") ? `${language}-u-hc-${hourCycle}` : language}
       defaultLocale={defaultLocale}
       messages={messages}
       {...(onError ? { onError } : {})}
+      {...(timeZone ? { timeZone } : {})}
     >
-      {/* Radix components set their own direction, left to right unless told otherwise. */}
-      <Direction.Provider dir={isRightToLeft(locale) ? "rtl" : "ltr"}>
-        {children}
-      </Direction.Provider>
+      <ShownLocaleContext value={locale}>
+        {/* Radix components set their own direction, left to right unless told otherwise. */}
+        <Direction.Provider dir={isRightToLeft(locale) ? "rtl" : "ltr"}>
+          {children}
+        </Direction.Provider>
+      </ShownLocaleContext>
     </IntlProvider>
   );
 }

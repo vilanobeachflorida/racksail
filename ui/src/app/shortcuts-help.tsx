@@ -6,10 +6,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/design/components/ui/dialog";
+import { useGeneralPreferences } from "./general";
 import { messages } from "./messages";
 import { moduleCommands, useActiveModules, usePermission } from "./modules";
 import { useShell } from "./shell-state";
-import { ShortcutKeys } from "./shortcuts";
+import { letterShortcut, ShortcutKeys } from "./shortcuts";
 
 /** The shell's own shortcuts, shown in the help and bound in the shell. */
 export const shellShortcuts = [
@@ -28,7 +29,11 @@ export function ShortcutsHelp() {
   const shell = useShell();
   const modules = useActiveModules();
   const allowed = usePermission();
-  const fromModules = moduleCommands(modules, allowed).filter((c) => c.shortcut);
+  const { preferences } = useGeneralPreferences();
+  const shown = (keys: string) => preferences.letterShortcuts || !letterShortcut(keys);
+  const fromModules = moduleCommands(modules, allowed).filter(
+    (c) => c.shortcut && shown(c.shortcut),
+  );
   return (
     <Dialog open={shell.shortcutsOpen} onOpenChange={shell.setShortcutsOpen}>
       <DialogContent>
@@ -36,9 +41,14 @@ export function ShortcutsHelp() {
           <DialogTitle>{intl.formatMessage(messages.shortcutsTitle)}</DialogTitle>
           <DialogDescription>{intl.formatMessage(messages.shortcutsDescription)}</DialogDescription>
         </DialogHeader>
+        {preferences.letterShortcuts ? null : (
+          <p className="text-muted-foreground text-sm">
+            {intl.formatMessage(messages.shortcutsLettersOff)}
+          </p>
+        )}
         <dl className="grid grid-cols-[1fr_auto] gap-x-6 gap-y-2 text-sm">
           {shellShortcuts
-            .filter((s) => s.keys !== "mod+." || shell.assistant)
+            .filter((s) => (s.keys !== "mod+." || shell.assistant) && shown(s.keys))
             .map((s) => (
               <div key={s.keys} className="contents">
                 <dt>{intl.formatMessage(s.label)}</dt>

@@ -74,7 +74,7 @@ test/                    end-to-end harness and fixtures
 
 - TypeScript strict. No `any` in new code.
 - Components take colors, spacing, radii and type only from theme tokens. Biome and a custom lint rule reject hard-coded colors.
-- Every user-visible string goes through react-intl. Messages live in `ui/src/modules/<id>/messages/en.json` or `ui/src/app/messages/en.json`.
+- Every user-visible string goes through react-intl. Messages live in `ui/src/modules/<id>/messages/en.json` or `ui/src/app/messages/en.json`, those of the panel's own screens, which load with them, in `ui/src/app/screens/messages/en.json`, those of the attention inbox, which the home screen loads first, in `ui/src/app/screens/inbox/messages/en.json`, and the words of the core's kinds, which the screens and the home screen share, in `ui/src/app/screens/kinds/messages/en.json`.
 - Use CSS logical properties (`margin-inline-start`, not `margin-left`) so right-to-left works.
 - Keyboard first: every action is reachable by keyboard and from the command bar. Visible focus rings everywhere.
 - WCAG 2.2 AA. axe runs in CI.

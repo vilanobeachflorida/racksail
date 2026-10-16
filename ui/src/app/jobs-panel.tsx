@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { useIntl } from "react-intl";
 import {
   type JobAction,
@@ -59,9 +59,15 @@ function LiveJobLog({ job }: { job: Job }) {
 export default function Jobs({
   open,
   onOpenChange,
+  focusJob,
+  footer,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The job the drawer was opened for. */
+  focusJob?: string | null;
+  /** What goes under the list, such as a link to every job. */
+  footer?: ReactNode;
 }) {
   const intl = useIntl();
   const api = useApi();
@@ -99,6 +105,8 @@ export default function Jobs({
       actions={actions}
       onCancel={(job) => void act(job, "cancel")}
       onRetry={(job) => void act(job, "retry")}
+      focusJob={focusJob}
+      footer={footer}
     />
   );
 }

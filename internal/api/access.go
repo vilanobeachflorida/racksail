@@ -129,6 +129,13 @@ func refused(ctx context.Context, perm auth.Permission, kind string, subject sto
 // or resources, so pages stay full. Either way each resource is authorized
 // on its own before it is returned.
 func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Query) (*store.Page, error) {
+	return list(ctx, authz, st, q, true)
+}
+
+// list is List. With record false a list the actor may not see at all
+// records nothing, for searches that look through every kind and leave out
+// the ones the actor can't read.
+func list(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Query, record bool) (*store.Page, error) {
 	actor, err := Actor(ctx)
 	if err != nil {
 		return nil, err
@@ -153,7 +160,9 @@ func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Q
 	case i18n.ErrForbidden.Is(err):
 		objects, ok := authz.(auth.ObjectAuthorizer)
 		if !ok {
-			refused(ctx, perm, q.Kind, "", scope, err)
+			if record {
+				refused(ctx, perm, q.Kind, "", scope, err)
+			}
 			return nil, err
 		}
 		ids, objErr := objects.Objects(ctx, actor, perm, q.Scope)
@@ -161,7 +170,9 @@ func List(ctx context.Context, authz auth.Authorizer, st store.Reader, q store.Q
 			return nil, objErr
 		}
 		if len(ids) == 0 {
-			refused(ctx, perm, q.Kind, "", scope, err)
+			if record {
+				refused(ctx, perm, q.Kind, "", scope, err)
+			}
 			return nil, err
 		}
 		if len(q.IDs) > 0 {
