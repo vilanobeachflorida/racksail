@@ -159,7 +159,8 @@ type FieldHint struct {
 	CreateOnly bool `json:"createOnly,omitempty"`
 	Order      int  `json:"order,omitempty"`
 	// Kind is the kind of the resources a field with the resource widget
-	// names by ID, such as databases.database, so forms can offer them.
+	// names by ID, such as databases.database, so forms can offer them to
+	// choose from. Without it, forms take the ID as text.
 	Kind string `json:"kind,omitempty"`
 }
 
@@ -561,10 +562,11 @@ func checkKind(info *KindInfo, spec, status reflect.Type) error {
 	for _, path := range slices.Sorted(maps.Keys(info.UI.Fields)) {
 		hint := info.UI.Fields[path]
 		switch {
-		case hint.Widget == "resource" && !kindNamePattern.MatchString(hint.Kind):
-			bad("field %q shows resources, so its hint names their kind", path)
-		case hint.Kind != "" && hint.Widget != "resource":
+		case hint.Kind == "":
+		case hint.Widget != "resource":
 			bad("field %q names a kind but doesn't show resources", path)
+		case !kindNamePattern.MatchString(hint.Kind):
+			bad("field %q names %q, which isn't a kind's name", path, hint.Kind)
 		}
 	}
 	return errors.Join(errs...)
