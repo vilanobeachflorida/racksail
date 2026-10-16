@@ -76,7 +76,8 @@ help:
 	@echo "make catalog     check the catalog and build its index into $(CATALOG_OUT)"
 	@echo "make licenses    check that every dependency's license is allowed"
 	@echo "make vulncheck   scan the Go code and every lockfile for known vulnerabilities"
-	@echo "make fuzz        run every fuzz target for FUZZ_TIME ($(FUZZ_TIME)) each"
+	@echo "make fuzz        run every fuzz target for FUZZ_TIME ($(FUZZ_TIME)) each, or FUZZ_TARGET=dir:FuzzName alone"
+	@echo "make fuzz-list   list the fuzz targets as dir:FuzzName, as CI's daily fuzzing runs them"
 	@echo "make gen-check   fail when the generated files differ from what make gen writes"
 	@echo "make sdk-check   test the add-on SDKs"
 
@@ -225,7 +226,7 @@ CATALOG_PUBLIC ?= catalog/keys/official.pub
 FUZZ_TIME ?= 1m
 
 .PHONY: release deb sbom notices iso e2e e2e-local e2e-pseudo e2e-screenshots e2e-check cloud-image catalog \
-	catalog-check catalog-publish licenses vulncheck fuzz gen-check sdk-check ci-lint
+	catalog-check catalog-publish licenses vulncheck fuzz fuzz-list gen-check sdk-check ci-lint
 
 check: sdk-check e2e-check
 
@@ -352,16 +353,25 @@ vulncheck:
 	cd sdk/go && $(GO) run $(GOVULNCHECK) ./...
 	$(GO) run $(OSV_SCANNER) scan source --config packaging/osv-scanner.toml $(foreach f,$(shell git ls-files '*go.mod' '*package-lock.json' | grep -v '^\.'),--lockfile $(f))
 
-# Runs every fuzz target in the code for FUZZ_TIME each, from its package's
-# directory so a nested module's targets run too; CI does it every day. An
-# input that fails is saved in the package's testdata/fuzz, from where go test
-# replays it on every run: commit it with the fix.
+# Every fuzz target in the code, as its package's directory and its name,
+# such as catalog/tool:FuzzCheckSVG; a nested module's targets count too.
+FUZZ_TARGETS = $(shell git grep -l '^func Fuzz' -- '*_test.go' | grep -v '^\.' | xargs -n 1 dirname | sort -u | \
+	while read -r dir; do sed -n "s|^func \(Fuzz[A-Za-z0-9_]*\).*|$$dir:\1|p" "$$dir"/*_test.go; done)
+FUZZ_TARGET ?=
+
+fuzz-list:
+	@printf '%s\n' $(FUZZ_TARGETS)
+
+# Runs every fuzz target, or FUZZ_TARGET alone, for FUZZ_TIME each, from its
+# package's directory so a nested module's targets run too. CI fuzzes every
+# target every day, each in a job of its own. An input that fails is saved in
+# the package's testdata/fuzz, from where go test replays it on every run:
+# commit it with the fix.
 fuzz:
-	@git grep -l '^func Fuzz' -- '*_test.go' | grep -v '^\.' | xargs -n 1 dirname | sort -u | while read -r dir; do \
-		for target in $$(sed -n 's/^func \(Fuzz[A-Za-z0-9_]*\)(.*/\1/p' "$$dir"/*_test.go); do \
-			echo "fuzzing $$target in $$dir for $(FUZZ_TIME)"; \
-			(cd "$$dir" && $(GO) test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZ_TIME) .) || exit 1; \
-		done; \
+	@for t in $(or $(FUZZ_TARGET),$(FUZZ_TARGETS)); do \
+		dir=$${t%%:*}; target=$${t#*:}; \
+		echo "fuzzing $$target in $$dir for $(FUZZ_TIME)"; \
+		(cd "$$dir" && $(GO) test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZ_TIME) .) || exit 1; \
 	done
 
 # make gen rewrites the generated files; any difference means they were
