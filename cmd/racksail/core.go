@@ -228,7 +228,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	// Drift the agent reports is put back as soon as it is found, rather
 	// than at the next resync.
 	if src, ok := agentClient.(agent.EventSource); ok {
-		c.work.Go(func() { followAgent(ctx, src, st, runner, timeline, log) })
+		c.work.Go(func() { followAgent(ctx, src, runner, timeline, log) })
 	}
 	return c, nil
 }
@@ -298,7 +298,7 @@ func (c *core) stop(ctx context.Context) {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		c.log.Warn("the reconcile queue, webhook deliveries or the timeline's pruning didn't stop in time")
+		c.log.Warn("the reconcile queue, webhook deliveries, the timeline's pruning or following the agent didn't stop in time")
 	}
 	c.manager.Shutdown(ctx)
 	if err := c.db.Close(); err != nil {
