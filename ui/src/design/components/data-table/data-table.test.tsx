@@ -231,6 +231,42 @@ describe("the data table", () => {
     expect(screen.getByRole("toolbar")).toHaveTextContent("4 selected");
   });
 
+  it("counts and acts on the selected rows the search leaves in view", async () => {
+    const restart = vi.fn();
+    renderTable({
+      bulkActions: (selected) => (
+        <Button size="sm" onClick={() => restart(selected.map((s) => s.id))}>
+          Restart
+        </Button>
+      ),
+    });
+    for (const domain of ["example.com", "shop2.example.org", "shop10.example.org"]) {
+      await userEvent.click(screen.getByRole("checkbox", { name: `Select ${domain}` }));
+    }
+    const toolbar = () => screen.getByRole("toolbar", { name: "Actions for the selected rows" });
+    expect(within(toolbar()).getByText("3 selected")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter rows" }), "shop1");
+    expect(
+      within(toolbar()).getByText(
+        "1 selected; actions leave out 2 more that the search or filters hide",
+      ),
+    ).toBeInTheDocument();
+    await userEvent.click(within(toolbar()).getByRole("button", { name: "Restart" }));
+    expect(restart).toHaveBeenCalledWith(["s2"]);
+
+    // With every selected row hidden, there's nothing to act on.
+    await userEvent.clear(screen.getByRole("searchbox", { name: "Filter rows" }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter rows" }), "blog");
+    expect(
+      within(toolbar()).getByText(
+        "0 selected; actions leave out 3 more that the search or filters hide",
+      ),
+    ).toBeInTheDocument();
+    expect(within(toolbar()).queryByRole("button", { name: "Restart" })).not.toBeInTheDocument();
+    await userEvent.clear(screen.getByRole("searchbox", { name: "Filter rows" }));
+    expect(within(toolbar()).getByText("3 selected")).toBeInTheDocument();
+  });
+
   it("saves the current view and brings it back", async () => {
     renderTable();
     await userEvent.type(screen.getByRole("searchbox", { name: "Filter rows" }), "shop");

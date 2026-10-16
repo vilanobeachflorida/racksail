@@ -180,7 +180,7 @@
   "design.table.columns": "Columns",
   "design.table.rows": "{count, plural, one {# row} other {# rows}}",
   "design.table.bulkActions": "Actions for the selected rows",
-  "design.table.selected": "{count, plural, one {# selected} other {# selected}}",
+  "design.table.selected": "{count, plural, one {# selected} other {# selected}}{hidden, plural, =0 {} one {; actions leave out # more that the search or filters hide} other {; actions leave out # more that the search or filters hide}}",
   "design.table.clearSelection": "Clear selection",
   "design.table.selectAll": "Select all rows",
   "design.table.selectRow": "Select {row}",
