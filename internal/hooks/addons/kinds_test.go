@@ -85,11 +85,14 @@ func TestKindManifests(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, manifest := range map[string]string{
-		"without the system level":  strings.Replace(kindsManifest, "hooks: [validate, modify, observe, system]", "hooks: [validate, modify, observe]", 1),
-		"in the core's namespace":   strings.Replace(kindsManifest, "name: guard.rule", "name: core.rule", 1),
-		"in two namespaces":         strings.Replace(kindsManifest, "routes:", "  - {name: other.thing, prefix: oth, scope: server, title: Thing, plural: things, description: A thing., schema: {type: object}}\nroutes:", 1),
-		"with an action of no risk": strings.Replace(kindsManifest, "risk: low", "risk: none", 1),
-		"for an account to install": kindsManifest,
+		"without the system level":       strings.Replace(kindsManifest, "hooks: [validate, modify, observe, system]", "hooks: [validate, modify, observe]", 1),
+		"in the core's namespace":        strings.Replace(kindsManifest, "name: guard.rule", "name: core.rule", 1),
+		"where the panel's settings are": strings.Replace(kindsManifest, "name: guard.rule", "name: settings.rule", 1),
+		"where its own add-ons are":      strings.Replace(kindsManifest, "name: guard.rule", "name: addons.rule", 1),
+		"where every resource is listed": strings.Replace(kindsManifest, "name: guard.rule", "name: resources.rule", 1),
+		"in two namespaces":              strings.Replace(kindsManifest, "routes:", "  - {name: other.thing, prefix: oth, scope: server, title: Thing, plural: things, description: A thing., schema: {type: object}}\nroutes:", 1),
+		"with an action of no risk":      strings.Replace(kindsManifest, "risk: low", "risk: none", 1),
+		"for an account to install":      kindsManifest,
 	} {
 		man, err := hooks.ParseAddonManifest([]byte(manifest))
 		if name == "for an account to install" {
@@ -219,9 +222,16 @@ func TestAddonKinds(t *testing.T) {
 	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "core.addon", Scope: store.ServerScope(), Spec: spec(t, web)}); !ErrKindTaken.Is(err) {
 		t.Errorf("an add-on adding kinds in the web module's namespace: %v", err)
 	}
+	// Nor a module's, though the module has no kinds yet.
+	dns := withKinds(t, strings.NewReplacer("id: site-guard", "id: copycat", "name: guard.rule", "name: dns.zone", "prefix: grule", "prefix: cpz").Replace(kindsManifest))
+	dns.ID = "copycat"
+	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "core.addon", Scope: store.ServerScope(), Spec: spec(t, dns)}); !ErrKindTaken.Is(err) ||
+		!strings.Contains(i18n.From(err).Message, "the dns module") {
+		t.Errorf("an add-on adding kinds in the namespace of a module without kinds: %v", err)
+	}
 
-	// While it doesn't run, its kind's resources can't change; and it
-	// can't go, or drop the kind, while they exist.
+	// While it doesn't run, its kind's resources can't change; and while it
+	// runs, it can't go, or drop the kind, while they exist.
 	off := withKinds(t, kindsManifest)
 	off.Enabled = false
 	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: "core.addon", ID: addonID, Spec: spec(t, off)}); err != nil {
@@ -236,7 +246,7 @@ func TestAddonKinds(t *testing.T) {
 	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpUpdate, Kind: "core.addon", ID: addonID, Spec: spec(t, withKinds(t, kindsManifest))}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}); !ErrKindInUse.Is(err) {
+	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}); !ErrKindRemove.Is(err) {
 		t.Errorf("removing the add-on while a rule exists: %v", err)
 	}
 	dropped := withKinds(t, guardManifest)
@@ -278,7 +288,7 @@ func TestAddonKinds(t *testing.T) {
 	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "guard.rule", ID: sticky}); err != nil || cs.State != changeset.StateFailed {
 		t.Fatalf("a delete the add-on can't undo = %v %+v", err, cs)
 	}
-	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}); !ErrKindInUse.Is(err) {
+	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}); !ErrKindRemove.Is(err) {
 		t.Errorf("removing the add-on while a rule is still being deleted: %v", err)
 	}
 	e.fake.mu.Lock()
@@ -293,7 +303,7 @@ func TestAddonKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := cs.Changes[0].ID
-	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}, changeset.Change{Op: changeset.OpDelete, Kind: "guard.rule", ID: last}); !ErrKindInUse.Is(err) {
+	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}, changeset.Change{Op: changeset.OpDelete, Kind: "guard.rule", ID: last}); !ErrKindRemove.Is(err) {
 		t.Errorf("the add-on before its last rule: %v", err)
 	}
 	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "guard.rule", ID: last}, changeset.Change{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}); err != nil || cs.State != changeset.StateApplied {
@@ -303,6 +313,81 @@ func TestAddonKinds(t *testing.T) {
 		_, ok := e.kinds.Get("guard.rule")
 		return !ok && !e.registry.Known("guard.rule.create.validate")
 	})
+}
+
+// An add-on that doesn't run can still be removed, as safe mode is there
+// for: the resources of its kinds go with it, those still being deleted
+// included, without the add-on to undo what it did for them, which the
+// preview says. Until it goes, they stay as they are.
+func TestRemovingAnAddonThatDoesntRun(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "core.addon", Scope: store.ServerScope(), Spec: spec(t, withKinds(t, kindsManifest))})
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("installing: %v %+v", err, cs)
+	}
+	addonID := cs.Changes[0].ID
+	rule := func(pattern string) store.ID {
+		t.Helper()
+		cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "guard.rule", Scope: store.ServerScope(), Spec: json.RawMessage(`{"pattern":"` + pattern + `"}`)})
+		if err != nil || cs.State != changeset.StateApplied {
+			t.Fatalf("a rule: %v %+v", err, cs)
+		}
+		return cs.Changes[0].ID
+	}
+	kept, stuck := rule("wp-admin"), rule("xmlrpc")
+	e.fake.mu.Lock()
+	e.fake.failDeletes = true
+	e.fake.mu.Unlock()
+	if cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "guard.rule", ID: stuck}); err != nil || cs.State != changeset.StateFailed {
+		t.Fatalf("a delete the add-on can't undo = %v %+v", err, cs)
+	}
+	if err := e.runtime.EnterSafeMode(ctx, e.admin, "the site guard crashes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, ok := e.runtime.Running("site-guard"); ok {
+		t.Fatal("the add-on runs in safe mode")
+	}
+	if _, err := e.submit(e.admin, changeset.Change{Op: changeset.OpDelete, Kind: "guard.rule", ID: kept}); !ErrKindOff.Is(err) {
+		t.Errorf("deleting a rule while the add-on doesn't run: %v", err)
+	}
+
+	removal := changeset.Request{Actor: e.admin, DryRun: true, Changes: []changeset.Change{{Op: changeset.OpDelete, Kind: "core.addon", ID: addonID}}}
+	preview, err := e.engine.Submit(ctx, removal)
+	if err != nil {
+		t.Fatalf("previewing the removal: %v", err)
+	}
+	if len(preview.Changes) != 2 || preview.Changes[1].Op != changeset.OpDelete || preview.Changes[1].ID != kept ||
+		preview.Changes[1].Source.Type != hooks.OwnerCore || preview.Changes[1].Source.Name != "addons" {
+		t.Fatalf("the removal's changes = %s", mustJSON(preview.Changes))
+	}
+	var says bool
+	for _, eff := range preview.Effects {
+		says = says || (eff.Action == "keep" && eff.Target == string(kept) && strings.Contains(eff.Detail, "Site guard"))
+	}
+	if !says {
+		t.Errorf("the preview doesn't say what stays: %s", mustJSON(preview.Effects))
+	}
+	removal.DryRun = false
+	if cs, err := e.engine.Submit(ctx, removal); err != nil {
+		t.Fatalf("removing the add-on: %v", err)
+	} else if _, err := e.queue.Wait(ctx, cs.Job); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the add-on and its rules are gone", func() bool {
+		_, errAddon := e.store.Get(ctx, addonID)
+		_, errKept := e.store.Get(ctx, kept)
+		_, errStuck := e.store.Get(ctx, stuck)
+		_, registered := e.kinds.Get("guard.rule")
+		return store.ErrNotFound.Is(errAddon) && store.ErrNotFound.Is(errKept) && store.ErrNotFound.Is(errStuck) && !registered
+	})
+	e.fake.mu.Lock()
+	defer e.fake.mu.Unlock()
+	for _, c := range e.fake.kindCalls {
+		if c.call.Resource.ID == kept && c.call.Resource.Deleted {
+			t.Errorf("the add-on that doesn't run was asked to %s the rule", c.what)
+		}
+	}
 }
 
 // A status the add-on reports that its kind's status schema doesn't allow
@@ -401,6 +486,44 @@ func TestLoadKindsAsThePanelStarts(t *testing.T) {
 	if kinds, _, _ := start(); func() bool { _, ok := kinds.Get("guard.rule"); return ok }() {
 		t.Error("the kind of an add-on being removed is registered")
 	}
+}
+
+// A kind in the namespace of a module, as one installed before the module
+// was there could be, isn't registered as the panel starts, so the module's
+// kinds never meet it; its add-on's status says so.
+func TestLoadKindsLeavesModulesTheirNamespaces(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	man := strings.NewReplacer("name: guard.rule", "name: dns.rule", "prefix: grule", "prefix: dnsr").Replace(kindsManifest)
+	raw := spec(t, withKinds(t, man))
+	if err := e.store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: store.NewID("addon"), Kind: Addon.Name(), Scope: store.ServerScope()}, Spec: raw})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	kinds := store.NewKindRegistry()
+	for _, k := range []store.Kind{siteKind, Addon, AccountAddon, recipes.CatalogKind} {
+		if err := kinds.Register(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rt := NewRuntime(Options{Registry: hooks.NewRegistry(), Store: e.store, Kinds: kinds, Reconcilers: reconcile.NewRegistry(), Modules: []string{"dns"}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	rt.LoadKinds(ctx)
+	if _, ok := kinds.Get("dns.rule"); ok {
+		t.Error("an add-on's kind took the dns module's namespace")
+	}
+	if problems := rt.declareKinds("site-guard", "", mustManifest(t, man)); len(problems) != 1 || !strings.Contains(problems[0], "the dns module keeps") {
+		t.Errorf("what declaring it says = %v", problems)
+	}
+}
+
+func mustManifest(t *testing.T, manifest string) *hooks.AddonManifest {
+	t.Helper()
+	man, err := hooks.ParseAddonManifest([]byte(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return man
 }
 
 // A new version of an add-on brings a new definition of its kind: the

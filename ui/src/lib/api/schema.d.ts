@@ -9073,10 +9073,10 @@ export interface components {
             /** @description Which contributor it was, such as an add-on's id and version */
             name?: string;
             /**
-             * @description Who contributed it: the request itself, a hook, a rule, an add-on or a module
+             * @description Who contributed it: the request itself, a hook, a rule, an add-on, a module or the panel itself
              * @enum {string}
              */
-            type: "request" | "hook" | "rule" | "addon" | "module";
+            type: "request" | "hook" | "rule" | "addon" | "module" | "core";
         };
         SshKeysOutputBody: {
             /** @description The SSH public keys */

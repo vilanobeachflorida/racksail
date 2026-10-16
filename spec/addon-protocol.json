@@ -974,13 +974,14 @@
             "type": "string"
           },
           "type": {
-            "description": "Who contributed it: the request itself, a hook, a rule, an add-on or a module",
+            "description": "Who contributed it: the request itself, a hook, a rule, an add-on, a module or the panel itself",
             "enum": [
               "request",
               "hook",
               "rule",
               "addon",
-              "module"
+              "module",
+              "core"
             ],
             "type": "string"
           }

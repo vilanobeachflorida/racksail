@@ -395,6 +395,8 @@ func newEnv(t *testing.T) *env {
 			return nil, errors.New("no such host")
 		},
 		Enqueue: runner.Enqueue, Catalogs: e.catalogs, Log: log,
+		// The panel's modules, of which only web has kinds here.
+		Modules: []string{"network", "web", "dns", "mail"},
 		Accounts: func() Accounts {
 			if len(e.places) == 0 {
 				return nil

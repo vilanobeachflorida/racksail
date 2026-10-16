@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { QueryClient } from "@tanstack/react-query";
+import { type AnyRoute, createMemoryHistory } from "@tanstack/react-router";
 import { renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -14,6 +19,7 @@ import {
   columnText,
   useAddonColumns,
 } from "./addons";
+import { createAppRouter } from "./router";
 
 type Route = (request: Request) => Response | Promise<Response>;
 
@@ -232,5 +238,25 @@ describe("an add-on entry's icon", () => {
     for (const name of [undefined, "", "no-such-icon", "constructor", "toString"]) {
       expect(addonIcon(name)).toBe(addonIcons.puzzle);
     }
+  });
+});
+
+describe("the kinds add-ons add", () => {
+  it("keep out of where the panel's own screens are", () => {
+    // The panel keeps these names, as internal/hooks/addon.go lists them,
+    // from the namespaces of add-ons' kinds, whose screens are at
+    // /<namespace>/<plural>.
+    const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const source = readFileSync(join(repo, "internal/hooks/addon.go"), "utf8");
+    const list = source.match(/var ReservedNamespaces = \[\]string\{([\s\S]*?)\n\}/)?.[1] ?? "";
+    const reserved = [...list.matchAll(/"([a-z0-9-]+)"/g)].map((m) => m[1]);
+    expect(reserved).toContain("core");
+    const router = createAppRouter([], new QueryClient(), createMemoryHistory());
+    const children = (router.routeTree.children ?? []) as AnyRoute[] | Record<string, AnyRoute>;
+    const firsts = Object.values(children)
+      .map((route) => route.path.replace(/^\/+/, "").split("/")[0] ?? "")
+      .filter((first) => first !== "" && !first.startsWith("$"));
+    expect(firsts.length).toBeGreaterThan(5);
+    expect(firsts.filter((first) => !reserved.includes(first))).toEqual([]);
   });
 });

@@ -58,6 +58,7 @@ const (
 var (
 	ErrKindTaken   = i18n.Define("addons.kind_taken", http.StatusConflict, "{addon} adds {kind}, but {owner} has {taken} already.")
 	ErrKindInUse   = i18n.Define("addons.kind_in_use", http.StatusConflict, "{addon} can't be {what} while resources of its {kind} kind exist. Delete them first.")
+	ErrKindRemove  = i18n.Define("addons.kind_remove", http.StatusConflict, "{addon} can't be removed while resources of its {kind} kind exist. Delete them first, so it can undo what it did for them, or turn the add-on off and remove it with them.")
 	ErrKindOff     = i18n.Define("addons.kind_off", http.StatusConflict, "{kind} resources are planned by {addon}, which isn't running. Turn it on, or leave safe mode, first.")
 	ErrKindPlan    = i18n.Define("addons.kind_plan", http.StatusBadGateway, "{addon} couldn't plan the {kind}: {reason}")
 	ErrKindApply   = i18n.Define("addons.kind_apply", http.StatusBadGateway, "{addon} couldn't apply the {kind}: {reason}")
@@ -165,8 +166,10 @@ func validateDoc(sch *jsonschema.Schema, doc json.RawMessage, prefix string) []i
 // Kind is a kind an add-on adds: a store.SchemaKind whose settings its
 // manifest describes with JSON Schema.
 type Kind struct {
-	// Addon is the instance of the add-on that adds it.
-	Addon string
+	// Addon is the instance of the add-on that adds it, and Resource that
+	// add-on's resource.
+	Addon    string
+	Resource store.ID
 	// AddonName is the add-on's name, for messages.
 	AddonName string
 	info      store.KindInfo
@@ -327,17 +330,32 @@ func (k *Kind) StatusSchema() json.RawMessage {
 // InputSchema implements store.SchemaKind.
 func (k *Kind) InputSchema(action string) json.RawMessage { return k.inputDocs[action] }
 
-// kindsOf builds the kinds a manifest adds.
-func kindsOf(inst string, man *hooks.AddonManifest) ([]*Kind, error) {
+// kindsOf builds the kinds a manifest adds, for the add-on whose resource
+// is resource.
+func kindsOf(inst string, resource store.ID, man *hooks.AddonManifest) ([]*Kind, error) {
 	var out []*Kind
 	for _, d := range man.Kinds {
 		k, err := NewKind(inst, man.Name, d)
 		if err != nil {
 			return nil, err
 		}
+		k.Resource = resource
 		out = append(out, k)
 	}
 	return out, nil
+}
+
+// namespaceOwner says who keeps a namespace of kinds that no add-on may
+// take: the panel, for the names it keeps for itself, or a module, for its
+// own id. It is empty for the rest.
+func (r *Runtime) namespaceOwner(ns string) string {
+	switch {
+	case slices.Contains(hooks.ReservedNamespaces, ns):
+		return "the panel"
+	case slices.Contains(r.opts.Modules, ns):
+		return "the " + ns + " module"
+	}
+	return ""
 }
 
 // addedKinds is what the runtime registered for add-ons: the kinds by
@@ -390,7 +408,7 @@ func (r *Runtime) LoadKinds(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			if problems := r.declareKinds(Instance(obj.Kind, obj.Spec.ID, obj.Scope), man); len(problems) > 0 {
+			if problems := r.declareKinds(Instance(obj.Kind, obj.Spec.ID, obj.Scope), obj.ID, man); len(problems) > 0 {
 				r.opts.Log.Warn("some kinds of an add-on couldn't be added", "addon", obj.Spec.ID, "problems", problems)
 			}
 		}
@@ -404,9 +422,10 @@ func (r *Runtime) LoadKinds(ctx context.Context) {
 // declareKinds registers the kinds an add-on's manifest adds, replaces
 // the definitions of those it added before, and drops those it no longer
 // adds, which its own validate hook only lets go once no resource of them
-// is left. It returns what couldn't be registered.
-func (r *Runtime) declareKinds(inst string, man *hooks.AddonManifest) []string {
-	kinds, err := kindsOf(inst, man)
+// is left. resource is the add-on's resource. It returns what couldn't be
+// registered, such as kinds in a namespace the panel or a module keeps.
+func (r *Runtime) declareKinds(inst string, resource store.ID, man *hooks.AddonManifest) []string {
+	kinds, err := kindsOf(inst, resource, man)
 	if err != nil {
 		return []string{i18n.From(err).Message}
 	}
@@ -418,7 +437,10 @@ func (r *Runtime) declareKinds(inst string, man *hooks.AddonManifest) []string {
 		r.mu.Lock()
 		had := r.added.kinds[name]
 		r.mu.Unlock()
-		switch {
+		switch owner := r.namespaceOwner(k.info.Module()); {
+		case owner != "":
+			problems = append(problems, name+": "+owner+" keeps the kinds named "+k.info.Module()+".*")
+			continue
 		case had != nil && had.Addon != inst:
 			problems = append(problems, name+": another add-on adds it")
 			continue
@@ -459,10 +481,34 @@ func (r *Runtime) declareKinds(inst string, man *hooks.AddonManifest) []string {
 	return problems
 }
 
-// retireKinds drops every kind an add-on added, once it is removed.
-func (r *Runtime) retireKinds(inst string) {
+// retireKinds drops every kind an add-on added, once it is removed. Its
+// resources still being deleted then have no add-on to finish them, so
+// their reconciler finishes them without one, and they are queued for it.
+func (r *Runtime) retireKinds(ctx context.Context, inst string) {
 	for _, k := range r.kindsAddedBy(inst) {
-		r.retireKind(k.info.Name)
+		name := k.info.Name
+		// The store lists a kind's resources while the kind is registered.
+		var left []store.ID
+		for cursor := ""; r.opts.Enqueue != nil; {
+			page, err := r.opts.Store.List(ctx, store.Query{Kind: name, IncludeDeleted: true, Cursor: cursor, Limit: store.MaxLimit})
+			if err != nil {
+				r.opts.Log.Warn("listing what is left of a removed add-on's kind", "kind", name, "error", err)
+				break
+			}
+			for _, res := range page.Items {
+				if res.Deleted() {
+					left = append(left, res.ID)
+				}
+			}
+			if page.Next == "" {
+				break
+			}
+			cursor = page.Next
+		}
+		r.retireKind(name)
+		for _, id := range left {
+			r.opts.Enqueue(id, "its add-on was removed")
+		}
 	}
 }
 
@@ -568,7 +614,43 @@ func (k kindReconciler) plan(ctx context.Context, res *store.Resource, action *h
 	return plan, nil
 }
 
+// dropped reports whether a resource being deleted goes without the
+// add-on that planned it: the add-on was removed, or is being removed while
+// it doesn't run, so nothing is left to undo what it did for the resource.
+// kind is the kind as the add-on added it, while it still does.
+func (k kindReconciler) dropped(ctx context.Context, req reconcile.Request) (kind *Kind, gone bool) {
+	if !req.Resource.Deleted() {
+		return nil, false
+	}
+	kind, _, err := k.r.kindHost(k.kind)
+	switch {
+	case ErrKindUnknown.Is(err):
+		return nil, true
+	case ErrKindOff.Is(err) && req.Read != nil && kind.Resource != "":
+		addon, err := req.Read.Get(ctx, kind.Resource)
+		return kind, store.ErrNotFound.Is(err) || (err == nil && addon.Deleted())
+	}
+	return kind, false
+}
+
+// leftBehind is what the preview says of a resource deleted without its
+// add-on: whatever the add-on made for it outside the panel stays.
+func leftBehind(kind *Kind, res *store.Resource) []system.Effect {
+	who := "Its add-on"
+	if kind != nil {
+		who = kind.AddonName
+	}
+	return []system.Effect{{
+		Type: system.EffectProcess, Action: "keep", Target: string(res.ID),
+		Detail:      "what " + who + " made for it outside the panel, since " + who + " goes without running to undo it",
+		Contributor: hooks.OwnerCore + ":addons",
+	}}
+}
+
 func (k kindReconciler) Plan(ctx context.Context, req reconcile.Request) (reconcile.Plan, error) {
+	if kind, gone := k.dropped(ctx, req); gone {
+		return reconcile.Plan{Effects: leftBehind(kind, req.Resource)}, nil
+	}
 	plan, err := k.plan(ctx, req.Resource, nil)
 	if err != nil {
 		return reconcile.Plan{}, err
@@ -591,6 +673,11 @@ func (k kindReconciler) Apply(ctx context.Context, req reconcile.Request, plan r
 		common.Phase, common.Message, common.Code = store.PhaseFailed, e.Message, e.Code
 		common.SetCondition(store.Condition{Type: reconcile.ConditionReady, Status: store.ConditionFalse, Reason: "ApplyFailed", Message: e.Message, Code: e.Code, ObservedGeneration: res.Generation}, now)
 		return statusWith(own, common), err
+	}
+	if _, gone := k.dropped(ctx, req); gone {
+		// Nothing undoes it any more; the resource only leaves the store.
+		common.ObservedGeneration = res.Generation
+		return statusWith(own, common), nil
 	}
 	kind, in, err := k.r.kindHost(k.kind)
 	if err != nil {
@@ -674,10 +761,11 @@ func statusWith(own map[string]any, common store.Status) map[string]any {
 	return out
 }
 
-// kindHooks are the runtime's validate hooks for the kinds add-ons add: an
-// add-on may only add kinds nobody else has, may only drop or remove them
-// once none of their resources is left, and their resources only change
-// while the add-on runs to plan them.
+// kindHooks are the runtime's hooks for the kinds add-ons add: an add-on
+// may only add kinds nobody else has, and may only drop them, or go while it
+// runs, once none of their resources is left; their resources only change
+// while the add-on runs to plan them, except that removing an add-on that
+// doesn't run deletes them with it, since nothing else could.
 func (r *Runtime) kindHooks() []hooks.Registration {
 	const owner = hooks.OwnerCore + ":addons"
 	var out []hooks.Registration
@@ -687,14 +775,23 @@ func (r *Runtime) kindHooks() []hooks.Registration {
 			OnValidate: r.checkKinds,
 		})
 	}
+	out = append(out, hooks.Registration{
+		Point: hooks.KindPoint(Addon.Name(), "delete", changeset.StagePlan), Kind: hooks.Modify, Owner: owner, Priority: -1000,
+		Label: "Removing the add-on", Failure: hooks.Block, OnModify: r.dropWithAddon,
+	})
 	return append(out, hooks.Registration{
 		Point: "*.*.*.validate", Kind: hooks.Validate, Owner: owner, Security: true, Priority: -900,
 		OnValidate: func(ctx context.Context, c *hooks.Context) error {
 			if c.Change == nil {
 				return nil
 			}
-			_, _, err := r.kindHost(c.Change.Kind)
-			if ErrKindUnknown.Is(err) {
+			k, _, err := r.kindHost(c.Change.Kind)
+			switch {
+			case ErrKindUnknown.Is(err):
+				return nil
+			case ErrKindOff.Is(err) && c.Change.Op == changeset.OpDelete && removes(c.ChangeSet, k):
+				// Its add-on goes in the same change set, without running to
+				// undo what it did.
 				return nil
 			}
 			return err
@@ -702,9 +799,63 @@ func (r *Runtime) kindHooks() []hooks.Registration {
 	})
 }
 
+// removes reports whether a change set removes the add-on that adds a kind.
+func removes(cs *changeset.ChangeSet, k *Kind) bool {
+	return cs != nil && k != nil && slices.ContainsFunc(cs.Changes, func(c changeset.ResourceChange) bool {
+		return c.Op == changeset.OpDelete && c.Kind == Addon.Name() && c.ID == k.Resource
+	})
+}
+
+// dropWithAddon deletes, with an add-on that doesn't run, the resources of
+// the kinds it adds: nothing would plan them once it's gone, and it isn't
+// there to undo what it did for them, which the preview says.
+func (r *Runtime) dropWithAddon(ctx context.Context, c *hooks.Context) error {
+	rd, ok := store.ReaderFrom(ctx)
+	if !ok {
+		rd = r.opts.Store
+	}
+	for _, i := range c.Changes {
+		ch := c.ChangeSet.Changes[i]
+		var spec AddonSpec
+		if ch.Op != changeset.OpDelete || json.Unmarshal(ch.Before, &spec) != nil {
+			continue
+		}
+		inst := Instance(ch.Kind, spec.ID, ch.Scope)
+		if _, _, _, _, running := r.Running(inst); running {
+			continue
+		}
+		for _, k := range r.kindsAddedBy(inst) {
+			for cursor := ""; ; {
+				page, err := rd.List(ctx, store.Query{Kind: k.info.Name, Cursor: cursor, Limit: store.MaxLimit})
+				if err != nil {
+					return err
+				}
+				for _, res := range page.Items {
+					deleting := slices.ContainsFunc(c.ChangeSet.Changes, func(other changeset.ResourceChange) bool {
+						return other.ID == res.ID && other.Op == changeset.OpDelete
+					})
+					if res.Deleted() || deleting {
+						continue
+					}
+					c.ChangeSet.Changes = append(c.ChangeSet.Changes, changeset.ResourceChange{
+						Op: changeset.OpDelete, Kind: res.Kind, ID: res.ID, Scope: res.Scope, Server: res.Server,
+					})
+				}
+				if page.Next == "" {
+					break
+				}
+				cursor = page.Next
+			}
+		}
+	}
+	return nil
+}
+
 // checkKinds refuses an add-on's change that would take a kind, a prefix
-// or a namespace another add-on or the panel has, or drop a kind, or
-// change its prefix, while resources of it exist.
+// or a namespace another add-on, a module or the panel has, or drop a kind,
+// or change its prefix, while resources of it exist. Removing an add-on that
+// runs waits for them too, so it can undo what it did for them; one that
+// doesn't run can't, and its resources go with it.
 func (r *Runtime) checkKinds(ctx context.Context, c *hooks.Context) error {
 	ch := c.Change
 	if ch == nil {
@@ -731,6 +882,10 @@ func (r *Runtime) checkKinds(ctx context.Context, c *hooks.Context) error {
 	if err := r.checkTaken(inst, name, wanted); err != nil {
 		return err
 	}
+	_, _, _, _, running := r.Running(inst)
+	if ch.Op == changeset.OpDelete && !running {
+		return nil
+	}
 	keep := map[string]string{}
 	for _, d := range wanted {
 		keep[d.Name] = d.Prefix
@@ -752,11 +907,10 @@ func (r *Runtime) checkKinds(ctx context.Context, c *hooks.Context) error {
 		if !left {
 			continue
 		}
-		what := "removed"
-		if ch.Op != changeset.OpDelete {
-			what = "changed to a version that drops " + k.info.Name + " or changes its prefix"
+		if ch.Op == changeset.OpDelete {
+			return ErrKindRemove.New("addon", name, "kind", k.info.Title)
 		}
-		return ErrKindInUse.New("addon", name, "what", what, "kind", k.info.Title)
+		return ErrKindInUse.New("addon", name, "what", "changed to a version that drops "+k.info.Name+" or changes its prefix", "kind", k.info.Title)
 	}
 	return nil
 }
@@ -780,13 +934,16 @@ func (r *Runtime) resourcesLeft(ctx context.Context, planned store.Reader, kind 
 	return slices.ContainsFunc(stored.Items, func(res *store.Resource) bool { return res.Deleted() }), nil
 }
 
-// checkTaken refuses kinds that another add-on, or the panel itself, has
-// already: the same name or prefix, or names in a namespace someone else
-// uses.
+// checkTaken refuses kinds that another add-on, a module or the panel
+// itself has already: the same name or prefix, or names in a namespace
+// someone else uses or keeps, as every module keeps its id.
 func (r *Runtime) checkTaken(inst, name string, wanted []hooks.AddonKind) error {
 	for _, d := range wanted {
 		taken := func(owner, what string) error {
 			return ErrKindTaken.New("addon", name, "kind", d.Name, "owner", owner, "taken", what)
+		}
+		if owner := r.namespaceOwner(d.Namespace()); owner != "" {
+			return taken(owner, "the kinds named "+d.Namespace()+".*")
 		}
 		for _, k := range r.opts.Kinds.All() {
 			info := k.Info()

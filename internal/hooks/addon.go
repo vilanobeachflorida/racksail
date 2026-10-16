@@ -181,6 +181,20 @@ func (k AddonKind) Namespace() string {
 	return ns
 }
 
+// ReservedNamespaces are the names the panel keeps for itself, which no
+// add-on's kinds may take as their namespace: core, the first parts of the
+// paths of its own screens, where a kind's screens would go, and those of
+// its own API operations. Modules' ids are reserved too, as their kinds'
+// namespaces, which the add-on runtime checks against the modules there are.
+var ReservedNamespaces = []string{
+	"core",
+	// The panel's own screens: /<namespace>/<plural> is where a kind's are.
+	"settings", "jobs", "changes", "events", "search", "resources", "addons", "users", "accounts", "roles", "audit",
+	// The first parts of the paths of the API's own operations.
+	"health", "version", "operations", "kinds", "changesets", "stream", "metrics", "inbox",
+	"notifications", "catalog", "hooks", "rules", "modules", "auth", "me", "session",
+}
+
 // ParseAddonManifest reads and checks an addon.yaml: against the schema,
 // then for rules a schema can't express, such as hooks needing the matching
 // permission level.
@@ -249,8 +263,8 @@ func (m *AddonManifest) checkUI() error {
 
 // checkKinds checks the kinds a manifest adds against each other. Adding
 // kinds with reconcilers of their own is what system hooks do, so it takes
-// that level; the kinds share one namespace, which the core's own kinds
-// don't use.
+// that level; the kinds share one namespace, which isn't one the panel keeps
+// for itself.
 func (m *AddonManifest) checkKinds() error {
 	if len(m.Kinds) == 0 {
 		return nil
@@ -266,6 +280,8 @@ func (m *AddonManifest) checkKinds() error {
 			return fmt.Errorf("add-on %s adds %s and %s; its kinds share the part of their names before the dot", m.ID, m.Kinds[0].Name, k.Name)
 		case ns == "core":
 			return fmt.Errorf("add-on %s adds %s, but core kinds are the panel's own", m.ID, k.Name)
+		case slices.Contains(ReservedNamespaces, ns):
+			return fmt.Errorf("add-on %s adds %s, but the panel keeps %s for its own screens and operations", m.ID, k.Name, ns)
 		case names[k.Name] || prefixes[k.Prefix] || plurals[k.Plural]:
 			return fmt.Errorf("add-on %s adds %s with a name, prefix or plural another of its kinds has", m.ID, k.Name)
 		case strings.TrimSpace(k.Title) == "" || strings.TrimSpace(k.Description) == "":

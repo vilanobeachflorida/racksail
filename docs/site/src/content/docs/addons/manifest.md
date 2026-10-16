@@ -105,7 +105,7 @@ Each capability's interface, the methods it has and what they take, belongs to t
 
 | Field | What it holds |
 |---|---|
-| `name` | `<group>.<name>` in lowercase, such as `guard.finding`. The add-on's kinds share one group, which no module or other add-on uses, and never `core` |
+| `name` | `<group>.<name>` in lowercase, such as `guard.finding`. The add-on's kinds share one group, which no other add-on uses and which isn't a module's id, `core`, or the first part of a path of the panel's own screens and operations, such as `settings`, `addons` or `resources` |
 | `prefix` | The prefix of its resources' IDs, lowercase letters, up to 16 |
 | `scope` | What its resources belong to: `server`, `reseller` or `account` |
 | `title`, `plural` | Its name for people, such as `Finding`, and its plural, such as `findings`, which also names its screens in the panel, at `/guard/findings` |
@@ -122,7 +122,7 @@ The panel refuses a manifest, with the reason, when:
 - it doesn't speak the panel's hook API version;
 - a hook's kind isn't among the levels `permissions.hooks` asks for, or its deadline is longer than ten seconds;
 - a scope under `permissions.read` asks to delete resources or run actions, which takes `write`;
-- it adds kinds without the `system` level, kinds of more than one group or of `core`, two kinds with the same name, prefix or plural, a kind without a title or a description, or an action without a risk;
+- it adds kinds without the `system` level, kinds of more than one group or of a group the panel keeps for itself, two kinds with the same name, prefix or plural, a kind without a title or a description, or an action without a risk;
 - a tab or a column names no `kind`, or a column's `path` isn't one of its `GET` routes;
 - a route's path starts with `/ui/` or `/frames/`, where the panel serves the add-on's [screens](../ui-extensions/#screens);
 - its `id` isn't the id the add-on is installed under.

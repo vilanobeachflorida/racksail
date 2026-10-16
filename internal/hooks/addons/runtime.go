@@ -80,8 +80,11 @@ type Options struct {
 	// Accounts returns where accounts' add-ons run, once the module that
 	// keeps accounts says; until it does, they don't run.
 	Accounts func() Accounts
-	Log      *slog.Logger
-	Now      func() time.Time
+	// Modules are the ids of the panel's modules. Each is the namespace of
+	// its module's kinds, on or off, so add-ons' kinds can't take it.
+	Modules []string
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 // Runtime runs installed add-ons: it reconciles their resources, attaches
@@ -236,7 +239,7 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 	}
 	if obj.Deleted() {
 		r.detach(ctx, inst, true)
-		r.retireKinds(inst)
+		r.retireKinds(ctx, inst)
 		return st, nil
 	}
 	man, err := Check(obj.Spec, obj.Kind == AccountAddon.Name())
@@ -246,7 +249,7 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 	}
 	// The kinds it adds are there whether or not it runs, so their
 	// resources stay readable; they only change while it runs.
-	kindProblems := r.declareKinds(inst, man)
+	kindProblems := r.declareKinds(inst, obj.ID, man)
 	if !obj.Spec.Enabled || r.safeModeOn() {
 		r.detach(ctx, inst, true)
 		st.State, st.Health, st.Hooks = StateStopped, "", 0

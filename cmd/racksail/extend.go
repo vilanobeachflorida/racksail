@@ -32,7 +32,8 @@ import (
 // the panel database, and safe mode, read from the kernel's command line
 // and the flags in the panel's state. Add-ons from catalogs are checked
 // against them, and accounts' add-ons run where accounts returns, once the
-// module that keeps accounts says.
+// module that keeps accounts says. The kinds add-ons add keep out of the
+// modules' namespaces, whether or not a module has kinds yet.
 func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st store.Store, reg *hooks.Registry, agentClient agent.Client,
 	timeline *events.Log, runner *reconcile.Runner, catalogs *recipes.Catalogs, accounts func() addons.Accounts, log *slog.Logger) (*addons.Runtime, error) {
 	tokens, err := addons.NewSQLTokens(ctx, db)
@@ -46,7 +47,7 @@ func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st st
 		Enqueue: runner.Enqueue, Catalogs: catalogs, Accounts: accounts, Log: log,
 		// The kinds add-ons add join the panel's, and their reconcilers
 		// the panel's.
-		Kinds: store.Kinds(), Reconcilers: runner.Registry,
+		Kinds: store.Kinds(), Reconcilers: runner.Registry, Modules: modules.Default().IDs(),
 	}), nil
 }
 
