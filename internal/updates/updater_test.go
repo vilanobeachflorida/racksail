@@ -324,6 +324,16 @@ func TestUpdateConfirmAndRollBack(t *testing.T) {
 	ctx := context.Background()
 	g := newGitHub(t, release{"v1.2.0", []byte("racksail 1.2.0")}, release{"v1.3.0", []byte("racksail 1.3.0")}, release{"v1.4.0-beta.1", []byte("racksail beta")})
 	s := newServer(t, g, "1.2.0", nil)
+	told := make(chan string, 4)
+	for _, p := range []hooks.Point{hooks.CoreUpdateBefore, hooks.CoreUpdateAfter} {
+		err := s.hooks.Register(hooks.Registration{Point: p, Kind: hooks.Observe, Owner: "module:mail", OnObserve: func(ctx context.Context, c *hooks.Context) {
+			d := c.Data.(UpdateHookData)
+			told <- string(c.Point) + " " + d.From + " " + d.To
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	cs, err := s.action(t, "check", nil)
 	if err != nil {
@@ -383,6 +393,18 @@ func TestUpdateConfirmAndRollBack(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(s.eventTypes(), ","), EventInstalled.Name) {
 		t.Error("the update is announced once it works")
+	}
+	// Modules hear about the update before and after.
+	// The agent records the version of the binary it replaced, its own.
+	for _, want := range []string{"core.update.before 1.2.0 1.3.0", "core.update.after " + Build().Version + " 1.3.0"} {
+		select {
+		case got := <-told:
+			if got != want {
+				t.Errorf("hook got %q, want %q", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no %s", want)
+		}
 	}
 	// The guard finds nothing to do.
 	if rolled, err := Guard(ctx, s.machine.Backend(), false); err != nil || rolled {

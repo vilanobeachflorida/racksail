@@ -267,6 +267,14 @@ func (u *Updater) installInput(spec SettingsSpec, a *Available, binary, backup s
 	return in
 }
 
+// UpdateHookData is what core.update.before and core.update.after hooks
+// get: the versions before and after.
+type UpdateHookData struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Tag  string `json:"tag"`
+}
+
 // Install backs up the panel's database and has the agent install the
 // release the last check found.
 func (u *Updater) Install(ctx context.Context, want string) (UpdateOutput, error) {
@@ -300,6 +308,9 @@ func (u *Updater) Install(ctx context.Context, want string) (UpdateOutput, error
 		backup = ""
 	}
 	in := u.installInput(s.Spec, a, binary, backup)
+	if u.opts.Hooks != nil {
+		u.opts.Hooks.Notify(ctx, hooks.CoreUpdateBefore, actorOf(ctx), UpdateHookData{From: u.opts.Build.Version, To: a.Version, Tag: a.Tag})
+	}
 	res, err := InstallRelease.Call(ctx, u.opts.Agent, in, agent.CallOptions{Owner: s.ID})
 	if err != nil {
 		return UpdateOutput{}, ErrUpdateFailed.Wrap(err, "reason", i18n.From(err).Message)
@@ -359,6 +370,9 @@ func (u *Updater) Confirm(ctx context.Context) error {
 		}
 		now := u.opts.Now().UTC()
 		st.State, st.ConfirmedAt = StateConfirmed, &now
+		if u.opts.Hooks != nil {
+			u.opts.Hooks.Notify(ctx, hooks.CoreUpdateAfter, systemActor, UpdateHookData{From: st.From, To: st.To, Tag: st.Tag})
+		}
 		u.announce(ctx, st, EventInstalled, "Racksail was updated from "+st.From+" to "+st.To+".")
 	case st.State == StateConfirmed:
 		u.announce(ctx, st, EventInstalled, "Racksail was updated from "+st.From+" to "+st.To+".")
