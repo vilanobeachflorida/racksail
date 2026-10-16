@@ -41,8 +41,9 @@ sdk/go, sdk/ts, sdk/python   add-on SDKs
 addons/                  the official catalog's add-ons, such as LDAP and OIDC sign-in (a Go module)
 spec/                    openapi.json, addon-protocol.json, agent-protocol.json, schemas/
 catalog/                 the official catalog (recipes, templates, models, themes)
-docs/architecture/       how Racksail is built
-docs/site/               the documentation website
+docs/                    tests that keep the docs, the community files and the READMEs true to the code
+  architecture/          how Racksail is built, and the tests that run its examples
+  site/                  the documentation website
 brand/                   logo files and brand assets
 iso/                     live-build configuration and boot branding
 packaging/               systemd units, install script, cloud images
