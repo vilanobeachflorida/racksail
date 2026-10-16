@@ -20,7 +20,7 @@ func forEachLog(t *testing.T, opts Options, test func(t *testing.T, l *Log)) {
 	t.Run("memory", func(t *testing.T) {
 		l := NewMemory(100)
 		l.retention = opts.Retention.withDefaults()
-		l.denials.limits = opts.Denials.withDefaults()
+		l.denials = newDenials(opts.Denials)
 		if opts.Now != nil {
 			l.now = opts.Now
 		}

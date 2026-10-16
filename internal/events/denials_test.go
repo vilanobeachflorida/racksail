@@ -161,6 +161,45 @@ func TestRepeatsOfARecordThatIsGone(t *testing.T) {
 	}
 }
 
+// What the log remembers to count repeats by stays within its bound, however
+// many actors are refused, and goes once their windows end.
+func TestRememberedRefusalsAreBounded(t *testing.T) {
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	forEachLog(t, Options{Denials: Denials{PerActor: 3}, Now: func() time.Time { return now }}, func(t *testing.T, l *Log) {
+		ctx := context.Background()
+		l.denials.most = 5
+		remembered := func() (tracked, held int) {
+			l.denials.mu.Lock()
+			defer l.denials.mu.Unlock()
+			for _, a := range l.denials.actors {
+				held += a.size()
+			}
+			return l.denials.tracked, held
+		}
+		for range 20 {
+			actor := auth.Actor{Type: auth.ActorUser, ID: store.NewID("user")}
+			for range 2 {
+				if err := l.Record(ctx, AuditRecord{Actor: actor, Action: "web.site.read", Subject: store.NewID("site"), Outcome: OutcomeDenied}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tracked, held := remembered(); tracked > 5 || tracked != held {
+				t.Fatalf("remembers %d records, counting %d; at most 5", held, tracked)
+			}
+		}
+		if got := denied(t, l, Query{}); len(got) != 40 {
+			t.Errorf("%d records of 40 different refusals", len(got))
+		}
+		now = now.Add(2 * time.Hour)
+		if err := l.Prune(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if tracked, held := remembered(); tracked != 0 || held != 0 {
+			t.Errorf("after the windows ended it remembers %d records, counting %d", held, tracked)
+		}
+	})
+}
+
 // Refusals that come at once still make one record each, with every one of
 // them counted.
 func TestConcurrentRefusalsCountOnce(t *testing.T) {

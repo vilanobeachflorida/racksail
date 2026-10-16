@@ -2,6 +2,8 @@ package events
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"sync"
 	"time"
@@ -43,18 +45,39 @@ const RefusalsAction = "core.refusals"
 // already, so repeats only count on it.
 type denials struct {
 	limits Denials
+	// most bounds the records remembered across actors, and so the memory
+	// they take: past it every window starts over, which only means some
+	// repeats get records of their own.
+	most int
 
 	mu     sync.Mutex
 	actors map[string]*actorDenials
+	// tracked counts the records remembered.
+	tracked int
+}
+
+// maxTracked is the records the log remembers refusals by.
+const maxTracked = 250_000
+
+func newDenials(limits Denials) *denials {
+	return &denials{limits: limits.withDefaults(), most: maxTracked, actors: map[string]*actorDenials{}}
 }
 
 // actorDenials are the records of one actor's refusals in the current
 // window.
 type actorDenials struct {
 	since   time.Time
-	records map[string]*denialRecord
+	records map[denialSig]*denialRecord
 	// overflow is the record that counts the refusals beyond the cap.
 	overflow *denialRecord
+}
+
+// size is how many records the window remembers.
+func (a *actorDenials) size() int {
+	if a.overflow != nil {
+		return len(a.records) + 1
+	}
+	return len(a.records)
 }
 
 // denialRecord is a record repeats count on. Until it is written, repeats
@@ -65,11 +88,6 @@ type denialRecord struct {
 	pending int
 	last    time.Time
 }
-
-// maxActors bounds the actors the log remembers refusals of; past it, the
-// windows start over, which only means some repeats get records of their
-// own.
-const maxActors = 100_000
 
 // denialKey names whose refusals count together: the actor when it is
 // known, else the address the attempts come from.
@@ -83,21 +101,26 @@ func denialKey(a auth.Actor) string {
 	return string(a.Type) + ":" + a.Name
 }
 
-// denialSignature tells refusals apart: the same actor, as far as the record
-// says, refused the same thing on the same resource for the same reason is
-// a repeat.
-func denialSignature(r *AuditRecord) string {
+// denialSig tells refusals apart: the same actor, as far as the record says,
+// refused the same thing on the same resource for the same reason is a
+// repeat. It is a hash of all that, so remembering it takes little memory;
+// each part goes in with its length, and the hash is a cryptographic one,
+// so no refusal can be made to pass for another.
+type denialSig [16]byte
+
+func denialSignature(r *AuditRecord) denialSig {
 	a := r.Actor
-	parts := []string{
+	h := sha256.New()
+	for _, p := range []string{
 		string(a.Type), string(a.ID), a.Name, string(a.User), string(a.Source), string(a.Impersonator), a.IP,
 		r.Action, r.Kind, string(r.Subject), r.Scope.String(), string(r.ChangeSet), r.Summary, r.Reason,
+	} {
+		h.Write(binary.AppendUvarint(nil, uint64(len(p))))
+		h.Write([]byte(p))
 	}
-	var sig []byte
-	for _, p := range parts {
-		sig = append(sig, p...)
-		sig = append(sig, 0)
-	}
-	return string(sig)
+	var sig denialSig
+	copy(sig[:], h.Sum(nil))
+	return sig
 }
 
 // plan says what to do with a refusal. It returns the record to write for
@@ -107,23 +130,22 @@ func denialSignature(r *AuditRecord) string {
 func (d *denials) plan(r *AuditRecord) (on *denialRecord, write *AuditRecord) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	key := denialKey(r.Actor)
-	a := d.actors[key]
-	if a == nil || r.Time.Sub(a.since) >= d.limits.Window || r.Time.Before(a.since) {
-		if len(d.actors) >= maxActors {
-			d.actors = map[string]*actorDenials{}
-		}
-		a = &actorDenials{since: r.Time, records: map[string]*denialRecord{}}
-		d.actors[key] = a
-	}
-	sig := denialSignature(r)
+	key, sig := denialKey(r.Actor), denialSignature(r)
+	a := d.window(key, r.Time)
 	on = a.records[sig]
-	if on == nil && len(a.records) < d.limits.PerActor {
-		on = &denialRecord{id: r.ID}
-		a.records[sig] = on
-		return on, r
-	}
-	if on == nil && a.overflow == nil {
+	if on == nil && (len(a.records) < d.limits.PerActor || a.overflow == nil) {
+		// A record to remember: the refusal's own, or the one of the
+		// actor's refusals past the cap.
+		if d.tracked >= d.most {
+			d.actors, d.tracked = map[string]*actorDenials{}, 0
+			a = d.window(key, r.Time)
+		}
+		d.tracked++
+		if len(a.records) < d.limits.PerActor {
+			on = &denialRecord{id: r.ID}
+			a.records[sig] = on
+			return on, r
+		}
 		a.overflow = &denialRecord{id: store.NewID(AuditPrefix)}
 		return a.overflow, d.overflowRecord(a.overflow.id, r)
 	}
@@ -136,6 +158,21 @@ func (d *denials) plan(r *AuditRecord) (on *denialRecord, write *AuditRecord) {
 		return nil, nil
 	}
 	return on, nil
+}
+
+// window returns the actor's current window, starting a new one when the
+// last has ended.
+func (d *denials) window(key string, at time.Time) *actorDenials {
+	a := d.actors[key]
+	if a != nil && at.Sub(a.since) < d.limits.Window && !at.Before(a.since) {
+		return a
+	}
+	if a != nil {
+		d.tracked -= a.size()
+	}
+	a = &actorDenials{since: at, records: map[denialSig]*denialRecord{}}
+	d.actors[key] = a
+	return a
 }
 
 // overflowRecord is the record the refusals of an actor beyond the cap
@@ -189,9 +226,11 @@ func (d *denials) dropLocked(r *AuditRecord, on *denialRecord) {
 	}
 	if sig := denialSignature(r); a.records[sig] == on {
 		delete(a.records, sig)
+		d.tracked--
 	}
 	if a.overflow == on {
 		a.overflow = nil
+		d.tracked--
 	}
 }
 
@@ -201,6 +240,7 @@ func (d *denials) forget(now time.Time) {
 	defer d.mu.Unlock()
 	for key, a := range d.actors {
 		if now.Sub(a.since) >= d.limits.Window {
+			d.tracked -= a.size()
 			delete(d.actors, key)
 		}
 	}

@@ -93,7 +93,7 @@ func newLog(s storage, opts Options) *Log {
 	}
 	return &Log{
 		storage: s, retention: opts.Retention.withDefaults(), now: opts.Now, log: opts.Log, subs: map[*Subscription]bool{},
-		denials: &denials{limits: opts.Denials.withDefaults(), actors: map[string]*actorDenials{}},
+		denials: newDenials(opts.Denials),
 	}
 }
 
