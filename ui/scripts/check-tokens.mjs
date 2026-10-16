@@ -8,10 +8,10 @@
 //
 // It checks the files git tracks there, so it needs a git checkout.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { trackedFiles } from "./tracked.mjs";
 
 const palette =
   "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
@@ -106,32 +106,15 @@ export function findHardCodedColors(text, file) {
 }
 
 /**
- * Lists the files to check under dir: those git tracks, leaving out hidden
- * directories, generated files and tests. Other checkouts and worktrees can
- * sit inside the repository, untracked and in hidden directories, so
- * neither counts; a file deleted but not yet committed doesn't either.
+ * Lists the files to check under dir: those git tracks (see tracked.mjs),
+ * leaving out hidden directories, generated files and tests.
  * @param {string} dir
  * @returns {string[]}
  */
 export function filesToCheck(dir) {
-  const tracked = execFileSync("git", ["ls-files", "-z", "--cached", "--", "."], {
-    cwd: dir,
-    encoding: "utf8",
-  }).split("\0");
-  return tracked
-    .filter((rel) => {
-      const parts = rel.split("/");
-      const name = parts.at(-1) ?? "";
-      return (
-        /\.(?:css|tsx?|mjs)$/.test(name) &&
-        !parts.some((part) => part.startsWith(".")) &&
-        !generated.includes(rel) &&
-        !isTest(name)
-      );
-    })
-    .map((rel) => join(dir, ...rel.split("/")))
-    .filter((path) => existsSync(path))
-    .sort();
+  return trackedFiles(dir)
+    .filter((rel) => /\.(?:css|tsx?|mjs)$/.test(rel) && !generated.includes(rel) && !isTest(rel))
+    .map((rel) => join(dir, ...rel.split("/")));
 }
 
 function main() {
