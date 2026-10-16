@@ -6,7 +6,17 @@
 # a reason a reviewer agreed to.
 #
 # Entries nothing needs any more are reported, so this list stays short.
-go: []
+go:
+  - module: github.com/zeebo/blake3
+    license: CC0-1.0
+    allow: true
+    reason: >-
+      The BLAKE3 hash certmagic, the certificate manager of the edge's
+      embedded Caddy, keys its certificate cache with. It is dedicated to the
+      public domain, which asks nothing of Racksail and which the FSF counts
+      as compatible with the GPL; the OSI hasn't approved CC0 only because it
+      grants no patent license. certmagic has no other way to hash, so the
+      edge can't do without it.
 npm:
   - package: mdn-data
     license: CC0-1.0

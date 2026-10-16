@@ -1,0 +1,15 @@
+format: 1
+kind: theme
+id: compact
+name: Compact
+version: 1.0.0
+summary: The Racksail colors with shorter controls, tighter tables and smaller corners.
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [density]
+maintainers: [{name: Racksail maintainers, github: vilanobeachflorida}]
+health:
+  - {type: resource, target: compact}
+tests:
+  timeoutSeconds: 60

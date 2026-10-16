@@ -8,6 +8,13 @@ async function panelVersion(request: APIRequestContext): Promise<Version> {
   return (await response.json()) as Version;
 }
 
+// The paths the panel's API has, from its OpenAPI document.
+async function panelPaths(request: APIRequestContext): Promise<string[]> {
+  const response = await request.get("/api/v1/openapi.json");
+  expect(response.ok()).toBeTruthy();
+  return Object.keys(((await response.json()) as { paths: Record<string, unknown> }).paths);
+}
+
 test.describe("the panel", () => {
   test("serves the web UI with its security headers", async ({ page }) => {
     const response = await page.goto("/");
@@ -41,13 +48,23 @@ test.describe("the panel", () => {
     expect(elsewhere).toEqual([]);
   });
 
-  test("starts without errors", async ({ page }) => {
+  test("starts without errors", async ({ page, request }) => {
+    // The UI reads the session first and runs without one when the panel
+    // answers 404, as a panel whose API has no session yet does. The browser
+    // logs that answer as an error all the same, so it only counts once the
+    // API has the session.
+    const sessions = (await panelPaths(request)).includes("/api/v1/session");
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
-      if (message.type() === "error") {
-        errors.push(message.text());
+      if (message.type() !== "error") {
+        return;
       }
+      const from = message.location().url;
+      if (!sessions && from && new URL(from).pathname === "/api/v1/session" && message.text().includes("404")) {
+        return;
+      }
+      errors.push(message.text());
     });
     await page.goto("/");
     await page.waitForLoadState("networkidle");

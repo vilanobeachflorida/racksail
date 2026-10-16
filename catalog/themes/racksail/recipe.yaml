@@ -1,0 +1,15 @@
+format: 1
+kind: theme
+id: racksail
+name: Racksail
+version: 1.0.0
+summary: 'The default Racksail theme: navy and blue on calm surfaces.'
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [default]
+maintainers: [{name: Racksail maintainers, github: vilanobeachflorida}]
+health:
+  - {type: resource, target: racksail}
+tests:
+  timeoutSeconds: 60

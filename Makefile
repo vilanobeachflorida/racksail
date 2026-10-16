@@ -381,11 +381,16 @@ fuzz:
 		(cd "$$dir" && $(GO) test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZ_TIME) .) || exit 1; \
 	done
 
-# make gen rewrites the generated files; any difference means they were
-# committed out of date.
+# make gen rewrites the generated files, which docs/architecture/internals.md
+# lists; any difference, or a file it adds, means they were committed out of
+# date.
+GENERATED :=spec ui/src/lib/api/schema.d.ts ui/src/design/theme.css ui/src/design/themes.json ui/src/design/brand.ts \
+	'catalog/themes/*/theme.yaml' brand/logo brand/icons brand/terminal ui/public docs/site/src/assets/mark-light.svg \
+	docs/site/src/assets/mark-dark.svg docs/site/public/favicon.svg internal/theme/mark_grid.go
+
 gen-check: gen
-	@git diff --exit-code -- spec ui/src/lib/api/schema.d.ts ui/src/design/theme.css || \
-		{ echo "the generated files above are out of date; run make gen and commit them"; exit 1; }
+	@git diff --exit-code -- $(GENERATED) && test -z "$$(git status --porcelain -- $(GENERATED))" || \
+		{ git status --short -- $(GENERATED); echo "the generated files above are out of date; run make gen and commit them"; exit 1; }
 
 sdk-check: $(SDK_TS_DEPS)
 	cd sdk/go && $(GO) vet ./... && $(GO) run $(STATICCHECK) ./... && $(GO) test ./...

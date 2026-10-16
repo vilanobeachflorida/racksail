@@ -54,6 +54,20 @@ func Render(binary string) (*Package, error) {
 			case agent.EnsureUnitInput:
 				p.Units[in.Name] = in.Content
 				p.UnitOrder = append(p.UnitOrder, in.Name)
+			case agent.PlatformUnitsInput:
+				if op.Op != agent.InstallPlatformUnits.Name() {
+					return nil, fmt.Errorf("the convert plan's step %q has an operation the package can't express: %s", s.Title, op.Op)
+				}
+				// The agent renders Racksail's own units from the binary's
+				// path, so the package renders the same ones.
+				units, err := installer.Units(in.Binary)
+				if err != nil {
+					return nil, err
+				}
+				for _, name := range installer.UnitNames() {
+					p.Units[name] = units[name]
+					p.UnitOrder = append(p.UnitOrder, name)
+				}
 			case agent.UnitsInput:
 				if op.Op != agent.EnableUnits.Name() {
 					return nil, fmt.Errorf("the convert plan's step %q has an operation the package can't express: %s", s.Title, op.Op)

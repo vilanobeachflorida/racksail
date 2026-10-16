@@ -1,0 +1,15 @@
+format: 1
+kind: theme
+id: high-contrast
+name: High contrast
+version: 1.0.0
+summary: Black and white surfaces with strong borders, darker accents and a thicker focus ring.
+license: MIT
+licenseClass: open-source
+icon: icon.svg
+categories: [accessibility]
+maintainers: [{name: Racksail maintainers, github: vilanobeachflorida}]
+health:
+  - {type: resource, target: high-contrast}
+tests:
+  timeoutSeconds: 60

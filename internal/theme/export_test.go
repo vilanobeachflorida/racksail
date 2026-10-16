@@ -2,9 +2,11 @@ package theme
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 // The web UI and the official catalog carry copies of the built-in themes,
@@ -41,8 +43,27 @@ func TestCatalogThemesMatchTheBuiltins(t *testing.T) {
 		if string(got) != string(want) {
 			t.Errorf("%s is out of date; run make gen", path)
 		}
-		if _, err := ReadPackage(os.DirFS(filepath.Dir(path))); err != nil {
+		if _, err := ReadPackage(catalogPackage(t, filepath.Dir(path))); err != nil {
 			t.Errorf("%s isn't a valid package: %v", path, err)
 		}
 	}
+}
+
+// catalogPackage returns the theme's package in a catalog item's directory:
+// every file but the item's recipe and icon, which belong to the catalog.
+func catalogPackage(t *testing.T, dir string) fs.FS {
+	t.Helper()
+	pkg := fstest.MapFS{}
+	err := fs.WalkDir(os.DirFS(dir), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || p == "recipe.yaml" || p == "icon.svg" {
+			return err
+		}
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
+		pkg[p] = &fstest.MapFile{Data: data, Mode: 0o644}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pkg
 }

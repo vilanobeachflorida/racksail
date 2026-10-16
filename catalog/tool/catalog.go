@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"testing/fstest"
 
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/recipes"
@@ -367,10 +368,35 @@ func checkTheme(it *Item, contents map[string][]byte, probs *problems) {
 	if t.ID != r.ID || t.Version != r.Version || t.License != r.License {
 		probs.add(where, "says %s %s (%s), but the recipe says %s %s (%s); they must agree", t.ID, t.Version, t.License, r.ID, r.Version, r.License)
 	}
-	for _, asset := range themeAssets(t) {
+	assets := themeAssets(t)
+	complete := true
+	for _, asset := range assets {
 		if _, ok := contents[asset]; !ok {
 			probs.add(where, "refers to %s, which isn't in the item's directory", asset)
+			complete = false
 		}
+	}
+	if !complete {
+		return
+	}
+	// The theme's package is the item's directory without what belongs to
+	// the catalog: the recipe, and the icon unless the theme uses it too.
+	// Panels read it as they read an uploaded package, so its files get the
+	// same checks here, and files the theme doesn't use are refused.
+	pkg := fstest.MapFS{}
+	for name, data := range contents {
+		if name == recipeFile || (name == r.Icon && !slices.Contains(assets, name)) {
+			continue
+		}
+		pkg[name] = &fstest.MapFile{Data: data, Mode: 0o644}
+	}
+	_, err = theme.ReadPackage(pkg)
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			probs.add(it.Dir, "%v", e)
+		}
+	} else if err != nil {
+		probs.add(it.Dir, "%v", err)
 	}
 }
 

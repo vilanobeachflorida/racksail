@@ -148,6 +148,14 @@ func TestProblems(t *testing.T) {
 		{"theme asset missing", func(t *testing.T, root string) {
 			os.Remove(root + "/themes/contrast-theme/mark.svg")
 		}, "refers to mark.svg"},
+		// The theme's own files get the checks panels give an uploaded
+		// package.
+		{"theme asset with a script", func(t *testing.T, root string) {
+			os.WriteFile(root+"/themes/contrast-theme/mark.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`), 0o644)
+		}, "themes/contrast-theme: mark.svg: "},
+		{"file the theme doesn't use", func(t *testing.T, root string) {
+			os.WriteFile(root+"/themes/contrast-theme/extra.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), 0o644)
+		}, "themes/contrast-theme: extra.svg isn't used by theme.yaml"},
 		{"theme without its package", func(t *testing.T, root string) {
 			os.Remove(root + "/themes/contrast-theme/theme.yaml")
 		}, "needs its theme.yaml"},
@@ -230,6 +238,18 @@ func TestProblems(t *testing.T) {
 				t.Errorf("Load reported:\n%v\nwant a problem containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// A theme may use its icon as one of its own files, such as its mark.
+func TestThemeUsesItsIcon(t *testing.T) {
+	root := copyTree(t, fixture)
+	replaceIn(t, root+"/themes/contrast-theme/recipe.yaml", "icon: icon.svg", "icon: mark.svg")
+	if err := os.Remove(root + "/themes/contrast-theme/icon.svg"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root); err != nil {
+		t.Fatal(err)
 	}
 }
 
