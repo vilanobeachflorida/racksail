@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -37,6 +38,31 @@ func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st st
 		TokenDir: filepath.Join(cfg.Paths.State, "addons"), SocketDir: filepath.Join(cfg.Paths.Run, "addons"),
 		Enqueue: runner.Enqueue, Log: log,
 	}), nil
+}
+
+// panelLink returns what notifications link back to: the address people
+// reach the panel at, from panel.hostname and the port it listens on.
+// Without a host name a panel listening on every address can't tell, so
+// messages go without a link.
+func panelLink(cfg config.Config) func(events.Event) string {
+	host, port, err := net.SplitHostPort(cfg.Panel.Listen)
+	if err != nil {
+		return nil
+	}
+	if cfg.Panel.Hostname != "" {
+		host = cfg.Panel.Hostname
+	} else if ip, err := netip.ParseAddr(host); err != nil || ip.IsUnspecified() {
+		return nil
+	}
+	scheme := "https"
+	if cfg.Panel.Insecure {
+		scheme = "http"
+	}
+	base := scheme + "://" + net.JoinHostPort(host, port)
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		base = scheme + "://" + host
+	}
+	return func(events.Event) string { return base + "/" }
 }
 
 // serveAddonGateway serves add-ons the panel's API on the gateway socket

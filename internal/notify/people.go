@@ -1,0 +1,151 @@
+package notify
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"slices"
+	"time"
+
+	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/events"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/store"
+)
+
+// Person is someone notifications reach on their own: an admin, a
+// reseller or a customer with a sign-in.
+type Person struct {
+	ID    store.ID
+	Name  string
+	Email string
+	// Actor is the person as the authorizer knows them, so they only hear
+	// about what they may see.
+	Actor *auth.Actor
+}
+
+// Directory finds people by ID. The module that keeps users provides it.
+type Directory interface {
+	// Person returns the person with the given ID, or nil when there is
+	// none.
+	Person(ctx context.Context, id store.ID) (*Person, error)
+}
+
+// PersonOf returns the ID a signed-in actor's preferences are kept under:
+// their user, whatever signed them in.
+func PersonOf(a *auth.Actor) (store.ID, bool) {
+	switch {
+	case a == nil:
+		return "", false
+	case a.User != "":
+		return a.User, true
+	case a.Type == auth.ActorUser && a.ID != "":
+		return a.ID, true
+	}
+	return "", false
+}
+
+// ErrNotAPerson refuses preferences to callers that aren't a person, such
+// as an API token without a user.
+var ErrNotAPerson = i18n.Define("notify.not_a_person", http.StatusForbidden, "Notification preferences belong to people. Sign in with your own user to set yours.")
+
+// Preferences are what one person wants to hear about, and when.
+type Preferences struct {
+	// Email sends what the person wants to their email address.
+	Email bool `json:"email" doc:"Send notifications to my email address"`
+	// Events are the event types wanted, as patterns; DefaultEvents when
+	// empty.
+	Events []string `json:"events,omitempty" maxItems:"64" doc:"Event types to send, as patterns such as *.failed; failures, security events and safe mode when empty"`
+	// MinSeverity leaves out events less urgent than it; warning when
+	// empty.
+	MinSeverity events.Severity `json:"minSeverity,omitempty" enum:"info,notice,warning,error,critical" doc:"Only send events at least this urgent; warning when empty"`
+	// Muted are event types never sent, whatever Events says.
+	Muted      []string    `json:"muted,omitempty" maxItems:"64" doc:"Event types never to send, as patterns"`
+	QuietHours *QuietHours `json:"quietHours,omitempty" doc:"Hold back what can wait, and send it as one summary when quiet hours end"`
+	UpdatedAt  *time.Time  `json:"updatedAt,omitempty" readOnly:"true"`
+}
+
+// DefaultEvents are what people hear about until they choose: failures,
+// security events, safe mode and hooks switched off.
+var DefaultEvents = []string{"*.failed", "security.*", "core.safe_mode.*", "core.hook.disabled", "core.update.*"}
+
+// Check returns what is wrong with preferences.
+func (p *Preferences) Check() error {
+	var fields []i18n.FieldError
+	for i, pat := range p.Events {
+		if !events.ValidPattern(pat) {
+			fields = append(fields, i18n.Field(fmt.Sprintf("events[%d]", i), i18n.ErrBadValue, "reason", "use lowercase event type names, dots and the wildcards * and ?"))
+		}
+	}
+	for i, pat := range p.Muted {
+		if !events.ValidPattern(pat) {
+			fields = append(fields, i18n.Field(fmt.Sprintf("muted[%d]", i), i18n.ErrBadValue, "reason", "use lowercase event type names, dots and the wildcards * and ?"))
+		}
+	}
+	if p.MinSeverity != "" && !p.MinSeverity.Valid() {
+		fields = append(fields, i18n.Field("minSeverity", i18n.ErrBadValue, "reason", "use info, notice, warning, error or critical"))
+	}
+	if p.QuietHours != nil {
+		fields = append(fields, p.QuietHours.check("quietHours")...)
+	}
+	if len(fields) > 0 {
+		return i18n.Invalid(fields...)
+	}
+	return nil
+}
+
+// Wants reports whether the person wants to hear about an event.
+func (p *Preferences) Wants(e events.Event) bool {
+	if !p.Email {
+		return false
+	}
+	min := p.MinSeverity
+	if min == "" {
+		min = events.SeverityWarning
+	}
+	patterns := p.Events
+	if len(patterns) == 0 {
+		patterns = DefaultEvents
+	}
+	switch {
+	case !e.Severity.AtLeast(min):
+		return false
+	case len(p.Muted) > 0 && events.MatchTypes(p.Muted, e.Type):
+		return false
+	}
+	return events.MatchTypes(patterns, e.Type)
+}
+
+// mayRead reports whether a person may see an event, as the timeline would
+// show it to them.
+func mayRead(ctx context.Context, authz auth.Authorizer, p *Person, e events.Event) bool {
+	if authz == nil || p.Actor == nil {
+		return false
+	}
+	target := auth.Target{Scope: e.Scope, Object: e.Subject}
+	if target.Scope.Level == "" {
+		target.Scope = store.ServerScope()
+	}
+	return authz.Authorize(ctx, p.Actor, eventRead, target) == nil
+}
+
+// eventRead is the permission to see events in the timeline.
+const eventRead auth.Permission = "core.event.read"
+
+// wantsChannel reports whether a channel wants an event.
+func wantsChannel(c *store.Object[ChannelSpec, ChannelStatus], e events.Event) bool {
+	switch {
+	case c.Deleted() || c.Spec.Disabled:
+		return false
+	case e.Time.Before(c.CreatedAt):
+		return false
+	case c.Spec.MinSeverity != "" && !e.Severity.AtLeast(c.Spec.MinSeverity):
+		return false
+	case c.Spec.Owner != nil && e.Scope != *c.Spec.Owner:
+		return false
+	}
+	return events.MatchTypes(c.Spec.Events, e.Type) && !slices.Contains(quietTypes, e.Type)
+}
+
+// quietTypes are events about notifications themselves, which would echo.
+var quietTypes = []string{"core.notification_channel.tested", "core.smtp_relay.tested"}

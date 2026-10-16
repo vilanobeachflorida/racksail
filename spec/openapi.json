@@ -575,6 +575,143 @@
         ],
         "type": "object"
       },
+      "ChannelSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled": {
+            "description": "Stops sending until the channel is enabled again",
+            "type": "boolean"
+          },
+          "events": {
+            "description": "Event types to send, as patterns such as *.failed or backups.*; * sends every event",
+            "examples": [
+              [
+                "*.failed",
+                "core.safe_mode.*"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "minSeverity": {
+            "description": "Only send events at least this urgent",
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "What the channel is called in the panel",
+            "examples": [
+              "Ops on Matrix"
+            ],
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/Scope",
+            "description": "Only send events about the resources of this reseller or account"
+          },
+          "quietHours": {
+            "$ref": "#/components/schemas/QuietHours",
+            "description": "Hold back what can wait, and send it as one summary when quiet hours end"
+          },
+          "settings": {
+            "description": "The channel type's settings; secret settings hold references, and their values are sent in the change's secrets as settings.\u003cname\u003e"
+          },
+          "type": {
+            "description": "email, webhook, matrix, ntfy, telegram, discord, slack, or a notifier a module or add-on provides",
+            "examples": [
+              "ntfy"
+            ],
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "events"
+        ],
+        "type": "object"
+      },
+      "ChannelStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "consecutiveFailures": {
+            "description": "Attempts in a row that failed",
+            "format": "int64",
+            "type": "integer"
+          },
+          "lastError": {
+            "description": "Why the last attempt failed",
+            "type": "string"
+          },
+          "lastSent": {
+            "description": "When a notification last got through",
+            "format": "date-time",
+            "type": "string"
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ChannelTestOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "notification": {
+            "$ref": "#/components/schemas/Notification"
+          }
+        },
+        "required": [
+          "notification"
+        ],
+        "type": "object"
+      },
       "Check": {
         "additionalProperties": false,
         "properties": {
@@ -1365,6 +1502,161 @@
         ],
         "type": "object"
       },
+      "CoreNotificationChannel": {
+        "additionalProperties": false,
+        "description": "Notification channel: Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ChannelSpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChannelStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationChannelCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new notification channel.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with nch_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: settings.accessToken, settings.botToken, settings.password, settings.secret, settings.token, settings.webhookUrl",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ChannelSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationChannelList": {
+        "additionalProperties": false,
+        "description": "One page of notification channels.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreNotificationChannel"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreNotificationChannelUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a notification channel.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: settings.accessToken, settings.botToken, settings.password, settings.secret, settings.token, settings.webhookUrl",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ChannelSpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
       "CorePolicy": {
         "additionalProperties": false,
         "description": "Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server.",
@@ -1677,6 +1969,161 @@
           },
           "spec": {
             "$ref": "#/components/schemas/PolicySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreSmtpRelay": {
+        "additionalProperties": false,
+        "description": "Mail relay: The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "Set when the resource has been deleted and its system state is being removed",
+            "format": "date-time",
+            "type": "string"
+          },
+          "generation": {
+            "description": "Increases whenever the desired state changes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Immutable TypeID",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind name, \u003cmodule\u003e.\u003cname\u003e",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Free-form labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "Increases on every write except status updates; send it back to detect conflicting edits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "server": {
+            "description": "Cluster server the resource is placed on; empty for the panel's own server",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/RelaySpec"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RelayStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "id",
+          "kind",
+          "scope",
+          "generation",
+          "revision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CoreSmtpRelayCreateRequest": {
+        "additionalProperties": false,
+        "description": "A new mail relay.",
+        "properties": {
+          "id": {
+            "description": "An ID chosen up front, starting with smtp_; one is made when left out",
+            "type": "string"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: password",
+            "type": "object"
+          },
+          "server": {
+            "description": "The cluster server to place it on; the panel's own server when left out",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/RelaySpec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "CoreSmtpRelayList": {
+        "additionalProperties": false,
+        "description": "One page of mail relays.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoreSmtpRelay"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "The cursor of the next page; empty on the last one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CoreSmtpRelayUpdateRequest": {
+        "additionalProperties": false,
+        "description": "New settings for a mail relay.",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels for grouping and filtering",
+            "type": "object"
+          },
+          "revision": {
+            "description": "The revision the settings were read at; when someone changed them since, the update fails with a conflict",
+            "format": "int64",
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: password",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/RelaySpec"
           }
         },
         "required": [
@@ -2783,6 +3230,58 @@
         ],
         "type": "object"
       },
+      "Message": {
+        "additionalProperties": false,
+        "properties": {
+          "actionLabel": {
+            "type": "string"
+          },
+          "body": {
+            "description": "What happened and what to do, in plain text",
+            "type": "string"
+          },
+          "digest": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "event": {
+            "$ref": "#/components/schemas/Event"
+          },
+          "id": {
+            "description": "The same on every attempt to deliver the message",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "description": "What happened, in a few words",
+            "type": "string"
+          },
+          "url": {
+            "description": "Where in the panel to look",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "severity"
+        ],
+        "type": "object"
+      },
       "ModuleSpec": {
         "additionalProperties": false,
         "properties": {
@@ -2960,6 +3459,96 @@
           "generation",
           "revision",
           "phase"
+        ],
+        "type": "object"
+      },
+      "Notification": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "description": "The address it is emailed to",
+            "type": "string"
+          },
+          "attemptCount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "channel": {
+            "description": "The channel it goes through",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastError": {
+            "description": "Why the last attempt failed",
+            "type": "string"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "nextAttempt": {
+            "description": "When it is sent, or sent again; for held deliveries, when quiet hours end",
+            "format": "date-time",
+            "type": "string"
+          },
+          "person": {
+            "description": "The person it is emailed to",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "held",
+              "sent",
+              "failed",
+              "dropped",
+              "merged"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "description": "The summary it went out in",
+            "type": "string"
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "severity",
+          "state",
+          "attemptCount",
+          "createdAt"
         ],
         "type": "object"
       },
@@ -3311,6 +3900,63 @@
         ],
         "type": "object"
       },
+      "QuietHours": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "description": "The days quiet hours start on, as mon to sun; every day when empty",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 7,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "drop": {
+            "description": "Leave out what arrives during quiet hours instead of sending a summary when they end",
+            "type": "boolean"
+          },
+          "end": {
+            "description": "When they end, as HH:MM; earlier than the start means the next day",
+            "examples": [
+              "07:00"
+            ],
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "start": {
+            "description": "When quiet hours start, as HH:MM",
+            "examples": [
+              "22:00"
+            ],
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone the times are in, such as Europe/Madrid; the server's when empty",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "urgent": {
+            "description": "Notifications at least this urgent are sent at once anyway; critical when empty",
+            "enum": [
+              "info",
+              "notice",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
       "RedeliverInput": {
         "additionalProperties": false,
         "properties": {
@@ -3321,6 +3967,150 @@
         },
         "required": [
           "delivery"
+        ],
+        "type": "object"
+      },
+      "RelaySpec": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "The address email comes from",
+            "examples": [
+              "panel@example.com"
+            ],
+            "maxLength": 254,
+            "minLength": 3,
+            "type": "string"
+          },
+          "fromName": {
+            "description": "The name shown with it; the panel's brand name when empty",
+            "maxLength": 80,
+            "type": "string"
+          },
+          "helo": {
+            "description": "The name the panel greets the relay with; localhost when empty",
+            "maxLength": 253,
+            "type": "string"
+          },
+          "host": {
+            "description": "The mail server email goes out through",
+            "examples": [
+              "smtp.example.com"
+            ],
+            "maxLength": 253,
+            "minLength": 1,
+            "type": "string"
+          },
+          "password": {
+            "description": "Send its value in the change's secrets, as password",
+            "type": "string"
+          },
+          "port": {
+            "description": "587 for STARTTLS, 465 for TLS and 25 without encryption, unless set",
+            "format": "int64",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "security": {
+            "description": "How the connection is encrypted; starttls when empty",
+            "enum": [
+              "starttls",
+              "tls",
+              "none"
+            ],
+            "type": "string"
+          },
+          "username": {
+            "description": "The user name to sign in with, if the relay wants one",
+            "maxLength": 254,
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "from"
+        ],
+        "type": "object"
+      },
+      "RelayStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "lastError": {
+            "description": "Why the last email failed",
+            "type": "string"
+          },
+          "lastSent": {
+            "description": "When an email last got through",
+            "format": "date-time",
+            "type": "string"
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RelayTestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "to": {
+            "description": "Who gets the test email",
+            "examples": [
+              "you@example.com"
+            ],
+            "maxLength": 254,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "to"
+        ],
+        "type": "object"
+      },
+      "RelayTestOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "description": "Why the relay didn't take the email",
+            "type": "string"
+          },
+          "sent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent"
         ],
         "type": "object"
       },
@@ -6296,6 +7086,622 @@
         "x-racksail-risk": "read"
       }
     },
+    "/api/v1/core/mail-relays": {
+      "get": {
+        "description": "The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. Lists the mail relays you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreMailRelays",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreSmtpRelayList"
+                }
+              }
+            },
+            "description": "A page of mail relays"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List mail relays",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.smtp_relay.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreSmtpRelay",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreSmtpRelayCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a mail relay",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.smtp_relay.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/mail-relays/{id}": {
+      "delete": {
+        "description": "Deletes the mail relay and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreSmtpRelay",
+        "parameters": [
+          {
+            "description": "The mail relay's ID, which starts with smtp_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the mail relay since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the mail relay from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a mail relay",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.smtp_relay.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      },
+      "get": {
+        "description": "Returns one mail relay: its settings (spec), and what Racksail last saw of it (status). The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on.",
+        "operationId": "getCoreSmtpRelay",
+        "parameters": [
+          {
+            "description": "The mail relay's ID, which starts with smtp_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreSmtpRelay"
+                }
+              }
+            },
+            "description": "The mail relay"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a mail relay",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.smtp_relay.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the mail relay's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreSmtpRelay",
+        "parameters": [
+          {
+            "description": "The mail relay's ID, which starts with smtp_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreSmtpRelayUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a mail relay",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.smtp_relay.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/mail-relays/{id}/actions/test": {
+      "post": {
+        "description": "Sends a short email through the relay to the address given and reports what the relay answered. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "testCoreSmtpRelay",
+        "parameters": [
+          {
+            "description": "The mail relay's ID, which starts with smtp_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelayTestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Send a test email through the relay",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "test",
+        "x-racksail-output": {
+          "$ref": "#/components/schemas/RelayTestOutput"
+        },
+        "x-racksail-permission": "core.smtp_relay.test",
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/mail-relays/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the mail relay's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreSmtpRelayHistory",
+        "parameters": [
+          {
+            "description": "The mail relay's ID, which starts with smtp_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a mail relay's history",
+        "tags": [
+          "MailRelays"
+        ],
+        "x-racksail-kind": "core.smtp_relay",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.smtp_relay.read",
+        "x-racksail-risk": "read"
+      }
+    },
     "/api/v1/core/modules": {
       "get": {
         "description": "A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. Lists the modules you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
@@ -7083,6 +8489,620 @@
         "x-racksail-kind": "core.module",
         "x-racksail-operation": "history",
         "x-racksail-permission": "core.module.read",
+        "x-racksail-risk": "read"
+      }
+    },
+    "/api/v1/core/notification-channels": {
+      "get": {
+        "description": "Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours. Lists the notification channels you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.",
+        "operationId": "listCoreNotificationChannels",
+        "parameters": [
+          {
+            "description": "Only those of one owner: server, reseller:\u003cid\u003e or account:\u003cid\u003e",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those placed on this cluster server",
+            "in": "query",
+            "name": "server",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those with this label, as key=value; repeat it to require several",
+            "explode": true,
+            "in": "query",
+            "name": "label",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those in one of these phases: pending, applying, ready, degraded, failed or deleting",
+            "explode": true,
+            "in": "query",
+            "name": "phase",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only those whose ID or indexed fields, title or subtitle contain this text",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The order: id, createdAt, updatedAt, generation, phase, type, with - in front for the reverse",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also list those being removed",
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only those whose type is this value",
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Continues a list where the page before it ended: the next of that page",
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, from 1 to 1000; 50 when left out",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreNotificationChannelList"
+                }
+              }
+            },
+            "description": "A page of notification channels"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List notification channels",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "list",
+        "x-racksail-permission": "core.notification_channel.read",
+        "x-racksail-risk": "read"
+      },
+      "post": {
+        "description": "Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
+        "operationId": "createCoreNotificationChannel",
+        "parameters": [
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreNotificationChannelCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a notification channel",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "create",
+        "x-racksail-permission": "core.notification_channel.create",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/notification-channels/{id}": {
+      "delete": {
+        "description": "Deletes the notification channel and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
+        "operationId": "deleteCoreNotificationChannel",
+        "parameters": [
+          {
+            "description": "The notification channel's ID, which starts with nch_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision you read; when someone changed the notification channel since, the delete fails with a conflict",
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job removes the notification channel from the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a notification channel",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-destructive": true,
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "delete",
+        "x-racksail-permission": "core.notification_channel.delete",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "low"
+      },
+      "get": {
+        "description": "Returns one notification channel: its settings (spec), and what Racksail last saw of it (status). Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours.",
+        "operationId": "getCoreNotificationChannel",
+        "parameters": [
+          {
+            "description": "The notification channel's ID, which starts with nch_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included",
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoreNotificationChannel"
+                }
+              }
+            },
+            "description": "The notification channel"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Get a notification channel",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "get",
+        "x-racksail-permission": "core.notification_channel.read",
+        "x-racksail-risk": "read"
+      },
+      "put": {
+        "description": "Replaces the notification channel's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
+        "operationId": "updateCoreNotificationChannel",
+        "parameters": [
+          {
+            "description": "The notification channel's ID, which starts with nch_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreNotificationChannelUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set without applying it, for a dry run"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set, applied to the settings; its job carries out the change on the server"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a notification channel",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "update",
+        "x-racksail-permission": "core.notification_channel.update",
+        "x-racksail-reversible": true,
+        "x-racksail-risk": "medium"
+      }
+    },
+    "/api/v1/core/notification-channels/{id}/actions/test": {
+      "post": {
+        "description": "Sends a test notification through the channel right away and reports what happened. Test notifications ignore quiet hours and aren't tried again. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "operationId": "testCoreNotificationChannel",
+        "parameters": [
+          {
+            "description": "The notification channel's ID, which starts with nch_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Plan the change and return its change set without applying it",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Any unique string; a retry with the same key returns the first change set instead of applying the change again",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set: of a dry run, or once the action is done, with its output"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The change set; its job carries out the action"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Send a test notification",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-dry-run": true,
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "test",
+        "x-racksail-output": {
+          "$ref": "#/components/schemas/ChannelTestOutput"
+        },
+        "x-racksail-permission": "core.notification_channel.test",
+        "x-racksail-risk": "low"
+      }
+    },
+    "/api/v1/core/notification-channels/{id}/history": {
+      "get": {
+        "description": "Returns every recorded version of the notification channel's settings, oldest first, with the change set that wrote it and who made the change.",
+        "operationId": "getCoreNotificationChannelHistory",
+        "parameters": [
+          {
+            "description": "The notification channel's ID, which starts with nch_",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryBody"
+                }
+              }
+            },
+            "description": "The versions"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem; its code says what went wrong"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show a notification channel's history",
+        "tags": [
+          "NotificationChannels"
+        ],
+        "x-racksail-kind": "core.notification_channel",
+        "x-racksail-operation": "history",
+        "x-racksail-permission": "core.notification_channel.read",
         "x-racksail-risk": "read"
       }
     },

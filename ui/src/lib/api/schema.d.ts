@@ -344,6 +344,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/core/mail-relays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List mail relays
+         * @description The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. Lists the mail relays you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreMailRelays"];
+        put?: never;
+        /**
+         * Create a mail relay
+         * @description The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreSmtpRelay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/mail-relays/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a mail relay
+         * @description Returns one mail relay: its settings (spec), and what Racksail last saw of it (status). The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on.
+         */
+        get: operations["getCoreSmtpRelay"];
+        /**
+         * Change a mail relay
+         * @description Replaces the mail relay's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreSmtpRelay"];
+        post?: never;
+        /**
+         * Delete a mail relay
+         * @description Deletes the mail relay and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreSmtpRelay"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/mail-relays/{id}/actions/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test email through the relay
+         * @description Sends a short email through the relay to the address given and reports what the relay answered. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["testCoreSmtpRelay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/mail-relays/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a mail relay's history
+         * @description Returns every recorded version of the mail relay's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreSmtpRelayHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/core/modules": {
         parameters: {
             query?: never;
@@ -468,6 +560,98 @@ export interface paths {
          * @description Returns every recorded version of the module's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreModuleHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification channels
+         * @description Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours. Lists the notification channels you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreNotificationChannels"];
+        put?: never;
+        /**
+         * Create a notification channel
+         * @description Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreNotificationChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-channels/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a notification channel
+         * @description Returns one notification channel: its settings (spec), and what Racksail last saw of it (status). Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours.
+         */
+        get: operations["getCoreNotificationChannel"];
+        /**
+         * Change a notification channel
+         * @description Replaces the notification channel's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreNotificationChannel"];
+        post?: never;
+        /**
+         * Delete a notification channel
+         * @description Deletes the notification channel and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreNotificationChannel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-channels/{id}/actions/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test notification
+         * @description Sends a test notification through the channel right away and reports what happened. Test notifications ignore quiet hours and aren't tried again. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["testCoreNotificationChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/notification-channels/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a notification channel's history
+         * @description Returns every recorded version of the notification channel's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreNotificationChannelHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1309,6 +1493,67 @@ export interface components {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
         };
+        ChannelSpec: {
+            /** @description Stops sending until the channel is enabled again */
+            disabled?: boolean;
+            /**
+             * @description Event types to send, as patterns such as *.failed or backups.*; * sends every event
+             * @example [
+             *       "*.failed",
+             *       "core.safe_mode.*"
+             *     ]
+             */
+            events: string[] | null;
+            /**
+             * @description Only send events at least this urgent
+             * @enum {string}
+             */
+            minSeverity?: "info" | "notice" | "warning" | "error" | "critical";
+            /**
+             * @description What the channel is called in the panel
+             * @example Ops on Matrix
+             */
+            name: string;
+            /** @description Only send events about the resources of this reseller or account */
+            owner?: components["schemas"]["Scope"];
+            /** @description Hold back what can wait, and send it as one summary when quiet hours end */
+            quietHours?: components["schemas"]["QuietHours"];
+            /** @description The channel type's settings; secret settings hold references, and their values are sent in the change's secrets as settings.<name> */
+            settings?: unknown;
+            /**
+             * @description email, webhook, matrix, ntfy, telegram, discord, slack, or a notifier a module or add-on provides
+             * @example ntfy
+             */
+            type: string;
+        };
+        ChannelStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /**
+             * Format: int64
+             * @description Attempts in a row that failed
+             */
+            consecutiveFailures?: number;
+            /** @description Why the last attempt failed */
+            lastError?: string;
+            /**
+             * Format: date-time
+             * @description When a notification last got through
+             */
+            lastSent?: string;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+        };
+        ChannelTestOutput: {
+            notification: components["schemas"]["Notification"];
+        };
         Check: {
             message?: string;
             /** @example agent */
@@ -1650,6 +1895,80 @@ export interface components {
             };
             spec: components["schemas"]["ModuleSpec"];
         };
+        /** @description Notification channel: Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours. */
+        CoreNotificationChannel: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["ChannelSpec"];
+            status?: components["schemas"]["ChannelStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new notification channel. */
+        CoreNotificationChannelCreateRequest: {
+            /** @description An ID chosen up front, starting with nch_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: settings.accessToken, settings.botToken, settings.password, settings.secret, settings.token, settings.webhookUrl */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["ChannelSpec"];
+        };
+        /** @description One page of notification channels. */
+        CoreNotificationChannelList: {
+            items: components["schemas"]["CoreNotificationChannel"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a notification channel. */
+        CoreNotificationChannelUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: settings.accessToken, settings.botToken, settings.password, settings.secret, settings.token, settings.webhookUrl */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["ChannelSpec"];
+        };
         /** @description Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. */
         CorePolicy: {
             /** Format: date-time */
@@ -1799,6 +2118,80 @@ export interface components {
                 [key: string]: string;
             };
             spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description Mail relay: The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. */
+        CoreSmtpRelay: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["RelaySpec"];
+            status?: components["schemas"]["RelayStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new mail relay. */
+        CoreSmtpRelayCreateRequest: {
+            /** @description An ID chosen up front, starting with smtp_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: password */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["RelaySpec"];
+        };
+        /** @description One page of mail relays. */
+        CoreSmtpRelayList: {
+            items: components["schemas"]["CoreSmtpRelay"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a mail relay. */
+        CoreSmtpRelayUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: password */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["RelaySpec"];
         };
         /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
         CoreWebhook: {
@@ -2194,6 +2587,21 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        Message: {
+            actionLabel?: string;
+            /** @description What happened and what to do, in plain text */
+            body: string;
+            digest?: components["schemas"]["Message"][] | null;
+            event?: components["schemas"]["Event"];
+            /** @description The same on every attempt to deliver the message */
+            id?: string;
+            /** @enum {string} */
+            severity: "info" | "notice" | "warning" | "error" | "critical";
+            /** @description What happened, in a few words */
+            title: string;
+            /** @description Where in the panel to look */
+            url?: string;
+        };
         ModuleSpec: {
             /** @description Whether the module is on */
             enabled: boolean;
@@ -2257,6 +2665,39 @@ export interface components {
             /** Format: int64 */
             revision: number;
             scope: components["schemas"]["Scope"];
+        };
+        Notification: {
+            /** @description The address it is emailed to */
+            address?: string;
+            /** Format: int64 */
+            attemptCount: number;
+            /** @description The channel it goes through */
+            channel?: string;
+            /** Format: date-time */
+            createdAt: string;
+            event?: string;
+            eventType?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            id: string;
+            /** @description Why the last attempt failed */
+            lastError?: string;
+            message?: components["schemas"]["Message"];
+            /**
+             * Format: date-time
+             * @description When it is sent, or sent again; for held deliveries, when quiet hours end
+             */
+            nextAttempt?: string;
+            /** @description The person it is emailed to */
+            person?: string;
+            /** @enum {string} */
+            severity: "info" | "notice" | "warning" | "error" | "critical";
+            /** @enum {string} */
+            state: "pending" | "held" | "sent" | "failed" | "dropped" | "merged";
+            /** @description The summary it went out in */
+            summary?: string;
+            test?: boolean;
+            title: string;
         };
         Operation: {
             description?: string;
@@ -2396,9 +2837,94 @@ export interface components {
              */
             total: number;
         };
+        QuietHours: {
+            /** @description The days quiet hours start on, as mon to sun; every day when empty */
+            days?: string[] | null;
+            /** @description Leave out what arrives during quiet hours instead of sending a summary when they end */
+            drop?: boolean;
+            /**
+             * @description When they end, as HH:MM; earlier than the start means the next day
+             * @example 07:00
+             */
+            end: string;
+            /**
+             * @description When quiet hours start, as HH:MM
+             * @example 22:00
+             */
+            start: string;
+            /** @description The time zone the times are in, such as Europe/Madrid; the server's when empty */
+            timeZone?: string;
+            /**
+             * @description Notifications at least this urgent are sent at once anyway; critical when empty
+             * @enum {string}
+             */
+            urgent?: "info" | "notice" | "warning" | "error" | "critical";
+        };
         RedeliverInput: {
             /** @description The delivery to send again */
             delivery: string;
+        };
+        RelaySpec: {
+            /**
+             * @description The address email comes from
+             * @example panel@example.com
+             */
+            from: string;
+            /** @description The name shown with it; the panel's brand name when empty */
+            fromName?: string;
+            /** @description The name the panel greets the relay with; localhost when empty */
+            helo?: string;
+            /**
+             * @description The mail server email goes out through
+             * @example smtp.example.com
+             */
+            host: string;
+            /** @description Send its value in the change's secrets, as password */
+            password?: string;
+            /**
+             * Format: int64
+             * @description 587 for STARTTLS, 465 for TLS and 25 without encryption, unless set
+             */
+            port?: number;
+            /**
+             * @description How the connection is encrypted; starttls when empty
+             * @enum {string}
+             */
+            security?: "starttls" | "tls" | "none";
+            /** @description The user name to sign in with, if the relay wants one */
+            username?: string;
+        };
+        RelayStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description Why the last email failed */
+            lastError?: string;
+            /**
+             * Format: date-time
+             * @description When an email last got through
+             */
+            lastSent?: string;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+        };
+        RelayTestInput: {
+            /**
+             * @description Who gets the test email
+             * @example you@example.com
+             */
+            to: string;
+        };
+        RelayTestOutput: {
+            /** @description Why the relay didn't take the email */
+            error?: string;
+            sent: boolean;
         };
         RemoveInput: {
             /** @description The module's id or name, typed to confirm removing it */
@@ -3757,6 +4283,322 @@ export interface operations {
             };
         };
     };
+    listCoreMailRelays: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of mail relays */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreSmtpRelayList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreSmtpRelay: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreSmtpRelayCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreSmtpRelay: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The mail relay's ID, which starts with smtp_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The mail relay */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreSmtpRelay"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreSmtpRelay: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The mail relay's ID, which starts with smtp_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreSmtpRelayUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreSmtpRelay: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the mail relay since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The mail relay's ID, which starts with smtp_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the mail relay from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    testCoreSmtpRelay: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The mail relay's ID, which starts with smtp_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelayTestInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreSmtpRelayHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The mail relay's ID, which starts with smtp_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listCoreModules: {
         parameters: {
             query?: {
@@ -4143,6 +4985,320 @@ export interface operations {
             header?: never;
             path: {
                 /** @description The module's ID, which starts with mod_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreNotificationChannels: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, type, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose type is this value */
+                type?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of notification channels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreNotificationChannelList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreNotificationChannelCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The notification channel's ID, which starts with nch_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notification channel */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreNotificationChannel"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The notification channel's ID, which starts with nch_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreNotificationChannelUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the notification channel since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The notification channel's ID, which starts with nch_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the notification channel from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    testCoreNotificationChannel: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The notification channel's ID, which starts with nch_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreNotificationChannelHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notification channel's ID, which starts with nch_ */
                 id: string;
             };
             cookie?: never;

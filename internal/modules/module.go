@@ -17,6 +17,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
 	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
+	"github.com/vilanobeachflorida/racksail/internal/notify"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -50,7 +51,11 @@ type Services struct {
 	Rules *rules.Engine
 	// Addons runs installed add-ons and keeps safe mode.
 	Addons *addons.Runtime
-	Log   *slog.Logger
+	// Notify sends notifications: alerts through the channels and
+	// preferences people set, and messages for one person or address,
+	// such as sign-in alerts and customer emails.
+	Notify *notify.Service
+	Log    *slog.Logger
 }
 
 // KindProvider declares a module's kinds. Kind names must start with the

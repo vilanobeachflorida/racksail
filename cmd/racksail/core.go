@@ -24,6 +24,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
+	"github.com/vilanobeachflorida/racksail/internal/notify"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -175,6 +176,21 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			return nil, err
 		}
 	}
+	// Notifications follow the timeline like webhooks, and reach the same
+	// networks they may.
+	notifier, err := notify.NewSQL(ctx, db, notify.Options{
+		Store: st, Log: timeline, Secrets: vault, Registry: hookReg, Authorizer: authorizer, BrandName: "Racksail",
+		Link: panelLink(cfg), AllowNetworks: hooksAllowed, Retention: time.Duration(keep.Deliveries), Logger: log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	svc.Notify = notifier
+	for _, r := range notify.Reconcilers(notifier) {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
 	addonRuntime, err := newAddonRuntime(ctx, cfg, db, st, hookReg, agentClient, timeline, runner, log)
 	if err != nil {
 		return nil, err
@@ -236,6 +252,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		{Name: "jobs", Check: queue.Check},
 		{Name: "reconcile", Check: runner.Check},
 		{Name: "webhooks", Check: dispatcher.Check},
+		{Name: "notifications", Check: notifier.Check},
 		{Name: "modules", Check: func(ctx context.Context) error {
 			failed := manager.Failed()
 			ids := slices.Sorted(maps.Keys(failed))
@@ -258,6 +275,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	// changes whose apply job never ran.
 	c.work.Go(func() { runner.Run(ctx, reconcile.ResyncInterval) })
 	c.work.Go(func() { dispatcher.Run(ctx) })
+	c.work.Go(func() { notifier.Run(ctx) })
 	c.work.Go(func() { timeline.Run(ctx, time.Hour) })
 	// Modules become active as resources start to use them.
 	c.work.Go(func() { manager.Run(ctx) })
