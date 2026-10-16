@@ -6,7 +6,7 @@ Rules for DNS templates, besides the catalog's:
 
 - Values come from the provider's own documentation, linked from `homepage`.
 - Inputs cover what differs per customer, such as a verification code or a DKIM selector, with a `pattern` when the provider's format is fixed.
-- An install test, with a zone id as its zone.
+- A `resource` check of the records it creates, and an install test, with a zone id as its zone.
 - `requires.modules` includes `dns`.
 
 ```

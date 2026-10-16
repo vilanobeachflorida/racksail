@@ -145,6 +145,11 @@ type Signature struct {
 	Key  string `yaml:"key,omitempty" json:"key,omitempty"`
 }
 
+// HealthResource is the type of health check that waits for a resource the
+// recipe creates, named by its name, or for the installed item itself,
+// named by the recipe's id, to be ready.
+const HealthResource = "resource"
+
 // HealthCheck verifies an installed recipe.
 type HealthCheck struct {
 	Type           string `yaml:"type" json:"type"`
@@ -241,6 +246,16 @@ func (r *Recipe) check() error {
 			case m[1] != "inputs" && m[1] != "resources":
 				return ErrUnknownRef.New("ref", m[0])
 			}
+		}
+	}
+	for i, hc := range r.Health {
+		for _, m := range refPattern.FindAllStringSubmatch(hc.Target, -1) {
+			if !(m[1] == "inputs" && inputs[m[2]] && m[3] == "") && !(m[1] == "resources" && names[m[2]] && m[3] != "") {
+				return ErrUnknownRef.New("ref", m[0])
+			}
+		}
+		if hc.Type == HealthResource && !names[hc.Target] && hc.Target != r.ID {
+			return fmt.Errorf("recipe %s: health check %d waits for %s, which is neither one of its resources nor the recipe's id", r.ID, i+1, hc.Target)
 		}
 	}
 	if _, err := r.Order(); err != nil {

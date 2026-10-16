@@ -172,6 +172,21 @@ func TestProblems(t *testing.T) {
 		{"no install test", func(t *testing.T, root string) {
 			replaceIn(t, root+"/runtimes/php-runtime/recipe.yaml", "tests:\n  timeoutSeconds: 1800\n", "")
 		}, "needs an install test"},
+		// Every official item has a health check and an install test, those
+		// that run nothing or create no resources too.
+		{"theme without a health check", func(t *testing.T, root string) {
+			replaceIn(t, root+"/themes/contrast-theme/recipe.yaml", "health:\n  - {type: resource, target: contrast-theme}\n", "")
+		}, "themes/contrast-theme/recipe.yaml: needs at least one health check, so a panel can tell that what it installed works: " +
+			"a check of what it runs, or a resource check of what it creates or of the item itself (type: resource, target: contrast-theme)"},
+		{"add-on without an install test", func(t *testing.T, root string) {
+			replaceIn(t, root+"/addons/notes-addon/recipe.yaml", "tests:\n  timeoutSeconds: 120\n", "")
+		}, "addons/notes-addon/recipe.yaml: needs an install test"},
+		{"DNS template without a health check", func(t *testing.T, root string) {
+			replaceIn(t, root+"/dns-templates/mail-records/recipe.yaml", "health:\n  - {type: resource, target: mx}\n  - {type: resource, target: spf}\n", "")
+		}, "dns-templates/mail-records/recipe.yaml: needs at least one health check"},
+		{"resource check of a resource the recipe doesn't create", func(t *testing.T, root string) {
+			replaceIn(t, root+"/automations/uptime-alerts/recipe.yaml", "target: workflow}", "target: schedule}")
+		}, "health check 1 waits for schedule, which is neither one of its resources nor the recipe's id"},
 		{"install test without a required input", func(t *testing.T, root string) {
 			replaceIn(t, root+"/stacks/blog-stack/recipe.yaml", ", dbPassword: correct-horse-battery", "")
 		}, "the install test's inputs don't work"},

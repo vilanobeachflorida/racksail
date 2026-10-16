@@ -16,6 +16,8 @@ resources:
   - name: preset
     kind: performance.preset
     spec: {site: "${inputs.site}", php: {opcache: {memoryMB: 256}, workers: auto}}
+health:
+  - {type: resource, target: preset}
 tests:
   inputs: {site: site_01h455vb4pex5vsknk084sn02q}
   timeoutSeconds: 120

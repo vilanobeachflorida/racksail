@@ -6,7 +6,7 @@ Rules for runtimes, besides the catalog's:
 
 - The version is the exact upstream version, such as `8.4.13`. Patch releases replace the previous recipe; each major or minor line is its own item, such as `php-8-4`, so sites stay on the line they chose.
 - Downloads are the upstream source or binary archives, pinned by checksum and size and verified against the upstream signature where there is one.
-- An install test, which builds or downloads the runtime.
+- A `resource` check of the build, and an install test, which builds or downloads the runtime.
 - End-of-life lines stay available for the sites that need them, with `description` saying so; sites using them get the strictest sandbox and a warning in the panel.
 
 ```

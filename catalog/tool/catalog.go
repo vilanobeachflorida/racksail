@@ -261,17 +261,6 @@ func (c *Catalog) loadItem(rel string, kind recipes.ItemKind, probs *problems) *
 	return it
 }
 
-// itemsWithHealth must say how to tell that they work, and itemsWithTests
-// must have an install test, since they install running software or create
-// resources.
-var (
-	itemsWithHealth = []recipes.ItemKind{recipes.KindApp, recipes.KindService, recipes.KindStack}
-	itemsWithTests  = []recipes.ItemKind{
-		recipes.KindApp, recipes.KindRuntime, recipes.KindService, recipes.KindStack,
-		recipes.KindDNSTemplate, recipes.KindAutomation, recipes.KindTuningPreset, recipes.KindModel,
-	}
-)
-
 func checkItem(it *Item, kind recipes.ItemKind, contents map[string][]byte, probs *problems) {
 	r := it.Recipe
 	where := it.Dir + "/" + recipeFile
@@ -294,15 +283,16 @@ func checkItem(it *Item, kind recipes.ItemKind, contents map[string][]byte, prob
 		probs.add(it.Dir+"/"+r.Icon, "%v", err)
 	}
 
-	if slices.Contains(itemsWithHealth, kind) && len(r.Health) == 0 {
-		probs.add(where, "needs at least one health check, so a panel can tell that what it installed works")
+	// Every official item has named maintainers, an install test and a
+	// health check (docs/architecture/extensibility.md, Catalogs).
+	if len(r.Health) == 0 {
+		probs.add(where, "needs at least one health check, so a panel can tell that what it installed works: "+
+			"a check of what it runs, or a resource check of what it creates or of the item itself (type: resource, target: %s)", r.ID)
 	}
-	if slices.Contains(itemsWithTests, kind) {
-		if r.Tests.TimeoutSeconds == 0 {
-			probs.add(where, "needs an install test: tests.timeoutSeconds, and tests.inputs for the inputs it requires")
-		} else if _, err := r.Values(r.Tests.Inputs); err != nil {
-			probs.add(where, "the install test's inputs don't work: %v", err)
-		}
+	if r.Tests.TimeoutSeconds == 0 {
+		probs.add(where, "needs an install test: tests.timeoutSeconds, and tests.inputs for the inputs it requires")
+	} else if _, err := r.Values(r.Tests.Inputs); err != nil {
+		probs.add(where, "the install test's inputs don't work: %v", err)
 	}
 
 	urls := map[string]bool{}

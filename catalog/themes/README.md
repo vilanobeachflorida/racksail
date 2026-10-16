@@ -8,6 +8,7 @@ Rules for themes, besides the catalog's:
 - Its id, version and license are the recipe's.
 - Every file it refers to is in the item's directory. Themes never load anything from the network, contain no code and can't restyle destructive confirmations, change previews, security prompts, license labels or permission screens.
 - Custom CSS is never distributed through a catalog.
+- A `resource` check of the theme itself, `{type: resource, target: <id>}`, which is ready once a panel has installed the theme and checked its contrast, and an install test.
 
 ```
 themes/high-contrast/

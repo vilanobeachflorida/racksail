@@ -9,3 +9,7 @@ licenseClass: free-to-use
 icon: icon.svg
 categories: [accessibility]
 maintainers: [{name: Example maintainers, github: example}]
+health:
+  - {type: resource, target: contrast-theme}
+tests:
+  timeoutSeconds: 60

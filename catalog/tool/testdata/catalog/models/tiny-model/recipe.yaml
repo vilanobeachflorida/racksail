@@ -26,5 +26,7 @@ downloads:
   - url: https://downloads.example.com/tiny-model-q4.gguf
     sha256: 1a15803ce4b9b15126ae3b610d897940dc7e03a003fe7a423f3de72f3390a3be
     size: 484442112
+health:
+  - {type: resource, target: model}
 tests:
   timeoutSeconds: 1800

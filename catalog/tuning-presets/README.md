@@ -6,7 +6,7 @@ Rules for tuning presets, besides the catalog's:
 
 - Every value has a reason in `description`, and the measurements behind it are linked from `homepage` or the pull request that added it.
 - Values stay within the account's plan limits; the performance module never raises a limit to apply a preset.
-- An install test with values for every required input.
+- A `resource` check of the preset it creates, and an install test with values for every required input.
 - `requires.modules` includes `performance`.
 
 ```

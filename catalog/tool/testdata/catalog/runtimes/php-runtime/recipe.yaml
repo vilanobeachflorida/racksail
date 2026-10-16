@@ -18,5 +18,7 @@ downloads:
   - url: https://downloads.example.com/php-runtime-8.4.13.tar.xz
     sha256: a04a55aa3f5b37d9c4ab12bdc436a989618b7710b4f70afcc306b6160468652c
     size: 13421772
+health:
+  - {type: resource, target: build}
 tests:
   timeoutSeconds: 1800

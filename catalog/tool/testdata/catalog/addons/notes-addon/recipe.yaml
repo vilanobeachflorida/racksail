@@ -9,3 +9,7 @@ licenseClass: open-source
 icon: icon.svg
 categories: [productivity]
 maintainers: [{name: Example maintainers, github: example}]
+health:
+  - {type: unit, target: racksail-addon@notes-addon.service}
+tests:
+  timeoutSeconds: 120

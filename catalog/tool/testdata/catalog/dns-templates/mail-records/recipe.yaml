@@ -19,6 +19,9 @@ resources:
   - name: spf
     kind: dns.record
     spec: {zone: "${inputs.zone}", type: TXT, name: "@", value: "v=spf1 include:spf.mail.example.com ~all"}
+health:
+  - {type: resource, target: mx}
+  - {type: resource, target: spf}
 tests:
   inputs: {zone: zone_01h455vb4pex5vsknk084sn02q}
   timeoutSeconds: 60

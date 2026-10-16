@@ -8,6 +8,7 @@ Rules for models, besides the catalog's:
 - `requires.memoryMB` is the memory the model needs at its context length, and at least the size of its files.
 - Models only need to be free to download and use. A model under a license the Open Source Initiative hasn't approved is labelled `free-to-use`, with the license's SPDX identifier or a `LicenseRef-` naming it.
 - Files come from the model's publisher, pinned by checksum and size.
+- A `resource` check of the `ai.model` resource, which is ready once the model is downloaded, checked and in use by the assistant, and an install test.
 
 ```
 models/qwen3-4b/

@@ -14,7 +14,7 @@
         "productivity"
       ],
       "path": "addons/notes-addon/recipe.yaml",
-      "sha256": "745b1ad38dd82e35dd521ab5ff6c6ada06969948e7a3dc5a1a56cf7e4670ad3c",
+      "sha256": "9137a913da7c2aadaa57365cad3dee0892cb0c5ff981ca08c1eb00f751ce87f5",
       "icon": "addons/notes-addon/icon.svg",
       "files": [
         {
@@ -29,8 +29,8 @@
         },
         {
           "path": "addons/notes-addon/recipe.yaml",
-          "sha256": "745b1ad38dd82e35dd521ab5ff6c6ada06969948e7a3dc5a1a56cf7e4670ad3c",
-          "size": 247
+          "sha256": "9137a913da7c2aadaa57365cad3dee0892cb0c5ff981ca08c1eb00f751ce87f5",
+          "size": 345
         }
       ]
     },
@@ -79,7 +79,7 @@
         "monitoring"
       ],
       "path": "automations/uptime-alerts/recipe.yaml",
-      "sha256": "9c1667c3cc014e896282f6244e01e484c2984c5cece5892d755ed40a8a297ae2",
+      "sha256": "71ae262c72c47c5d9f1e26fae8da65283aa05f85cdab0c3402f58160ae576349",
       "icon": "automations/uptime-alerts/icon.svg",
       "requires": {
         "modules": [
@@ -95,8 +95,8 @@
         },
         {
           "path": "automations/uptime-alerts/recipe.yaml",
-          "sha256": "9c1667c3cc014e896282f6244e01e484c2984c5cece5892d755ed40a8a297ae2",
-          "size": 857
+          "sha256": "71ae262c72c47c5d9f1e26fae8da65283aa05f85cdab0c3402f58160ae576349",
+          "size": 904
         }
       ],
       "unmaintained": true
@@ -112,7 +112,7 @@
         "mail"
       ],
       "path": "dns-templates/mail-records/recipe.yaml",
-      "sha256": "4f406b15aaf1fe765003257c80f4ac86d748c4253e4ecc4be903f89170fcf468",
+      "sha256": "52f5a52511bf52e037f0c0153e0d43a147d0e8bfb066c629dba993ced97c7ddb",
       "icon": "dns-templates/mail-records/icon.svg",
       "requires": {
         "modules": [
@@ -127,8 +127,8 @@
         },
         {
           "path": "dns-templates/mail-records/recipe.yaml",
-          "sha256": "4f406b15aaf1fe765003257c80f4ac86d748c4253e4ecc4be903f89170fcf468",
-          "size": 742
+          "sha256": "52f5a52511bf52e037f0c0153e0d43a147d0e8bfb066c629dba993ced97c7ddb",
+          "size": 817
         }
       ]
     },
@@ -143,7 +143,7 @@
         "ai"
       ],
       "path": "models/tiny-model/recipe.yaml",
-      "sha256": "f1ddaacecdccf4c8730812190daa0423d78a7c30d1bb4af7a2fb7d4ecbb58e3c",
+      "sha256": "376480e786ae808dde11c2dafcbd20702d88352ec9be186eaf95a832e7dec5f1",
       "icon": "models/tiny-model/icon.svg",
       "requires": {
         "modules": [
@@ -160,8 +160,8 @@
         },
         {
           "path": "models/tiny-model/recipe.yaml",
-          "sha256": "f1ddaacecdccf4c8730812190daa0423d78a7c30d1bb4af7a2fb7d4ecbb58e3c",
-          "size": 783
+          "sha256": "376480e786ae808dde11c2dafcbd20702d88352ec9be186eaf95a832e7dec5f1",
+          "size": 827
         }
       ]
     },
@@ -176,7 +176,7 @@
         "runtime"
       ],
       "path": "runtimes/php-runtime/recipe.yaml",
-      "sha256": "ad426a8f2e29ff18868ae421a61e9e27b17f8d7274ce663a8ab5cf59a289484a",
+      "sha256": "4b18de4fd82b7bd4e1dc917b007d1ab3e85f4c41bc02e378362043ac6f374852",
       "icon": "runtimes/php-runtime/icon.svg",
       "requires": {
         "modules": [
@@ -193,8 +193,8 @@
         },
         {
           "path": "runtimes/php-runtime/recipe.yaml",
-          "sha256": "ad426a8f2e29ff18868ae421a61e9e27b17f8d7274ce663a8ab5cf59a289484a",
-          "size": 653
+          "sha256": "4b18de4fd82b7bd4e1dc917b007d1ab3e85f4c41bc02e378362043ac6f374852",
+          "size": 697
         }
       ]
     },
@@ -281,7 +281,7 @@
         "accessibility"
       ],
       "path": "themes/contrast-theme/recipe.yaml",
-      "sha256": "63d571ab199c514dff7d311a0001f85d7988cd653652c7f4ed3b5bc7d107e1ec",
+      "sha256": "c5e4ca27163b74343a928cef5b31ec2723a3f5618e0d7aa69be8f9c139e78c62",
       "icon": "themes/contrast-theme/icon.svg",
       "files": [
         {
@@ -296,8 +296,8 @@
         },
         {
           "path": "themes/contrast-theme/recipe.yaml",
-          "sha256": "63d571ab199c514dff7d311a0001f85d7988cd653652c7f4ed3b5bc7d107e1ec",
-          "size": 265
+          "sha256": "c5e4ca27163b74343a928cef5b31ec2723a3f5618e0d7aa69be8f9c139e78c62",
+          "size": 346
         },
         {
           "path": "themes/contrast-theme/theme.yaml",
@@ -317,7 +317,7 @@
         "performance"
       ],
       "path": "tuning-presets/fast-site/recipe.yaml",
-      "sha256": "7181179d8c7430cbe79109154b4a4d64bd3f94f38cef82ff58fa5e77e10c9887",
+      "sha256": "ce8f18407d19935113c0a0882ae80958acbebad57da39dc9cecfaa96c22a6607",
       "icon": "tuning-presets/fast-site/icon.svg",
       "requires": {
         "modules": [
@@ -333,8 +333,8 @@
         },
         {
           "path": "tuning-presets/fast-site/recipe.yaml",
-          "sha256": "7181179d8c7430cbe79109154b4a4d64bd3f94f38cef82ff58fa5e77e10c9887",
-          "size": 627
+          "sha256": "ce8f18407d19935113c0a0882ae80958acbebad57da39dc9cecfaa96c22a6607",
+          "size": 672
         }
       ],
       "broken": true
