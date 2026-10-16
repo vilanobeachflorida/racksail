@@ -20,9 +20,9 @@ const accents = new Map(plain.map((c, i) => [c, accented[i]]));
 
 // Right-to-left mark, right-to-left override and pop directional
 // formatting, as in Android's and Chrome's ar-XB.
-const RLM = "‏";
-const RLO = "‮";
-const PDF = "‬";
+const RLM = "\u200F";
+const RLO = "\u202E";
+const PDF = "\u202C";
 
 // Padding that makes a message a third longer than its English.
 export const padding = "·";

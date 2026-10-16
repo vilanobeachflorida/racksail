@@ -332,9 +332,9 @@ e2e-pseudo: $(UI_DEPS) $(E2E_DEPS)
 	cd test/e2e && RACKSAIL_E2E_REPORT=$(CURDIR)/build/e2e-pseudo/playwright-report \
 		RACKSAIL_E2E_RESULTS=$(CURDIR)/build/e2e-pseudo/playwright-results npx playwright test --config pseudo.config.ts
 
-# The end-to-end suites' own tools.
+# The end-to-end suites' own tools and sources.
 e2e-check: $(E2E_DEPS)
-	cd test/e2e && node --test 'pseudo/*.test.mjs'
+	cd test/e2e && node --test '*.test.mjs' 'pseudo/*.test.mjs'
 
 cloud-image:
 	mkdir -p $(dir $(CLOUD_IMAGE))
