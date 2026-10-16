@@ -257,6 +257,28 @@ func TestModifyRepliesStayWithinTheirScopes(t *testing.T) {
 	}
 }
 
+// A modify hook's point can be about a delete, whose resource gets no new
+// spec: an answer that gives it one is the hook's failure.
+func TestModifyRepliesLeaveDeletesAlone(t *testing.T) {
+	ctx := context.Background()
+	acct := store.AccountScope(store.NewID("acct"))
+	gone := changeset.ResourceChange{Op: changeset.OpDelete, Kind: "web.site", ID: store.NewID("site"), Scope: acct, Before: json.RawMessage(`{"domains":["a.example"]}`), After: json.RawMessage(`{"domains":["a.example"]}`), Source: changeset.RequestSource}
+	g := NewGrants(hooks.Permissions{Write: []hooks.DataScope{{Kind: "web.site", Fields: []string{"cdn"}}}}, store.ServerScope())
+	st := store.NewMemory(siteKinds(t))
+	work := &changeset.ChangeSet{Changes: []changeset.ResourceChange{gone.Clone()}}
+	if err := g.Merge(ctx, st, work, g.FilterChangeSet(work), []int{0}); err != nil {
+		t.Errorf("the change set as it was sent: %v", err)
+	}
+	reply := g.FilterChangeSet(work)
+	reply.Changes[0].After = json.RawMessage(`{"cdn":"on"}`)
+	if err := g.Merge(ctx, st, work, reply, []int{0}); err == nil || !strings.Contains(err.Error(), "being deleted") {
+		t.Errorf("a new spec for a resource being deleted: %v", err)
+	}
+	if !bytes.Equal(work.Changes[0].After, gone.After) {
+		t.Errorf("the delete's spec = %s", work.Changes[0].After)
+	}
+}
+
 // What the pipeline plans of a change a modify hook added is checked again,
 // in case anything got it past Merge: with the scope, spec and labels the
 // resource had, and a diff of its own.

@@ -365,12 +365,17 @@ func (g Grants) Merge(ctx context.Context, rd store.Reader, work *changeset.Chan
 			continue
 		}
 		readable, _ := g.CanRead(ch.Kind)
-		sent := project(ch.After, readable)
+		seen := project(ch.After, readable)
 		returned := reply.Changes[i].After
-		if bytes.Equal(normalizeJSON(sent), normalizeJSON(returned)) {
+		if bytes.Equal(normalizeJSON(seen), normalizeJSON(returned)) {
 			continue
 		}
-		diffs, err := changeset.Diff(sent, returned)
+		if ch.Op == changeset.OpDelete {
+			// A resource being deleted gets no new spec, which the pipeline
+			// would take for tampering with the whole change set.
+			return fmt.Errorf("the add-on changed the spec of %s, which is being deleted", ch.ID)
+		}
+		diffs, err := changeset.Diff(seen, returned)
 		if err != nil {
 			return err
 		}

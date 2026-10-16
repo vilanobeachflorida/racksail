@@ -27,11 +27,11 @@ type Extension struct {
 	// operation can't describe, such as an add-on's own routes, which it
 	// documents itself. Requests reach them signed in like any other.
 	Routes map[string]func(svc *modules.Services) http.Handler
-	// PathCredentials are patterns of Routes whose requests carry what
-	// signs them in in their path, as the wildcard {token}, rather than in
-	// the session, as the frames of add-ons' screens do. Pages of other
-	// origins may send them, since the session cookie isn't what lets them
-	// through, and the access log leaves the token out.
+	// PathCredentials are patterns of Routes whose paths carry what signs
+	// a request in, as the wildcard {token}, rather than the session, as
+	// the frames of add-ons' screens do. Pages of other origins may send
+	// them, since the session cookie isn't what lets them through, and the
+	// access log leaves the token out.
 	PathCredentials []string
 	// Reserved are first path segments under Prefix the extension uses,
 	// which no module's kinds may.
