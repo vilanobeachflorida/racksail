@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -261,12 +262,37 @@ func (j *joinTokens) check(ctx context.Context, token, hostname string) (string,
 	return server, nil
 }
 
+// clusterMembers is the panel's list of servers.
+type clusterMembers struct {
+	mu      sync.Mutex
+	servers map[string]bool
+}
+
+func (c *clusterMembers) check(ctx context.Context, server string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.servers[server], nil
+}
+
+func (c *clusterMembers) set(server string, member bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.servers[server] = member
+}
+
 func TestHubJoinRenewAndReverseCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	c := newTestCluster(t)
 	tokens := &joinTokens{tokens: map[string]string{"tok-1": "web-1"}}
-	hub := NewHub(c.ca, c.panel, tokens.check, nil)
+	members := &clusterMembers{servers: map[string]bool{"web-1": true}}
+	hub, err := NewHub(HubOptions{CA: c.ca, Credentials: c.panel, Tokens: tokens.check, Members: members.check})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHub(HubOptions{CA: c.ca, Credentials: c.panel, Tokens: tokens.check}); err == nil {
+		t.Error("a hub needs to know the cluster's servers")
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -331,11 +357,69 @@ func TestHubJoinRenewAndReverseCalls(t *testing.T) {
 		t.Error("a server that never connected can't be called")
 	}
 
+	// A server removed from the cluster is cut off at once, can't connect
+	// again and can't renew its still valid certificate.
+	members.set("web-1", false)
+	hub.Remove("web-1")
+	gone, goneCancel := context.WithTimeout(ctx, time.Second)
+	defer goneCancel()
+	if _, err := GetFacts.Call(gone, hub.Client("web-1"), Empty{}, CallOptions{}); err == nil {
+		t.Error("a removed server can still be called")
+	}
+	if got := hub.Connected(); len(got) != 0 {
+		t.Errorf("connected after removal = %+v", got)
+	}
+	if _, err := Renew(ctx, addr, renewed); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("renewing a removed server's certificate: %v", err)
+	}
+
 	cancel()
 	if err := <-connDone; err != nil {
 		t.Errorf("connector: %v", err)
 	}
 	if err := <-hubDone; err != nil {
 		t.Errorf("hub: %v", err)
+	}
+}
+
+func TestHubKeepsFewConnectionsPerServer(t *testing.T) {
+	c := newTestCluster(t)
+	hub, err := NewHub(HubOptions{
+		CA: c.ca, Credentials: c.panel, MaxConnsPerServer: 3,
+		Tokens:  func(context.Context, string, string) (string, error) { return "", errors.New("no") },
+		Members: func(context.Context, string) (bool, error) { return true, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var far []net.Conn
+	for range 5 {
+		near, other := net.Pipe()
+		far = append(far, other)
+		hub.add("web-1", near)
+	}
+	if got := hub.Connected(); len(got) != 1 || got[0].Idle != 3 {
+		t.Fatalf("connected = %+v", got)
+	}
+	// The oldest two made way and were closed.
+	for i, conn := range far {
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		_, err := conn.Read(make([]byte, 1))
+		closed := errors.Is(err, io.EOF)
+		if closed != (i < 2) {
+			t.Errorf("connection %d closed = %v (%v)", i, closed, err)
+		}
+	}
+	// A taken connection is still cut when its server is removed.
+	taken, err := hub.take(context.Background(), "web-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub.Remove("web-1")
+	if _, err := taken.Write([]byte("x")); err == nil {
+		t.Error("a connection in use outlives its server's removal")
+	}
+	if got := hub.Connected(); len(got) != 0 {
+		t.Errorf("connected after removal = %+v", got)
 	}
 }

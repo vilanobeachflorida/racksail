@@ -26,12 +26,19 @@ func TestAgentJoinKeepsTheCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 	panel := agent.Credentials{CertPEM: certPEM, KeyPEM: keyPEM, CAPEM: ca.CertPEM()}
-	hub := agent.NewHub(ca, panel, func(ctx context.Context, token, hostname string) (string, error) {
-		if token != "good-token" {
-			return "", errors.New("unknown token")
-		}
-		return "web-1", nil
-	}, nil)
+	hub, err := agent.NewHub(agent.HubOptions{
+		CA: ca, Credentials: panel,
+		Tokens: func(ctx context.Context, token, hostname string) (string, error) {
+			if token != "good-token" {
+				return "", errors.New("unknown token")
+			}
+			return "web-1", nil
+		},
+		Members: func(ctx context.Context, server string) (bool, error) { return server == "web-1", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

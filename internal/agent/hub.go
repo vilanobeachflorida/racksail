@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -182,7 +183,16 @@ type dialListener struct {
 	once   sync.Once
 	log    *slog.Logger
 	dial   func(context.Context) (net.Conn, string, error)
+
+	// pause is how long to wait before dialing again after the panel
+	// closed connections as soon as they were made, as it does for a
+	// server it no longer lists.
+	mu    sync.Mutex
+	pause time.Duration
 }
+
+// shortLived is how soon a connection must close to count as turned away.
+const shortLived = 2 * time.Second
 
 // slotConn frees its slot when it closes, so another connection is dialed.
 type slotConn struct {
@@ -196,11 +206,36 @@ func (s *slotConn) Close() error {
 	return s.Conn.Close()
 }
 
+// closedAfter notes how long a connection lasted.
+func (l *dialListener) closedAfter(lived time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if lived >= shortLived {
+		l.pause = 0
+		return
+	}
+	l.pause = min(max(2*l.pause, time.Second), 30*time.Second)
+}
+
+func (l *dialListener) currentPause() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.pause
+}
+
 func (l *dialListener) Accept() (net.Conn, error) {
 	select {
 	case l.slots <- struct{}{}:
 	case <-l.closed:
 		return nil, net.ErrClosed
+	}
+	if pause := l.currentPause(); pause > 0 {
+		select {
+		case <-time.After(pause):
+		case <-l.closed:
+			<-l.slots
+			return nil, net.ErrClosed
+		}
 	}
 	backoff := time.Second
 	for {
@@ -216,7 +251,13 @@ func (l *dialListener) Accept() (net.Conn, error) {
 		cancel()
 		if err == nil {
 			var once sync.Once
-			return &slotConn{Conn: conn, peer: peer, release: func() { once.Do(func() { <-l.slots }) }}, nil
+			opened := time.Now()
+			return &slotConn{Conn: conn, peer: peer, release: func() {
+				once.Do(func() {
+					l.closedAfter(time.Since(opened))
+					<-l.slots
+				})
+			}}, nil
 		}
 		l.log.Warn("connecting to the panel", "error", err, "retry", backoff)
 		select {
@@ -265,34 +306,89 @@ type RenewRequest struct {
 // refuses it. Tokens are used once.
 type TokenChecker func(ctx context.Context, token, hostname string) (server string, err error)
 
+// MemberChecker reports whether a server still belongs to the cluster. The
+// panel answers from its list of servers, so a server it removed loses its
+// way in at once, even while its certificate is valid.
+type MemberChecker func(ctx context.Context, server string) (bool, error)
+
+// HubOptions configure a Hub.
+type HubOptions struct {
+	// CA issues the agents' certificates; Credentials are the panel's own,
+	// issued by it.
+	CA          *CA
+	Credentials Credentials
+	// Tokens decides which join tokens are good.
+	Tokens TokenChecker
+	// Members decides which servers may connect and renew their
+	// certificates.
+	Members MemberChecker
+	// MaxConnsPerServer bounds the connections kept waiting for calls from
+	// one agent; the oldest goes when another arrives. 16 by default.
+	MaxConnsPerServer int
+	Log               *slog.Logger
+}
+
 // Hub accepts connections agents open to the panel, serves joining and
 // renewal, and hands the connections to clients calling those agents.
 type Hub struct {
-	ca    *CA
-	creds Credentials
-	check TokenChecker
-	log   *slog.Logger
-	now   func() time.Time
+	ca       *CA
+	creds    Credentials
+	check    TokenChecker
+	members  MemberChecker
+	maxConns int
+	log      *slog.Logger
+	now      func() time.Time
 
 	mu      sync.Mutex
 	idle    map[string][]*hubConn
+	busy    map[string]map[*hubConn]bool
 	waiters map[string][]chan *hubConn
 	seen    map[string]time.Time
 }
 
+// hubConn is a connection an agent opened. Once a client takes it, it is
+// busy until it closes.
 type hubConn struct {
 	net.Conn
-	since time.Time
+	hub    *Hub
+	server string
+	since  time.Time
+	once   sync.Once
 }
 
-// NewHub returns a hub for a panel that keeps ca. creds are the panel's own
-// credentials, issued by ca; check decides which join tokens are good.
-func NewHub(ca *CA, creds Credentials, check TokenChecker, log *slog.Logger) *Hub {
-	if log == nil {
-		log = slog.Default()
+// Close implements net.Conn.
+func (c *hubConn) Close() error {
+	c.once.Do(func() { c.hub.forget(c) })
+	return c.Conn.Close()
+}
+
+// NewHub returns a hub for a panel that keeps the CA.
+func NewHub(opts HubOptions) (*Hub, error) {
+	if opts.CA == nil || opts.Tokens == nil || opts.Members == nil {
+		return nil, errors.New("a hub needs the CA, a token checker and a member checker")
 	}
-	return &Hub{ca: ca, creds: creds, check: check, log: log, now: time.Now,
-		idle: map[string][]*hubConn{}, waiters: map[string][]chan *hubConn{}, seen: map[string]time.Time{}}
+	if opts.Log == nil {
+		opts.Log = slog.Default()
+	}
+	if opts.MaxConnsPerServer <= 0 {
+		opts.MaxConnsPerServer = 16
+	}
+	return &Hub{ca: opts.CA, creds: opts.Credentials, check: opts.Tokens, members: opts.Members, maxConns: opts.MaxConnsPerServer,
+		log: opts.Log, now: time.Now,
+		idle: map[string][]*hubConn{}, busy: map[string]map[*hubConn]bool{}, waiters: map[string][]chan *hubConn{}, seen: map[string]time.Time{}}, nil
+}
+
+// member asks whether a server belongs to the cluster, refusing it when the
+// panel can't say.
+func (h *Hub) member(ctx context.Context, server string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ok, err := h.members(ctx, server)
+	if err != nil {
+		h.log.Warn("checking whether a server belongs to the cluster", "server", server, "error", err)
+		return false
+	}
+	return ok
 }
 
 // TLSConfig is the hub listener's configuration. Agents ask for the agent
@@ -379,21 +475,77 @@ func (h *Hub) handshake(ctx context.Context, conn *tls.Conn, httpConns *chanList
 		conn.Close()
 		return
 	}
+	if !h.member(ctx, id.Server) {
+		h.log.Warn("refused an agent that isn't in the cluster", "server", id.Server, "remote", conn.RemoteAddr().String())
+		conn.Close()
+		return
+	}
 	h.add(id.Server, conn)
 }
 
-// add makes a connection available, to a waiting caller first.
+// add makes a connection available, to a waiting caller first. A server
+// keeps at most maxConns idle connections; the oldest makes way.
 func (h *Hub) add(server string, conn net.Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	hc := &hubConn{Conn: conn, since: h.now()}
+	hc := &hubConn{Conn: conn, hub: h, server: server, since: h.now()}
 	h.seen[server] = hc.since
 	if w := h.waiters[server]; len(w) > 0 {
 		h.waiters[server] = w[1:]
+		h.markBusy(hc)
 		w[0] <- hc
 		return
 	}
-	h.idle[server] = append(h.idle[server], hc)
+	idle := h.idle[server]
+	if len(idle) >= h.maxConns {
+		oldest := idle[0]
+		idle = idle[1:]
+		// Closing takes the lock to forget the connection; it's no longer
+		// listed, so there is nothing to forget.
+		oldest.once.Do(func() {})
+		oldest.Conn.Close()
+	}
+	h.idle[server] = append(idle, hc)
+}
+
+// markBusy notes a connection handed to a client. The caller holds h.mu.
+func (h *Hub) markBusy(hc *hubConn) {
+	if h.busy[hc.server] == nil {
+		h.busy[hc.server] = map[*hubConn]bool{}
+	}
+	h.busy[hc.server][hc] = true
+}
+
+// forget drops a connection that closed.
+func (h *Hub) forget(hc *hubConn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.busy[hc.server], hc)
+	if len(h.busy[hc.server]) == 0 {
+		delete(h.busy, hc.server)
+	}
+	if i := slices.Index(h.idle[hc.server], hc); i >= 0 {
+		h.idle[hc.server] = slices.Delete(h.idle[hc.server], i, i+1)
+	}
+}
+
+// Remove cuts a server off: its connections close, idle or in use, and
+// once the member checker no longer lists it, it can't connect again or
+// renew its certificate.
+func (h *Hub) Remove(server string) {
+	h.mu.Lock()
+	conns := slices.Clone(h.idle[server])
+	for hc := range h.busy[server] {
+		conns = append(conns, hc)
+	}
+	delete(h.idle, server)
+	delete(h.busy, server)
+	delete(h.seen, server)
+	h.mu.Unlock()
+	for _, hc := range conns {
+		hc.once.Do(func() {})
+		hc.Conn.Close()
+	}
 }
 
 // take hands out a connection to the agent of server, waiting for one
@@ -404,6 +556,7 @@ func (h *Hub) take(ctx context.Context, server string) (net.Conn, error) {
 		// The newest connection is the most likely to be alive.
 		hc := conns[len(conns)-1]
 		h.idle[server] = conns[:len(conns)-1]
+		h.markBusy(hc)
 		h.mu.Unlock()
 		return hc, nil
 	}
@@ -426,6 +579,9 @@ func (h *Hub) take(ctx context.Context, server string) (net.Conn, error) {
 		// A connection may have arrived in the meantime.
 		select {
 		case hc := <-ch:
+			h.mu.Lock()
+			delete(h.busy[server], hc)
+			h.mu.Unlock()
 			h.add(server, hc.Conn)
 		default:
 		}
@@ -435,12 +591,14 @@ func (h *Hub) take(ctx context.Context, server string) (net.Conn, error) {
 
 func (h *Hub) closeAll() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	for server, conns := range h.idle {
-		for _, c := range conns {
-			c.Close()
-		}
+	var conns []*hubConn
+	for server, idle := range h.idle {
+		conns = append(conns, idle...)
 		delete(h.idle, server)
+	}
+	h.mu.Unlock()
+	for _, c := range conns {
+		c.Close()
 	}
 }
 
@@ -508,6 +666,11 @@ func (h *Hub) Handler() http.Handler {
 		}
 		id, err := h.ca.Verify(r.TLS.PeerCertificates[0], h.now())
 		if err != nil || id.Role != RoleAgent {
+			writeProblem(w, ErrNotAllowed.New("op", "renew", "target", "a certificate"))
+			return
+		}
+		if !h.member(r.Context(), id.Server) {
+			h.log.Warn("refused to renew the certificate of a server that isn't in the cluster", "server", id.Server, "remote", r.RemoteAddr)
 			writeProblem(w, ErrNotAllowed.New("op", "renew", "target", "a certificate"))
 			return
 		}
