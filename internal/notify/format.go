@@ -9,19 +9,29 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/theme"
 )
 
-// severityLabel is how a message says how urgent it is.
-var severityLabel = map[events.Severity]string{
-	events.SeverityInfo: "Info", events.SeverityNotice: "Notice", events.SeverityWarning: "Warning",
-	events.SeverityError: "Error", events.SeverityCritical: "Critical",
+// severityLabel is how a message says how urgent it is, in its language.
+func severityLabel(locale string, s events.Severity) string {
+	if !s.Valid() {
+		s = events.SeverityInfo
+	}
+	return words(locale, "notify.severity."+string(s), nil)
 }
 
 // Subject is a message's title, prefixed with its severity when it needs
 // attention.
 func Subject(msg Message) string {
 	if msg.Severity.AtLeast(events.SeverityWarning) {
-		return severityLabel[msg.Severity] + ": " + msg.Title
+		return words(msg.Locale, "notify.subject", map[string]any{"severity": severityLabel(msg.Locale, msg.Severity), "title": msg.Title})
 	}
 	return msg.Title
+}
+
+// actionLabel names a message's link back to the panel.
+func actionLabel(msg Message) string {
+	if msg.ActionLabel != "" {
+		return msg.ActionLabel
+	}
+	return words(msg.Locale, "notify.action.open", nil)
 }
 
 // Text is a message as plain text: its body, the messages a digest holds,
@@ -32,6 +42,9 @@ func Text(msg Message) string {
 		b.WriteString(body)
 	}
 	for _, m := range msg.Digest {
+		if m.Locale == "" {
+			m.Locale = msg.Locale
+		}
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
@@ -44,47 +57,53 @@ func Text(msg Message) string {
 		if b.Len() > 0 {
 			b.WriteString("\n\n")
 		}
-		label := msg.ActionLabel
-		if label == "" {
-			label = "Open in the panel"
-		}
-		fmt.Fprintf(&b, "%s: %s", label, msg.URL)
+		b.WriteString(words(msg.Locale, "notify.link", map[string]any{"label": actionLabel(msg), "url": msg.URL}))
 	}
 	return b.String()
 }
 
-// HTML renders a message with the theme's email template, which escapes
-// every value for where it stands.
-func HTML(ctx context.Context, msg Message, env Env) (string, error) {
+// themeOf is the theme messages are dressed in: the panel's, or the
+// default one.
+func themeOf(ctx context.Context, env Env) (*theme.Package, error) {
 	pkg := &theme.Package{Theme: theme.Default()}
 	if env.Theme != nil {
 		p, err := env.Theme(ctx)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if p != nil {
 			pkg = p
 		}
 	}
-	brand := env.BrandName
-	if brand == "" {
-		brand = "Racksail"
+	return pkg, nil
+}
+
+// HTML renders a message with the theme's email template, which escapes
+// every value for where it stands.
+func HTML(ctx context.Context, msg Message, env Env) (string, error) {
+	pkg, err := themeOf(ctx, env)
+	if err != nil {
+		return "", err
 	}
+	brand := env.brand()
 	body := strings.TrimSpace(msg.Body)
 	for _, m := range msg.Digest {
+		if m.Locale == "" {
+			m.Locale = msg.Locale
+		}
 		if body != "" {
 			body += "\n\n"
 		}
 		body += Subject(m) + "\n" + strings.TrimSpace(m.Body)
 	}
-	label := msg.ActionLabel
-	if label == "" && msg.URL != "" {
-		label = "Open in the panel"
+	label := ""
+	if msg.URL != "" {
+		label = actionLabel(msg)
 	}
 	return pkg.Render(theme.TemplateEmail, map[string]string{
-		"lang": "en", "dir": "ltr", "brandName": brand, "title": Subject(msg), "preheader": firstLine(body), "body": body,
-		"actionLabel": label, "actionUrl": msg.URL,
-		"footer": "You get this because of your notification settings in " + brand + ".",
+		"lang": language(msg.Locale), "dir": direction(msg.Locale), "brandName": brand, "title": Subject(msg), "preheader": firstLine(body),
+		"body": body, "actionLabel": label, "actionUrl": msg.URL,
+		"footer": words(msg.Locale, "notify.footer", map[string]any{"brand": brand}),
 	})
 }
 
@@ -113,15 +132,27 @@ func priority(s events.Severity) int {
 	return 1
 }
 
-// color is a severity's color in chat embeds, as RGB.
-func color(s events.Severity) int {
+// statusColor is a severity's status color in the theme, as chat embeds
+// take it: an RGB number. Chat apps show embeds on a dark background by
+// default, so the dark palette's colors are used.
+func statusColor(ctx context.Context, env Env, s events.Severity) (int, error) {
+	pkg, err := themeOf(ctx, env)
+	if err != nil {
+		return 0, err
+	}
+	p := pkg.Theme.Tokens.Dark
+	c := p.Success
 	switch s {
 	case events.SeverityCritical, events.SeverityError:
-		return 0xD1242F
+		c = p.Danger
 	case events.SeverityWarning:
-		return 0xBF8700
+		c = p.Warning
 	case events.SeverityNotice:
-		return 0x007CFD
+		c = p.Info
 	}
-	return 0x1A7F37
+	rgb, err := c.Parse()
+	if err != nil {
+		return 0, err
+	}
+	return int(rgb.R)<<16 | int(rgb.G)<<8 | int(rgb.B), nil
 }

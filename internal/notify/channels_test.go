@@ -19,6 +19,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/theme"
 )
 
 func newVault() *secrets.Memory {
@@ -281,8 +282,10 @@ func TestDiscordAndSlackChannels(t *testing.T) {
 		} `json:"allowed_mentions"`
 	}
 	json.Unmarshal(got[0].body, &d)
-	if d.Username != "Acme" || len(d.Embeds) != 1 || d.Embeds[0].URL != alert.URL || d.Embeds[0].Color != 0xD1242F || d.AllowedMentions.Parse == nil {
-		t.Errorf("discord body = %s", got[0].body)
+	danger, _ := theme.Default().Tokens.Dark.Danger.Parse()
+	if want := int(danger.R)<<16 | int(danger.G)<<8 | int(danger.B); d.Username != "Acme" || len(d.Embeds) != 1 || d.Embeds[0].URL != alert.URL ||
+		d.Embeds[0].Color != want || d.AllowedMentions.Parse == nil {
+		t.Errorf("discord body = %s, want the default theme's danger color %06X", got[0].body, want)
 	}
 	var sl struct {
 		Blocks []struct {
@@ -292,6 +295,29 @@ func TestDiscordAndSlackChannels(t *testing.T) {
 	json.Unmarshal(got[1].body, &sl)
 	if len(sl.Blocks) != 1 || !strings.Contains(sl.Blocks[0].Text.Text, "&lt;!channel&gt;") {
 		t.Errorf("slack markup in a title is escaped: %s", got[1].body)
+	}
+
+	// The colors are the server's theme's, for each severity.
+	custom := theme.Default()
+	custom.Tokens.Dark.Danger, custom.Tokens.Dark.Warning, custom.Tokens.Dark.Info, custom.Tokens.Dark.Success = "#AA0011", "#BB8800", "#0044CC", "#118833"
+	themed, err := New("discord", settings(DiscordSettings{WebhookURL: secret(t, vault, "settings.webhook-url.themed", r.srv.URL+"/api/webhooks/2/token")}), Env{
+		Secrets: vault, HTTP: http.DefaultClient,
+		Theme: func(ctx context.Context) (*theme.Package, error) { return &theme.Package{Theme: custom}, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for sev, want := range map[events.Severity]int{events.SeverityCritical: 0xAA0011, events.SeverityWarning: 0xBB8800, events.SeverityNotice: 0x0044CC, events.SeverityInfo: 0x118833} {
+		m := alert
+		m.Severity = sev
+		if err := themed.Send(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+		all := r.requests()
+		json.Unmarshal(all[len(all)-1].body, &d)
+		if len(d.Embeds) != 1 || d.Embeds[0].Color != want {
+			t.Errorf("a %s message's color = %06X, want %06X", sev, d.Embeds[0].Color, want)
+		}
 	}
 }
 

@@ -1064,6 +1064,12 @@
               "null"
             ]
           },
+          "locale": {
+            "description": "The language of the panel's own words in the channel's messages, such as de or pt-BR; English when empty",
+            "maxLength": 35,
+            "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
+            "type": "string"
+          },
           "minSeverity": {
             "description": "Only send events at least this urgent",
             "enum": [
@@ -7126,6 +7132,10 @@
             "description": "The same on every attempt to deliver the message",
             "type": "string"
           },
+          "locale": {
+            "description": "The language of the panel's own words in the message, such as de or pt-BR; English when empty",
+            "type": "string"
+          },
           "severity": {
             "enum": [
               "info",
@@ -9094,6 +9104,12 @@
       "RelayTestInput": {
         "additionalProperties": false,
         "properties": {
+          "locale": {
+            "description": "The language of the panel's own words in the test email, such as de; English when empty",
+            "maxLength": 35,
+            "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
+            "type": "string"
+          },
           "to": {
             "description": "Who gets the test email",
             "examples": [

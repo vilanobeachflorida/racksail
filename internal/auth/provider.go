@@ -102,6 +102,9 @@ type DirectoryUser struct {
 	Email    string   `json:"email,omitempty"`
 	Disabled bool     `json:"disabled,omitempty"`
 	Grants   []Grant  `json:"grants"`
+	// Locale is the language the person chose for the panel, such as
+	// pt-BR; empty when they follow their browser.
+	Locale string `json:"locale,omitempty"`
 }
 
 // SSHKey is one of a user's SSH public keys.

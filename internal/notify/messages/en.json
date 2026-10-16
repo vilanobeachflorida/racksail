@@ -1,0 +1,21 @@
+{
+  "notify.action.open": "Open in the panel",
+  "notify.details.about": "About: {subject}",
+  "notify.details.by": "By: {actor}",
+  "notify.details.event": "Event: {type}",
+  "notify.details.when": "When: {time}",
+  "notify.digest.body": "These arrived while quiet hours held notifications back, from {time}.",
+  "notify.digest.title": "{count, plural, one {# notification} other {# notifications}} from quiet hours",
+  "notify.footer": "You get this because of your notification settings in {brand}.",
+  "notify.link": "{label}: {url}",
+  "notify.severity.critical": "Critical",
+  "notify.severity.error": "Error",
+  "notify.severity.info": "Info",
+  "notify.severity.notice": "Notice",
+  "notify.severity.warning": "Warning",
+  "notify.subject": "{severity}: {title}",
+  "notify.test.body": "This is a test from {brand}. If it arrived, the {channel} channel works.",
+  "notify.test.title": "Test notification",
+  "notify.test_email.body": "This is a test from {brand}. If it arrived, the mail relay works.",
+  "notify.test_email.title": "Test email"
+}

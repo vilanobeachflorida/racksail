@@ -4295,6 +4295,8 @@ export interface components {
              *     ]
              */
             events: string[] | null;
+            /** @description The language of the panel's own words in the channel's messages, such as de or pt-BR; English when empty */
+            locale?: string;
             /**
              * @description Only send events at least this urgent
              * @enum {string}
@@ -6697,6 +6699,8 @@ export interface components {
             event?: components["schemas"]["Event"];
             /** @description The same on every attempt to deliver the message */
             id?: string;
+            /** @description The language of the panel's own words in the message, such as de or pt-BR; English when empty */
+            locale?: string;
             /** @enum {string} */
             severity: "info" | "notice" | "warning" | "error" | "critical";
             /** @description What happened, in a few words */
@@ -7409,6 +7413,8 @@ export interface components {
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         RelayTestInput: {
+            /** @description The language of the panel's own words in the test email, such as de; English when empty */
+            locale?: string;
             /**
              * @description Who gets the test email
              * @example you@example.com

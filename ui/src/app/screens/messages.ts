@@ -487,6 +487,8 @@ export const notifySettingsMessages = {
   notifyChannelName: m("app.notifications.channelName"),
   notifyChannelType: m("app.notifications.channelType"),
   notifyChannelTypeChoose: m("app.notifications.channelTypeChoose"),
+  notifyChannelLanguage: m("app.notifications.channelLanguage"),
+  notifyChannelLanguageDefault: m("app.notifications.channelLanguageDefault"),
   notifyNoChannels: m("app.notifications.noChannels"),
   notifyLastSent: m("app.notifications.lastSent"),
   notifyNever: m("app.notifications.never"),

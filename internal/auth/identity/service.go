@@ -493,7 +493,7 @@ func directoryUser(u *store.Object[UserSpec, UserStatus]) auth.DirectoryUser {
 	for i, g := range u.Spec.Grants {
 		grants[i] = g.Clone()
 	}
-	return auth.DirectoryUser{ID: u.ID, Username: u.Spec.Username, Name: u.Spec.Name, Email: u.Spec.Email, Disabled: u.Spec.Disabled, Grants: grants}
+	return auth.DirectoryUser{ID: u.ID, Username: u.Spec.Username, Name: u.Spec.Name, Email: u.Spec.Email, Disabled: u.Spec.Disabled, Grants: grants, Locale: u.Spec.Locale}
 }
 
 func (d directory) User(ctx context.Context, id store.ID) (auth.DirectoryUser, error) {

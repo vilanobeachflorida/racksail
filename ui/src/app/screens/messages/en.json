@@ -421,6 +421,8 @@
   "app.notifications.channelName": "Name",
   "app.notifications.channelType": "Type",
   "app.notifications.channelTypeChoose": "Choose a type",
+  "app.notifications.channelLanguage": "Language",
+  "app.notifications.channelLanguageDefault": "English",
   "app.notifications.noChannels": "No channels yet",
   "app.notifications.lastSent": "Last sent",
   "app.notifications.never": "Never",

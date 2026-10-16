@@ -150,6 +150,8 @@ type ChannelSpec struct {
 	QuietHours *QuietHours  `json:"quietHours,omitempty" doc:"Hold back what can wait, and send it as one summary when quiet hours end"`
 	// Disabled stops notifications without forgetting the channel.
 	Disabled bool `json:"disabled,omitempty" doc:"Stops sending until the channel is enabled again"`
+	// Locale is the language of the words the panel adds to messages.
+	Locale string `json:"locale,omitempty" maxLength:"35" pattern:"^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$" doc:"The language of the panel's own words in the channel's messages, such as de or pt-BR; English when empty"`
 }
 
 // ChannelStatus is what the panel last saw of a channel.
@@ -214,7 +216,8 @@ type RelayStatus struct {
 
 // RelayTestInput names who gets the test email.
 type RelayTestInput struct {
-	To string `json:"to" minLength:"3" maxLength:"254" doc:"Who gets the test email" example:"you@example.com"`
+	To     string `json:"to" minLength:"3" maxLength:"254" doc:"Who gets the test email" example:"you@example.com"`
+	Locale string `json:"locale,omitempty" maxLength:"35" pattern:"^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$" doc:"The language of the panel's own words in the test email, such as de; English when empty"`
 }
 
 // Validate implements the check every action input gets.

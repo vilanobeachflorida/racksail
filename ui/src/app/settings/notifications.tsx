@@ -37,6 +37,7 @@ import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
 import { useFormat } from "@/lib/format";
 import type { UIHints } from "@/lib/forms/model";
+import { availableLocales } from "@/lib/i18n";
 import type { JSONSchema } from "@/lib/schema";
 import { messages } from "../messages";
 import { notifySettingsMessages as m } from "../screens/messages";
@@ -301,6 +302,7 @@ function AddChannel({ onDone }: { onDone: () => void }) {
   const [type, setType] = useState("");
   const [events, setEvents] = useState("*.failed, core.safe_mode.*, core.hook.disabled");
   const [minSeverity, setMinSeverity] = useState("warning");
+  const [locale, setLocale] = useState("");
   const [quiet, setQuiet] = useState<QuietHours | undefined>(undefined);
   const chosen = (types.data?.types ?? []).find((t) => t.name === type);
   const hints: UIHints = {
@@ -322,6 +324,7 @@ function AddChannel({ onDone }: { onDone: () => void }) {
                 events: patterns(events),
                 minSeverity: (minSeverity || undefined) as Schemas["ChannelSpec"]["minSeverity"],
                 quietHours: quiet,
+                locale: locale || undefined,
               },
               secrets: Object.fromEntries(
                 Object.entries(secrets).map(([k, v]) => [`settings.${k}`, v]),
@@ -369,6 +372,29 @@ function AddChannel({ onDone }: { onDone: () => void }) {
               allowEmpty={intl.formatMessage(m.notifyAnySeverity)}
               onChange={setMinSeverity}
             />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`${id}-locale`}>{intl.formatMessage(m.notifyChannelLanguage)}</Label>
+            <Select
+              value={locale === "" ? "default" : locale}
+              onValueChange={(v) => setLocale(v === "default" ? "" : v)}
+            >
+              <SelectTrigger id={`${id}-locale`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">
+                  {intl.formatMessage(m.notifyChannelLanguageDefault)}
+                </SelectItem>
+                {availableLocales(false)
+                  .filter((l) => l.tag !== "en")
+                  .map((l) => (
+                    <SelectItem key={l.tag} value={l.tag}>
+                      {l.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <QuietHoursFields value={quiet} onChange={setQuiet} />

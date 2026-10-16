@@ -22,9 +22,13 @@ type Person struct {
 	// Actor is the person as the authorizer knows them, so they only hear
 	// about what they may see.
 	Actor *auth.Actor
+	// Locale is the language they chose for the panel, which their
+	// messages use too; English when empty.
+	Locale string
 }
 
-// Directory finds people by ID. The module that keeps users provides it.
+// Directory finds people by ID. The panel's is Users, over the users the
+// identity service keeps.
 type Directory interface {
 	// Person returns the person with the given ID, or nil when there is
 	// none.
@@ -106,7 +110,7 @@ func Users(users func() auth.Directory) Directory {
 			name = u.Username
 		}
 		actor := &auth.Actor{Type: auth.ActorUser, ID: u.ID, Name: u.Username, User: u.ID, Grants: u.Grants}
-		return &Person{ID: u.ID, Name: name, Email: u.Email, Actor: actor}, nil
+		return &Person{ID: u.ID, Name: name, Email: u.Email, Actor: actor, Locale: u.Locale}, nil
 	})
 }
 
