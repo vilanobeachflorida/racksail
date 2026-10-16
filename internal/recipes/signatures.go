@@ -65,11 +65,11 @@ func vendorKey(name string) (openpgp.EntityList, bool) {
 
 // VerifiedDownload records that an upstream file matched its recipe.
 type VerifiedDownload struct {
-	URL        string    `json:"url"`
-	SHA256     string    `json:"sha256"`
-	Size       int64     `json:"size"`
+	URL        string    `json:"url" doc:"Where the file was downloaded from"`
+	SHA256     string    `json:"sha256" doc:"Its SHA-256 checksum, as the recipe gives it"`
+	Size       int64     `json:"size" doc:"Its size, in bytes"`
 	Signature  string    `json:"signature,omitempty" doc:"The kind of signature that was checked too, if any"`
-	VerifiedAt time.Time `json:"verifiedAt"`
+	VerifiedAt time.Time `json:"verifiedAt" doc:"When it was checked"`
 }
 
 // maxSignature bounds signature files and bundles.

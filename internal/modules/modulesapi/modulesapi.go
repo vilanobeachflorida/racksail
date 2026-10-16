@@ -29,7 +29,7 @@ var tags = []string{"Modules"}
 
 type moduleList struct {
 	Body struct {
-		Modules []*modules.ModuleInfo `json:"modules"`
+		Modules []*modules.ModuleInfo `json:"modules" doc:"Every module the panel has"`
 	}
 }
 
@@ -49,7 +49,7 @@ type Profile struct {
 
 type profileList struct {
 	Body struct {
-		Profiles []Profile `json:"profiles"`
+		Profiles []Profile `json:"profiles" doc:"The profiles, in the order the setup wizard shows them"`
 	}
 }
 
@@ -61,7 +61,7 @@ type applyProfileInput struct {
 // ProfileChange is the change set that turns a profile on, with the
 // modules it leaves off.
 type ProfileChange struct {
-	ChangeSet *changeset.ChangeSet `json:"changeSet"`
+	ChangeSet *changeset.ChangeSet `json:"changeSet" doc:"The change set that turns the modules on"`
 	Skipped   []modules.Skipped    `json:"skipped,omitempty" doc:"Modules of the profile that can't run on this server, with why"`
 }
 
@@ -83,7 +83,7 @@ type removeModuleInput struct {
 
 type softwareOutput struct {
 	Body struct {
-		Software []modules.Software `json:"software"`
+		Software []modules.Software `json:"software" doc:"The software the module installs"`
 	}
 }
 

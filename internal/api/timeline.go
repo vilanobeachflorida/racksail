@@ -109,7 +109,7 @@ type listEventsInput struct {
 
 type eventList struct {
 	Body struct {
-		Events []events.Event `json:"events"`
+		Events []events.Event `json:"events" doc:"The events on this page, newest first"`
 		Next   string         `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }
@@ -124,16 +124,16 @@ type streamEventsInput struct {
 
 // EventType describes an event type.
 type EventType struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Severity    events.Severity `json:"severity" enum:"info,notice,warning,error,critical"`
+	Name        string          `json:"name" doc:"The event type, <kind>.<past-tense verb>, such as web.site.created"`
+	Description string          `json:"description" doc:"When it is emitted"`
+	Severity    events.Severity `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent events of the type are"`
 	// Data is the JSON Schema of the event's data, when it has any.
 	Data json.RawMessage `json:"data,omitempty" doc:"The JSON Schema of the event's data"`
 }
 
 type eventTypesOutput struct {
 	Body struct {
-		Types []EventType `json:"types"`
+		Types []EventType `json:"types" doc:"Every event type"`
 	}
 }
 
@@ -152,7 +152,7 @@ type listAuditInput struct {
 
 type auditList struct {
 	Body struct {
-		Records []events.AuditRecord `json:"records"`
+		Records []events.AuditRecord `json:"records" doc:"The records on this page, newest first"`
 		Next    string               `json:"next,omitempty" doc:"The cursor of the next page; empty on the last one"`
 	}
 }

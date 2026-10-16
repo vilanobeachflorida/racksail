@@ -9,11 +9,12 @@ import (
 	"testing"
 )
 
-// Every operation the panel serves says what it does, and every parameter
-// and every field of what it takes, a kind's spec fields and an action's
-// input among them, says what it is. The API reference, the command line's
-// help and the panel's forms are made of these words, so one that is
-// missing leaves a blank there.
+// Every operation the panel serves says what it does, and every parameter,
+// every field of what it takes, a kind's spec fields and an action's input
+// among them, and every field of what it answers with says what it is. The
+// API reference, the command line's help, the panel's forms and the
+// assistant's tools are made of these words, so one that is missing leaves
+// a blank there.
 func TestEveryOperationIsDescribed(t *testing.T) {
 	out, err := run(t, "openapi")
 	if err != nil {
@@ -51,6 +52,9 @@ func TestEveryOperationIsDescribed(t *testing.T) {
 				} `json:"requestBody"`
 				Responses map[string]struct {
 					Description string `json:"description"`
+					Content     map[string]struct {
+						Schema map[string]any `json:"schema"`
+					} `json:"content"`
 				} `json:"responses"`
 			}
 			if err := json.Unmarshal(raw, &op); err != nil {
@@ -70,6 +74,9 @@ func TestEveryOperationIsDescribed(t *testing.T) {
 				if strings.TrimSpace(r.Description) == "" {
 					w.missing[fmt.Sprintf("%s: the %s answer has no description", name, status)] = true
 				}
+				for _, mt := range r.Content {
+					w.fields(mt.Schema, fmt.Sprintf("%s: the %s answer's", name, status), "", nil)
+				}
 			}
 			if op.RequestBody != nil {
 				for _, mt := range op.RequestBody.Content {
@@ -87,7 +94,9 @@ func TestEveryOperationIsDescribed(t *testing.T) {
 	}
 }
 
-// describedSchemas walks request schemas for fields without a description.
+// describedSchemas walks the schemas of requests and answers for fields
+// without a description. A field of a schema in the document's components is
+// named by its schema, so each is listed once however many operations use it.
 type describedSchemas struct {
 	schemas map[string]any
 	missing map[string]bool
@@ -133,7 +142,7 @@ func (w describedSchemas) fields(s map[string]any, where, path string, within []
 			return
 		}
 		next, _ := w.schemas[name].(map[string]any)
-		w.fields(next, where, path, append(slices.Clone(within), name))
+		w.fields(next, "the schema "+name+"'s", "", append(slices.Clone(within), name))
 		return
 	}
 	for _, key := range []string{"allOf", "anyOf", "oneOf"} {

@@ -31,8 +31,8 @@ type BuildInfo struct {
 	CommitTime string `json:"commitTime,omitempty" format:"date-time" doc:"When that commit was made"`
 	Channel    string `json:"channel" enum:"stable,beta,nightly,dev" doc:"Release channel the binary belongs to"`
 	GoVersion  string `json:"goVersion" doc:"Go version used to build it"`
-	OS         string `json:"os"`
-	Arch       string `json:"arch"`
+	OS         string `json:"os" doc:"The operating system it was built for"`
+	Arch       string `json:"arch" doc:"The processor architecture it was built for"`
 }
 
 // Build returns information about the running binary. Builds without
@@ -180,12 +180,12 @@ func sign(n int) int {
 
 // ReleaseAsset is a file attached to a release.
 type ReleaseAsset struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256"`
+	Name   string `json:"name" doc:"The file's name"`
+	URL    string `json:"url" doc:"Where it is downloaded from"`
+	Size   int64  `json:"size" doc:"Its size, in bytes"`
+	SHA256 string `json:"sha256" doc:"Its SHA-256 checksum"`
 	// Bundle is the Sigstore bundle that signs the asset.
-	Bundle string `json:"bundle,omitempty"`
+	Bundle string `json:"bundle,omitempty" doc:"The Sigstore bundle that signs it"`
 }
 
 // Asset is the name the release tooling knows ReleaseAsset by; the API

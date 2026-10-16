@@ -121,8 +121,8 @@ func (s *Service) StopImpersonating(ctx context.Context, actor *auth.Actor) (*Is
 type Impersonation struct {
 	By        store.ID  `json:"by" doc:"The admin or reseller viewing the panel"`
 	Name      string    `json:"name" doc:"Their name"`
-	StartedAt time.Time `json:"startedAt"`
-	EndsAt    time.Time `json:"endsAt"`
+	StartedAt time.Time `json:"startedAt" doc:"When the admin or reseller started viewing as the person"`
+	EndsAt    time.Time `json:"endsAt" doc:"When viewing as the person ends by itself"`
 }
 
 // ImpersonationOf returns who is viewing the panel as actor's user, or nil.

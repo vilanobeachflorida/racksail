@@ -18,17 +18,17 @@ type Export struct {
 	Module    string             `json:"module" doc:"The module's id"`
 	Version   string             `json:"version" doc:"The module's version"`
 	Exported  time.Time          `json:"exported" doc:"When the export was made"`
-	Resources []ExportedResource `json:"resources"`
+	Resources []ExportedResource `json:"resources" doc:"The module's resources, with their settings"`
 }
 
 // ExportedResource is one resource of an export.
 type ExportedResource struct {
-	Kind      string            `json:"kind"`
-	ID        store.ID          `json:"id"`
-	Scope     store.Scope       `json:"scope"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Spec      json.RawMessage   `json:"spec"`
-	CreatedAt time.Time         `json:"createdAt"`
+	Kind      string            `json:"kind" doc:"The resource's kind"`
+	ID        store.ID          `json:"id" doc:"The resource's ID"`
+	Scope     store.Scope       `json:"scope" doc:"The owner the resource belongs to"`
+	Labels    map[string]string `json:"labels,omitempty" doc:"The resource's labels"`
+	Spec      json.RawMessage   `json:"spec" doc:"The resource's settings, without the fields that refer to secrets"`
+	CreatedAt time.Time         `json:"createdAt" doc:"When the resource was made"`
 	// Withheld are the fields left out because they refer to secrets.
 	Withheld []string `json:"withheld,omitempty" doc:"Fields that refer to secrets, which the export leaves out"`
 }

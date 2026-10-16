@@ -121,12 +121,12 @@ type Software struct {
 	Upstream
 	// Packages are the Debian packages installing it brings in, with their
 	// sizes, for software the manifest names exactly.
-	Packages []SoftwarePackage `json:"packages,omitempty"`
+	Packages []SoftwarePackage `json:"packages,omitempty" doc:"The Debian packages installing it brings in, with their sizes, for software the manifest names exactly"`
 	// DownloadBytes and DiskBytes are what installing it takes: from the
 	// package index when it can tell, from the manifest otherwise.
-	DownloadBytes int64 `json:"downloadBytes,omitempty"`
-	DiskBytes     int64 `json:"diskBytes,omitempty"`
-	Installed     bool  `json:"installed"`
+	DownloadBytes int64 `json:"downloadBytes,omitempty" doc:"How much installing it downloads, in bytes: from the package index when it can tell, from the manifest otherwise"`
+	DiskBytes     int64 `json:"diskBytes,omitempty" doc:"How much disk it takes once installed, in bytes: from the package index when it can tell, from the manifest otherwise"`
+	Installed     bool  `json:"installed" doc:"Whether it is installed already"`
 }
 
 // manifestSoftware is a module's software as its manifest estimates it,
@@ -147,10 +147,10 @@ func manifestSoftware(man *Manifest) []Software {
 type FoundSoftware struct {
 	// ID is the software's id in the manifest.
 	ID            string            `json:"id" doc:"The software's id in the module's manifest"`
-	Installed     bool              `json:"installed"`
-	Packages      []SoftwarePackage `json:"packages,omitempty"`
-	DownloadBytes int64             `json:"downloadBytes,omitempty"`
-	DiskBytes     int64             `json:"diskBytes,omitempty"`
+	Installed     bool              `json:"installed" doc:"Whether it is installed"`
+	Packages      []SoftwarePackage `json:"packages,omitempty" doc:"The Debian packages installing it brings in, with their sizes"`
+	DownloadBytes int64             `json:"downloadBytes,omitempty" doc:"How much installing it downloads, in bytes"`
+	DiskBytes     int64             `json:"diskBytes,omitempty" doc:"How much disk it takes once installed, in bytes"`
 }
 
 // knownSoftware is a module's software as its status says the server last
@@ -173,12 +173,12 @@ func knownSoftware(man *Manifest, st ModuleStatus) []Software {
 // SoftwarePackage is a Debian package installing a module's software
 // brings in.
 type SoftwarePackage struct {
-	Name           string `json:"name"`
-	Version        string `json:"version"`
-	DownloadBytes  int64  `json:"downloadBytes,omitempty"`
-	InstalledBytes int64  `json:"installedBytes,omitempty"`
+	Name           string `json:"name" doc:"The package's name"`
+	Version        string `json:"version" doc:"The version that would be installed"`
+	DownloadBytes  int64  `json:"downloadBytes,omitempty" doc:"How much it downloads, in bytes"`
+	InstalledBytes int64  `json:"installedBytes,omitempty" doc:"How much disk it takes once installed, in bytes"`
 	// Origin is the repository the version comes from.
-	Origin string `json:"origin,omitempty"`
+	Origin string `json:"origin,omitempty" doc:"The repository the version comes from"`
 }
 
 // FirstUse describes what a module installs when something first needs
@@ -399,14 +399,14 @@ func (m *Manager) turnOffEffects(man *Manifest, current State, shared Shared) []
 // ModuleInfo is a module as the modules page shows it: its manifest, its
 // state and what uses it.
 type ModuleInfo struct {
-	Manifest *Manifest `json:"manifest"`
+	Manifest *Manifest `json:"manifest" doc:"What the module is, needs, costs and installs"`
 	// Resource is the module's core.module resource.
 	Resource store.ID `json:"resource,omitempty" doc:"The module's core.module resource"`
 	Enabled  bool     `json:"enabled" doc:"Whether the module is meant to be on"`
-	State    State    `json:"state" enum:"off,on,active,stopping,removing"`
-	Usage    Usage    `json:"usage"`
+	State    State    `json:"state" enum:"off,on,active,stopping,removing" doc:"Where it is: off, on with nothing installed yet, active once a resource needs it, or being stopped or removed"`
+	Usage    Usage    `json:"usage" doc:"What uses it: its resources, by kind"`
 	// Installed lists the module's software found on the server.
-	Installed []string `json:"installed,omitempty"`
+	Installed []string `json:"installed,omitempty" doc:"The module's software found on the server"`
 	// HardwareProblems say why the module can't be turned on here.
 	HardwareProblems []string `json:"hardwareProblems,omitempty" doc:"Why the module can't be turned on on this server"`
 	// Needs lists the modules it needs that are off, and Dependents the

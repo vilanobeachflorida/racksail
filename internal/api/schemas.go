@@ -71,6 +71,13 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 	if spec.Description == "" {
 		spec.Description = "The settings: what should exist, which Racksail puts in place"
 	}
+	status := d.status
+	if d.status.Ref != "" {
+		status = reg.SchemaFromRef(d.status.Ref)
+	}
+	if status.Description == "" {
+		status.Description = "What Racksail last found and did: where the resource is, and what putting it in place reported"
+	}
 	base := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[store.Resource](), true, "Resource").Ref)
 	props := map[string]*huma.Schema{}
 	for key, p := range base.Properties {
@@ -85,7 +92,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		Type:        huma.TypeObject,
 		Description: "One page of " + plural(info) + ".",
 		Properties: map[string]*huma.Schema{
-			"items": {Type: huma.TypeArray, Items: d.resource},
+			"items": {Type: huma.TypeArray, Items: d.resource, Description: "The " + plural(info) + " on this page"},
 			"next":  {Type: huma.TypeString, Description: "The cursor of the next page; empty on the last one"},
 		},
 		Required:             []string{"items"},

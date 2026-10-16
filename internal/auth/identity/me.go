@@ -33,7 +33,7 @@ func secretRef(user store.ID, name string) secrets.Ref { return secrets.NewRef(u
 // Me is the signed-in person's own view of their user.
 type Me struct {
 	UserView
-	Security Security `json:"security"`
+	Security Security `json:"security" doc:"How you sign in: your second steps, passkeys, recovery codes, trusted browsers and linked providers"`
 }
 
 // Security is how someone signs in.

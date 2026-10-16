@@ -90,11 +90,11 @@ func Describe(op *huma.Operation, info Info) {
 // Operation is one entry of the operations catalog.
 type Operation struct {
 	ID          string     `json:"id" doc:"The operation's ID in the API document"`
-	Method      string     `json:"method"`
-	Path        string     `json:"path"`
-	Summary     string     `json:"summary"`
-	Description string     `json:"description,omitempty"`
-	Tags        []string   `json:"tags,omitempty"`
+	Method      string     `json:"method" doc:"The HTTP method"`
+	Path        string     `json:"path" doc:"The path, with its parameters in braces"`
+	Summary     string     `json:"summary" doc:"What the operation does, in a few words"`
+	Description string     `json:"description,omitempty" doc:"What the operation does, in full"`
+	Tags        []string   `json:"tags,omitempty" doc:"The groups the API reference lists it in"`
 	Kind        string     `json:"kind,omitempty" doc:"The kind the operation is about"`
 	Operation   string     `json:"operation,omitempty" doc:"list, get, create, update, delete, history, or an action's name"`
 	Permission  string     `json:"permission,omitempty" doc:"The permission the operation needs"`
@@ -111,9 +111,9 @@ type Operation struct {
 	// Request and Response name the schemas of the body and of the answer
 	// in the document's components, and Output the schema of what an action
 	// returns in its change set's output.
-	Request  string `json:"request,omitempty"`
-	Response string `json:"response,omitempty"`
-	Output   string `json:"output,omitempty"`
+	Request  string `json:"request,omitempty" doc:"The schema of the request's body, among the document's components"`
+	Response string `json:"response,omitempty" doc:"The schema of the answer, among the document's components"`
+	Output   string `json:"output,omitempty" doc:"For an action, the schema of what it returns in its change set's output"`
 }
 
 // Catalog lists every operation of an API document, sorted by path and
@@ -178,7 +178,7 @@ func (s *Server) Catalog() []Operation { return Catalog(s.api.OpenAPI()) }
 
 type catalogOutput struct {
 	Body struct {
-		Operations []Operation `json:"operations"`
+		Operations []Operation `json:"operations" doc:"Every operation the panel serves, by path and method"`
 	}
 }
 

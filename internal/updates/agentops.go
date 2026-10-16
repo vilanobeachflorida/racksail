@@ -70,19 +70,19 @@ const (
 // UpdateState is what the agent last did to the racksail binary.
 type UpdateState struct {
 	State string `json:"state" enum:"installed,confirmed,rolled-back" doc:"installed until the new release confirms it works, then confirmed; rolled-back when it didn't"`
-	Tag   string `json:"tag"`
+	Tag   string `json:"tag" doc:"The release's tag"`
 	// From and To are the versions before and after.
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Binary string `json:"binary"`
+	From   string `json:"from" doc:"The version before"`
+	To     string `json:"to" doc:"The version after"`
+	Binary string `json:"binary" doc:"Where the binary it installed is"`
 	// Snapshots were taken of the system first.
-	Snapshots   []agent.Snapshot `json:"snapshots,omitempty"`
-	Unprotected []string         `json:"unprotected,omitempty"`
+	Snapshots   []agent.Snapshot `json:"snapshots,omitempty" doc:"The snapshots taken of the system first"`
+	Unprotected []string         `json:"unprotected,omitempty" doc:"Paths no snapshot covers, because they aren't on Btrfs"`
 	// PanelBackup is the copy of the panel's database from before.
-	PanelBackup  string     `json:"panelBackup,omitempty"`
-	InstalledAt  time.Time  `json:"installedAt"`
-	ConfirmedAt  *time.Time `json:"confirmedAt,omitempty"`
-	RolledBackAt *time.Time `json:"rolledBackAt,omitempty"`
+	PanelBackup  string     `json:"panelBackup,omitempty" doc:"The copy of the panel's database from before"`
+	InstalledAt  time.Time  `json:"installedAt" doc:"When it was installed"`
+	ConfirmedAt  *time.Time `json:"confirmedAt,omitempty" doc:"When the new release confirmed it works"`
+	RolledBackAt *time.Time `json:"rolledBackAt,omitempty" doc:"When it was rolled back"`
 	Reason       string     `json:"reason,omitempty" doc:"Why the release was rolled back"`
 }
 

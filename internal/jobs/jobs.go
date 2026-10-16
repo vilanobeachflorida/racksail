@@ -56,34 +56,34 @@ type Progress struct {
 
 // Failure describes why a job failed.
 type Failure struct {
-	Code    i18n.Code `json:"code"`
-	Message string    `json:"message"`
+	Code    i18n.Code `json:"code" doc:"The error's code, for the panel to translate"`
+	Message string    `json:"message" doc:"What went wrong, in English"`
 }
 
 // Job is one run of background work.
 type Job struct {
-	ID       store.ID    `json:"id"`
+	ID       store.ID    `json:"id" doc:"The job's ID, which starts with job_"`
 	Type     string      `json:"type" doc:"What kind of work it is, such as changeset.apply"`
-	Title    string      `json:"title"`
-	State    State       `json:"state" enum:"queued,running,succeeded,failed,canceled"`
-	Progress Progress    `json:"progress"`
-	Actor    *auth.Actor `json:"actor,omitempty"`
+	Title    string      `json:"title" doc:"What the job does"`
+	State    State       `json:"state" enum:"queued,running,succeeded,failed,canceled" doc:"Where it is: waiting to run, running, done, failed or canceled"`
+	Progress Progress    `json:"progress" doc:"How far it has come"`
+	Actor    *auth.Actor `json:"actor,omitempty" doc:"Who started it, and for whom"`
 	// Scope is the owner the work belongs to, which decides who may see it.
-	Scope     store.Scope `json:"scope"`
-	ChangeSet store.ID    `json:"changeSet,omitempty"`
-	Resource  store.ID    `json:"resource,omitempty"`
+	Scope     store.Scope `json:"scope" doc:"The owner the work belongs to, which decides who may see it"`
+	ChangeSet store.ID    `json:"changeSet,omitempty" doc:"The change set it carries out"`
+	Resource  store.ID    `json:"resource,omitempty" doc:"The resource it works on"`
 	// Attempt counts the runs of the same work: a retry is a new job with
 	// the next attempt number and RetryOf set.
-	Attempt int             `json:"attempt"`
+	Attempt int             `json:"attempt" doc:"Which run of the work it is: a retry is a new job with the next number"`
 	RetryOf store.ID        `json:"retryOf,omitempty" doc:"The job this one retries"`
-	Error   *Failure        `json:"error,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *Failure        `json:"error,omitempty" doc:"Why it failed"`
+	Result  json.RawMessage `json:"result,omitempty" doc:"What it found or made, once it succeeded"`
 	Args    json.RawMessage `json:"-"`
 	// RunAfter delays a queued job, as for an automatic retry.
-	RunAfter   *time.Time `json:"runAfter,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	StartedAt  *time.Time `json:"startedAt,omitempty"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	RunAfter   *time.Time `json:"runAfter,omitempty" doc:"When a waiting job may start, as an automatic retry waits"`
+	CreatedAt  time.Time  `json:"createdAt" doc:"When it was queued"`
+	StartedAt  *time.Time `json:"startedAt,omitempty" doc:"When it started"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty" doc:"When it finished"`
 }
 
 func (j *Job) clone() *Job {
@@ -118,11 +118,11 @@ func cloneTime(t *time.Time) *time.Time {
 type LogLine struct {
 	// Seq numbers the lines of a job from 1, so a stream can resume after
 	// the last line it showed.
-	Seq     int64          `json:"seq"`
-	Time    time.Time      `json:"time"`
-	Level   string         `json:"level" enum:"DEBUG,INFO,WARN,ERROR"`
-	Message string         `json:"message"`
-	Attrs   map[string]any `json:"attrs,omitempty"`
+	Seq     int64          `json:"seq" doc:"The line's number, from 1, which a stream resumes after"`
+	Time    time.Time      `json:"time" doc:"When it was written"`
+	Level   string         `json:"level" enum:"DEBUG,INFO,WARN,ERROR" doc:"How much it matters"`
+	Message string         `json:"message" doc:"What happened, in English"`
+	Attrs   map[string]any `json:"attrs,omitempty" doc:"Details, by name"`
 }
 
 // Reporter lets a handler report progress and write to the job's log.

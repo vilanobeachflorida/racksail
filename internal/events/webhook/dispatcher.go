@@ -36,30 +36,30 @@ const (
 // Delivery is one event sent, or being sent, to one webhook.
 type Delivery struct {
 	ID      store.ID `json:"id" doc:"Also sent as the webhook-id header, the same for every attempt"`
-	Webhook store.ID `json:"webhook"`
+	Webhook store.ID `json:"webhook" doc:"The webhook it is sent to"`
 	// Event is the delivered event; test deliveries have none.
-	Event     store.ID      `json:"event,omitempty"`
+	Event     store.ID      `json:"event,omitempty" doc:"The event it delivers; test deliveries have none"`
 	EventType string        `json:"eventType" doc:"The type of the event delivered"`
-	State     DeliveryState `json:"state" enum:"pending,succeeded,failed"`
+	State     DeliveryState `json:"state" enum:"pending,succeeded,failed" doc:"Whether it is still being sent, went through or was given up"`
 	// Test deliveries are sent once and never tried again.
-	Test         bool       `json:"test,omitempty"`
+	Test         bool       `json:"test,omitempty" doc:"Whether it is a test, which is sent once and never tried again"`
 	RedeliveryOf store.ID   `json:"redeliveryOf,omitempty" doc:"The delivery this one sends again"`
 	AttemptCount int        `json:"attemptCount" doc:"How many times it was sent"`
 	NextAttempt  *time.Time `json:"nextAttempt,omitempty" doc:"When it is sent again, while it is pending"`
 	LastStatus   int        `json:"lastStatus,omitempty" doc:"The HTTP status of the last answer"`
 	LastError    string     `json:"lastError,omitempty" doc:"Why the last attempt failed"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt" doc:"When the delivery was made"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty" doc:"When it went through or was given up"`
 	// Payload is the body sent. Lists leave it out.
 	Payload json.RawMessage `json:"payload,omitempty" doc:"The body sent, the event as JSON"`
 	// Attempts is the log of every attempt. Lists leave it out.
-	Attempts []DeliveryAttempt `json:"attempts,omitempty"`
+	Attempts []DeliveryAttempt `json:"attempts,omitempty" doc:"Every attempt to send it; lists leave them out"`
 }
 
 // DeliveryAttempt is one try at sending a delivery.
 type DeliveryAttempt struct {
-	Number   int       `json:"number"`
-	Time     time.Time `json:"time"`
+	Number   int       `json:"number" doc:"Which attempt it was, from 1"`
+	Time     time.Time `json:"time" doc:"When it was made"`
 	Status   int       `json:"status,omitempty" doc:"The HTTP status of the answer, when there was one"`
 	Error    string    `json:"error,omitempty" doc:"Why the attempt failed"`
 	Duration int64     `json:"durationMs" doc:"How long the receiver took, in milliseconds"`

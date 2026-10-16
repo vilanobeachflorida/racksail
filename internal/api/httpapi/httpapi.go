@@ -34,7 +34,7 @@ type FieldProblem struct {
 	Location string         `json:"location,omitempty" example:"body.spec.domains[0]" doc:"Where the problem is"`
 	Code     i18n.Code      `json:"code" doc:"Stable error code"`
 	Message  string         `json:"message" doc:"English explanation"`
-	Params   map[string]any `json:"params,omitempty"`
+	Params   map[string]any `json:"params,omitempty" doc:"Values for the placeholders in the code's message"`
 	Value    any            `json:"value,omitempty" doc:"The offending value, when it's safe to show"`
 }
 

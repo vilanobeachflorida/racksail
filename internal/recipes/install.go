@@ -67,11 +67,11 @@ type InstallationSpec struct {
 
 // HealthResult is how one health check went.
 type HealthResult struct {
-	Type      string    `json:"type"`
-	Target    string    `json:"target"`
-	OK        bool      `json:"ok"`
-	Message   string    `json:"message,omitempty"`
-	CheckedAt time.Time `json:"checkedAt"`
+	Type      string    `json:"type" doc:"What the check probes: http, tcp, dns, tls, unit or resource"`
+	Target    string    `json:"target" doc:"What it checked: a URL, an address, a DNS name, a unit or one of the installation's resources"`
+	OK        bool      `json:"ok" doc:"Whether it passed"`
+	Message   string    `json:"message,omitempty" doc:"What it found, when it didn't pass"`
+	CheckedAt time.Time `json:"checkedAt" doc:"When it ran"`
 }
 
 // InstallationStatus is what the panel last found of an installation.
@@ -80,18 +80,18 @@ type InstallationStatus struct {
 	// Applied is the version the installation was last applied at. Its
 	// resources follow in the same change set, and its check action, last
 	// in that change set, confirms they work.
-	Applied   string             `json:"applied,omitempty"`
+	Applied   string             `json:"applied,omitempty" doc:"The version the installation was last applied at"`
 	Downloads []VerifiedDownload `json:"downloads,omitempty" doc:"Upstream files checked against the recipe"`
-	Health    []HealthResult     `json:"health,omitempty"`
-	CheckedAt *time.Time         `json:"checkedAt,omitempty"`
+	Health    []HealthResult     `json:"health,omitempty" doc:"How its health checks last went"`
+	CheckedAt *time.Time         `json:"checkedAt,omitempty" doc:"When its health was last checked"`
 	// Upgrade is a newer version the catalog offers.
 	Upgrade string `json:"upgrade,omitempty" doc:"A newer version the catalog offers"`
 }
 
 // InstallationHealth is how the health checks went.
 type InstallationHealth struct {
-	Healthy bool           `json:"healthy"`
-	Health  []HealthResult `json:"health"`
+	Healthy bool           `json:"healthy" doc:"Whether every check passed"`
+	Health  []HealthResult `json:"health" doc:"How each check went"`
 }
 
 // CheckInput says how an installation's health is checked.

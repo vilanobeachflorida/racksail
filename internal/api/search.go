@@ -17,13 +17,13 @@ import (
 // SearchResult is a resource a search found, with what screens show of it
 // in a list.
 type SearchResult struct {
-	ID        store.ID    `json:"id"`
+	ID        store.ID    `json:"id" doc:"The resource's ID"`
 	Kind      string      `json:"kind" doc:"The resource's kind, such as web.site"`
-	Scope     store.Scope `json:"scope"`
+	Scope     store.Scope `json:"scope" doc:"The owner the resource belongs to"`
 	Title     string      `json:"title" doc:"The value of the kind's title field, or the ID when the kind has none"`
 	Subtitle  string      `json:"subtitle,omitempty" doc:"The value of the kind's subtitle field"`
-	Phase     store.Phase `json:"phase" enum:"pending,applying,ready,degraded,failed,deleting"`
-	UpdatedAt time.Time   `json:"updatedAt"`
+	Phase     store.Phase `json:"phase" enum:"pending,applying,ready,degraded,failed,deleting" doc:"Where the resource is: being put in place, ready, failing or being deleted"`
+	UpdatedAt time.Time   `json:"updatedAt" doc:"When the resource last changed"`
 }
 
 type searchInput struct {
@@ -34,7 +34,7 @@ type searchInput struct {
 
 type searchOutput struct {
 	Body struct {
-		Results []SearchResult `json:"results"`
+		Results []SearchResult `json:"results" doc:"The resources that match"`
 		// More names the kinds that had more results than the limit.
 		More []string `json:"more,omitempty" doc:"Kinds with more results than the limit; search one of them alone, with a higher limit, for the rest"`
 	}

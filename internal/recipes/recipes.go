@@ -92,11 +92,11 @@ type Maintainer struct {
 
 // Requirements must hold before a recipe can be installed.
 type Requirements struct {
-	Modules  []string `yaml:"modules,omitempty" json:"modules,omitempty"`
-	MemoryMB int      `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty"`
-	DiskMB   int      `yaml:"diskMB,omitempty" json:"diskMB,omitempty"`
-	Arch     []string `yaml:"arch,omitempty" json:"arch,omitempty"`
-	Features []string `yaml:"features,omitempty" json:"features,omitempty"`
+	Modules  []string `yaml:"modules,omitempty" json:"modules,omitempty" doc:"The modules that must be on"`
+	MemoryMB int      `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty" doc:"The memory it needs, in MB"`
+	DiskMB   int      `yaml:"diskMB,omitempty" json:"diskMB,omitempty" doc:"The disk it needs, in MB"`
+	Arch     []string `yaml:"arch,omitempty" json:"arch,omitempty" doc:"The processor architectures it runs on"`
+	Features []string `yaml:"features,omitempty" json:"features,omitempty" doc:"Hardware it needs, such as virtualization"`
 }
 
 // Input is a value the install wizard asks for.
@@ -587,36 +587,36 @@ type Index struct {
 
 // IndexItem is one item in an index.
 type IndexItem struct {
-	ID           string       `json:"id"`
-	Kind         ItemKind     `json:"kind"`
-	Name         string       `json:"name"`
-	Version      string       `json:"version"`
-	Summary      string       `json:"summary"`
-	LicenseClass LicenseClass `json:"licenseClass"`
-	Categories   []string     `json:"categories,omitempty"`
+	ID           string       `json:"id" doc:"The item's id in its catalog"`
+	Kind         ItemKind     `json:"kind" doc:"What sort of item it is"`
+	Name         string       `json:"name" doc:"What the item is called"`
+	Version      string       `json:"version" doc:"The version the catalog offers"`
+	Summary      string       `json:"summary" doc:"What it is, in a line"`
+	LicenseClass LicenseClass `json:"licenseClass" doc:"Whether it is open source, free to use or proprietary"`
+	Categories   []string     `json:"categories,omitempty" doc:"The categories the marketplace lists it in"`
 	// Path locates the recipe file relative to the index.
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path   string `json:"path" doc:"Where the recipe is, relative to the index"`
+	SHA256 string `json:"sha256" doc:"The SHA-256 checksum of the recipe"`
 	// Icon locates the item's icon relative to the index.
-	Icon string `json:"icon,omitempty"`
+	Icon string `json:"icon,omitempty" doc:"Where its icon is, relative to the index"`
 	// Requires repeats the recipe's requirements, so a fit check needs no
 	// other file.
-	Requires Requirements `json:"requires,omitzero"`
+	Requires Requirements `json:"requires,omitzero" doc:"What the recipe needs, so whether it fits can be checked without it"`
 	// Files lists every file of the item, the recipe included, so whatever
 	// a panel fetches can be checked against the signed index.
-	Files []IndexFile `json:"files,omitempty"`
+	Files []IndexFile `json:"files,omitempty" doc:"Every file of the item, the recipe included, with what each is checked against"`
 	// Featured, Broken and Unmaintained come from catalog maintenance.
-	Featured     bool `json:"featured,omitempty"`
-	Broken       bool `json:"broken,omitempty"`
-	Unmaintained bool `json:"unmaintained,omitempty"`
+	Featured     bool `json:"featured,omitempty" doc:"Whether the marketplace features it"`
+	Broken       bool `json:"broken,omitempty" doc:"Whether it is known not to work, so it is hidden unless asked for"`
+	Unmaintained bool `json:"unmaintained,omitempty" doc:"Whether nobody maintains it any more, so it is hidden unless asked for"`
 }
 
 // IndexFile is one file of a catalog item.
 type IndexFile struct {
 	// Path locates the file relative to the index.
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
+	Path   string `json:"path" doc:"Where the file is, relative to the index"`
+	SHA256 string `json:"sha256" doc:"The file's SHA-256 checksum"`
+	Size   int64  `json:"size" doc:"The file's size, in bytes"`
 }
 
 // VerifyIndex checks an index's Ed25519 signature with the key the admin

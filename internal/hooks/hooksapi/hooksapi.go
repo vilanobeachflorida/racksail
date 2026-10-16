@@ -64,13 +64,13 @@ type pointsInput struct {
 
 type pointList struct {
 	Body struct {
-		Points []hooks.PointInfo `json:"points"`
+		Points []hooks.PointInfo `json:"points" doc:"Every hook point, with the hooks attached to it"`
 	}
 }
 
 type hookList struct {
 	Body struct {
-		Hooks []hooks.HookInfo `json:"hooks"`
+		Hooks []hooks.HookInfo `json:"hooks" doc:"The hooks that match"`
 	}
 }
 
@@ -103,8 +103,8 @@ type enterSafeModeInput struct {
 type UIEntry struct {
 	Addon string            `json:"addon" doc:"The add-on, as it runs: its id, and the account for account add-ons"`
 	Label string            `json:"label" doc:"The add-on's name and version"`
-	Point hooks.Point       `json:"point" enum:"ui.nav,ui.tab,ui.card,ui.command,ui.settings,ui.column"`
-	UI    hooks.UIExtension `json:"ui"`
+	Point hooks.Point       `json:"point" enum:"ui.nav,ui.tab,ui.card,ui.command,ui.settings,ui.column" doc:"Where in the panel it goes"`
+	UI    hooks.UIExtension `json:"ui" doc:"What it adds"`
 }
 
 type entriesInput struct {
@@ -113,7 +113,7 @@ type entriesInput struct {
 
 type entryList struct {
 	Body struct {
-		Entries []UIEntry `json:"entries"`
+		Entries []UIEntry `json:"entries" doc:"What add-ons and modules add to the panel"`
 	}
 }
 
@@ -315,9 +315,8 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		out := &entryList{Body: struct {
-			Entries []UIEntry `json:"entries"`
-		}{Entries: []UIEntry{}}}
+		out := &entryList{}
+		out.Body.Entries = []UIEntry{}
 		points := uiPoints
 		if in.Point != "" {
 			points = []hooks.Point{in.Point}

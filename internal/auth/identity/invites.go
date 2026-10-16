@@ -33,8 +33,8 @@ type IssuedLink struct {
 	// this path.
 	Path      string    `json:"path" doc:"Where the link goes on the panel"`
 	URL       string    `json:"url,omitempty" doc:"The whole link, when the panel knows its own name"`
-	Purpose   string    `json:"purpose" enum:"activate,reset"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Purpose   string    `json:"purpose" enum:"activate,reset" doc:"activate for a new user's first password, reset to choose a new one"`
+	ExpiresAt time.Time `json:"expiresAt" doc:"When the link stops working"`
 }
 
 // issueLink makes a sign-in link for u, replacing any earlier one.
@@ -86,10 +86,10 @@ func (s *Service) IssueLink(ctx context.Context, actor *auth.Actor, id store.ID)
 // LinkInfo is what a sign-in link's page shows before the person chooses a
 // password.
 type LinkInfo struct {
-	Username  string    `json:"username"`
-	Name      string    `json:"name,omitempty"`
-	Purpose   string    `json:"purpose" enum:"activate,reset"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Username  string    `json:"username" doc:"The user the link is for"`
+	Name      string    `json:"name,omitempty" doc:"The person's name"`
+	Purpose   string    `json:"purpose" enum:"activate,reset" doc:"activate for a new user's first password, reset to choose a new one"`
+	ExpiresAt time.Time `json:"expiresAt" doc:"When the link stops working"`
 }
 
 func (s *Service) invite(ctx context.Context, code string) (*Invite, *User, error) {

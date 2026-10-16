@@ -117,51 +117,51 @@ type Index struct {
 // ships a custom screen.
 type UIHints struct {
 	// Icon is a lucide icon name, for example "globe".
-	Icon string `json:"icon,omitempty"`
+	Icon string `json:"icon,omitempty" doc:"A lucide icon name, such as globe"`
 	// TitleField is the spec path shown as the resource's title.
-	TitleField string `json:"titleField,omitempty"`
+	TitleField string `json:"titleField,omitempty" doc:"The spec field shown as a resource's title"`
 	// SubtitleField is the spec path shown under the title.
-	SubtitleField string               `json:"subtitleField,omitempty"`
-	Columns       []Column             `json:"columns,omitempty"`
-	Groups        []FieldGroup         `json:"groups,omitempty"`
-	Fields        map[string]FieldHint `json:"fields,omitempty"`
+	SubtitleField string               `json:"subtitleField,omitempty" doc:"The spec field shown under the title"`
+	Columns       []Column             `json:"columns,omitempty" doc:"The columns lists show"`
+	Groups        []FieldGroup         `json:"groups,omitempty" doc:"How forms group the spec's fields"`
+	Fields        map[string]FieldHint `json:"fields,omitempty" doc:"How forms show each field, by spec path"`
 	// Hidden kinds get no generic screen or navigation entry.
-	Hidden bool `json:"hidden,omitempty"`
+	Hidden bool `json:"hidden,omitempty" doc:"Whether the kind has no generic screen or navigation entry"`
 }
 
 // Column is a column in the generic list screen.
 type Column struct {
-	Field string `json:"field"`
+	Field string `json:"field" doc:"The spec field the column shows"`
 	// Format is one of text, date, bytes, duration, status, badge or link.
-	Format string `json:"format,omitempty"`
+	Format string `json:"format,omitempty" doc:"How the value is shown: text, date, bytes, duration, status, badge or link"`
 }
 
 // FieldGroup groups fields on the generic form.
 type FieldGroup struct {
-	Name     string   `json:"name"`
-	Fields   []string `json:"fields"`
-	Advanced bool     `json:"advanced,omitempty"`
+	Name     string   `json:"name" doc:"What the group is called"`
+	Fields   []string `json:"fields" doc:"The spec fields in it, in order"`
+	Advanced bool     `json:"advanced,omitempty" doc:"Whether forms fold it away until asked"`
 }
 
 // FieldHint adjusts how one field is shown on the generic form.
 type FieldHint struct {
 	// Widget overrides the default input, for example textarea, code, password,
 	// select, toggle, size, duration or resource.
-	Widget      string `json:"widget,omitempty"`
-	Placeholder string `json:"placeholder,omitempty"`
-	Advanced    bool   `json:"advanced,omitempty"`
+	Widget      string `json:"widget,omitempty" doc:"The input forms use instead of the default, such as textarea, code, password, select, toggle, size, duration or resource"`
+	Placeholder string `json:"placeholder,omitempty" doc:"What an empty input shows"`
+	Advanced    bool   `json:"advanced,omitempty" doc:"Whether forms fold the field away until asked"`
 	// Sensitive fields hold secrets. Their value is a reference to one of
 	// the resource's own secrets (a secrets.Ref), never the secret itself:
 	// values arrive in a change's Secrets, and change sets show the field
 	// redacted.
-	Sensitive bool `json:"sensitive,omitempty"`
+	Sensitive bool `json:"sensitive,omitempty" doc:"Whether it holds a secret: its value is a reference to one of the resource's own secrets, which a change's secrets set"`
 	// CreateOnly fields can be set on create and are read-only afterwards.
-	CreateOnly bool `json:"createOnly,omitempty"`
-	Order      int  `json:"order,omitempty"`
+	CreateOnly bool `json:"createOnly,omitempty" doc:"Whether it can only be set when the resource is made"`
+	Order      int  `json:"order,omitempty" doc:"Where forms put it: lower first"`
 	// Kind is the kind of the resources a field with the resource widget
 	// names by ID, such as databases.database, so forms can offer them to
 	// choose from. Without it, forms take the ID as text.
-	Kind string `json:"kind,omitempty"`
+	Kind string `json:"kind,omitempty" doc:"For a field with the resource widget, the kind of the resources it names by ID, which forms offer to choose from"`
 }
 
 // Backup says whether resources of the kind are covered by backups, restores

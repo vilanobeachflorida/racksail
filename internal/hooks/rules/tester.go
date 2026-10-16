@@ -40,7 +40,7 @@ type TestResult struct {
 	Message string `json:"message,omitempty" doc:"What the person making the change would be told"`
 	// Spec and Fields are what a default rule would fill in.
 	Spec   json.RawMessage `json:"spec,omitempty" doc:"The resource's settings after a default rule filled them in"`
-	Fields []FieldResult   `json:"fields,omitempty"`
+	Fields []FieldResult   `json:"fields,omitempty" doc:"What a default rule would fill in, field by field"`
 	// Cost is how much of the cost limit the evaluation used.
 	Cost      uint64 `json:"cost" doc:"How much the evaluation cost, in CEL's cost units"`
 	CostLimit uint64 `json:"costLimit" doc:"The most one evaluation may cost"`

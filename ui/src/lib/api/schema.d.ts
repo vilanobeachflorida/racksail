@@ -3947,8 +3947,11 @@ export interface components {
              */
             slug: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         AccountStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description Where the account's files live */
             home?: string;
@@ -3959,7 +3962,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /** @description The systemd slice the account's services run in */
             slice?: string;
@@ -3972,28 +3978,48 @@ export interface components {
             user?: string;
         };
         ActionInfo: {
+            /** @description What the action does, in full */
             description?: string;
+            /** @description Whether it removes data, and so needs a typed confirmation */
             destructive?: boolean;
             /** @description The event it emits once it is done */
             event: string;
+            /** @description Whether it takes an input, which inputs describes */
             hasInput?: boolean;
+            /** @description Whether it runs as a job, which the answer names, rather than being waited for */
             long?: boolean;
+            /** @description The action's name, as its path and its permission end with */
             name: string;
+            /** @description Whether it can be undone */
             reversible?: boolean;
-            /** @enum {string} */
+            /**
+             * @description How much harm the action can do
+             * @enum {string}
+             */
             risk: "read" | "low" | "medium" | "high" | "critical";
+            /** @description What the action does, in a few words */
             summary: string;
+            /** @description What the action is called on buttons and menus */
             title?: string;
         };
         Actor: {
+            /** @description The user, token, automation or add-on; empty for the system */
             id?: string;
+            /** @description The admin or reseller viewing the panel as the person, while one does */
             impersonator?: string;
+            /** @description The name of the admin or reseller viewing as the person, as it was then */
             impersonatorName?: string;
+            /** @description The address the request came from */
             ip?: string;
+            /** @description Its name, as it was called then */
             name: string;
+            /** @description What it acted through: the panel, the racksail command, the API, an automation, an add-on, the assistant or the system */
             source: string;
+            /** @description What is acting: a user, an API token, an automation, an add-on, the assistant or the system */
             type: string;
+            /** @description The person responsible when something acts for them, such as a token's owner or the person talking to the assistant */
             user?: string;
+            /** @description The name of the person it acts for, as it was then */
             userName?: string;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -4013,13 +4039,16 @@ export interface components {
             /** @description The add-on's program */
             package: components["schemas"]["Package"];
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         AddonStatus: {
             /**
              * Format: date-time
              * @description When it was last asked
              */
             checkedAt?: string;
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /**
              * Format: int64
@@ -4050,7 +4079,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /** @description The slice its service runs in: the account's for an account's add-on, racksail.slice otherwise */
             slice?: string;
@@ -4069,11 +4101,13 @@ export interface components {
             type?: string;
         };
         AlertChannelTypeView: {
+            /** @description The channel type, as alert settings name it */
             id: string;
             /** @description The settings that hold secrets, which are kept encrypted with the rest and never shown again */
             secrets?: string[] | null;
             /** @description The JSON Schema of the channel's settings */
             settings?: unknown;
+            /** @description What the channel type is called */
             title: string;
         };
         AlertsOutputBody: {
@@ -4085,6 +4119,7 @@ export interface components {
         AuditListBody: {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
+            /** @description The records on this page, newest first */
             records: components["schemas"]["AuditRecord"][] | null;
         };
         AuditRecord: {
@@ -4132,22 +4167,33 @@ export interface components {
             time: string;
         };
         Available: {
+            /** @description The binary for this server's architecture, as the signed manifest lists it */
             asset: components["schemas"]["ReleaseAsset"];
-            /** @enum {string} */
+            /**
+             * @description The channel it is on
+             * @enum {string}
+             */
             channel: "stable" | "beta" | "nightly";
             /** @description The release notes */
             notesUrl?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was published
+             */
             published: string;
+            /** @description The release's tag */
             tag: string;
+            /** @description The release's version */
             version: string;
         };
         BackupInfo: {
+            /** @description Whether backups and account archives keep the kind's resources */
             covered: boolean;
             /** @description Why the kind isn't backed up */
             reason?: string;
         };
         BuildInfo: {
+            /** @description The processor architecture it was built for */
             arch: string;
             /**
              * @description Release channel the binary belongs to
@@ -4163,6 +4209,7 @@ export interface components {
             commitTime?: string;
             /** @description Go version used to build it */
             goVersion: string;
+            /** @description The operating system it was built for */
             os: string;
             /**
              * @description Racksail version
@@ -4171,10 +4218,13 @@ export interface components {
             version: string;
         };
         Capabilities: {
+            /** @description Capabilities it needs another module or add-on to provide */
             needs?: string[] | null;
+            /** @description Capabilities it provides, which other modules may need */
             provides?: string[] | null;
         };
         CatalogOutputBody: {
+            /** @description Every operation the panel serves, by path and method */
             operations: components["schemas"]["Operation"][] | null;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -4202,16 +4252,23 @@ export interface components {
              */
             url: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         CatalogStatus: {
             /**
              * Format: date-time
              * @description When the index was built
              */
             built?: string;
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
+            /** @description The SHA-256 checksum of the index last fetched */
             indexSha256?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many items its index lists
+             */
             items?: number;
             /** @description English summary of the current state */
             message?: string;
@@ -4220,8 +4277,12 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
+            /** @description Whether the catalog is Racksail's own, signed by a key built into the panel */
             official?: boolean;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /** @description Why the last fetch failed */
             syncError?: string;
@@ -4270,32 +4331,59 @@ export interface components {
             spec?: unknown;
         };
         ChangeSet: {
+            /** @description Who made the change set, and for whom */
             actor?: components["schemas"]["Actor"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was applied to the settings
+             */
             appliedAt?: string;
             /** @description For an undo, the resources that changed after the change set it undoes: undoing puts back their settings from before that change set all the same, so what changed since goes too */
             changedSince?: string[] | null;
+            /** @description The changes, in the order they are applied */
             changes: components["schemas"]["ResourceChange"][] | null;
+            /** @description Fields two contributors changed differently; a change set with conflicts can't be applied */
             conflicts?: components["schemas"]["Conflict"][] | null;
+            /** @description What hooks, rules, add-ons and modules added to it */
             contributions?: components["schemas"]["Contribution"][] | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was planned
+             */
             createdAt: string;
+            /** @description Whether it is a preview, which applying it with POST /api/v1/changesets/{id}/apply carries out */
             dryRun?: boolean;
+            /** @description What applying it does on the server */
             effects: components["schemas"]["Effect"][] | null;
+            /** @description Why it failed */
             error?: string;
+            /** @description What applying it costs in downloads, disk and memory */
             estimate: components["schemas"]["Estimate"];
+            /** @description The change set's ID, which starts with chg_ */
             id: string;
+            /** @description The job that carries out the system changes once it is applied */
             job?: string;
-            /** @enum {string} */
+            /**
+             * @description How much harm applying it can do, the highest of its changes'
+             * @enum {string}
+             */
             risk: "read" | "low" | "medium" | "high" | "critical";
+            /** @description Whether it removes data, so read-only snapshots of what holds that data are taken before it is applied */
             snapshot?: boolean;
+            /** @description The snapshots taken before it was applied, which a restore can bring back what it removed from; they go when the change set does */
             snapshots?: components["schemas"]["Snapshot"][] | null;
-            /** @enum {string} */
+            /**
+             * @description Where it is: planned, being applied, applied, failed or undone
+             * @enum {string}
+             */
             state: "planned" | "applying" | "applied" | "failed" | "undone";
+            /** @description What the change set does */
             title: string;
+            /** @description For an undo, the change set it undoes */
             undoOf?: string;
         };
         ChangeSetListBody: {
+            /** @description The change sets on this page, newest first */
             changeSets: components["schemas"]["ChangeSet"][] | null;
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4334,8 +4422,11 @@ export interface components {
              */
             type: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         ChannelStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /**
              * Format: int64
@@ -4356,27 +4447,40 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         ChannelTestOutput: {
+            /** @description The test notification, with how sending it went */
             notification: components["schemas"]["Notification"];
         };
         ChannelType: {
+            /** @description What a channel of the type sends to */
             description?: string;
+            /** @description The channel type, as channels name it */
             name: string;
             /** @description The module or add-on that provides the notifier */
             provider?: string;
             /** @description The JSON Schema of the type's settings */
             schema?: unknown;
+            /** @description The settings that hold secrets */
             secrets?: string[] | null;
+            /** @description What the channel type is called */
             title: string;
         };
         Check: {
+            /** @description Why it fails */
             message?: string;
-            /** @example agent */
+            /**
+             * @description What the check is about, such as agent
+             * @example agent
+             */
             name: string;
             /**
+             * @description Whether it passes
              * @example ok
              * @enum {string}
              */
@@ -4389,6 +4493,7 @@ export interface components {
         CheckOutput: {
             /** @description The release to update to; empty when the server is up to date */
             available?: components["schemas"]["Available"];
+            /** @description The version running now */
             running: string;
         };
         CodeInputBody: {
@@ -4396,39 +4501,62 @@ export interface components {
             code: string;
         };
         Column: {
+            /** @description The spec field the column shows */
             field: string;
+            /** @description How the value is shown: text, date, bytes, duration, status, badge or link */
             format?: string;
         };
         Condition: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it last changed between holding and not
+             */
             lastTransitionTime: string;
             /** @description English explanation */
             message?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The generation it was found at
+             */
             observedGeneration?: number;
             /** @description Machine-readable reason in CamelCase */
             reason?: string;
-            /** @enum {string} */
+            /**
+             * @description Whether the condition holds
+             * @enum {string}
+             */
             status: "true" | "false" | "unknown";
             /** @description What the condition is about, in CamelCase */
             type: string;
         };
         Conflict: {
+            /** @description What the conflict is, in English */
             message: string;
+            /** @description The field they both changed */
             path: string;
+            /** @description The resource whose field two contributors changed */
             resource: string;
+            /** @description Who changed it */
             sources: components["schemas"]["Source"][] | null;
         };
         Contribution: {
+            /** @description The changes it added or changed, as indexes into the change set's changes */
             changes?: number[] | null;
+            /** @description The effects it added, as indexes into the change set's effects */
             effects?: number[] | null;
+            /** @description Who contributed it */
             source: components["schemas"]["Source"];
+            /** @description What it added, in a few words */
             summary: string;
         };
         /** @description Account: A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts. */
         CoreAccount: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4453,17 +4581,24 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["AccountSpec"];
             status?: components["schemas"]["AccountStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description Account add-on: An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. */
         CoreAccountAddon: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4488,12 +4623,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["AddonSpec"];
             status?: components["schemas"]["AddonStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new account add-on. */
@@ -4516,6 +4655,7 @@ export interface components {
         };
         /** @description One page of account addons. */
         CoreAccountAddonList: {
+            /** @description The account addons on this page */
             items: components["schemas"]["CoreAccountAddon"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4557,13 +4697,17 @@ export interface components {
         };
         /** @description One page of accounts. */
         CoreAccountList: {
+            /** @description The accounts on this page */
             items: components["schemas"]["CoreAccount"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
         };
         /** @description Account rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. */
         CoreAccountPolicy: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4588,12 +4732,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["PolicySpec"];
             status?: components["schemas"]["Status"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new account rule. */
@@ -4616,6 +4764,7 @@ export interface components {
         };
         /** @description One page of account policies. */
         CoreAccountPolicyList: {
+            /** @description The account policies on this page */
             items: components["schemas"]["CoreAccountPolicy"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4656,7 +4805,10 @@ export interface components {
         };
         /** @description Add-on: An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. */
         CoreAddon: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4681,12 +4833,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["AddonSpec"];
             status?: components["schemas"]["AddonStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new add-on. */
@@ -4707,6 +4863,7 @@ export interface components {
         };
         /** @description One page of addons. */
         CoreAddonList: {
+            /** @description The addons on this page */
             items: components["schemas"]["CoreAddon"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4730,7 +4887,10 @@ export interface components {
         };
         /** @description Catalog: A catalog of apps, runtimes, services, stacks, DNS templates, automations, tuning presets, models, themes and add-ons. Its index must be signed by one of the keys trusted when the catalog was added, and every file the panel fetches from it must match the index. The panel fetches the index daily while the marketplace module is on. */
         CoreCatalog: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4755,12 +4915,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["CatalogSpec"];
             status?: components["schemas"]["CatalogStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new catalog. */
@@ -4781,6 +4945,7 @@ export interface components {
         };
         /** @description One page of catalogs. */
         CoreCatalogList: {
+            /** @description The catalogs on this page */
             items: components["schemas"]["CoreCatalog"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4804,7 +4969,10 @@ export interface components {
         };
         /** @description Installed app: Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created. */
         CoreInstallation: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4829,12 +4997,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["InstallationSpec"];
             status?: components["schemas"]["InstallationStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new installed app. */
@@ -4857,6 +5029,7 @@ export interface components {
         };
         /** @description One page of installations. */
         CoreInstallationList: {
+            /** @description The installations on this page */
             items: components["schemas"]["CoreInstallation"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4880,7 +5053,10 @@ export interface components {
         };
         /** @description Module: A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview. */
         CoreModule: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4905,12 +5081,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["ModuleSpec"];
             status?: components["schemas"]["ModuleStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new module. */
@@ -4931,6 +5111,7 @@ export interface components {
         };
         /** @description One page of modules. */
         CoreModuleList: {
+            /** @description The modules on this page */
             items: components["schemas"]["CoreModule"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -4954,7 +5135,10 @@ export interface components {
         };
         /** @description Notification channel: Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours. */
         CoreNotificationChannel: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -4979,12 +5163,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["ChannelSpec"];
             status?: components["schemas"]["ChannelStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new notification channel. */
@@ -5005,6 +5193,7 @@ export interface components {
         };
         /** @description One page of notification channels. */
         CoreNotificationChannelList: {
+            /** @description The notification channels on this page */
             items: components["schemas"]["CoreNotificationChannel"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5028,7 +5217,10 @@ export interface components {
         };
         /** @description Notification preferences: What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences. */
         CoreNotificationPreferences: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5053,12 +5245,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["PreferencesSpec"];
             status?: components["schemas"]["PreferencesStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new notification preferences. */
@@ -5079,6 +5275,7 @@ export interface components {
         };
         /** @description One page of notification preferences. */
         CoreNotificationPreferencesList: {
+            /** @description The notification preferences on this page */
             items: components["schemas"]["CoreNotificationPreferences"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5102,7 +5299,10 @@ export interface components {
         };
         /** @description Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server. */
         CorePolicy: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5127,12 +5327,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["PolicySpec"];
             status?: components["schemas"]["Status"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new rule. */
@@ -5153,6 +5357,7 @@ export interface components {
         };
         /** @description One page of policies. */
         CorePolicyList: {
+            /** @description The policies on this page */
             items: components["schemas"]["CorePolicy"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5176,7 +5381,10 @@ export interface components {
         };
         /** @description Reseller rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts. */
         CoreResellerPolicy: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5201,12 +5409,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["PolicySpec"];
             status?: components["schemas"]["Status"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new reseller rule. */
@@ -5229,6 +5441,7 @@ export interface components {
         };
         /** @description One page of reseller policies. */
         CoreResellerPolicyList: {
+            /** @description The reseller policies on this page */
             items: components["schemas"]["CoreResellerPolicy"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5252,7 +5465,10 @@ export interface components {
         };
         /** @description Installed item: Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created. */
         CoreServerInstallation: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5277,12 +5493,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["InstallationSpec"];
             status?: components["schemas"]["InstallationStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new installed item. */
@@ -5303,6 +5523,7 @@ export interface components {
         };
         /** @description One page of server installations. */
         CoreServerInstallationList: {
+            /** @description The server installations on this page */
             items: components["schemas"]["CoreServerInstallation"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5326,7 +5547,10 @@ export interface components {
         };
         /** @description Sign-in policy: How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes. */
         CoreSigninPolicy: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5351,12 +5575,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["SignInPolicySpec"];
             status?: components["schemas"]["SignInPolicyStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new sign-in policy. */
@@ -5377,6 +5605,7 @@ export interface components {
         };
         /** @description One page of signin policies. */
         CoreSigninPolicyList: {
+            /** @description The signin policies on this page */
             items: components["schemas"]["CoreSigninPolicy"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5400,7 +5629,10 @@ export interface components {
         };
         /** @description Sign-in provider: An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings. */
         CoreSigninProvider: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5425,12 +5657,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["ProviderSpec"];
             status?: components["schemas"]["ProviderStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new sign-in provider. */
@@ -5451,6 +5687,7 @@ export interface components {
         };
         /** @description One page of signin providers. */
         CoreSigninProviderList: {
+            /** @description The signin providers on this page */
             items: components["schemas"]["CoreSigninProvider"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5474,7 +5711,10 @@ export interface components {
         };
         /** @description Mail relay: The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. */
         CoreSmtpRelay: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5499,12 +5739,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["RelaySpec"];
             status?: components["schemas"]["RelayStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new mail relay. */
@@ -5525,6 +5769,7 @@ export interface components {
         };
         /** @description One page of mail relays. */
         CoreSmtpRelayList: {
+            /** @description The mail relays on this page */
             items: components["schemas"]["CoreSmtpRelay"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5548,7 +5793,10 @@ export interface components {
         };
         /** @description Update settings: How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. */
         CoreUpdateSettings: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5573,12 +5821,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["SettingsSpec"];
             status?: components["schemas"]["SettingsStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new update settings. */
@@ -5599,6 +5851,7 @@ export interface components {
         };
         /** @description One page of update settings. */
         CoreUpdateSettingsList: {
+            /** @description The update settings on this page */
             items: components["schemas"]["CoreUpdateSettings"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5622,7 +5875,10 @@ export interface components {
         };
         /** @description User: Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. */
         CoreUser: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5647,12 +5903,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["UserSpec"];
             status?: components["schemas"]["UserStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new user. */
@@ -5675,6 +5935,7 @@ export interface components {
         };
         /** @description One page of users. */
         CoreUserList: {
+            /** @description The users on this page */
             items: components["schemas"]["CoreUser"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5698,7 +5959,10 @@ export interface components {
         };
         /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
         CoreWebhook: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -5723,12 +5987,16 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
             spec: components["schemas"]["WebhookSpec"];
             status?: components["schemas"]["WebhookStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         /** @description A new webhook. */
@@ -5749,6 +6017,7 @@ export interface components {
         };
         /** @description One page of webhooks. */
         CoreWebhookList: {
+            /** @description The webhooks on this page */
             items: components["schemas"]["CoreWebhook"][];
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5771,12 +6040,22 @@ export interface components {
             spec: components["schemas"]["WebhookSpec"];
         };
         Cost: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The memory it takes while in use, in MB
+             */
             activeMemoryMB: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The disk it takes, in MB
+             */
             diskMB: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The memory it takes while nothing uses it, in MB
+             */
             idleMemoryMB: number;
+            /** @description What the costs depend on, in plain words */
             notes?: string;
         };
         CreatedToken: {
@@ -5784,21 +6063,34 @@ export interface components {
             accounts: string[] | null;
             /** @description Where the token may be used from; empty means anywhere the sign-in policy allows */
             allowFrom: string[] | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token was made
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token stops working; never when left out
+             */
             expiresAt?: string;
             /** @description How the token starts, to tell tokens apart */
             hint: string;
+            /** @description The token's ID */
             id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token was last used
+             */
             lastUsedAt?: string;
+            /** @description The address the token was last used from */
             lastUsedIp?: string;
+            /** @description The token's name */
             name: string;
             /** @description What the token may do, as permission patterns; empty means whatever its user may do */
             permissions: string[] | null;
             /** @description The token itself, for the Authorization header as Bearer <token>. It is shown this once */
             token: string;
+            /** @description The user the token acts for */
             user: string;
         };
         DataScope: {
@@ -5808,6 +6100,7 @@ export interface components {
             kind: string;
         };
         DeliveriesOutputBody: {
+            /** @description The webhook's deliveries, newest first */
             deliveries: components["schemas"]["Delivery"][] | null;
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5818,13 +6111,21 @@ export interface components {
              * @description How many times it was sent
              */
             attemptCount: number;
+            /** @description Every attempt to send it; lists leave them out */
             attempts?: components["schemas"]["DeliveryAttempt"][] | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the delivery was made
+             */
             createdAt: string;
+            /** @description The event it delivers; test deliveries have none */
             event?: string;
             /** @description The type of the event delivered */
             eventType: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it went through or was given up
+             */
             finishedAt?: string;
             /** @description Also sent as the webhook-id header, the same for every attempt */
             id: string;
@@ -5844,9 +6145,14 @@ export interface components {
             payload?: unknown;
             /** @description The delivery this one sends again */
             redeliveryOf?: string;
-            /** @enum {string} */
+            /**
+             * @description Whether it is still being sent, went through or was given up
+             * @enum {string}
+             */
             state: "pending" | "succeeded" | "failed";
+            /** @description Whether it is a test, which is sent once and never tried again */
             test?: boolean;
+            /** @description The webhook it is sent to */
             webhook: string;
         };
         DeliveryAttempt: {
@@ -5857,7 +6163,10 @@ export interface components {
             durationMs: number;
             /** @description Why the attempt failed */
             error?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Which attempt it was, from 1
+             */
             number: number;
             /** @description The first kilobyte of the answer */
             response?: string;
@@ -5866,34 +6175,55 @@ export interface components {
              * @description The HTTP status of the answer, when there was one
              */
             status?: number;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was made
+             */
             time: string;
         };
         DeliveryListBody: {
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
+            /** @description The notifications on this page, newest first */
             notifications: components["schemas"]["Notification"][] | null;
         };
         Dependencies: {
+            /** @description What the dependencies mean, in plain words */
             note?: string;
+            /** @description Modules that must be on for it to work */
             requires?: string[] | null;
+            /** @description Modules of which at least one must be on */
             requiresAny?: string[] | null;
+            /** @description Modules it works with when they are on */
             uses?: string[] | null;
         };
         DeviceView: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was trusted
+             */
             createdAt: string;
             /** @description Whether it's the browser asking */
             current: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the browser stops being trusted
+             */
             expiresAt: string;
+            /** @description The browser's ID */
             id: string;
+            /** @description The address it was last used from */
             ip?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was last used to sign in
+             */
             lastUsedAt: string;
+            /** @description The browser and system, as the browser describes itself */
             name: string;
         };
         DevicesOutputBody: {
+            /** @description The browsers you trust, which skip the second step */
             devices: components["schemas"]["DeviceView"][] | null;
         };
         DismissBody: {
@@ -5908,6 +6238,7 @@ export interface components {
             action: string;
             /** @description Who added this effect when it wasn't the requested change itself */
             contributor?: string;
+            /** @description Whether it removes data */
             destructive?: boolean;
             /** @description Extra detail such as a version */
             detail?: string;
@@ -5954,36 +6285,60 @@ export interface components {
             reason: string;
         };
         EntryListBody: {
+            /** @description What add-ons and modules add to the panel */
             entries: components["schemas"]["UIEntry"][] | null;
         };
         Estimate: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much more disk it takes once applied, in bytes
+             */
             diskBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much applying it downloads, in bytes
+             */
             downloadBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much more memory what it sets up takes, in bytes
+             */
             memoryBytes: number;
         };
         Event: {
+            /** @description Who caused it, and for whom */
             actor?: components["schemas"]["Actor"];
+            /** @description The change set that caused it */
             changeSet?: string;
+            /** @description What the event type says about what happened */
             data?: unknown;
+            /** @description The event's ID */
             id: string;
+            /** @description The job that caused it */
             job?: string;
             /** @description The kind of the subject */
             kind?: string;
+            /** @description What happened, in English; the panel words it from the type */
             message: string;
+            /** @description The owner the event belongs to, who may see it */
             scope: components["schemas"]["Scope"];
-            /** @enum {string} */
+            /**
+             * @description How urgent it is
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
             /** @description The resource the event is about */
             subject?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it happened
+             */
             time: string;
             /** @description <kind>.<past-tense verb>, such as web.site.created */
             type: string;
         };
         EventListBody: {
+            /** @description The events on this page, newest first */
             events: components["schemas"]["Event"][] | null;
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
@@ -5991,12 +6346,18 @@ export interface components {
         EventType: {
             /** @description The JSON Schema of the event's data */
             data?: unknown;
+            /** @description When it is emitted */
             description: string;
+            /** @description The event type, <kind>.<past-tense verb>, such as web.site.created */
             name: string;
-            /** @enum {string} */
+            /**
+             * @description How urgent events of the type are
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
         };
         EventTypesOutputBody: {
+            /** @description Every event type */
             types: components["schemas"]["EventType"][] | null;
         };
         Export: {
@@ -6007,25 +6368,36 @@ export interface components {
             exported: string;
             /** @description The module's id */
             module: string;
+            /** @description The module's resources, with their settings */
             resources: components["schemas"]["ExportedResource"][] | null;
             /** @description The module's version */
             version: string;
         };
         ExportedResource: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
+            /** @description The resource's ID */
             id: string;
+            /** @description The resource's kind */
             kind: string;
+            /** @description The resource's labels */
             labels?: {
                 [key: string]: string;
             };
+            /** @description The owner the resource belongs to */
             scope: components["schemas"]["Scope"];
+            /** @description The resource's settings, without the fields that refer to secrets */
             spec: unknown;
             /** @description Fields that refer to secrets, which the export leaves out */
             withheld?: string[] | null;
         };
         Failure: {
+            /** @description The error's code, for the panel to translate */
             code: string;
+            /** @description What went wrong, in English */
             message: string;
         };
         FieldDefault: {
@@ -6037,26 +6409,45 @@ export interface components {
             override?: boolean;
         };
         FieldDiff: {
+            /** @description The value after the change */
             after?: unknown;
+            /** @description The value before the change */
             before?: unknown;
-            /** @enum {string} */
+            /**
+             * @description Whether the field was added, removed or replaced
+             * @enum {string}
+             */
             op: "add" | "remove" | "replace";
+            /** @description The field, with dots between names and indexes in brackets, such as domains[0] */
             path: string;
+            /** @description Whether the field holds a secret, so its values are left out */
             sensitive?: boolean;
         };
         FieldGroup: {
+            /** @description Whether forms fold it away until asked */
             advanced?: boolean;
+            /** @description The spec fields in it, in order */
             fields: string[] | null;
+            /** @description What the group is called */
             name: string;
         };
         FieldHint: {
+            /** @description Whether forms fold the field away until asked */
             advanced?: boolean;
+            /** @description Whether it can only be set when the resource is made */
             createOnly?: boolean;
+            /** @description For a field with the resource widget, the kind of the resources it names by ID, which forms offer to choose from */
             kind?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where forms put it: lower first
+             */
             order?: number;
+            /** @description What an empty input shows */
             placeholder?: string;
+            /** @description Whether it holds a secret: its value is a reference to one of the resource's own secrets, which a change's secrets set */
             sensitive?: boolean;
+            /** @description The input forms use instead of the default, such as textarea, code, password, select, toggle, size, duration or resource */
             widget?: string;
         };
         FieldProblem: {
@@ -6069,6 +6460,7 @@ export interface components {
             location?: string;
             /** @description English explanation */
             message: string;
+            /** @description Values for the placeholders in the code's message */
             params?: {
                 [key: string]: unknown;
             };
@@ -6076,18 +6468,29 @@ export interface components {
             value?: unknown;
         };
         FieldResult: {
+            /** @description The spec field, with dots between names */
             field: string;
+            /** @description Whether the field was filled in or overridden; one the request set, and the rule doesn't override, stays as it was */
             set: boolean;
+            /** @description The value the rule gives it */
             value?: unknown;
         };
         FoundSoftware: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes once installed, in bytes
+             */
             diskBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much installing it downloads, in bytes
+             */
             downloadBytes?: number;
             /** @description The software's id in the module's manifest */
             id: string;
+            /** @description Whether it is installed */
             installed: boolean;
+            /** @description The Debian packages installing it brings in, with their sizes */
             packages?: components["schemas"]["SoftwarePackage"][] | null;
         };
         Grant: {
@@ -6106,12 +6509,21 @@ export interface components {
             scope: components["schemas"]["Scope"];
         };
         Hardware: {
+            /** @description The processor architectures it runs on */
             arch: string[] | null;
+            /** @description Hardware it needs: virtualization, kvm, iommu, tpm or uefi */
             features?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The disk it needs at least, in GB
+             */
             minDiskGB?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The memory it needs at least, in MB
+             */
             minMemoryMB?: number;
+            /** @description What the requirements mean, in plain words */
             notes?: string;
         };
         HealthCheck: {
@@ -6133,6 +6545,7 @@ export interface components {
             type: "http" | "tcp" | "unit" | "dns" | "tls";
         };
         HealthReport: {
+            /** @description Each check, with how it went */
             checks: components["schemas"]["Check"][] | null;
             /**
              * @description ok when every check passes
@@ -6142,14 +6555,22 @@ export interface components {
             status: "ok" | "degraded";
         };
         HealthResult: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it ran
+             */
             checkedAt: string;
+            /** @description What it found, when it didn't pass */
             message?: string;
+            /** @description Whether it passed */
             ok: boolean;
+            /** @description What it checked: a URL, an address, a DNS name, a unit or one of the installation's resources */
             target: string;
+            /** @description What the check probes: http, tcp, dns, tls, unit or resource */
             type: string;
         };
         HistoryBody: {
+            /** @description The versions of the resource's settings, oldest first */
             versions: components["schemas"]["Version"][] | null;
         };
         HookInfo: {
@@ -6170,8 +6591,12 @@ export interface components {
              * @description How many times in a row it failed
              */
             failures?: number;
-            /** @enum {string} */
+            /**
+             * @description What sort of hook it is
+             * @enum {string}
+             */
             kind: "observe" | "validate" | "modify" | "system" | "provide" | "extend";
+            /** @description What the hook is called */
             label?: string;
             /** @description Whether it holds core.override */
             override?: boolean;
@@ -6179,17 +6604,26 @@ export interface components {
             owner: string;
             /** @description The point or pattern the hook is attached to */
             point: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where it runs among the hooks of its point: lower first
+             */
             priority: number;
+            /** @description For a provide hook, the capability it provides */
             provider?: string;
+            /** @description Whether it guards security, so safe mode leaves it on */
             security?: boolean;
+            /** @description For an extend hook, what it adds to the panel */
             ui?: string;
         };
         HookListBody: {
+            /** @description The hooks that match */
             hooks: components["schemas"]["HookInfo"][] | null;
         };
         HookPoint: {
+            /** @description What happens at the point */
             description: string;
+            /** @description The hook point */
             point: string;
         };
         Host: {
@@ -6201,11 +6635,17 @@ export interface components {
         Impersonation: {
             /** @description The admin or reseller viewing the panel */
             by: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When viewing as the person ends by itself
+             */
             endsAt: string;
             /** @description Their name */
             name: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the admin or reseller started viewing as the person
+             */
             startedAt: string;
         };
         InboxAction: {
@@ -6239,12 +6679,14 @@ export interface components {
             until?: string;
         };
         InboxItem: {
+            /** @description What can be done about it, from the inbox */
             actions: components["schemas"]["InboxAction"][] | null;
             /**
              * @description What the item is about
              * @enum {string}
              */
             category: "job" | "resource" | "alert" | "update" | "certificate" | "suggestion";
+            /** @description The change set the item is about */
             changeSet?: string;
             /** @description Names the message the panel shows in the person's language, inbox.<code>, filled in from params; title and message are the English text */
             code: string;
@@ -6259,15 +6701,22 @@ export interface components {
             event?: components["schemas"]["Event"];
             /** @description Names the item while it lasts, such as job:job_01... */
             id: string;
+            /** @description The job the item is about */
             job?: string;
             /** @description The subject's kind */
             kind?: string;
+            /** @description More about it, in English */
             message?: string;
+            /** @description The values code's message is filled in with */
             params?: {
                 [key: string]: string;
             };
+            /** @description The owner the item belongs to */
             scope: components["schemas"]["Scope"];
-            /** @enum {string} */
+            /**
+             * @description How urgent it is
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
             /** @description What found the item: core, or the id of the module that did */
             source: string;
@@ -6278,6 +6727,7 @@ export interface components {
              * @description When it started needing attention, or last happened
              */
             time: string;
+            /** @description What needs attention, in English */
             title: string;
             /** @description Changes when the item does; a dismissal holds until it changes */
             version: string;
@@ -6290,6 +6740,7 @@ export interface components {
              * @description How many items you dismissed or snoozed that would show otherwise
              */
             dismissed: number;
+            /** @description What needs attention */
             items: components["schemas"]["InboxItem"][] | null;
             /** @description Parts of the inbox that couldn't be read, and why */
             unavailable?: components["schemas"]["InboxProblem"][] | null;
@@ -6297,6 +6748,7 @@ export interface components {
         InboxProblem: {
             /** @description The error's code, for the panel to translate */
             code: string;
+            /** @description What went wrong, in English */
             message: string;
             /** @description The values the code's message is filled in with */
             params?: {
@@ -6310,14 +6762,22 @@ export interface components {
             restored: boolean;
         };
         IndexFile: {
+            /** @description Where the file is, relative to the index */
             path: string;
+            /** @description The file's SHA-256 checksum */
             sha256: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The file's size, in bytes
+             */
             size: number;
         };
         IndexInfo: {
+            /** @description The index's name, which lists take as a filter parameter and a sort key */
             name: string;
+            /** @description The spec field it holds, with dots between names */
             path: string;
+            /** @description Whether two resources can't hold the same value */
             unique?: boolean;
         };
         InstallInput: {
@@ -6337,7 +6797,9 @@ export interface components {
             scope: components["schemas"]["Scope"];
         };
         InstallationHealth: {
+            /** @description How each check went */
             health: components["schemas"]["HealthResult"][] | null;
+            /** @description Whether every check passed */
             healthy: boolean;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -6391,14 +6853,22 @@ export interface components {
             /** @description The version installed */
             version: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         InstallationStatus: {
+            /** @description The version the installation was last applied at */
             applied?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its health was last checked
+             */
             checkedAt?: string;
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description Upstream files checked against the recipe */
             downloads?: components["schemas"]["VerifiedDownload"][] | null;
+            /** @description How its health checks last went */
             health?: components["schemas"]["HealthResult"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -6407,7 +6877,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /** @description A newer version the catalog offers */
             upgrade?: string;
@@ -6423,88 +6896,147 @@ export interface components {
         IssuedLink: {
             /** @description What the link carries; anyone who has it can choose the user's password until it expires */
             code: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link stops working
+             */
             expiresAt: string;
             /** @description Where the link goes on the panel */
             path: string;
-            /** @enum {string} */
+            /**
+             * @description activate for a new user's first password, reset to choose a new one
+             * @enum {string}
+             */
             purpose: "activate" | "reset";
             /** @description The whole link, when the panel knows its own name */
             url?: string;
         };
         ItemDetail: {
+            /** @description Whether it is known not to work, so it is hidden unless asked for */
             broken?: boolean;
+            /** @description The catalog's ID */
             catalog: string;
+            /** @description The catalog's name */
             catalogName: string;
+            /** @description What the catalog is called */
             catalogTitle: string;
+            /** @description The categories the marketplace lists it in */
             categories?: string[] | null;
+            /** @description Whether the marketplace features it */
             featured?: boolean;
+            /** @description Every file of the item, the recipe included, with what each is checked against */
             files?: components["schemas"]["IndexFile"][] | null;
             /** @description Why the item can't be installed on this server, when it can't */
             fits?: string;
+            /** @description Where its icon is, relative to the index */
             icon?: string;
+            /** @description The item's id in its catalog */
             id: string;
+            /** @description What sort of item it is */
             kind: string;
+            /** @description Whether it is open source, free to use or proprietary */
             licenseClass: string;
+            /** @description What the item is called */
             name: string;
             /** @description What installing it means, for software that isn't open source */
             notice?: string;
+            /** @description Whether the item is from Racksail's own catalog; the rest are third-party and labelled so */
             official: boolean;
+            /** @description Where the recipe is, relative to the index */
             path: string;
             /** @description The item's recipe, as spec/schemas/recipe.schema.json describes it */
             recipe: unknown;
+            /** @description What the recipe needs, so whether it fits can be checked without it */
             requires?: components["schemas"]["Requirements"];
+            /** @description The SHA-256 checksum of the recipe */
             sha256: string;
+            /** @description What it is, in a line */
             summary: string;
+            /** @description Whether nobody maintains it any more, so it is hidden unless asked for */
             unmaintained?: boolean;
+            /** @description The version the catalog offers */
             version: string;
         };
         ItemListBody: {
+            /** @description The items that match, featured ones and the official catalog's first */
             items: components["schemas"]["ListedItem"][] | null;
         };
         Job: {
+            /** @description Who started it, and for whom */
             actor?: components["schemas"]["Actor"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Which run of the work it is: a retry is a new job with the next number
+             */
             attempt: number;
+            /** @description The change set it carries out */
             changeSet?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was queued
+             */
             createdAt: string;
+            /** @description Why it failed */
             error?: components["schemas"]["Failure"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it finished
+             */
             finishedAt?: string;
+            /** @description The job's ID, which starts with job_ */
             id: string;
+            /** @description How far it has come */
             progress: components["schemas"]["Progress"];
+            /** @description The resource it works on */
             resource?: string;
+            /** @description What it found or made, once it succeeded */
             result?: unknown;
             /** @description The job this one retries */
             retryOf?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When a waiting job may start, as an automatic retry waits
+             */
             runAfter?: string;
+            /** @description The owner the work belongs to, which decides who may see it */
             scope: components["schemas"]["Scope"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it started
+             */
             startedAt?: string;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting to run, running, done, failed or canceled
+             * @enum {string}
+             */
             state: "queued" | "running" | "succeeded" | "failed" | "canceled";
+            /** @description What the job does */
             title: string;
             /** @description What kind of work it is, such as changeset.apply */
             type: string;
         };
         JobListBody: {
+            /** @description The jobs on this page, newest first */
             jobs: components["schemas"]["Job"][] | null;
             /** @description The cursor of the next page; empty on the last one */
             next?: string;
         };
         JobLogsOutputBody: {
+            /** @description The lines of the job's log, oldest first */
             lines: components["schemas"]["LogLine"][] | null;
         };
         KindDescription: {
+            /** @description The actions its resources have */
             actions: components["schemas"]["ActionInfo"][] | null;
+            /** @description Whether backups cover its resources */
             backup: components["schemas"]["BackupInfo"];
             /** @description Whether changing one asks people in the panel to confirm it's them */
             confirm?: boolean;
+            /** @description What the kind is for */
             description: string;
             /** @description The event types the kind emits */
             events: string[] | null;
+            /** @description The fields its lists filter and sort on */
             indexes: components["schemas"]["IndexInfo"][] | null;
             /** @description The JSON Schemas of the actions' inputs, by action */
             inputs?: {
@@ -6512,6 +7044,7 @@ export interface components {
             };
             /** @description Further levels its resources may belong to, as users belong to the server, a reseller or an account */
             levels?: string[] | null;
+            /** @description The module the kind belongs to */
             module: string;
             /** @description <module>.<name> */
             name: string;
@@ -6521,9 +7054,11 @@ export interface components {
             };
             /** @description Where its operations are */
             path: string;
+            /** @description What several are called, as the kind's path names them */
             plural: string;
             /** @description What its IDs start with, before the underscore */
             prefix: string;
+            /** @description How much harm creating, updating and deleting one can do */
             risks: components["schemas"]["KindRisks"];
             /**
              * @description Who owns resources of the kind
@@ -6536,23 +7071,37 @@ export interface components {
             spec?: unknown;
             /** @description The JSON Schema of the status */
             status?: unknown;
+            /** @description What one resource of the kind is called, such as Site */
             title: string;
+            /** @description How screens show its resources */
             ui: components["schemas"]["UIHints"];
         };
         KindRisks: {
+            /** @description How much harm creating one can do */
             create: string;
+            /** @description How much harm deleting one can do */
             delete: string;
+            /** @description How much harm changing one can do */
             update: string;
         };
         KindsOutputBody: {
+            /** @description Every kind the panel has */
             kinds: components["schemas"]["KindDescription"][] | null;
         };
         LinkInfo: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link stops working
+             */
             expiresAt: string;
+            /** @description The person's name */
             name?: string;
-            /** @enum {string} */
+            /**
+             * @description activate for a new user's first password, reset to choose a new one
+             * @enum {string}
+             */
             purpose: "activate" | "reset";
+            /** @description The user the link is for */
             username: string;
         };
         LinkInput: {
@@ -6573,80 +7122,142 @@ export interface components {
             location: string;
         };
         LinkView: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When your user was linked to it
+             */
             linkedAt: string;
+            /** @description The sign-in provider */
             provider: string;
+            /** @description What the provider is called */
             title: string;
+            /** @description Who you are at the provider */
             username?: string;
         };
         LinksOutputBody: {
+            /** @description The sign-in providers your user is linked to */
             links: components["schemas"]["LinkView"][] | null;
         };
         ListedItem: {
+            /** @description Whether it is known not to work, so it is hidden unless asked for */
             broken?: boolean;
+            /** @description The catalog's ID */
             catalog: string;
+            /** @description The catalog's name */
             catalogName: string;
+            /** @description What the catalog is called */
             catalogTitle: string;
+            /** @description The categories the marketplace lists it in */
             categories?: string[] | null;
+            /** @description Whether the marketplace features it */
             featured?: boolean;
+            /** @description Every file of the item, the recipe included, with what each is checked against */
             files?: components["schemas"]["IndexFile"][] | null;
+            /** @description Where its icon is, relative to the index */
             icon?: string;
+            /** @description The item's id in its catalog */
             id: string;
+            /** @description What sort of item it is */
             kind: string;
+            /** @description Whether it is open source, free to use or proprietary */
             licenseClass: string;
+            /** @description What the item is called */
             name: string;
+            /** @description Whether the item is from Racksail's own catalog; the rest are third-party and labelled so */
             official: boolean;
+            /** @description Where the recipe is, relative to the index */
             path: string;
+            /** @description What the recipe needs, so whether it fits can be checked without it */
             requires?: components["schemas"]["Requirements"];
+            /** @description The SHA-256 checksum of the recipe */
             sha256: string;
+            /** @description What it is, in a line */
             summary: string;
+            /** @description Whether nobody maintains it any more, so it is hidden unless asked for */
             unmaintained?: boolean;
+            /** @description The version the catalog offers */
             version: string;
         };
         LogLine: {
+            /** @description Details, by name */
             attrs?: {
                 [key: string]: unknown;
             };
-            /** @enum {string} */
+            /**
+             * @description How much it matters
+             * @enum {string}
+             */
             level: "DEBUG" | "INFO" | "WARN" | "ERROR";
+            /** @description What happened, in English */
             message: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The line's number, from 1, which a stream resumes after
+             */
             seq: number;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was written
+             */
             time: string;
         };
         MFAOption: {
             /** @description Whether the person asking has it on */
             enabled: boolean;
+            /** @description The second step, as setting it up names it */
             id: string;
+            /** @description What it is called */
             title: string;
         };
         Manifest: {
+            /** @description The capabilities it provides and needs */
             capabilities?: components["schemas"]["Capabilities"];
-            /** @enum {string} */
+            /**
+             * @description Where the modules page lists it
+             * @enum {string}
+             */
             category: "core" | "hosting" | "apps" | "storage" | "operations" | "home" | "assistant";
+            /** @description The memory and disk it takes */
             cost: components["schemas"]["Cost"];
+            /** @description The modules it needs or uses */
             dependencies: components["schemas"]["Dependencies"];
+            /** @description What the module does */
             description: string;
+            /** @description What the machine needs to run it */
             hardware: components["schemas"]["Hardware"];
+            /** @description The hook points it adds */
             hooks?: components["schemas"]["HookPoint"][] | null;
+            /** @description The module's id, which names its kinds and paths, such as web */
             id: string;
+            /** @description The module's license, as an SPDX expression */
             license: string;
+            /** @description What the module is called */
             name: string;
+            /** @description The permissions it adds, beyond those of its kinds */
             permissions?: components["schemas"]["Permission"][] | null;
+            /** @description The ports it opens */
             ports?: components["schemas"]["Port"][] | null;
+            /** @description The profiles that turn it on */
             profiles: string[] | null;
+            /** @description The recipes it ships, which install like catalog items */
             recipes?: string[] | null;
+            /** @description Whether the module is always on */
             required?: boolean;
+            /** @description The systemd services it runs */
             services?: components["schemas"]["Service"][] | null;
+            /** @description The JSON Schema of the module's settings */
             settings?: {
                 [key: string]: unknown;
             };
+            /** @description The software it installs, and where from */
             upstream: components["schemas"]["Upstream"][] | null;
+            /** @description The module's version */
             version: string;
         };
         MatrixEntry: {
+            /** @description What it lets someone do */
             description: string;
+            /** @description The permission */
             permission: string;
             /** @description For each role: everywhere, scope (where the grant applies), named (only when a grant names it) or none */
             roles: {
@@ -6654,18 +7265,31 @@ export interface components {
             };
         };
         Me: {
+            /** @description The addresses and networks the user may sign in from; anywhere the sign-in policy allows when empty */
             allowFrom: string[] | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the user was added
+             */
             createdAt: string;
+            /** @description Whether the user is kept from signing in */
             disabled?: boolean;
+            /** @description The person's email address */
             email?: string;
+            /** @description The roles the user holds, and where */
             grants: components["schemas"]["Grant"][] | null;
             /** @description Where the user belongs, and so who manages them */
             home: components["schemas"]["Scope"];
+            /** @description The user's ID */
             id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the person last signed in
+             */
             lastSignInAt?: string;
+            /** @description The address the person last signed in from */
             lastSignInIp?: string;
+            /** @description The language the panel speaks to the person, such as en or pt-BR */
             locale?: string;
             /**
              * Format: date-time
@@ -6674,6 +7298,7 @@ export interface components {
             lockedUntil?: string;
             /** @description Whether the user has to choose a new password when they next sign in */
             mustChangePassword?: boolean;
+            /** @description The person's name */
             name: string;
             /** @description Whether the user has a password */
             passwordSet: boolean;
@@ -6682,22 +7307,33 @@ export interface components {
              * @description The revision of the user's settings
              */
             revision: number;
+            /** @description How you sign in: your second steps, passkeys, recovery codes, trusted browsers and linked providers */
             security: components["schemas"]["Security"];
             /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
             twoFactor: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the user last changed
+             */
             updatedAt: string;
+            /** @description What the person signs in with */
             username: string;
         };
         Message: {
+            /** @description What the link to the panel says, such as Look at the backup */
             actionLabel?: string;
             /** @description What happened and what to do, in plain text */
             body: string;
+            /** @description For a summary of quiet hours, the messages it stands for */
             digest?: components["schemas"]["Message"][] | null;
+            /** @description The event it is about, when there is one */
             event?: components["schemas"]["Event"];
             /** @description The same on every attempt to deliver the message */
             id?: string;
-            /** @enum {string} */
+            /**
+             * @description How urgent it is
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
             /** @description What happened, in a few words */
             title: string;
@@ -6711,6 +7347,7 @@ export interface components {
             response?: string;
         };
         MfaOptionsOutputBody: {
+            /** @description The second steps you can set up */
             methods: components["schemas"]["MFAOption"][] | null;
         };
         MfaOutputBody: {
@@ -6738,7 +7375,9 @@ export interface components {
             exportable?: boolean;
             /** @description Why the module can't be turned on on this server */
             hardwareProblems?: string[] | null;
+            /** @description The module's software found on the server */
             installed?: string[] | null;
+            /** @description What the module is, needs, costs and installs */
             manifest: components["schemas"]["Manifest"];
             /** @description Modules it needs that are off */
             needs?: string[] | null;
@@ -6746,13 +7385,18 @@ export interface components {
             removed?: boolean;
             /** @description The module's core.module resource */
             resource?: string;
-            /** @enum {string} */
+            /**
+             * @description Where it is: off, on with nothing installed yet, active once a resource needs it, or being stopped or removed
+             * @enum {string}
+             */
             state: "off" | "on" | "active" | "stopping" | "removing";
             /** @description Whether the module can be turned off while resources use it, keeping them */
             suspends?: boolean;
+            /** @description What uses it: its resources, by kind */
             usage: components["schemas"]["Usage"];
         };
         ModuleListBody: {
+            /** @description Every module the panel has */
             modules: components["schemas"]["ModuleInfo"][] | null;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -6773,8 +7417,11 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         ModuleStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description Why the module can't run on this server */
             hardwareProblems?: string[] | null;
@@ -6787,7 +7434,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /**
              * Format: date-time
@@ -6831,37 +7481,62 @@ export interface components {
         Notice: {
             /** @description The change set that made the write, if one did */
             changeSet?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The resource's generation after the write
+             */
             generation: number;
+            /** @description The resource's ID */
             id: string;
+            /** @description The resource's kind */
             kind: string;
             /**
              * @description What the write did
              * @enum {string}
              */
             op: "created" | "updated" | "status" | "deleted" | "purged";
-            /** @enum {string} */
+            /**
+             * @description The phase its status reports after the write
+             * @enum {string}
+             */
             phase: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The resource's revision after the write
+             */
             revision: number;
+            /** @description The owner the resource belongs to */
             scope: components["schemas"]["Scope"];
         };
         Notification: {
             /** @description The address it is emailed to */
             address?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many times sending it was tried
+             */
             attemptCount: number;
             /** @description The channel it goes through */
             channel?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was made
+             */
             createdAt: string;
+            /** @description The event it is about */
             event?: string;
+            /** @description The type of the event it is about */
             eventType?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was sent or given up
+             */
             finishedAt?: string;
+            /** @description The notification's ID, which starts with ntf_ */
             id: string;
             /** @description Why the last attempt failed */
             lastError?: string;
+            /** @description What is sent; lists leave it out */
             message?: components["schemas"]["Message"];
             /**
              * Format: date-time
@@ -6870,13 +7545,21 @@ export interface components {
             nextAttempt?: string;
             /** @description The person it is emailed to */
             person?: string;
-            /** @enum {string} */
+            /**
+             * @description How urgent it is
+             * @enum {string}
+             */
             severity: "info" | "notice" | "warning" | "error" | "critical";
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, held for quiet hours, sent, failed, left out in quiet hours or sent in a summary
+             * @enum {string}
+             */
             state: "pending" | "held" | "sent" | "failed" | "dropped" | "merged";
             /** @description The summary it went out in */
             summary?: string;
+            /** @description Whether it is a test, which is sent once whatever the quiet hours */
             test?: boolean;
+            /** @description What it says happened, in a few words */
             title: string;
         };
         NotificationPreferences: {
@@ -6895,6 +7578,7 @@ export interface components {
             quietHours?: components["schemas"]["QuietHours"];
         };
         OSStatus: {
+            /** @description The Debian release's codename, such as trixie */
             codename: string;
             /** @description The Debian release an upgrade would move to */
             next?: string;
@@ -6905,7 +7589,9 @@ export interface components {
             rebootAt?: string;
             /** @description Why the server needs a reboot */
             rebootReasons?: string[] | null;
+            /** @description Whether the server needs a reboot to finish an update */
             rebootRequired?: boolean;
+            /** @description The Debian release's version */
             version: string;
         };
         OpenAccountInput: {
@@ -6929,11 +7615,15 @@ export interface components {
             slug: string;
         };
         OpenedAccount: {
+            /** @description The change set that adds the account and its owner together, so both are there or neither is */
             changeSet: components["schemas"]["ChangeSet"];
+            /** @description The owner's sign-in link, shown once */
             link?: components["schemas"]["IssuedLink"];
+            /** @description The account's owner, a new user */
             owner?: components["schemas"]["UserView"];
         };
         Operation: {
+            /** @description What the operation does, in full */
             description?: string;
             /** @description Whether it removes data, and so needs a typed confirmation */
             destructive?: boolean;
@@ -6945,18 +7635,23 @@ export interface components {
             kind?: string;
             /** @description Whether the work runs as a job the answer names */
             long?: boolean;
+            /** @description The HTTP method */
             method: string;
             /** @description Whether the operation changes anything */
             mutating: boolean;
             /** @description list, get, create, update, delete, history, or an action's name */
             operation?: string;
+            /** @description For an action, the schema of what it returns in its change set's output */
             output?: string;
+            /** @description The path, with its parameters in braces */
             path: string;
             /** @description The permission the operation needs */
             permission?: string;
             /** @description Whether it works without signing in */
             public?: boolean;
+            /** @description The schema of the request's body, among the document's components */
             request?: string;
+            /** @description The schema of the answer, among the document's components */
             response?: string;
             /** @description Whether it can be undone */
             reversible?: boolean;
@@ -6971,7 +7666,9 @@ export interface components {
             stepUp?: boolean;
             /** @description Whether it answers with Server-Sent Events */
             stream?: boolean;
+            /** @description What the operation does, in a few words */
             summary: string;
+            /** @description The groups the API reference lists it in */
             tags?: string[] | null;
         };
         Package: {
@@ -7050,16 +7747,25 @@ export interface components {
             name?: string;
         };
         PasskeyView: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the passkey was added
+             */
             createdAt: string;
+            /** @description The passkey's ID */
             id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the passkey was last used
+             */
             lastUsedAt?: string;
+            /** @description The passkey's name */
             name: string;
             /** @description Whether the passkey is kept in a password manager or synced between devices */
             synced: boolean;
         };
         PasskeysOutputBody: {
+            /** @description Your passkeys */
             passkeys: components["schemas"]["PasskeyView"][] | null;
         };
         PasswordInput: {
@@ -7080,7 +7786,9 @@ export interface components {
             password?: string;
         };
         Permission: {
+            /** @description What it lets someone do */
             description: string;
+            /** @description The permission's name, <module>.<name> */
             name: string;
         };
         Permissions: {
@@ -7104,7 +7812,9 @@ export interface components {
             checked?: boolean;
             /** @description Whether system hooks patch generated configuration here */
             config?: boolean;
+            /** @description What happens at the point */
             description?: string;
+            /** @description The hooks that run here, those attached to patterns that name it included, in the order they run */
             hooks?: components["schemas"]["HookInfo"][] | null;
             /** @description Settings hooks can only make stricter, unless they hold core.override */
             invariants?: string[] | null;
@@ -7121,6 +7831,7 @@ export interface components {
             stage?: "validate" | "plan" | "applied";
         };
         PointListBody: {
+            /** @description Every hook point, with the hooks attached to it */
             points: components["schemas"]["PointInfo"][] | null;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -7153,10 +7864,17 @@ export interface components {
             type: "validate" | "default";
         };
         Port: {
+            /** @description What listens there */
             description: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The port number
+             */
             port: number;
-            /** @enum {string} */
+            /**
+             * @description tcp or udp
+             * @enum {string}
+             */
             protocol: "tcp" | "udp";
         };
         Preferences: {
@@ -7204,8 +7922,11 @@ export interface components {
             /** @description Hold back what can wait, and send it as one summary when quiet hours end */
             quietHours?: components["schemas"]["QuietHours"];
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         PreferencesStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -7214,7 +7935,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         Problem: {
@@ -7258,14 +7982,20 @@ export interface components {
             type: string;
         };
         Profile: {
+            /** @description What a server with it does */
             description: string;
-            /** @enum {string} */
+            /**
+             * @description The profile
+             * @enum {string}
+             */
             id: "all-in-one" | "web-hosting" | "home-server" | "virtualization-host" | "mail-server" | "dns-server" | "minimal";
             /** @description The modules it turns on, dependencies first */
             modules: string[] | null;
+            /** @description What the profile is called */
             name: string;
         };
         ProfileChange: {
+            /** @description The change set that turns the modules on */
             changeSet: components["schemas"]["ChangeSet"];
             /** @description Modules of the profile that can't run on this server, with why */
             skipped?: components["schemas"]["Skipped"][] | null;
@@ -7279,6 +8009,7 @@ export interface components {
             name: string;
         };
         ProfileListBody: {
+            /** @description The profiles, in the order the setup wizard shows them */
             profiles: components["schemas"]["Profile"][] | null;
         };
         Progress: {
@@ -7330,8 +8061,11 @@ export interface components {
              */
             title: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         ProviderStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -7340,7 +8074,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         QuietHours: {
@@ -7405,8 +8142,11 @@ export interface components {
             /** @description The user name to sign in with, if the relay wants one */
             username?: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         RelayStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description Why the last email failed */
             lastError?: string;
@@ -7422,7 +8162,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         RelayTestInput: {
@@ -7435,14 +8178,22 @@ export interface components {
         RelayTestOutput: {
             /** @description Why the relay didn't take the email */
             error?: string;
+            /** @description Whether the relay took the test message */
             sent: boolean;
         };
         ReleaseAsset: {
+            /** @description The Sigstore bundle that signs it */
             bundle?: string;
+            /** @description The file's name */
             name: string;
+            /** @description Its SHA-256 checksum */
             sha256: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Its size, in bytes
+             */
             size: number;
+            /** @description Where it is downloaded from */
             url: string;
         };
         RemoveInput: {
@@ -7456,12 +8207,21 @@ export interface components {
             name: string;
         };
         Requirements: {
+            /** @description The processor architectures it runs on */
             arch?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The disk it needs, in MB
+             */
             diskMB?: number;
+            /** @description Hardware it needs, such as virtualization */
             features?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The memory it needs, in MB
+             */
             memoryMB?: number;
+            /** @description The modules that must be on */
             modules?: string[] | null;
         };
         ResetInput: {
@@ -7477,14 +8237,24 @@ export interface components {
             unlock?: boolean;
         };
         ResetResult: {
+            /** @description The sign-in link to choose a new password with, shown once */
             link?: components["schemas"]["IssuedLink"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many of the user's sessions were ended
+             */
             sessionsEnded: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many of the user's API tokens were revoked
+             */
             tokensRevoked: number;
         };
         Resource: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource was made
+             */
             createdAt: string;
             /**
              * Format: date-time
@@ -7509,43 +8279,69 @@ export interface components {
              * @description Increases on every write except status updates; send it back to detect conflicting edits
              */
             revision: number;
+            /** @description Who owns the resource: the server, a reseller or an account */
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
+            /** @description The settings: what should exist, which Racksail puts in place */
             spec: unknown;
+            /** @description What Racksail last found and did about it */
             status?: unknown;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When its settings, labels or status last changed
+             */
             updatedAt: string;
         };
         ResourceChange: {
+            /** @description The action's name, for an action */
             action?: string;
+            /** @description The settings after the change; secret fields hold references, never values */
             after?: unknown;
+            /** @description The settings before the change, kept so it can be undone; secret fields hold references, never values */
             before?: unknown;
+            /** @description What confirms an action's steps worked, checked after they and the resource's reconcile ran */
             checks?: components["schemas"]["HealthCheck"][] | null;
+            /** @description What the change does to each field */
             diff?: components["schemas"]["FieldDiff"][] | null;
+            /** @description The resource's ID */
             id: string;
+            /** @description An action's input, kept with the change set, so actions never take secrets as input */
             input?: unknown;
+            /** @description The kind of the resource */
             kind: string;
+            /** @description The labels the resource has after the change */
             labels?: {
                 [key: string]: string;
             };
+            /** @description The labels before an update or an action, so an undo can put them back */
             labelsBefore?: {
                 [key: string]: string;
             };
-            /** @enum {string} */
+            /**
+             * @description What the change does: create, update, delete or run an action
+             * @enum {string}
+             */
             op: "create" | "update" | "delete" | "action";
             /** @description What the action returned, once it was applied */
             output?: unknown;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The revision of the resource the change was planned against
+             */
             revision?: number;
+            /** @description The owner the resource belongs to */
             scope: components["schemas"]["Scope"];
+            /** @description The cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
+            /** @description Who asked for the change: the request, or a hook, rule, add-on or module that added it */
             source: components["schemas"]["Source"];
             /**
              * @description How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts
              * @enum {string}
              */
             state?: "started" | "done";
+            /** @description What an action runs on the server once, besides putting the resource in place */
             steps?: components["schemas"]["Step"][] | null;
         };
         Resources: {
@@ -7565,18 +8361,24 @@ export interface components {
             reason: "lagging";
         };
         RoleInfo: {
+            /** @description What someone with the role may do */
             description: string;
             /** @description Where the role can be given: on the server, a reseller or an account */
             levels: string[] | null;
             /** @description The permissions the role carries, as patterns such as * or *.read */
             patterns: string[] | null;
-            /** @enum {string} */
+            /**
+             * @description The role
+             * @enum {string}
+             */
             role: "admin" | "reseller" | "owner" | "collaborator" | "readonly";
+            /** @description What the role is called */
             title: string;
         };
         RolesOutputBody: {
             /** @description Every permission, and how far each role reaches with it */
             matrix: components["schemas"]["MatrixEntry"][] | null;
+            /** @description The roles, from the one that may do most */
             roles: components["schemas"]["RoleInfo"][] | null;
             /** @description What everyone may do to their own user, whatever their roles */
             self: string[] | null;
@@ -7593,12 +8395,15 @@ export interface components {
             bits?: number;
             /** @description The SHA256 fingerprint ssh-keygen -l shows */
             fingerprint: string;
+            /** @description The key's ID */
             id: string;
+            /** @description The key's name, its comment unless one was given */
             name: string;
             /** @description The key as an authorized_keys line, without options */
             publicKey: string;
             /** @description The key's algorithm, such as ssh-ed25519 */
             type: string;
+            /** @description The user the key belongs to */
             user: string;
         };
         SSHKeyInput: {
@@ -7643,20 +8448,29 @@ export interface components {
         SearchOutputBody: {
             /** @description Kinds with more results than the limit; search one of them alone, with a higher limit, for the rest */
             more?: string[] | null;
+            /** @description The resources that match */
             results: components["schemas"]["SearchResult"][] | null;
         };
         SearchResult: {
+            /** @description The resource's ID */
             id: string;
             /** @description The resource's kind, such as web.site */
             kind: string;
-            /** @enum {string} */
+            /**
+             * @description Where the resource is: being put in place, ready, failing or being deleted
+             * @enum {string}
+             */
             phase: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The owner the resource belongs to */
             scope: components["schemas"]["Scope"];
             /** @description The value of the kind's subtitle field */
             subtitle?: string;
             /** @description The value of the kind's title field, or the ID when the kind has none */
             title: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the resource last changed
+             */
             updatedAt: string;
         };
         SecondStepInput: {
@@ -7699,10 +8513,13 @@ export interface components {
             totp: boolean;
         };
         Service: {
+            /** @description What the service does */
             description: string;
+            /** @description The systemd unit */
             unit: string;
         };
         Session: {
+            /** @description The accounts the person's grants name, for switching between them */
             accounts: components["schemas"]["SessionAccount"][] | null;
             /** @description Whether this is racksail dev, which signs everyone in as its developer */
             dev?: boolean;
@@ -7711,7 +8528,9 @@ export interface components {
              * @description When the session ends at the latest
              */
             expiresAt?: string;
+            /** @description Who is viewing the panel as the person, and until when */
             impersonation?: components["schemas"]["Impersonation"];
+            /** @description Each module's state, by module id; modules left out are off */
             modules: {
                 [key: string]: "off" | "on" | "active" | "stopping" | "removing";
             };
@@ -7722,6 +8541,7 @@ export interface components {
             pending?: "two-factor" | "password";
             /** @description What the person may do somewhere, as permission names and patterns; the panel checks each request against where it applies */
             permissions: string[] | null;
+            /** @description How the person likes the panel to look */
             preferences?: components["schemas"]["Preferences"];
             /** @description How the person can confirm it's them: password, totp or passkey */
             stepUpMethods: string[] | null;
@@ -7730,47 +8550,70 @@ export interface components {
              * @description Until when sensitive actions go ahead without confirming it's them again
              */
             steppedUpUntil?: string;
+            /** @description The API token the request came with, when it came with one */
             token?: components["schemas"]["SessionToken"];
+            /** @description Who is signed in */
             user: components["schemas"]["SessionUser"];
         };
         SessionAccount: {
+            /** @description The account's ID */
             id: string;
+            /** @description The account's name */
             name: string;
+            /** @description The account's short name, which its Linux user is named after */
             slug: string;
         };
         SessionToken: {
+            /** @description The token's ID */
             id: string;
+            /** @description The token's name */
             name: string;
         };
         SessionUser: {
+            /** @description The person's email address */
             email?: string;
             /** @description Where the person belongs */
             home: components["schemas"]["Scope"];
+            /** @description The person's user */
             id: string;
             /** @description The person's name, or their username */
             name: string;
+            /** @description What the person signs in with */
             username?: string;
         };
         SessionView: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the person signed in
+             */
             createdAt: string;
             /** @description Whether this is the session asking */
             current: boolean;
             /** @description The browser and system, as the browser describes itself */
             device: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the session ends at the latest
+             */
             expiresAt: string;
+            /** @description The session's ID */
             id: string;
             /** @description Who is viewing the panel as the user in this session */
             impersonator?: string;
+            /** @description The address the session was last used from */
             ip?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the session was last used
+             */
             lastSeenAt: string;
             /** @description How the person signed in */
             method: string;
+            /** @description The second step the person signed in with: totp, recovery or passkey */
             secondFactor?: string;
         };
         SessionsOutputBody: {
+            /** @description Your sessions, the one asking among them */
             sessions: components["schemas"]["SessionView"][] | null;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -7794,14 +8637,22 @@ export interface components {
             /** @description When automatic updates may be installed; any time when empty */
             window?: components["schemas"]["Window"];
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         SettingsStatus: {
             /** @description The newest release on the channel, when it is newer */
             available?: components["schemas"]["Available"];
+            /** @description Whether the last update can be rolled back */
             canRollBack?: boolean;
+            /** @description Why the last check failed */
             checkError?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the channel was last checked
+             */
             checkedAt?: string;
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description The last update the agent installed */
             last?: components["schemas"]["UpdateState"];
@@ -7812,11 +8663,16 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
+            /** @description The server's Debian release, and the next one */
             os?: components["schemas"]["OSStatus"];
             /** @description The last upgrade of the server's packages */
             packages?: components["schemas"]["PackagesStatus"];
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The last update whose outcome was published */
             reported?: string;
             /** @description The version running now */
             running: string;
@@ -7868,9 +8724,14 @@ export interface components {
             username: string;
         };
         SignInOption: {
+            /** @description The sign-in provider */
             id: string;
-            /** @enum {string} */
+            /**
+             * @description password when the panel's own screen takes the username and password, redirect when people sign in on the provider's page
+             * @enum {string}
+             */
             method: "password" | "redirect";
+            /** @description What the button says */
             title: string;
         };
         SignInOptions: {
@@ -7935,8 +8796,11 @@ export interface components {
              */
             tokenMaxDays?: number;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         SignInPolicyStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -7945,11 +8809,16 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         Skipped: {
+            /** @description The module left off */
             module: string;
+            /** @description Why this server can't run it */
             reason: string;
         };
         Snapshot: {
@@ -7959,47 +8828,87 @@ export interface components {
             source: string;
         };
         Software: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes once installed, in bytes: from the package index when it can tell, from the manifest otherwise
+             */
             diskBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes, in MB, where the package index can't tell
+             */
             diskMB?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much installing it downloads, in bytes: from the package index when it can tell, from the manifest otherwise
+             */
             downloadBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much it downloads, in MB, where the package index can't tell
+             */
             downloadMB?: number;
+            /** @description The software's own site */
             homepage?: string;
+            /** @description The software's id in the manifest */
             id: string;
+            /** @description When it is installed, in plain words */
             install: string;
+            /** @description Whether it is installed already */
             installed: boolean;
+            /** @description The software's license, as an SPDX expression */
             license: string;
+            /** @description What the software is called */
             name: string;
+            /** @description Whether it is only installed once someone chooses to */
             optIn?: boolean;
+            /** @description The Debian packages installing it brings in, with their sizes, for software the manifest names exactly */
             packages?: components["schemas"]["SoftwarePackage"][] | null;
+            /** @description Where it comes from and how it is checked */
             source: components["schemas"]["UpstreamSource"];
         };
         SoftwareOutputBody: {
+            /** @description The software the module installs */
             software: components["schemas"]["Software"][] | null;
         };
         SoftwarePackage: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much it downloads, in bytes
+             */
             downloadBytes?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes once installed, in bytes
+             */
             installedBytes?: number;
+            /** @description The package's name */
             name: string;
+            /** @description The repository the version comes from */
             origin?: string;
+            /** @description The version that would be installed */
             version: string;
         };
         Source: {
+            /** @description The hook point the contribution came through */
             hook?: string;
+            /** @description Which contributor, such as an add-on's id and version */
             name?: string;
-            /** @enum {string} */
+            /**
+             * @description Who contributed it: the request, a hook, a rule, an add-on or a module
+             * @enum {string}
+             */
             type: "request" | "hook" | "rule" | "addon" | "module";
         };
         SshKeysOutputBody: {
+            /** @description Your SSH keys */
             keys: components["schemas"]["SSHKey"][] | null;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         Status: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -8008,7 +8917,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /** @description The hook points the rule is attached to while it is enabled */
             points?: string[] | null;
@@ -8047,9 +8959,15 @@ export interface components {
             title?: string;
         };
         SyncOutput: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the index was built
+             */
             built: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many items the index lists
+             */
             items: number;
         };
         TestRequest: {
@@ -8093,6 +9011,7 @@ export interface components {
             costLimit: number;
             /** @description Why evaluating the rule failed */
             error?: string;
+            /** @description What a default rule would fill in, field by field */
             fields?: components["schemas"]["FieldResult"][] | null;
             /** @description What the person making the change would be told */
             message?: string;
@@ -8126,22 +9045,36 @@ export interface components {
             accounts: string[] | null;
             /** @description Where the token may be used from; empty means anywhere the sign-in policy allows */
             allowFrom: string[] | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token was made
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token stops working; never when left out
+             */
             expiresAt?: string;
             /** @description How the token starts, to tell tokens apart */
             hint: string;
+            /** @description The token's ID */
             id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token was last used
+             */
             lastUsedAt?: string;
+            /** @description The address the token was last used from */
             lastUsedIp?: string;
+            /** @description The token's name */
             name: string;
             /** @description What the token may do, as permission patterns; empty means whatever its user may do */
             permissions: string[] | null;
+            /** @description The user the token acts for */
             user: string;
         };
         TokensOutputBody: {
+            /** @description Your API tokens, without their secrets */
             tokens: components["schemas"]["TokenView"][] | null;
         };
         TotpOutputBody: {
@@ -8153,6 +9086,7 @@ export interface components {
             uri: string;
         };
         TypeListBody: {
+            /** @description Every channel type */
             types: components["schemas"]["ChannelType"][] | null;
         };
         UIEntry: {
@@ -8160,26 +9094,42 @@ export interface components {
             addon: string;
             /** @description The add-on's name and version */
             label: string;
-            /** @enum {string} */
+            /**
+             * @description Where in the panel it goes
+             * @enum {string}
+             */
             point: "ui.nav" | "ui.tab" | "ui.card" | "ui.command" | "ui.settings" | "ui.column";
+            /** @description What it adds */
             ui: components["schemas"]["UIExtension"];
         };
         UIExtension: {
+            /** @description A lucide icon name, such as globe */
             icon?: string;
+            /** @description The kind whose screens a tab or a column goes on */
             kind?: string;
+            /** @description What it says */
             label: string;
+            /** @description The page the add-on serves for it, which the panel shows in a sandboxed frame */
             path?: string;
+            /** @description Where it goes: nav, tab, card, command, settings or column */
             type: string;
         };
         UIHints: {
+            /** @description The columns lists show */
             columns?: components["schemas"]["Column"][] | null;
+            /** @description How forms show each field, by spec path */
             fields?: {
                 [key: string]: components["schemas"]["FieldHint"];
             };
+            /** @description How forms group the spec's fields */
             groups?: components["schemas"]["FieldGroup"][] | null;
+            /** @description Whether the kind has no generic screen or navigation entry */
             hidden?: boolean;
+            /** @description A lucide icon name, such as globe */
             icon?: string;
+            /** @description The spec field shown under the title */
             subtitleField?: string;
+            /** @description The spec field shown as a resource's title */
             titleField?: string;
         };
         UninstallInput: {
@@ -8191,31 +9141,52 @@ export interface components {
             version?: string;
         };
         UpdateOutput: {
+            /** @description The version running now */
             from: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When Racksail restarts on the new release
+             */
             restartsAt: string;
+            /** @description The version it updates to */
             to: string;
         };
         UpdateState: {
+            /** @description Where the binary it installed is */
             binary: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the new release confirmed it works
+             */
             confirmedAt?: string;
+            /** @description The version before */
             from: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was installed
+             */
             installedAt: string;
+            /** @description The copy of the panel's database from before */
             panelBackup?: string;
             /** @description Why the release was rolled back */
             reason?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was rolled back
+             */
             rolledBackAt?: string;
+            /** @description The snapshots taken of the system first */
             snapshots?: components["schemas"]["Snapshot"][] | null;
             /**
              * @description installed until the new release confirms it works, then confirmed; rolled-back when it didn't
              * @enum {string}
              */
             state: "installed" | "confirmed" | "rolled-back";
+            /** @description The release's tag */
             tag: string;
+            /** @description The version after */
             to: string;
+            /** @description Paths no snapshot covers, because they aren't on Btrfs */
             unprotected?: string[] | null;
         };
         UpgradeInput: {
@@ -8231,31 +9202,51 @@ export interface components {
             to: string;
         };
         UpgradeOSOutput: {
+            /** @description The Debian release before */
             from: string;
             /** @description Whether the server needs a reboot to finish */
             rebootRequired: boolean;
             /** @description The snapshots taken first */
             snapshots?: string[] | null;
+            /** @description The Debian release after */
             to: string;
         };
         Upstream: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much disk it takes, in MB, where the package index can't tell
+             */
             diskMB?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How much it downloads, in MB, where the package index can't tell
+             */
             downloadMB?: number;
+            /** @description The software's own site */
             homepage?: string;
+            /** @description The software's id in the manifest */
             id: string;
+            /** @description When it is installed, in plain words */
             install: string;
+            /** @description The software's license, as an SPDX expression */
             license: string;
+            /** @description What the software is called */
             name: string;
+            /** @description Whether it is only installed once someone chooses to */
             optIn?: boolean;
+            /** @description Where it comes from and how it is checked */
             source: components["schemas"]["UpstreamSource"];
         };
         UpstreamSource: {
+            /** @description The Debian packages it installs */
             packages?: string[] | null;
+            /** @description The apt repository it comes from */
             repository?: string;
+            /** @description debian, apt-repository, vendor-archive, racksail-build, embedded or present */
             type: string;
+            /** @description Where an archive is downloaded from */
             url?: string;
+            /** @description How a download is checked, such as its checksum or signature */
             verification?: string;
         };
         Usage: {
@@ -8311,8 +9302,11 @@ export interface components {
              */
             username: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         UserStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /**
              * Format: date-time
@@ -8337,24 +9331,40 @@ export interface components {
             observedGeneration?: number;
             /** @description Whether the user has a password */
             passwordSet: boolean;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
             /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
             twoFactor: boolean;
         };
         UserView: {
+            /** @description The addresses and networks the user may sign in from; anywhere the sign-in policy allows when empty */
             allowFrom: string[] | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the user was added
+             */
             createdAt: string;
+            /** @description Whether the user is kept from signing in */
             disabled?: boolean;
+            /** @description The person's email address */
             email?: string;
+            /** @description The roles the user holds, and where */
             grants: components["schemas"]["Grant"][] | null;
             /** @description Where the user belongs, and so who manages them */
             home: components["schemas"]["Scope"];
+            /** @description The user's ID */
             id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the person last signed in
+             */
             lastSignInAt?: string;
+            /** @description The address the person last signed in from */
             lastSignInIp?: string;
+            /** @description The language the panel speaks to the person, such as en or pt-BR */
             locale?: string;
             /**
              * Format: date-time
@@ -8363,6 +9373,7 @@ export interface components {
             lockedUntil?: string;
             /** @description Whether the user has to choose a new password when they next sign in */
             mustChangePassword?: boolean;
+            /** @description The person's name */
             name: string;
             /** @description Whether the user has a password */
             passwordSet: boolean;
@@ -8373,18 +9384,30 @@ export interface components {
             revision: number;
             /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
             twoFactor: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the user last changed
+             */
             updatedAt: string;
+            /** @description What the person signs in with */
             username: string;
         };
         VerifiedDownload: {
+            /** @description Its SHA-256 checksum, as the recipe gives it */
             sha256: string;
             /** @description The kind of signature that was checked too, if any */
             signature?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Its size, in bytes
+             */
             size: number;
+            /** @description Where the file was downloaded from */
             url: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was checked
+             */
             verifiedAt: string;
         };
         Version: {
@@ -8399,6 +9422,7 @@ export interface components {
              * @description The generation this version of the spec had
              */
             generation: number;
+            /** @description The labels it had */
             labels?: {
                 [key: string]: string;
             };
@@ -8408,7 +9432,10 @@ export interface components {
             server?: string;
             /** @description The desired state as it was; secret fields hold references, never values */
             spec: unknown;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it was written
+             */
             time: string;
         };
         /** @description The settings: what should exist, which Racksail puts in place */
@@ -8441,8 +9468,11 @@ export interface components {
              */
             url: string;
         };
+        /** @description What Racksail last found and did: where the resource is, and what putting it in place reported */
         WebhookStatus: {
+            /** @description Names the message, for the panel to translate */
             code?: string;
+            /** @description What the reconciler found, one condition each */
             conditions?: components["schemas"]["Condition"][] | null;
             /**
              * Format: int64
@@ -8466,7 +9496,10 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
-            /** @enum {string} */
+            /**
+             * @description Where it is: waiting, being put in place, ready, working only in part, failed or being deleted
+             * @enum {string}
+             */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         Window: {
@@ -15695,6 +16728,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["Event"];
                         /**
                          * @description The event's name
@@ -15915,6 +16949,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["InboxChange"];
                         /**
                          * @description The event's name
@@ -16233,6 +17268,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": ({
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["Job"];
                         /**
                          * @description The event's name
@@ -16242,6 +17278,7 @@ export interface operations {
                         /** @description Send it back as Last-Event-ID to resume after this event */
                         id?: string;
                     } | {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["LogLine"];
                         /**
                          * @description The event's name
@@ -18002,6 +19039,7 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": ({
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["Notice"];
                         /**
                          * @description The event's name
@@ -18011,6 +19049,7 @@ export interface operations {
                         /** @description Send it back as Last-Event-ID to resume after this event */
                         id?: string;
                     } | {
+                        /** @description What the event says, as JSON */
                         data: components["schemas"]["ResyncNotice"];
                         /**
                          * @description The event's name

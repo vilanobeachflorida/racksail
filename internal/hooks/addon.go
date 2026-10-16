@@ -87,11 +87,11 @@ type Resources struct {
 
 // UIExtension is a declarative addition to the UI.
 type UIExtension struct {
-	Type  string `yaml:"type" json:"type"`
-	Label string `yaml:"label" json:"label"`
-	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty"`
-	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty"`
-	Path  string `yaml:"path,omitempty" json:"path,omitempty"`
+	Type  string `yaml:"type" json:"type" doc:"Where it goes: nav, tab, card, command, settings or column"`
+	Label string `yaml:"label" json:"label" doc:"What it says"`
+	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty" doc:"A lucide icon name, such as globe"`
+	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty" doc:"The kind whose screens a tab or a column goes on"`
+	Path  string `yaml:"path,omitempty" json:"path,omitempty" doc:"The page the add-on serves for it, which the panel shows in a sandboxed frame"`
 }
 
 // AddonRoute is an API route the add-on serves under /api/v1/addons/<id>/.

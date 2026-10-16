@@ -117,11 +117,14 @@
       },
       "AccountStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -144,6 +147,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -174,9 +178,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What the action does, in full",
             "type": "string"
           },
           "destructive": {
+            "description": "Whether it removes data, and so needs a typed confirmation",
             "type": "boolean"
           },
           "event": {
@@ -184,18 +190,23 @@
             "type": "string"
           },
           "hasInput": {
+            "description": "Whether it takes an input, which inputs describes",
             "type": "boolean"
           },
           "long": {
+            "description": "Whether it runs as a job, which the answer names, rather than being waited for",
             "type": "boolean"
           },
           "name": {
+            "description": "The action's name, as its path and its permission end with",
             "type": "string"
           },
           "reversible": {
+            "description": "Whether it can be undone",
             "type": "boolean"
           },
           "risk": {
+            "description": "How much harm the action can do",
             "enum": [
               "read",
               "low",
@@ -206,9 +217,11 @@
             "type": "string"
           },
           "summary": {
+            "description": "What the action does, in a few words",
             "type": "string"
           },
           "title": {
+            "description": "What the action is called on buttons and menus",
             "type": "string"
           }
         },
@@ -224,30 +237,39 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The user, token, automation or add-on; empty for the system",
             "type": "string"
           },
           "impersonator": {
+            "description": "The admin or reseller viewing the panel as the person, while one does",
             "type": "string"
           },
           "impersonatorName": {
+            "description": "The name of the admin or reseller viewing as the person, as it was then",
             "type": "string"
           },
           "ip": {
+            "description": "The address the request came from",
             "type": "string"
           },
           "name": {
+            "description": "Its name, as it was called then",
             "type": "string"
           },
           "source": {
+            "description": "What it acted through: the panel, the racksail command, the API, an automation, an add-on, the assistant or the system",
             "type": "string"
           },
           "type": {
+            "description": "What is acting: a user, an API token, an automation, an add-on, the assistant or the system",
             "type": "string"
           },
           "user": {
+            "description": "The person responsible when something acts for them, such as a token's owner or the person talking to the assistant",
             "type": "string"
           },
           "userName": {
+            "description": "The name of the person it acts for, as it was then",
             "type": "string"
           }
         },
@@ -305,6 +327,7 @@
       },
       "AddonStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "checkedAt": {
             "description": "When it was last asked",
@@ -312,9 +335,11 @@
             "type": "string"
           },
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -367,6 +392,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -415,6 +441,7 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The channel type, as alert settings name it",
             "type": "string"
           },
           "secrets": {
@@ -431,6 +458,7 @@
             "description": "The JSON Schema of the channel's settings"
           },
           "title": {
+            "description": "What the channel type is called",
             "type": "string"
           }
         },
@@ -471,6 +499,7 @@
             "type": "string"
           },
           "records": {
+            "description": "The records on this page, newest first",
             "items": {
               "$ref": "#/components/schemas/AuditRecord"
             },
@@ -571,9 +600,11 @@
         "additionalProperties": false,
         "properties": {
           "asset": {
-            "$ref": "#/components/schemas/ReleaseAsset"
+            "$ref": "#/components/schemas/ReleaseAsset",
+            "description": "The binary for this server's architecture, as the signed manifest lists it"
           },
           "channel": {
+            "description": "The channel it is on",
             "enum": [
               "stable",
               "beta",
@@ -586,13 +617,16 @@
             "type": "string"
           },
           "published": {
+            "description": "When it was published",
             "format": "date-time",
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag",
             "type": "string"
           },
           "version": {
+            "description": "The release's version",
             "type": "string"
           }
         },
@@ -609,6 +643,7 @@
         "additionalProperties": false,
         "properties": {
           "covered": {
+            "description": "Whether backups and account archives keep the kind's resources",
             "type": "boolean"
           },
           "reason": {
@@ -625,6 +660,7 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
+            "description": "The processor architecture it was built for",
             "type": "string"
           },
           "channel": {
@@ -651,6 +687,7 @@
             "type": "string"
           },
           "os": {
+            "description": "The operating system it was built for",
             "type": "string"
           },
           "version": {
@@ -674,6 +711,7 @@
         "additionalProperties": false,
         "properties": {
           "needs": {
+            "description": "Capabilities it needs another module or add-on to provide",
             "items": {
               "type": "string"
             },
@@ -683,6 +721,7 @@
             ]
           },
           "provides": {
+            "description": "Capabilities it provides, which other modules may need",
             "items": {
               "type": "string"
             },
@@ -698,6 +737,7 @@
         "additionalProperties": false,
         "properties": {
           "operations": {
+            "description": "Every operation the panel serves, by path and method",
             "items": {
               "$ref": "#/components/schemas/Operation"
             },
@@ -780,6 +820,7 @@
       },
       "CatalogStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "built": {
             "description": "When the index was built",
@@ -787,9 +828,11 @@
             "type": "string"
           },
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -799,9 +842,11 @@
             ]
           },
           "indexSha256": {
+            "description": "The SHA-256 checksum of the index last fetched",
             "type": "string"
           },
           "items": {
+            "description": "How many items its index lists",
             "format": "int64",
             "type": "integer"
           },
@@ -815,9 +860,11 @@
             "type": "integer"
           },
           "official": {
+            "description": "Whether the catalog is Racksail's own, signed by a key built into the panel",
             "type": "boolean"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -922,9 +969,11 @@
         "additionalProperties": false,
         "properties": {
           "actor": {
-            "$ref": "#/components/schemas/Actor"
+            "$ref": "#/components/schemas/Actor",
+            "description": "Who made the change set, and for whom"
           },
           "appliedAt": {
+            "description": "When it was applied to the settings",
             "format": "date-time",
             "type": "string"
           },
@@ -939,6 +988,7 @@
             ]
           },
           "changes": {
+            "description": "The changes, in the order they are applied",
             "items": {
               "$ref": "#/components/schemas/ResourceChange"
             },
@@ -948,6 +998,7 @@
             ]
           },
           "conflicts": {
+            "description": "Fields two contributors changed differently; a change set with conflicts can't be applied",
             "items": {
               "$ref": "#/components/schemas/Conflict"
             },
@@ -957,6 +1008,7 @@
             ]
           },
           "contributions": {
+            "description": "What hooks, rules, add-ons and modules added to it",
             "items": {
               "$ref": "#/components/schemas/Contribution"
             },
@@ -966,13 +1018,16 @@
             ]
           },
           "createdAt": {
+            "description": "When it was planned",
             "format": "date-time",
             "type": "string"
           },
           "dryRun": {
+            "description": "Whether it is a preview, which applying it with POST /api/v1/changesets/{id}/apply carries out",
             "type": "boolean"
           },
           "effects": {
+            "description": "What applying it does on the server",
             "items": {
               "$ref": "#/components/schemas/Effect"
             },
@@ -982,18 +1037,23 @@
             ]
           },
           "error": {
+            "description": "Why it failed",
             "type": "string"
           },
           "estimate": {
-            "$ref": "#/components/schemas/Estimate"
+            "$ref": "#/components/schemas/Estimate",
+            "description": "What applying it costs in downloads, disk and memory"
           },
           "id": {
+            "description": "The change set's ID, which starts with chg_",
             "type": "string"
           },
           "job": {
+            "description": "The job that carries out the system changes once it is applied",
             "type": "string"
           },
           "risk": {
+            "description": "How much harm applying it can do, the highest of its changes'",
             "enum": [
               "read",
               "low",
@@ -1004,9 +1064,11 @@
             "type": "string"
           },
           "snapshot": {
+            "description": "Whether it removes data, so read-only snapshots of what holds that data are taken before it is applied",
             "type": "boolean"
           },
           "snapshots": {
+            "description": "The snapshots taken before it was applied, which a restore can bring back what it removed from; they go when the change set does",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -1016,6 +1078,7 @@
             ]
           },
           "state": {
+            "description": "Where it is: planned, being applied, applied, failed or undone",
             "enum": [
               "planned",
               "applying",
@@ -1026,9 +1089,11 @@
             "type": "string"
           },
           "title": {
+            "description": "What the change set does",
             "type": "string"
           },
           "undoOf": {
+            "description": "For an undo, the change set it undoes",
             "type": "string"
           }
         },
@@ -1048,6 +1113,7 @@
         "additionalProperties": false,
         "properties": {
           "changeSets": {
+            "description": "The change sets on this page, newest first",
             "items": {
               "$ref": "#/components/schemas/ChangeSet"
             },
@@ -1142,11 +1208,14 @@
       },
       "ChannelStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -1179,6 +1248,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -1196,7 +1266,8 @@
         "additionalProperties": false,
         "properties": {
           "notification": {
-            "$ref": "#/components/schemas/Notification"
+            "$ref": "#/components/schemas/Notification",
+            "description": "The test notification, with how sending it went"
           }
         },
         "required": [
@@ -1208,9 +1279,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What a channel of the type sends to",
             "type": "string"
           },
           "name": {
+            "description": "The channel type, as channels name it",
             "type": "string"
           },
           "provider": {
@@ -1221,6 +1294,7 @@
             "description": "The JSON Schema of the type's settings"
           },
           "secrets": {
+            "description": "The settings that hold secrets",
             "items": {
               "type": "string"
             },
@@ -1230,6 +1304,7 @@
             ]
           },
           "title": {
+            "description": "What the channel type is called",
             "type": "string"
           }
         },
@@ -1243,15 +1318,18 @@
         "additionalProperties": false,
         "properties": {
           "message": {
+            "description": "Why it fails",
             "type": "string"
           },
           "name": {
+            "description": "What the check is about, such as agent",
             "examples": [
               "agent"
             ],
             "type": "string"
           },
           "status": {
+            "description": "Whether it passes",
             "enum": [
               "ok",
               "failing"
@@ -1286,6 +1364,7 @@
             "description": "The release to update to; empty when the server is up to date"
           },
           "running": {
+            "description": "The version running now",
             "type": "string"
           }
         },
@@ -1313,9 +1392,11 @@
         "additionalProperties": false,
         "properties": {
           "field": {
+            "description": "The spec field the column shows",
             "type": "string"
           },
           "format": {
+            "description": "How the value is shown: text, date, bytes, duration, status, badge or link",
             "type": "string"
           }
         },
@@ -1328,9 +1409,11 @@
         "additionalProperties": false,
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "lastTransitionTime": {
+            "description": "When it last changed between holding and not",
             "format": "date-time",
             "type": "string"
           },
@@ -1339,6 +1422,7 @@
             "type": "string"
           },
           "observedGeneration": {
+            "description": "The generation it was found at",
             "format": "int64",
             "type": "integer"
           },
@@ -1347,6 +1431,7 @@
             "type": "string"
           },
           "status": {
+            "description": "Whether the condition holds",
             "enum": [
               "true",
               "false",
@@ -1370,15 +1455,19 @@
         "additionalProperties": false,
         "properties": {
           "message": {
+            "description": "What the conflict is, in English",
             "type": "string"
           },
           "path": {
+            "description": "The field they both changed",
             "type": "string"
           },
           "resource": {
+            "description": "The resource whose field two contributors changed",
             "type": "string"
           },
           "sources": {
+            "description": "Who changed it",
             "items": {
               "$ref": "#/components/schemas/Source"
             },
@@ -1400,6 +1489,7 @@
         "additionalProperties": false,
         "properties": {
           "changes": {
+            "description": "The changes it added or changed, as indexes into the change set's changes",
             "items": {
               "format": "int64",
               "type": "integer"
@@ -1410,6 +1500,7 @@
             ]
           },
           "effects": {
+            "description": "The effects it added, as indexes into the change set's effects",
             "items": {
               "format": "int64",
               "type": "integer"
@@ -1420,9 +1511,11 @@
             ]
           },
           "source": {
-            "$ref": "#/components/schemas/Source"
+            "$ref": "#/components/schemas/Source",
+            "description": "Who contributed it"
           },
           "summary": {
+            "description": "What it added, in a few words",
             "type": "string"
           }
         },
@@ -1437,6 +1530,7 @@
         "description": "Account: A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -1471,7 +1565,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -1484,6 +1579,7 @@
             "$ref": "#/components/schemas/AccountStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -1505,6 +1601,7 @@
         "description": "Account add-on: An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -1539,7 +1636,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -1552,6 +1650,7 @@
             "$ref": "#/components/schemas/AddonStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -1617,6 +1716,7 @@
         "description": "One page of account addons.",
         "properties": {
           "items": {
+            "description": "The account addons on this page",
             "items": {
               "$ref": "#/components/schemas/CoreAccountAddon"
             },
@@ -1713,6 +1813,7 @@
         "description": "One page of accounts.",
         "properties": {
           "items": {
+            "description": "The accounts on this page",
             "items": {
               "$ref": "#/components/schemas/CoreAccount"
             },
@@ -1733,6 +1834,7 @@
         "description": "Account rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -1767,7 +1869,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -1780,6 +1883,7 @@
             "$ref": "#/components/schemas/Status"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -1845,6 +1949,7 @@
         "description": "One page of account policies.",
         "properties": {
           "items": {
+            "description": "The account policies on this page",
             "items": {
               "$ref": "#/components/schemas/CoreAccountPolicy"
             },
@@ -1929,6 +2034,7 @@
         "description": "Add-on: An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -1963,7 +2069,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -1976,6 +2083,7 @@
             "$ref": "#/components/schemas/AddonStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2032,6 +2140,7 @@
         "description": "One page of addons.",
         "properties": {
           "items": {
+            "description": "The addons on this page",
             "items": {
               "$ref": "#/components/schemas/CoreAddon"
             },
@@ -2084,6 +2193,7 @@
         "description": "Catalog: A catalog of apps, runtimes, services, stacks, DNS templates, automations, tuning presets, models, themes and add-ons. Its index must be signed by one of the keys trusted when the catalog was added, and every file the panel fetches from it must match the index. The panel fetches the index daily while the marketplace module is on.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -2118,7 +2228,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -2131,6 +2242,7 @@
             "$ref": "#/components/schemas/CatalogStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2187,6 +2299,7 @@
         "description": "One page of catalogs.",
         "properties": {
           "items": {
+            "description": "The catalogs on this page",
             "items": {
               "$ref": "#/components/schemas/CoreCatalog"
             },
@@ -2239,6 +2352,7 @@
         "description": "Installed app: Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -2273,7 +2387,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -2286,6 +2401,7 @@
             "$ref": "#/components/schemas/InstallationStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2351,6 +2467,7 @@
         "description": "One page of installations.",
         "properties": {
           "items": {
+            "description": "The installations on this page",
             "items": {
               "$ref": "#/components/schemas/CoreInstallation"
             },
@@ -2403,6 +2520,7 @@
         "description": "Module: A part of Racksail that can be turned on and off, such as web hosting, mail or virtual machines. Modules ship in the binary and install nothing until something needs them; turning one on or off is a change with a preview.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -2437,7 +2555,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -2450,6 +2569,7 @@
             "$ref": "#/components/schemas/ModuleStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2506,6 +2626,7 @@
         "description": "One page of modules.",
         "properties": {
           "items": {
+            "description": "The modules on this page",
             "items": {
               "$ref": "#/components/schemas/CoreModule"
             },
@@ -2558,6 +2679,7 @@
         "description": "Notification channel: Sends alerts to email, a webhook, Matrix, ntfy, Telegram, Discord or Slack as events happen. Each channel picks the events it wants and how urgent they have to be, and can hold back what can wait during quiet hours.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -2592,7 +2714,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -2605,6 +2728,7 @@
             "$ref": "#/components/schemas/ChannelStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2661,6 +2785,7 @@
         "description": "One page of notification channels.",
         "properties": {
           "items": {
+            "description": "The notification channels on this page",
             "items": {
               "$ref": "#/components/schemas/CoreNotificationChannel"
             },
@@ -2713,6 +2838,7 @@
         "description": "Notification preferences: What one person hears about by email, and when: the events, how urgent they have to be and their quiet hours. Preferences belong to their person, who changes them with PUT /api/v1/notifications/preferences.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -2747,7 +2873,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -2760,6 +2887,7 @@
             "$ref": "#/components/schemas/PreferencesStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2816,6 +2944,7 @@
         "description": "One page of notification preferences.",
         "properties": {
           "items": {
+            "description": "The notification preferences on this page",
             "items": {
               "$ref": "#/components/schemas/CoreNotificationPreferences"
             },
@@ -2868,6 +2997,7 @@
         "description": "Rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. Server rules apply to every change on the server.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -2902,7 +3032,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -2915,6 +3046,7 @@
             "$ref": "#/components/schemas/Status"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -2971,6 +3103,7 @@
         "description": "One page of policies.",
         "properties": {
           "items": {
+            "description": "The policies on this page",
             "items": {
               "$ref": "#/components/schemas/CorePolicy"
             },
@@ -3023,6 +3156,7 @@
         "description": "Reseller rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. A reseller's rules apply to the reseller's own resources and its customers' accounts.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3057,7 +3191,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -3070,6 +3205,7 @@
             "$ref": "#/components/schemas/Status"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -3135,6 +3271,7 @@
         "description": "One page of reseller policies.",
         "properties": {
           "items": {
+            "description": "The reseller policies on this page",
             "items": {
               "$ref": "#/components/schemas/CoreResellerPolicy"
             },
@@ -3187,6 +3324,7 @@
         "description": "Installed item: Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3221,7 +3359,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -3234,6 +3373,7 @@
             "$ref": "#/components/schemas/InstallationStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -3290,6 +3430,7 @@
         "description": "One page of server installations.",
         "properties": {
           "items": {
+            "description": "The server installations on this page",
             "items": {
               "$ref": "#/components/schemas/CoreServerInstallation"
             },
@@ -3342,6 +3483,7 @@
         "description": "Sign-in policy: How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3376,7 +3518,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -3389,6 +3532,7 @@
             "$ref": "#/components/schemas/SignInPolicyStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -3445,6 +3589,7 @@
         "description": "One page of signin policies.",
         "properties": {
           "items": {
+            "description": "The signin policies on this page",
             "items": {
               "$ref": "#/components/schemas/CoreSigninPolicy"
             },
@@ -3497,6 +3642,7 @@
         "description": "Sign-in provider: An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3531,7 +3677,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -3544,6 +3691,7 @@
             "$ref": "#/components/schemas/ProviderStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -3600,6 +3748,7 @@
         "description": "One page of signin providers.",
         "properties": {
           "items": {
+            "description": "The signin providers on this page",
             "items": {
               "$ref": "#/components/schemas/CoreSigninProvider"
             },
@@ -3652,6 +3801,7 @@
         "description": "Mail relay: The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3686,7 +3836,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -3699,6 +3850,7 @@
             "$ref": "#/components/schemas/RelayStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -3755,6 +3907,7 @@
         "description": "One page of mail relays.",
         "properties": {
           "items": {
+            "description": "The mail relays on this page",
             "items": {
               "$ref": "#/components/schemas/CoreSmtpRelay"
             },
@@ -3807,6 +3960,7 @@
         "description": "Update settings: How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3841,7 +3995,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -3854,6 +4009,7 @@
             "$ref": "#/components/schemas/SettingsStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -3910,6 +4066,7 @@
         "description": "One page of update settings.",
         "properties": {
           "items": {
+            "description": "The update settings on this page",
             "items": {
               "$ref": "#/components/schemas/CoreUpdateSettings"
             },
@@ -3962,6 +4119,7 @@
         "description": "User: Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -3996,7 +4154,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -4009,6 +4168,7 @@
             "$ref": "#/components/schemas/UserStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -4073,6 +4233,7 @@
         "description": "One page of users.",
         "properties": {
           "items": {
+            "description": "The users on this page",
             "items": {
               "$ref": "#/components/schemas/CoreUser"
             },
@@ -4125,6 +4286,7 @@
         "description": "Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log.",
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -4159,7 +4321,8 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
@@ -4172,6 +4335,7 @@
             "$ref": "#/components/schemas/WebhookStatus"
           },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -4228,6 +4392,7 @@
         "description": "One page of webhooks.",
         "properties": {
           "items": {
+            "description": "The webhooks on this page",
             "items": {
               "$ref": "#/components/schemas/CoreWebhook"
             },
@@ -4279,18 +4444,22 @@
         "additionalProperties": false,
         "properties": {
           "activeMemoryMB": {
+            "description": "The memory it takes while in use, in MB",
             "format": "int64",
             "type": "integer"
           },
           "diskMB": {
+            "description": "The disk it takes, in MB",
             "format": "int64",
             "type": "integer"
           },
           "idleMemoryMB": {
+            "description": "The memory it takes while nothing uses it, in MB",
             "format": "int64",
             "type": "integer"
           },
           "notes": {
+            "description": "What the costs depend on, in plain words",
             "type": "string"
           }
         },
@@ -4325,10 +4494,12 @@
             ]
           },
           "createdAt": {
+            "description": "When the token was made",
             "format": "date-time",
             "type": "string"
           },
           "expiresAt": {
+            "description": "When the token stops working; never when left out",
             "format": "date-time",
             "type": "string"
           },
@@ -4337,16 +4508,20 @@
             "type": "string"
           },
           "id": {
+            "description": "The token's ID",
             "type": "string"
           },
           "lastUsedAt": {
+            "description": "When the token was last used",
             "format": "date-time",
             "type": "string"
           },
           "lastUsedIp": {
+            "description": "The address the token was last used from",
             "type": "string"
           },
           "name": {
+            "description": "The token's name",
             "type": "string"
           },
           "permissions": {
@@ -4364,6 +4539,7 @@
             "type": "string"
           },
           "user": {
+            "description": "The user the token acts for",
             "type": "string"
           }
         },
@@ -4407,6 +4583,7 @@
         "additionalProperties": false,
         "properties": {
           "deliveries": {
+            "description": "The webhook's deliveries, newest first",
             "items": {
               "$ref": "#/components/schemas/Delivery"
             },
@@ -4434,6 +4611,7 @@
             "type": "integer"
           },
           "attempts": {
+            "description": "Every attempt to send it; lists leave them out",
             "items": {
               "$ref": "#/components/schemas/DeliveryAttempt"
             },
@@ -4443,10 +4621,12 @@
             ]
           },
           "createdAt": {
+            "description": "When the delivery was made",
             "format": "date-time",
             "type": "string"
           },
           "event": {
+            "description": "The event it delivers; test deliveries have none",
             "type": "string"
           },
           "eventType": {
@@ -4454,6 +4634,7 @@
             "type": "string"
           },
           "finishedAt": {
+            "description": "When it went through or was given up",
             "format": "date-time",
             "type": "string"
           },
@@ -4483,6 +4664,7 @@
             "type": "string"
           },
           "state": {
+            "description": "Whether it is still being sent, went through or was given up",
             "enum": [
               "pending",
               "succeeded",
@@ -4491,9 +4673,11 @@
             "type": "string"
           },
           "test": {
+            "description": "Whether it is a test, which is sent once and never tried again",
             "type": "boolean"
           },
           "webhook": {
+            "description": "The webhook it is sent to",
             "type": "string"
           }
         },
@@ -4520,6 +4704,7 @@
             "type": "string"
           },
           "number": {
+            "description": "Which attempt it was, from 1",
             "format": "int64",
             "type": "integer"
           },
@@ -4533,6 +4718,7 @@
             "type": "integer"
           },
           "time": {
+            "description": "When it was made",
             "format": "date-time",
             "type": "string"
           }
@@ -4552,6 +4738,7 @@
             "type": "string"
           },
           "notifications": {
+            "description": "The notifications on this page, newest first",
             "items": {
               "$ref": "#/components/schemas/Notification"
             },
@@ -4570,9 +4757,11 @@
         "additionalProperties": false,
         "properties": {
           "note": {
+            "description": "What the dependencies mean, in plain words",
             "type": "string"
           },
           "requires": {
+            "description": "Modules that must be on for it to work",
             "items": {
               "type": "string"
             },
@@ -4582,6 +4771,7 @@
             ]
           },
           "requiresAny": {
+            "description": "Modules of which at least one must be on",
             "items": {
               "type": "string"
             },
@@ -4591,6 +4781,7 @@
             ]
           },
           "uses": {
+            "description": "Modules it works with when they are on",
             "items": {
               "type": "string"
             },
@@ -4606,6 +4797,7 @@
         "additionalProperties": false,
         "properties": {
           "createdAt": {
+            "description": "When it was trusted",
             "format": "date-time",
             "type": "string"
           },
@@ -4614,20 +4806,25 @@
             "type": "boolean"
           },
           "expiresAt": {
+            "description": "When the browser stops being trusted",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The browser's ID",
             "type": "string"
           },
           "ip": {
+            "description": "The address it was last used from",
             "type": "string"
           },
           "lastUsedAt": {
+            "description": "When it was last used to sign in",
             "format": "date-time",
             "type": "string"
           },
           "name": {
+            "description": "The browser and system, as the browser describes itself",
             "type": "string"
           }
         },
@@ -4645,6 +4842,7 @@
         "additionalProperties": false,
         "properties": {
           "devices": {
+            "description": "The browsers you trust, which skip the second step",
             "items": {
               "$ref": "#/components/schemas/DeviceView"
             },
@@ -4682,6 +4880,7 @@
             "type": "string"
           },
           "destructive": {
+            "description": "Whether it removes data",
             "type": "boolean"
           },
           "detail": {
@@ -4777,6 +4976,7 @@
         "additionalProperties": false,
         "properties": {
           "entries": {
+            "description": "What add-ons and modules add to the panel",
             "items": {
               "$ref": "#/components/schemas/UIEntry"
             },
@@ -4795,14 +4995,17 @@
         "additionalProperties": false,
         "properties": {
           "diskBytes": {
+            "description": "How much more disk it takes once applied, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "downloadBytes": {
+            "description": "How much applying it downloads, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "memoryBytes": {
+            "description": "How much more memory what it sets up takes, in bytes",
             "format": "int64",
             "type": "integer"
           }
@@ -4818,16 +5021,22 @@
         "additionalProperties": false,
         "properties": {
           "actor": {
-            "$ref": "#/components/schemas/Actor"
+            "$ref": "#/components/schemas/Actor",
+            "description": "Who caused it, and for whom"
           },
           "changeSet": {
+            "description": "The change set that caused it",
             "type": "string"
           },
-          "data": {},
+          "data": {
+            "description": "What the event type says about what happened"
+          },
           "id": {
+            "description": "The event's ID",
             "type": "string"
           },
           "job": {
+            "description": "The job that caused it",
             "type": "string"
           },
           "kind": {
@@ -4835,12 +5044,15 @@
             "type": "string"
           },
           "message": {
+            "description": "What happened, in English; the panel words it from the type",
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the event belongs to, who may see it"
           },
           "severity": {
+            "description": "How urgent it is",
             "enum": [
               "info",
               "notice",
@@ -4855,6 +5067,7 @@
             "type": "string"
           },
           "time": {
+            "description": "When it happened",
             "format": "date-time",
             "type": "string"
           },
@@ -4877,6 +5090,7 @@
         "additionalProperties": false,
         "properties": {
           "events": {
+            "description": "The events on this page, newest first",
             "items": {
               "$ref": "#/components/schemas/Event"
             },
@@ -4902,12 +5116,15 @@
             "description": "The JSON Schema of the event's data"
           },
           "description": {
+            "description": "When it is emitted",
             "type": "string"
           },
           "name": {
+            "description": "The event type, \u003ckind\u003e.\u003cpast-tense verb\u003e, such as web.site.created",
             "type": "string"
           },
           "severity": {
+            "description": "How urgent events of the type are",
             "enum": [
               "info",
               "notice",
@@ -4929,6 +5146,7 @@
         "additionalProperties": false,
         "properties": {
           "types": {
+            "description": "Every event type",
             "items": {
               "$ref": "#/components/schemas/EventType"
             },
@@ -4956,6 +5174,7 @@
             "type": "string"
           },
           "resources": {
+            "description": "The module's resources, with their settings",
             "items": {
               "$ref": "#/components/schemas/ExportedResource"
             },
@@ -4981,25 +5200,32 @@
         "additionalProperties": false,
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The resource's kind",
             "type": "string"
           },
           "labels": {
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The resource's labels",
             "type": "object"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the resource belongs to"
           },
-          "spec": {},
+          "spec": {
+            "description": "The resource's settings, without the fields that refer to secrets"
+          },
           "withheld": {
             "description": "Fields that refer to secrets, which the export leaves out",
             "items": {
@@ -5024,9 +5250,11 @@
         "additionalProperties": false,
         "properties": {
           "code": {
+            "description": "The error's code, for the panel to translate",
             "type": "string"
           },
           "message": {
+            "description": "What went wrong, in English",
             "type": "string"
           }
         },
@@ -5061,9 +5289,14 @@
       "FieldDiff": {
         "additionalProperties": false,
         "properties": {
-          "after": {},
-          "before": {},
+          "after": {
+            "description": "The value after the change"
+          },
+          "before": {
+            "description": "The value before the change"
+          },
           "op": {
+            "description": "Whether the field was added, removed or replaced",
             "enum": [
               "add",
               "remove",
@@ -5072,9 +5305,11 @@
             "type": "string"
           },
           "path": {
+            "description": "The field, with dots between names and indexes in brackets, such as domains[0]",
             "type": "string"
           },
           "sensitive": {
+            "description": "Whether the field holds a secret, so its values are left out",
             "type": "boolean"
           }
         },
@@ -5088,9 +5323,11 @@
         "additionalProperties": false,
         "properties": {
           "advanced": {
+            "description": "Whether forms fold it away until asked",
             "type": "boolean"
           },
           "fields": {
+            "description": "The spec fields in it, in order",
             "items": {
               "type": "string"
             },
@@ -5100,6 +5337,7 @@
             ]
           },
           "name": {
+            "description": "What the group is called",
             "type": "string"
           }
         },
@@ -5113,25 +5351,32 @@
         "additionalProperties": false,
         "properties": {
           "advanced": {
+            "description": "Whether forms fold the field away until asked",
             "type": "boolean"
           },
           "createOnly": {
+            "description": "Whether it can only be set when the resource is made",
             "type": "boolean"
           },
           "kind": {
+            "description": "For a field with the resource widget, the kind of the resources it names by ID, which forms offer to choose from",
             "type": "string"
           },
           "order": {
+            "description": "Where forms put it: lower first",
             "format": "int64",
             "type": "integer"
           },
           "placeholder": {
+            "description": "What an empty input shows",
             "type": "string"
           },
           "sensitive": {
+            "description": "Whether it holds a secret: its value is a reference to one of the resource's own secrets, which a change's secrets set",
             "type": "boolean"
           },
           "widget": {
+            "description": "The input forms use instead of the default, such as textarea, code, password, select, toggle, size, duration or resource",
             "type": "string"
           }
         },
@@ -5157,6 +5402,7 @@
           },
           "params": {
             "additionalProperties": {},
+            "description": "Values for the placeholders in the code's message",
             "type": "object"
           },
           "value": {
@@ -5173,12 +5419,16 @@
         "additionalProperties": false,
         "properties": {
           "field": {
+            "description": "The spec field, with dots between names",
             "type": "string"
           },
           "set": {
+            "description": "Whether the field was filled in or overridden; one the request set, and the rule doesn't override, stays as it was",
             "type": "boolean"
           },
-          "value": {}
+          "value": {
+            "description": "The value the rule gives it"
+          }
         },
         "required": [
           "field",
@@ -5190,10 +5440,12 @@
         "additionalProperties": false,
         "properties": {
           "diskBytes": {
+            "description": "How much disk it takes once installed, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "downloadBytes": {
+            "description": "How much installing it downloads, in bytes",
             "format": "int64",
             "type": "integer"
           },
@@ -5202,9 +5454,11 @@
             "type": "string"
           },
           "installed": {
+            "description": "Whether it is installed",
             "type": "boolean"
           },
           "packages": {
+            "description": "The Debian packages installing it brings in, with their sizes",
             "items": {
               "$ref": "#/components/schemas/SoftwarePackage"
             },
@@ -5273,6 +5527,7 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
+            "description": "The processor architectures it runs on",
             "items": {
               "type": "string"
             },
@@ -5282,6 +5537,7 @@
             ]
           },
           "features": {
+            "description": "Hardware it needs: virtualization, kvm, iommu, tpm or uefi",
             "items": {
               "type": "string"
             },
@@ -5291,14 +5547,17 @@
             ]
           },
           "minDiskGB": {
+            "description": "The disk it needs at least, in GB",
             "format": "int64",
             "type": "integer"
           },
           "minMemoryMB": {
+            "description": "The memory it needs at least, in MB",
             "format": "int64",
             "type": "integer"
           },
           "notes": {
+            "description": "What the requirements mean, in plain words",
             "type": "string"
           }
         },
@@ -5350,6 +5609,7 @@
         "additionalProperties": false,
         "properties": {
           "checks": {
+            "description": "Each check, with how it went",
             "items": {
               "$ref": "#/components/schemas/Check"
             },
@@ -5380,19 +5640,24 @@
         "additionalProperties": false,
         "properties": {
           "checkedAt": {
+            "description": "When it ran",
             "format": "date-time",
             "type": "string"
           },
           "message": {
+            "description": "What it found, when it didn't pass",
             "type": "string"
           },
           "ok": {
+            "description": "Whether it passed",
             "type": "boolean"
           },
           "target": {
+            "description": "What it checked: a URL, an address, a DNS name, a unit or one of the installation's resources",
             "type": "string"
           },
           "type": {
+            "description": "What the check probes: http, tcp, dns, tls, unit or resource",
             "type": "string"
           }
         },
@@ -5408,6 +5673,7 @@
         "additionalProperties": false,
         "properties": {
           "versions": {
+            "description": "The versions of the resource's settings, oldest first",
             "items": {
               "$ref": "#/components/schemas/Version"
             },
@@ -5448,6 +5714,7 @@
             "type": "integer"
           },
           "kind": {
+            "description": "What sort of hook it is",
             "enum": [
               "observe",
               "validate",
@@ -5459,6 +5726,7 @@
             "type": "string"
           },
           "label": {
+            "description": "What the hook is called",
             "type": "string"
           },
           "override": {
@@ -5474,16 +5742,20 @@
             "type": "string"
           },
           "priority": {
+            "description": "Where it runs among the hooks of its point: lower first",
             "format": "int64",
             "type": "integer"
           },
           "provider": {
+            "description": "For a provide hook, the capability it provides",
             "type": "string"
           },
           "security": {
+            "description": "Whether it guards security, so safe mode leaves it on",
             "type": "boolean"
           },
           "ui": {
+            "description": "For an extend hook, what it adds to the panel",
             "type": "string"
           }
         },
@@ -5499,6 +5771,7 @@
         "additionalProperties": false,
         "properties": {
           "hooks": {
+            "description": "The hooks that match",
             "items": {
               "$ref": "#/components/schemas/HookInfo"
             },
@@ -5517,9 +5790,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What happens at the point",
             "type": "string"
           },
           "point": {
+            "description": "The hook point",
             "type": "string"
           }
         },
@@ -5560,6 +5835,7 @@
             "type": "string"
           },
           "endsAt": {
+            "description": "When viewing as the person ends by itself",
             "format": "date-time",
             "type": "string"
           },
@@ -5568,6 +5844,7 @@
             "type": "string"
           },
           "startedAt": {
+            "description": "When the admin or reseller started viewing as the person",
             "format": "date-time",
             "type": "string"
           }
@@ -5653,6 +5930,7 @@
         "additionalProperties": false,
         "properties": {
           "actions": {
+            "description": "What can be done about it, from the inbox",
             "items": {
               "$ref": "#/components/schemas/InboxAction"
             },
@@ -5674,6 +5952,7 @@
             "type": "string"
           },
           "changeSet": {
+            "description": "The change set the item is about",
             "type": "string"
           },
           "code": {
@@ -5698,6 +5977,7 @@
             "type": "string"
           },
           "job": {
+            "description": "The job the item is about",
             "type": "string"
           },
           "kind": {
@@ -5705,18 +5985,22 @@
             "type": "string"
           },
           "message": {
+            "description": "More about it, in English",
             "type": "string"
           },
           "params": {
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The values code's message is filled in with",
             "type": "object"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the item belongs to"
           },
           "severity": {
+            "description": "How urgent it is",
             "enum": [
               "info",
               "notice",
@@ -5740,6 +6024,7 @@
             "type": "string"
           },
           "title": {
+            "description": "What needs attention, in English",
             "type": "string"
           },
           "version": {
@@ -5780,6 +6065,7 @@
             "type": "integer"
           },
           "items": {
+            "description": "What needs attention",
             "items": {
               "$ref": "#/components/schemas/InboxItem"
             },
@@ -5813,6 +6099,7 @@
             "type": "string"
           },
           "message": {
+            "description": "What went wrong, in English",
             "type": "string"
           },
           "params": {
@@ -5849,12 +6136,15 @@
         "additionalProperties": false,
         "properties": {
           "path": {
+            "description": "Where the file is, relative to the index",
             "type": "string"
           },
           "sha256": {
+            "description": "The file's SHA-256 checksum",
             "type": "string"
           },
           "size": {
+            "description": "The file's size, in bytes",
             "format": "int64",
             "type": "integer"
           }
@@ -5870,12 +6160,15 @@
         "additionalProperties": false,
         "properties": {
           "name": {
+            "description": "The index's name, which lists take as a filter parameter and a sort key",
             "type": "string"
           },
           "path": {
+            "description": "The spec field it holds, with dots between names",
             "type": "string"
           },
           "unique": {
+            "description": "Whether two resources can't hold the same value",
             "type": "boolean"
           }
         },
@@ -5924,6 +6217,7 @@
         "additionalProperties": false,
         "properties": {
           "health": {
+            "description": "How each check went",
             "items": {
               "$ref": "#/components/schemas/HealthResult"
             },
@@ -5933,6 +6227,7 @@
             ]
           },
           "healthy": {
+            "description": "Whether every check passed",
             "type": "boolean"
           }
         },
@@ -6061,18 +6356,23 @@
       },
       "InstallationStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "applied": {
+            "description": "The version the installation was last applied at",
             "type": "string"
           },
           "checkedAt": {
+            "description": "When its health was last checked",
             "format": "date-time",
             "type": "string"
           },
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -6092,6 +6392,7 @@
             ]
           },
           "health": {
+            "description": "How its health checks last went",
             "items": {
               "$ref": "#/components/schemas/HealthResult"
             },
@@ -6110,6 +6411,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -6158,6 +6460,7 @@
             "type": "string"
           },
           "expiresAt": {
+            "description": "When the link stops working",
             "format": "date-time",
             "type": "string"
           },
@@ -6166,6 +6469,7 @@
             "type": "string"
           },
           "purpose": {
+            "description": "activate for a new user's first password, reset to choose a new one",
             "enum": [
               "activate",
               "reset"
@@ -6189,18 +6493,23 @@
         "additionalProperties": false,
         "properties": {
           "broken": {
+            "description": "Whether it is known not to work, so it is hidden unless asked for",
             "type": "boolean"
           },
           "catalog": {
+            "description": "The catalog's ID",
             "type": "string"
           },
           "catalogName": {
+            "description": "The catalog's name",
             "type": "string"
           },
           "catalogTitle": {
+            "description": "What the catalog is called",
             "type": "string"
           },
           "categories": {
+            "description": "The categories the marketplace lists it in",
             "items": {
               "type": "string"
             },
@@ -6210,9 +6519,11 @@
             ]
           },
           "featured": {
+            "description": "Whether the marketplace features it",
             "type": "boolean"
           },
           "files": {
+            "description": "Every file of the item, the recipe included, with what each is checked against",
             "items": {
               "$ref": "#/components/schemas/IndexFile"
             },
@@ -6226,18 +6537,23 @@
             "type": "string"
           },
           "icon": {
+            "description": "Where its icon is, relative to the index",
             "type": "string"
           },
           "id": {
+            "description": "The item's id in its catalog",
             "type": "string"
           },
           "kind": {
+            "description": "What sort of item it is",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether it is open source, free to use or proprietary",
             "type": "string"
           },
           "name": {
+            "description": "What the item is called",
             "type": "string"
           },
           "notice": {
@@ -6245,27 +6561,34 @@
             "type": "string"
           },
           "official": {
+            "description": "Whether the item is from Racksail's own catalog; the rest are third-party and labelled so",
             "type": "boolean"
           },
           "path": {
+            "description": "Where the recipe is, relative to the index",
             "type": "string"
           },
           "recipe": {
             "description": "The item's recipe, as spec/schemas/recipe.schema.json describes it"
           },
           "requires": {
-            "$ref": "#/components/schemas/Requirements"
+            "$ref": "#/components/schemas/Requirements",
+            "description": "What the recipe needs, so whether it fits can be checked without it"
           },
           "sha256": {
+            "description": "The SHA-256 checksum of the recipe",
             "type": "string"
           },
           "summary": {
+            "description": "What it is, in a line",
             "type": "string"
           },
           "unmaintained": {
+            "description": "Whether nobody maintains it any more, so it is hidden unless asked for",
             "type": "boolean"
           },
           "version": {
+            "description": "The version the catalog offers",
             "type": "string"
           }
         },
@@ -6290,6 +6613,7 @@
         "additionalProperties": false,
         "properties": {
           "items": {
+            "description": "The items that match, featured ones and the official catalog's first",
             "items": {
               "$ref": "#/components/schemas/ListedItem"
             },
@@ -6308,52 +6632,67 @@
         "additionalProperties": false,
         "properties": {
           "actor": {
-            "$ref": "#/components/schemas/Actor"
+            "$ref": "#/components/schemas/Actor",
+            "description": "Who started it, and for whom"
           },
           "attempt": {
+            "description": "Which run of the work it is: a retry is a new job with the next number",
             "format": "int64",
             "type": "integer"
           },
           "changeSet": {
+            "description": "The change set it carries out",
             "type": "string"
           },
           "createdAt": {
+            "description": "When it was queued",
             "format": "date-time",
             "type": "string"
           },
           "error": {
-            "$ref": "#/components/schemas/Failure"
+            "$ref": "#/components/schemas/Failure",
+            "description": "Why it failed"
           },
           "finishedAt": {
+            "description": "When it finished",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The job's ID, which starts with job_",
             "type": "string"
           },
           "progress": {
-            "$ref": "#/components/schemas/Progress"
+            "$ref": "#/components/schemas/Progress",
+            "description": "How far it has come"
           },
           "resource": {
+            "description": "The resource it works on",
             "type": "string"
           },
-          "result": {},
+          "result": {
+            "description": "What it found or made, once it succeeded"
+          },
           "retryOf": {
             "description": "The job this one retries",
             "type": "string"
           },
           "runAfter": {
+            "description": "When a waiting job may start, as an automatic retry waits",
             "format": "date-time",
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the work belongs to, which decides who may see it"
           },
           "startedAt": {
+            "description": "When it started",
             "format": "date-time",
             "type": "string"
           },
           "state": {
+            "description": "Where it is: waiting to run, running, done, failed or canceled",
             "enum": [
               "queued",
               "running",
@@ -6364,6 +6703,7 @@
             "type": "string"
           },
           "title": {
+            "description": "What the job does",
             "type": "string"
           },
           "type": {
@@ -6387,6 +6727,7 @@
         "additionalProperties": false,
         "properties": {
           "jobs": {
+            "description": "The jobs on this page, newest first",
             "items": {
               "$ref": "#/components/schemas/Job"
             },
@@ -6409,6 +6750,7 @@
         "additionalProperties": false,
         "properties": {
           "lines": {
+            "description": "The lines of the job's log, oldest first",
             "items": {
               "$ref": "#/components/schemas/LogLine"
             },
@@ -6427,6 +6769,7 @@
         "additionalProperties": false,
         "properties": {
           "actions": {
+            "description": "The actions its resources have",
             "items": {
               "$ref": "#/components/schemas/ActionInfo"
             },
@@ -6436,13 +6779,15 @@
             ]
           },
           "backup": {
-            "$ref": "#/components/schemas/BackupInfo"
+            "$ref": "#/components/schemas/BackupInfo",
+            "description": "Whether backups cover its resources"
           },
           "confirm": {
             "description": "Whether changing one asks people in the panel to confirm it's them",
             "type": "boolean"
           },
           "description": {
+            "description": "What the kind is for",
             "type": "string"
           },
           "events": {
@@ -6456,6 +6801,7 @@
             ]
           },
           "indexes": {
+            "description": "The fields its lists filter and sort on",
             "items": {
               "$ref": "#/components/schemas/IndexInfo"
             },
@@ -6480,6 +6826,7 @@
             ]
           },
           "module": {
+            "description": "The module the kind belongs to",
             "type": "string"
           },
           "name": {
@@ -6496,6 +6843,7 @@
             "type": "string"
           },
           "plural": {
+            "description": "What several are called, as the kind's path names them",
             "type": "string"
           },
           "prefix": {
@@ -6503,7 +6851,8 @@
             "type": "string"
           },
           "risks": {
-            "$ref": "#/components/schemas/KindRisks"
+            "$ref": "#/components/schemas/KindRisks",
+            "description": "How much harm creating, updating and deleting one can do"
           },
           "scope": {
             "description": "Who owns resources of the kind",
@@ -6525,10 +6874,12 @@
             "description": "The JSON Schema of the status"
           },
           "title": {
+            "description": "What one resource of the kind is called, such as Site",
             "type": "string"
           },
           "ui": {
-            "$ref": "#/components/schemas/UIHints"
+            "$ref": "#/components/schemas/UIHints",
+            "description": "How screens show its resources"
           }
         },
         "required": [
@@ -6553,12 +6904,15 @@
         "additionalProperties": false,
         "properties": {
           "create": {
+            "description": "How much harm creating one can do",
             "type": "string"
           },
           "delete": {
+            "description": "How much harm deleting one can do",
             "type": "string"
           },
           "update": {
+            "description": "How much harm changing one can do",
             "type": "string"
           }
         },
@@ -6573,6 +6927,7 @@
         "additionalProperties": false,
         "properties": {
           "kinds": {
+            "description": "Every kind the panel has",
             "items": {
               "$ref": "#/components/schemas/KindDescription"
             },
@@ -6591,13 +6946,16 @@
         "additionalProperties": false,
         "properties": {
           "expiresAt": {
+            "description": "When the link stops working",
             "format": "date-time",
             "type": "string"
           },
           "name": {
+            "description": "The person's name",
             "type": "string"
           },
           "purpose": {
+            "description": "activate for a new user's first password, reset to choose a new one",
             "enum": [
               "activate",
               "reset"
@@ -6605,6 +6963,7 @@
             "type": "string"
           },
           "username": {
+            "description": "The user the link is for",
             "type": "string"
           }
         },
@@ -6667,16 +7026,20 @@
         "additionalProperties": false,
         "properties": {
           "linkedAt": {
+            "description": "When your user was linked to it",
             "format": "date-time",
             "type": "string"
           },
           "provider": {
+            "description": "The sign-in provider",
             "type": "string"
           },
           "title": {
+            "description": "What the provider is called",
             "type": "string"
           },
           "username": {
+            "description": "Who you are at the provider",
             "type": "string"
           }
         },
@@ -6691,6 +7054,7 @@
         "additionalProperties": false,
         "properties": {
           "links": {
+            "description": "The sign-in providers your user is linked to",
             "items": {
               "$ref": "#/components/schemas/LinkView"
             },
@@ -6709,18 +7073,23 @@
         "additionalProperties": false,
         "properties": {
           "broken": {
+            "description": "Whether it is known not to work, so it is hidden unless asked for",
             "type": "boolean"
           },
           "catalog": {
+            "description": "The catalog's ID",
             "type": "string"
           },
           "catalogName": {
+            "description": "The catalog's name",
             "type": "string"
           },
           "catalogTitle": {
+            "description": "What the catalog is called",
             "type": "string"
           },
           "categories": {
+            "description": "The categories the marketplace lists it in",
             "items": {
               "type": "string"
             },
@@ -6730,9 +7099,11 @@
             ]
           },
           "featured": {
+            "description": "Whether the marketplace features it",
             "type": "boolean"
           },
           "files": {
+            "description": "Every file of the item, the recipe included, with what each is checked against",
             "items": {
               "$ref": "#/components/schemas/IndexFile"
             },
@@ -6742,39 +7113,51 @@
             ]
           },
           "icon": {
+            "description": "Where its icon is, relative to the index",
             "type": "string"
           },
           "id": {
+            "description": "The item's id in its catalog",
             "type": "string"
           },
           "kind": {
+            "description": "What sort of item it is",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether it is open source, free to use or proprietary",
             "type": "string"
           },
           "name": {
+            "description": "What the item is called",
             "type": "string"
           },
           "official": {
+            "description": "Whether the item is from Racksail's own catalog; the rest are third-party and labelled so",
             "type": "boolean"
           },
           "path": {
+            "description": "Where the recipe is, relative to the index",
             "type": "string"
           },
           "requires": {
-            "$ref": "#/components/schemas/Requirements"
+            "$ref": "#/components/schemas/Requirements",
+            "description": "What the recipe needs, so whether it fits can be checked without it"
           },
           "sha256": {
+            "description": "The SHA-256 checksum of the recipe",
             "type": "string"
           },
           "summary": {
+            "description": "What it is, in a line",
             "type": "string"
           },
           "unmaintained": {
+            "description": "Whether nobody maintains it any more, so it is hidden unless asked for",
             "type": "boolean"
           },
           "version": {
+            "description": "The version the catalog offers",
             "type": "string"
           }
         },
@@ -6799,9 +7182,11 @@
         "properties": {
           "attrs": {
             "additionalProperties": {},
+            "description": "Details, by name",
             "type": "object"
           },
           "level": {
+            "description": "How much it matters",
             "enum": [
               "DEBUG",
               "INFO",
@@ -6811,13 +7196,16 @@
             "type": "string"
           },
           "message": {
+            "description": "What happened, in English",
             "type": "string"
           },
           "seq": {
+            "description": "The line's number, from 1, which a stream resumes after",
             "format": "int64",
             "type": "integer"
           },
           "time": {
+            "description": "When it was written",
             "format": "date-time",
             "type": "string"
           }
@@ -6838,9 +7226,11 @@
             "type": "boolean"
           },
           "id": {
+            "description": "The second step, as setting it up names it",
             "type": "string"
           },
           "title": {
+            "description": "What it is called",
             "type": "string"
           }
         },
@@ -6855,9 +7245,11 @@
         "additionalProperties": false,
         "properties": {
           "capabilities": {
-            "$ref": "#/components/schemas/Capabilities"
+            "$ref": "#/components/schemas/Capabilities",
+            "description": "The capabilities it provides and needs"
           },
           "category": {
+            "description": "Where the modules page lists it",
             "enum": [
               "core",
               "hosting",
@@ -6870,18 +7262,23 @@
             "type": "string"
           },
           "cost": {
-            "$ref": "#/components/schemas/Cost"
+            "$ref": "#/components/schemas/Cost",
+            "description": "The memory and disk it takes"
           },
           "dependencies": {
-            "$ref": "#/components/schemas/Dependencies"
+            "$ref": "#/components/schemas/Dependencies",
+            "description": "The modules it needs or uses"
           },
           "description": {
+            "description": "What the module does",
             "type": "string"
           },
           "hardware": {
-            "$ref": "#/components/schemas/Hardware"
+            "$ref": "#/components/schemas/Hardware",
+            "description": "What the machine needs to run it"
           },
           "hooks": {
+            "description": "The hook points it adds",
             "items": {
               "$ref": "#/components/schemas/HookPoint"
             },
@@ -6891,15 +7288,19 @@
             ]
           },
           "id": {
+            "description": "The module's id, which names its kinds and paths, such as web",
             "type": "string"
           },
           "license": {
+            "description": "The module's license, as an SPDX expression",
             "type": "string"
           },
           "name": {
+            "description": "What the module is called",
             "type": "string"
           },
           "permissions": {
+            "description": "The permissions it adds, beyond those of its kinds",
             "items": {
               "$ref": "#/components/schemas/Permission"
             },
@@ -6909,6 +7310,7 @@
             ]
           },
           "ports": {
+            "description": "The ports it opens",
             "items": {
               "$ref": "#/components/schemas/Port"
             },
@@ -6918,6 +7320,7 @@
             ]
           },
           "profiles": {
+            "description": "The profiles that turn it on",
             "items": {
               "type": "string"
             },
@@ -6927,6 +7330,7 @@
             ]
           },
           "recipes": {
+            "description": "The recipes it ships, which install like catalog items",
             "items": {
               "type": "string"
             },
@@ -6936,9 +7340,11 @@
             ]
           },
           "required": {
+            "description": "Whether the module is always on",
             "type": "boolean"
           },
           "services": {
+            "description": "The systemd services it runs",
             "items": {
               "$ref": "#/components/schemas/Service"
             },
@@ -6949,9 +7355,11 @@
           },
           "settings": {
             "additionalProperties": {},
+            "description": "The JSON Schema of the module's settings",
             "type": "object"
           },
           "upstream": {
+            "description": "The software it installs, and where from",
             "items": {
               "$ref": "#/components/schemas/Upstream"
             },
@@ -6961,6 +7369,7 @@
             ]
           },
           "version": {
+            "description": "The module's version",
             "type": "string"
           }
         },
@@ -6983,9 +7392,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What it lets someone do",
             "type": "string"
           },
           "permission": {
+            "description": "The permission",
             "type": "string"
           },
           "roles": {
@@ -7007,6 +7418,7 @@
         "additionalProperties": false,
         "properties": {
           "allowFrom": {
+            "description": "The addresses and networks the user may sign in from; anywhere the sign-in policy allows when empty",
             "items": {
               "type": "string"
             },
@@ -7016,16 +7428,20 @@
             ]
           },
           "createdAt": {
+            "description": "When the user was added",
             "format": "date-time",
             "type": "string"
           },
           "disabled": {
+            "description": "Whether the user is kept from signing in",
             "type": "boolean"
           },
           "email": {
+            "description": "The person's email address",
             "type": "string"
           },
           "grants": {
+            "description": "The roles the user holds, and where",
             "items": {
               "$ref": "#/components/schemas/Grant"
             },
@@ -7039,16 +7455,20 @@
             "description": "Where the user belongs, and so who manages them"
           },
           "id": {
+            "description": "The user's ID",
             "type": "string"
           },
           "lastSignInAt": {
+            "description": "When the person last signed in",
             "format": "date-time",
             "type": "string"
           },
           "lastSignInIp": {
+            "description": "The address the person last signed in from",
             "type": "string"
           },
           "locale": {
+            "description": "The language the panel speaks to the person, such as en or pt-BR",
             "type": "string"
           },
           "lockedUntil": {
@@ -7061,6 +7481,7 @@
             "type": "boolean"
           },
           "name": {
+            "description": "The person's name",
             "type": "string"
           },
           "passwordSet": {
@@ -7073,17 +7494,20 @@
             "type": "integer"
           },
           "security": {
-            "$ref": "#/components/schemas/Security"
+            "$ref": "#/components/schemas/Security",
+            "description": "How you sign in: your second steps, passkeys, recovery codes, trusted browsers and linked providers"
           },
           "twoFactor": {
             "description": "Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on",
             "type": "boolean"
           },
           "updatedAt": {
+            "description": "When the user last changed",
             "format": "date-time",
             "type": "string"
           },
           "username": {
+            "description": "What the person signs in with",
             "type": "string"
           }
         },
@@ -7107,6 +7531,7 @@
         "additionalProperties": false,
         "properties": {
           "actionLabel": {
+            "description": "What the link to the panel says, such as Look at the backup",
             "type": "string"
           },
           "body": {
@@ -7114,6 +7539,7 @@
             "type": "string"
           },
           "digest": {
+            "description": "For a summary of quiet hours, the messages it stands for",
             "items": {
               "$ref": "#/components/schemas/Message"
             },
@@ -7123,13 +7549,15 @@
             ]
           },
           "event": {
-            "$ref": "#/components/schemas/Event"
+            "$ref": "#/components/schemas/Event",
+            "description": "The event it is about, when there is one"
           },
           "id": {
             "description": "The same on every attempt to deliver the message",
             "type": "string"
           },
           "severity": {
+            "description": "How urgent it is",
             "enum": [
               "info",
               "notice",
@@ -7177,6 +7605,7 @@
         "additionalProperties": false,
         "properties": {
           "methods": {
+            "description": "The second steps you can set up",
             "items": {
               "$ref": "#/components/schemas/MFAOption"
             },
@@ -7267,6 +7696,7 @@
             ]
           },
           "installed": {
+            "description": "The module's software found on the server",
             "items": {
               "type": "string"
             },
@@ -7276,7 +7706,8 @@
             ]
           },
           "manifest": {
-            "$ref": "#/components/schemas/Manifest"
+            "$ref": "#/components/schemas/Manifest",
+            "description": "What the module is, needs, costs and installs"
           },
           "needs": {
             "description": "Modules it needs that are off",
@@ -7297,6 +7728,7 @@
             "type": "string"
           },
           "state": {
+            "description": "Where it is: off, on with nothing installed yet, active once a resource needs it, or being stopped or removed",
             "enum": [
               "off",
               "on",
@@ -7311,7 +7743,8 @@
             "type": "boolean"
           },
           "usage": {
-            "$ref": "#/components/schemas/Usage"
+            "$ref": "#/components/schemas/Usage",
+            "description": "What uses it: its resources, by kind"
           }
         },
         "required": [
@@ -7326,6 +7759,7 @@
         "additionalProperties": false,
         "properties": {
           "modules": {
+            "description": "Every module the panel has",
             "items": {
               "$ref": "#/components/schemas/ModuleInfo"
             },
@@ -7384,11 +7818,14 @@
       },
       "ModuleStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -7427,6 +7864,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -7545,13 +7983,16 @@
             "type": "string"
           },
           "generation": {
+            "description": "The resource's generation after the write",
             "format": "int64",
             "type": "integer"
           },
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The resource's kind",
             "type": "string"
           },
           "op": {
@@ -7566,6 +8007,7 @@
             "type": "string"
           },
           "phase": {
+            "description": "The phase its status reports after the write",
             "enum": [
               "pending",
               "applying",
@@ -7577,11 +8019,13 @@
             "type": "string"
           },
           "revision": {
+            "description": "The resource's revision after the write",
             "format": "int64",
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the resource belongs to"
           }
         },
         "required": [
@@ -7603,6 +8047,7 @@
             "type": "string"
           },
           "attemptCount": {
+            "description": "How many times sending it was tried",
             "format": "int64",
             "type": "integer"
           },
@@ -7611,20 +8056,25 @@
             "type": "string"
           },
           "createdAt": {
+            "description": "When it was made",
             "format": "date-time",
             "type": "string"
           },
           "event": {
+            "description": "The event it is about",
             "type": "string"
           },
           "eventType": {
+            "description": "The type of the event it is about",
             "type": "string"
           },
           "finishedAt": {
+            "description": "When it was sent or given up",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The notification's ID, which starts with ntf_",
             "type": "string"
           },
           "lastError": {
@@ -7632,7 +8082,8 @@
             "type": "string"
           },
           "message": {
-            "$ref": "#/components/schemas/Message"
+            "$ref": "#/components/schemas/Message",
+            "description": "What is sent; lists leave it out"
           },
           "nextAttempt": {
             "description": "When it is sent, or sent again; for held deliveries, when quiet hours end",
@@ -7644,6 +8095,7 @@
             "type": "string"
           },
           "severity": {
+            "description": "How urgent it is",
             "enum": [
               "info",
               "notice",
@@ -7654,6 +8106,7 @@
             "type": "string"
           },
           "state": {
+            "description": "Where it is: waiting, held for quiet hours, sent, failed, left out in quiet hours or sent in a summary",
             "enum": [
               "pending",
               "held",
@@ -7669,9 +8122,11 @@
             "type": "string"
           },
           "test": {
+            "description": "Whether it is a test, which is sent once whatever the quiet hours",
             "type": "boolean"
           },
           "title": {
+            "description": "What it says happened, in a few words",
             "type": "string"
           }
         },
@@ -7739,6 +8194,7 @@
         "additionalProperties": false,
         "properties": {
           "codename": {
+            "description": "The Debian release's codename, such as trixie",
             "type": "string"
           },
           "next": {
@@ -7761,9 +8217,11 @@
             ]
           },
           "rebootRequired": {
+            "description": "Whether the server needs a reboot to finish an update",
             "type": "boolean"
           },
           "version": {
+            "description": "The Debian release's version",
             "type": "string"
           }
         },
@@ -7823,13 +8281,16 @@
         "additionalProperties": false,
         "properties": {
           "changeSet": {
-            "$ref": "#/components/schemas/ChangeSet"
+            "$ref": "#/components/schemas/ChangeSet",
+            "description": "The change set that adds the account and its owner together, so both are there or neither is"
           },
           "link": {
-            "$ref": "#/components/schemas/IssuedLink"
+            "$ref": "#/components/schemas/IssuedLink",
+            "description": "The owner's sign-in link, shown once"
           },
           "owner": {
-            "$ref": "#/components/schemas/UserView"
+            "$ref": "#/components/schemas/UserView",
+            "description": "The account's owner, a new user"
           }
         },
         "required": [
@@ -7841,6 +8302,7 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What the operation does, in full",
             "type": "string"
           },
           "destructive": {
@@ -7864,6 +8326,7 @@
             "type": "boolean"
           },
           "method": {
+            "description": "The HTTP method",
             "type": "string"
           },
           "mutating": {
@@ -7875,9 +8338,11 @@
             "type": "string"
           },
           "output": {
+            "description": "For an action, the schema of what it returns in its change set's output",
             "type": "string"
           },
           "path": {
+            "description": "The path, with its parameters in braces",
             "type": "string"
           },
           "permission": {
@@ -7889,9 +8354,11 @@
             "type": "boolean"
           },
           "request": {
+            "description": "The schema of the request's body, among the document's components",
             "type": "string"
           },
           "response": {
+            "description": "The schema of the answer, among the document's components",
             "type": "string"
           },
           "reversible": {
@@ -7922,9 +8389,11 @@
             "type": "boolean"
           },
           "summary": {
+            "description": "What the operation does, in a few words",
             "type": "string"
           },
           "tags": {
+            "description": "The groups the API reference lists it in",
             "items": {
               "type": "string"
             },
@@ -8117,17 +8586,21 @@
         "additionalProperties": false,
         "properties": {
           "createdAt": {
+            "description": "When the passkey was added",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The passkey's ID",
             "type": "string"
           },
           "lastUsedAt": {
+            "description": "When the passkey was last used",
             "format": "date-time",
             "type": "string"
           },
           "name": {
+            "description": "The passkey's name",
             "type": "string"
           },
           "synced": {
@@ -8147,6 +8620,7 @@
         "additionalProperties": false,
         "properties": {
           "passkeys": {
+            "description": "Your passkeys",
             "items": {
               "$ref": "#/components/schemas/PasskeyView"
             },
@@ -8204,9 +8678,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What it lets someone do",
             "type": "string"
           },
           "name": {
+            "description": "The permission's name, \u003cmodule\u003e.\u003cname\u003e",
             "type": "string"
           }
         },
@@ -8286,9 +8762,11 @@
             "type": "boolean"
           },
           "description": {
+            "description": "What happens at the point",
             "type": "string"
           },
           "hooks": {
+            "description": "The hooks that run here, those attached to patterns that name it included, in the order they run",
             "items": {
               "$ref": "#/components/schemas/HookInfo"
             },
@@ -8338,6 +8816,7 @@
         "additionalProperties": false,
         "properties": {
           "points": {
+            "description": "Every hook point, with the hooks attached to it",
             "items": {
               "$ref": "#/components/schemas/PointInfo"
             },
@@ -8430,13 +8909,16 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What listens there",
             "type": "string"
           },
           "port": {
+            "description": "The port number",
             "format": "int64",
             "type": "integer"
           },
           "protocol": {
+            "description": "tcp or udp",
             "enum": [
               "tcp",
               "udp"
@@ -8562,11 +9044,14 @@
       },
       "PreferencesStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -8585,6 +9070,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -8666,9 +9152,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What a server with it does",
             "type": "string"
           },
           "id": {
+            "description": "The profile",
             "enum": [
               "all-in-one",
               "web-hosting",
@@ -8691,6 +9179,7 @@
             ]
           },
           "name": {
+            "description": "What the profile is called",
             "type": "string"
           }
         },
@@ -8706,7 +9195,8 @@
         "additionalProperties": false,
         "properties": {
           "changeSet": {
-            "$ref": "#/components/schemas/ChangeSet"
+            "$ref": "#/components/schemas/ChangeSet",
+            "description": "The change set that turns the modules on"
           },
           "skipped": {
             "description": "Modules of the profile that can't run on this server, with why",
@@ -8752,6 +9242,7 @@
         "additionalProperties": false,
         "properties": {
           "profiles": {
+            "description": "The profiles, in the order the setup wizard shows them",
             "items": {
               "$ref": "#/components/schemas/Profile"
             },
@@ -8867,11 +9358,14 @@
       },
       "ProviderStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -8890,6 +9384,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -9058,11 +9553,14 @@
       },
       "RelayStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -9090,6 +9588,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -9129,6 +9628,7 @@
             "type": "string"
           },
           "sent": {
+            "description": "Whether the relay took the test message",
             "type": "boolean"
           }
         },
@@ -9141,19 +9641,24 @@
         "additionalProperties": false,
         "properties": {
           "bundle": {
+            "description": "The Sigstore bundle that signs it",
             "type": "string"
           },
           "name": {
+            "description": "The file's name",
             "type": "string"
           },
           "sha256": {
+            "description": "Its SHA-256 checksum",
             "type": "string"
           },
           "size": {
+            "description": "Its size, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "url": {
+            "description": "Where it is downloaded from",
             "type": "string"
           }
         },
@@ -9202,6 +9707,7 @@
         "additionalProperties": false,
         "properties": {
           "arch": {
+            "description": "The processor architectures it runs on",
             "items": {
               "type": "string"
             },
@@ -9211,10 +9717,12 @@
             ]
           },
           "diskMB": {
+            "description": "The disk it needs, in MB",
             "format": "int64",
             "type": "integer"
           },
           "features": {
+            "description": "Hardware it needs, such as virtualization",
             "items": {
               "type": "string"
             },
@@ -9224,10 +9732,12 @@
             ]
           },
           "memoryMB": {
+            "description": "The memory it needs, in MB",
             "format": "int64",
             "type": "integer"
           },
           "modules": {
+            "description": "The modules that must be on",
             "items": {
               "type": "string"
             },
@@ -9269,13 +9779,16 @@
         "additionalProperties": false,
         "properties": {
           "link": {
-            "$ref": "#/components/schemas/IssuedLink"
+            "$ref": "#/components/schemas/IssuedLink",
+            "description": "The sign-in link to choose a new password with, shown once"
           },
           "sessionsEnded": {
+            "description": "How many of the user's sessions were ended",
             "format": "int64",
             "type": "integer"
           },
           "tokensRevoked": {
+            "description": "How many of the user's API tokens were revoked",
             "format": "int64",
             "type": "integer"
           }
@@ -9290,6 +9803,7 @@
         "additionalProperties": false,
         "properties": {
           "createdAt": {
+            "description": "When the resource was made",
             "format": "date-time",
             "type": "string"
           },
@@ -9324,15 +9838,21 @@
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "Who owns the resource: the server, a reseller or an account"
           },
           "server": {
             "description": "Cluster server the resource is placed on; empty for the panel's own server",
             "type": "string"
           },
-          "spec": {},
-          "status": {},
+          "spec": {
+            "description": "The settings: what should exist, which Racksail puts in place"
+          },
+          "status": {
+            "description": "What Racksail last found and did about it"
+          },
           "updatedAt": {
+            "description": "When its settings, labels or status last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -9353,11 +9873,17 @@
         "additionalProperties": false,
         "properties": {
           "action": {
+            "description": "The action's name, for an action",
             "type": "string"
           },
-          "after": {},
-          "before": {},
+          "after": {
+            "description": "The settings after the change; secret fields hold references, never values"
+          },
+          "before": {
+            "description": "The settings before the change, kept so it can be undone; secret fields hold references, never values"
+          },
           "checks": {
+            "description": "What confirms an action's steps worked, checked after they and the resource's reconcile ran",
             "items": {
               "$ref": "#/components/schemas/HealthCheck"
             },
@@ -9367,6 +9893,7 @@
             ]
           },
           "diff": {
+            "description": "What the change does to each field",
             "items": {
               "$ref": "#/components/schemas/FieldDiff"
             },
@@ -9376,25 +9903,32 @@
             ]
           },
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
-          "input": {},
+          "input": {
+            "description": "An action's input, kept with the change set, so actions never take secrets as input"
+          },
           "kind": {
+            "description": "The kind of the resource",
             "type": "string"
           },
           "labels": {
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The labels the resource has after the change",
             "type": "object"
           },
           "labelsBefore": {
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The labels before an update or an action, so an undo can put them back",
             "type": "object"
           },
           "op": {
+            "description": "What the change does: create, update, delete or run an action",
             "enum": [
               "create",
               "update",
@@ -9407,17 +9941,21 @@
             "description": "What the action returned, once it was applied"
           },
           "revision": {
+            "description": "The revision of the resource the change was planned against",
             "format": "int64",
             "type": "integer"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the resource belongs to"
           },
           "server": {
+            "description": "The cluster server the resource is placed on; empty for the panel's own server",
             "type": "string"
           },
           "source": {
-            "$ref": "#/components/schemas/Source"
+            "$ref": "#/components/schemas/Source",
+            "description": "Who asked for the change: the request, or a hook, rule, add-on or module that added it"
           },
           "state": {
             "description": "How far carrying out the change got: started while it runs or after it failed, done once it is in place; empty until it starts",
@@ -9428,6 +9966,7 @@
             "type": "string"
           },
           "steps": {
+            "description": "What an action runs on the server once, besides putting the resource in place",
             "items": {
               "$ref": "#/components/schemas/Step"
             },
@@ -9481,6 +10020,7 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What someone with the role may do",
             "type": "string"
           },
           "levels": {
@@ -9504,6 +10044,7 @@
             ]
           },
           "role": {
+            "description": "The role",
             "enum": [
               "admin",
               "reseller",
@@ -9514,6 +10055,7 @@
             "type": "string"
           },
           "title": {
+            "description": "What the role is called",
             "type": "string"
           }
         },
@@ -9540,6 +10082,7 @@
             ]
           },
           "roles": {
+            "description": "The roles, from the one that may do most",
             "items": {
               "$ref": "#/components/schemas/RoleInfo"
             },
@@ -9590,9 +10133,11 @@
             "type": "string"
           },
           "id": {
+            "description": "The key's ID",
             "type": "string"
           },
           "name": {
+            "description": "The key's name, its comment unless one was given",
             "type": "string"
           },
           "publicKey": {
@@ -9604,6 +10149,7 @@
             "type": "string"
           },
           "user": {
+            "description": "The user the key belongs to",
             "type": "string"
           }
         },
@@ -9736,6 +10282,7 @@
             ]
           },
           "results": {
+            "description": "The resources that match",
             "items": {
               "$ref": "#/components/schemas/SearchResult"
             },
@@ -9754,6 +10301,7 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
@@ -9761,6 +10309,7 @@
             "type": "string"
           },
           "phase": {
+            "description": "Where the resource is: being put in place, ready, failing or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -9772,7 +10321,8 @@
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/Scope"
+            "$ref": "#/components/schemas/Scope",
+            "description": "The owner the resource belongs to"
           },
           "subtitle": {
             "description": "The value of the kind's subtitle field",
@@ -9783,6 +10333,7 @@
             "type": "string"
           },
           "updatedAt": {
+            "description": "When the resource last changed",
             "format": "date-time",
             "type": "string"
           }
@@ -9894,9 +10445,11 @@
         "additionalProperties": false,
         "properties": {
           "description": {
+            "description": "What the service does",
             "type": "string"
           },
           "unit": {
+            "description": "The systemd unit",
             "type": "string"
           }
         },
@@ -9910,6 +10463,7 @@
         "additionalProperties": false,
         "properties": {
           "accounts": {
+            "description": "The accounts the person's grants name, for switching between them",
             "items": {
               "$ref": "#/components/schemas/SessionAccount"
             },
@@ -9928,7 +10482,8 @@
             "type": "string"
           },
           "impersonation": {
-            "$ref": "#/components/schemas/Impersonation"
+            "$ref": "#/components/schemas/Impersonation",
+            "description": "Who is viewing the panel as the person, and until when"
           },
           "modules": {
             "additionalProperties": {
@@ -9941,6 +10496,7 @@
               ],
               "type": "string"
             },
+            "description": "Each module's state, by module id; modules left out are off",
             "type": "object"
           },
           "pending": {
@@ -9962,7 +10518,8 @@
             ]
           },
           "preferences": {
-            "$ref": "#/components/schemas/Preferences"
+            "$ref": "#/components/schemas/Preferences",
+            "description": "How the person likes the panel to look"
           },
           "stepUpMethods": {
             "description": "How the person can confirm it's them: password, totp or passkey",
@@ -9980,10 +10537,12 @@
             "type": "string"
           },
           "token": {
-            "$ref": "#/components/schemas/SessionToken"
+            "$ref": "#/components/schemas/SessionToken",
+            "description": "The API token the request came with, when it came with one"
           },
           "user": {
-            "$ref": "#/components/schemas/SessionUser"
+            "$ref": "#/components/schemas/SessionUser",
+            "description": "Who is signed in"
           }
         },
         "required": [
@@ -9999,12 +10558,15 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The account's ID",
             "type": "string"
           },
           "name": {
+            "description": "The account's name",
             "type": "string"
           },
           "slug": {
+            "description": "The account's short name, which its Linux user is named after",
             "type": "string"
           }
         },
@@ -10019,9 +10581,11 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The token's ID",
             "type": "string"
           },
           "name": {
+            "description": "The token's name",
             "type": "string"
           }
         },
@@ -10035,6 +10599,7 @@
         "additionalProperties": false,
         "properties": {
           "email": {
+            "description": "The person's email address",
             "type": "string"
           },
           "home": {
@@ -10042,6 +10607,7 @@
             "description": "Where the person belongs"
           },
           "id": {
+            "description": "The person's user",
             "type": "string"
           },
           "name": {
@@ -10049,6 +10615,7 @@
             "type": "string"
           },
           "username": {
+            "description": "What the person signs in with",
             "type": "string"
           }
         },
@@ -10063,6 +10630,7 @@
         "additionalProperties": false,
         "properties": {
           "createdAt": {
+            "description": "When the person signed in",
             "format": "date-time",
             "type": "string"
           },
@@ -10075,10 +10643,12 @@
             "type": "string"
           },
           "expiresAt": {
+            "description": "When the session ends at the latest",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The session's ID",
             "type": "string"
           },
           "impersonator": {
@@ -10086,9 +10656,11 @@
             "type": "string"
           },
           "ip": {
+            "description": "The address the session was last used from",
             "type": "string"
           },
           "lastSeenAt": {
+            "description": "When the session was last used",
             "format": "date-time",
             "type": "string"
           },
@@ -10097,6 +10669,7 @@
             "type": "string"
           },
           "secondFactor": {
+            "description": "The second step the person signed in with: totp, recovery or passkey",
             "type": "string"
           }
         },
@@ -10115,6 +10688,7 @@
         "additionalProperties": false,
         "properties": {
           "sessions": {
+            "description": "Your sessions, the one asking among them",
             "items": {
               "$ref": "#/components/schemas/SessionView"
             },
@@ -10178,25 +10752,31 @@
       },
       "SettingsStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "available": {
             "$ref": "#/components/schemas/Available",
             "description": "The newest release on the channel, when it is newer"
           },
           "canRollBack": {
+            "description": "Whether the last update can be rolled back",
             "type": "boolean"
           },
           "checkError": {
+            "description": "Why the last check failed",
             "type": "string"
           },
           "checkedAt": {
+            "description": "When the channel was last checked",
             "format": "date-time",
             "type": "string"
           },
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -10219,13 +10799,15 @@
             "type": "integer"
           },
           "os": {
-            "$ref": "#/components/schemas/OSStatus"
+            "$ref": "#/components/schemas/OSStatus",
+            "description": "The server's Debian release, and the next one"
           },
           "packages": {
             "$ref": "#/components/schemas/PackagesStatus",
             "description": "The last upgrade of the server's packages"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -10237,6 +10819,7 @@
             "type": "string"
           },
           "reported": {
+            "description": "The last update whose outcome was published",
             "type": "string"
           },
           "running": {
@@ -10374,9 +10957,11 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The sign-in provider",
             "type": "string"
           },
           "method": {
+            "description": "password when the panel's own screen takes the username and password, redirect when people sign in on the provider's page",
             "enum": [
               "password",
               "redirect"
@@ -10384,6 +10969,7 @@
             "type": "string"
           },
           "title": {
+            "description": "What the button says",
             "type": "string"
           }
         },
@@ -10525,11 +11111,14 @@
       },
       "SignInPolicyStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -10548,6 +11137,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -10565,9 +11155,11 @@
         "additionalProperties": false,
         "properties": {
           "module": {
+            "description": "The module left off",
             "type": "string"
           },
           "reason": {
+            "description": "Why this server can't run it",
             "type": "string"
           }
         },
@@ -10599,43 +11191,55 @@
         "additionalProperties": false,
         "properties": {
           "diskBytes": {
+            "description": "How much disk it takes once installed, in bytes: from the package index when it can tell, from the manifest otherwise",
             "format": "int64",
             "type": "integer"
           },
           "diskMB": {
+            "description": "How much disk it takes, in MB, where the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "downloadBytes": {
+            "description": "How much installing it downloads, in bytes: from the package index when it can tell, from the manifest otherwise",
             "format": "int64",
             "type": "integer"
           },
           "downloadMB": {
+            "description": "How much it downloads, in MB, where the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "homepage": {
+            "description": "The software's own site",
             "type": "string"
           },
           "id": {
+            "description": "The software's id in the manifest",
             "type": "string"
           },
           "install": {
+            "description": "When it is installed, in plain words",
             "type": "string"
           },
           "installed": {
+            "description": "Whether it is installed already",
             "type": "boolean"
           },
           "license": {
+            "description": "The software's license, as an SPDX expression",
             "type": "string"
           },
           "name": {
+            "description": "What the software is called",
             "type": "string"
           },
           "optIn": {
+            "description": "Whether it is only installed once someone chooses to",
             "type": "boolean"
           },
           "packages": {
+            "description": "The Debian packages installing it brings in, with their sizes, for software the manifest names exactly",
             "items": {
               "$ref": "#/components/schemas/SoftwarePackage"
             },
@@ -10645,7 +11249,8 @@
             ]
           },
           "source": {
-            "$ref": "#/components/schemas/UpstreamSource"
+            "$ref": "#/components/schemas/UpstreamSource",
+            "description": "Where it comes from and how it is checked"
           }
         },
         "required": [
@@ -10662,6 +11267,7 @@
         "additionalProperties": false,
         "properties": {
           "software": {
+            "description": "The software the module installs",
             "items": {
               "$ref": "#/components/schemas/Software"
             },
@@ -10680,20 +11286,25 @@
         "additionalProperties": false,
         "properties": {
           "downloadBytes": {
+            "description": "How much it downloads, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "installedBytes": {
+            "description": "How much disk it takes once installed, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "name": {
+            "description": "The package's name",
             "type": "string"
           },
           "origin": {
+            "description": "The repository the version comes from",
             "type": "string"
           },
           "version": {
+            "description": "The version that would be installed",
             "type": "string"
           }
         },
@@ -10707,12 +11318,15 @@
         "additionalProperties": false,
         "properties": {
           "hook": {
+            "description": "The hook point the contribution came through",
             "type": "string"
           },
           "name": {
+            "description": "Which contributor, such as an add-on's id and version",
             "type": "string"
           },
           "type": {
+            "description": "Who contributed it: the request, a hook, a rule, an add-on or a module",
             "enum": [
               "request",
               "hook",
@@ -10732,6 +11346,7 @@
         "additionalProperties": false,
         "properties": {
           "keys": {
+            "description": "Your SSH keys",
             "items": {
               "$ref": "#/components/schemas/SSHKey"
             },
@@ -10748,11 +11363,14 @@
       },
       "Status": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -10771,6 +11389,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -10892,10 +11511,12 @@
         "additionalProperties": false,
         "properties": {
           "built": {
+            "description": "When the index was built",
             "format": "date-time",
             "type": "string"
           },
           "items": {
+            "description": "How many items the index lists",
             "format": "int64",
             "type": "integer"
           }
@@ -10984,6 +11605,7 @@
             "type": "string"
           },
           "fields": {
+            "description": "What a default rule would fill in, field by field",
             "items": {
               "$ref": "#/components/schemas/FieldResult"
             },
@@ -11098,10 +11720,12 @@
             ]
           },
           "createdAt": {
+            "description": "When the token was made",
             "format": "date-time",
             "type": "string"
           },
           "expiresAt": {
+            "description": "When the token stops working; never when left out",
             "format": "date-time",
             "type": "string"
           },
@@ -11110,16 +11734,20 @@
             "type": "string"
           },
           "id": {
+            "description": "The token's ID",
             "type": "string"
           },
           "lastUsedAt": {
+            "description": "When the token was last used",
             "format": "date-time",
             "type": "string"
           },
           "lastUsedIp": {
+            "description": "The address the token was last used from",
             "type": "string"
           },
           "name": {
+            "description": "The token's name",
             "type": "string"
           },
           "permissions": {
@@ -11133,6 +11761,7 @@
             ]
           },
           "user": {
+            "description": "The user the token acts for",
             "type": "string"
           }
         },
@@ -11152,6 +11781,7 @@
         "additionalProperties": false,
         "properties": {
           "tokens": {
+            "description": "Your API tokens, without their secrets",
             "items": {
               "$ref": "#/components/schemas/TokenView"
             },
@@ -11193,6 +11823,7 @@
         "additionalProperties": false,
         "properties": {
           "types": {
+            "description": "Every channel type",
             "items": {
               "$ref": "#/components/schemas/ChannelType"
             },
@@ -11219,6 +11850,7 @@
             "type": "string"
           },
           "point": {
+            "description": "Where in the panel it goes",
             "enum": [
               "ui.nav",
               "ui.tab",
@@ -11230,7 +11862,8 @@
             "type": "string"
           },
           "ui": {
-            "$ref": "#/components/schemas/UIExtension"
+            "$ref": "#/components/schemas/UIExtension",
+            "description": "What it adds"
           }
         },
         "required": [
@@ -11245,18 +11878,23 @@
         "additionalProperties": false,
         "properties": {
           "icon": {
+            "description": "A lucide icon name, such as globe",
             "type": "string"
           },
           "kind": {
+            "description": "The kind whose screens a tab or a column goes on",
             "type": "string"
           },
           "label": {
+            "description": "What it says",
             "type": "string"
           },
           "path": {
+            "description": "The page the add-on serves for it, which the panel shows in a sandboxed frame",
             "type": "string"
           },
           "type": {
+            "description": "Where it goes: nav, tab, card, command, settings or column",
             "type": "string"
           }
         },
@@ -11270,6 +11908,7 @@
         "additionalProperties": false,
         "properties": {
           "columns": {
+            "description": "The columns lists show",
             "items": {
               "$ref": "#/components/schemas/Column"
             },
@@ -11282,9 +11921,11 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/FieldHint"
             },
+            "description": "How forms show each field, by spec path",
             "type": "object"
           },
           "groups": {
+            "description": "How forms group the spec's fields",
             "items": {
               "$ref": "#/components/schemas/FieldGroup"
             },
@@ -11294,15 +11935,19 @@
             ]
           },
           "hidden": {
+            "description": "Whether the kind has no generic screen or navigation entry",
             "type": "boolean"
           },
           "icon": {
+            "description": "A lucide icon name, such as globe",
             "type": "string"
           },
           "subtitleField": {
+            "description": "The spec field shown under the title",
             "type": "string"
           },
           "titleField": {
+            "description": "The spec field shown as a resource's title",
             "type": "string"
           }
         },
@@ -11332,13 +11977,16 @@
         "additionalProperties": false,
         "properties": {
           "from": {
+            "description": "The version running now",
             "type": "string"
           },
           "restartsAt": {
+            "description": "When Racksail restarts on the new release",
             "format": "date-time",
             "type": "string"
           },
           "to": {
+            "description": "The version it updates to",
             "type": "string"
           }
         },
@@ -11353,20 +12001,25 @@
         "additionalProperties": false,
         "properties": {
           "binary": {
+            "description": "Where the binary it installed is",
             "type": "string"
           },
           "confirmedAt": {
+            "description": "When the new release confirmed it works",
             "format": "date-time",
             "type": "string"
           },
           "from": {
+            "description": "The version before",
             "type": "string"
           },
           "installedAt": {
+            "description": "When it was installed",
             "format": "date-time",
             "type": "string"
           },
           "panelBackup": {
+            "description": "The copy of the panel's database from before",
             "type": "string"
           },
           "reason": {
@@ -11374,10 +12027,12 @@
             "type": "string"
           },
           "rolledBackAt": {
+            "description": "When it was rolled back",
             "format": "date-time",
             "type": "string"
           },
           "snapshots": {
+            "description": "The snapshots taken of the system first",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -11396,12 +12051,15 @@
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag",
             "type": "string"
           },
           "to": {
+            "description": "The version after",
             "type": "string"
           },
           "unprotected": {
+            "description": "Paths no snapshot covers, because they aren't on Btrfs",
             "items": {
               "type": "string"
             },
@@ -11453,6 +12111,7 @@
         "additionalProperties": false,
         "properties": {
           "from": {
+            "description": "The Debian release before",
             "type": "string"
           },
           "rebootRequired": {
@@ -11470,6 +12129,7 @@
             ]
           },
           "to": {
+            "description": "The Debian release after",
             "type": "string"
           }
         },
@@ -11484,33 +12144,42 @@
         "additionalProperties": false,
         "properties": {
           "diskMB": {
+            "description": "How much disk it takes, in MB, where the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "downloadMB": {
+            "description": "How much it downloads, in MB, where the package index can't tell",
             "format": "int64",
             "type": "integer"
           },
           "homepage": {
+            "description": "The software's own site",
             "type": "string"
           },
           "id": {
+            "description": "The software's id in the manifest",
             "type": "string"
           },
           "install": {
+            "description": "When it is installed, in plain words",
             "type": "string"
           },
           "license": {
+            "description": "The software's license, as an SPDX expression",
             "type": "string"
           },
           "name": {
+            "description": "What the software is called",
             "type": "string"
           },
           "optIn": {
+            "description": "Whether it is only installed once someone chooses to",
             "type": "boolean"
           },
           "source": {
-            "$ref": "#/components/schemas/UpstreamSource"
+            "$ref": "#/components/schemas/UpstreamSource",
+            "description": "Where it comes from and how it is checked"
           }
         },
         "required": [
@@ -11526,6 +12195,7 @@
         "additionalProperties": false,
         "properties": {
           "packages": {
+            "description": "The Debian packages it installs",
             "items": {
               "type": "string"
             },
@@ -11535,15 +12205,19 @@
             ]
           },
           "repository": {
+            "description": "The apt repository it comes from",
             "type": "string"
           },
           "type": {
+            "description": "debian, apt-repository, vendor-archive, racksail-build, embedded or present",
             "type": "string"
           },
           "url": {
+            "description": "Where an archive is downloaded from",
             "type": "string"
           },
           "verification": {
+            "description": "How a download is checked, such as its checksum or signature",
             "type": "string"
           }
         },
@@ -11700,11 +12374,14 @@
       },
       "UserStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -11745,6 +12422,7 @@
             "type": "boolean"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -11770,6 +12448,7 @@
         "additionalProperties": false,
         "properties": {
           "allowFrom": {
+            "description": "The addresses and networks the user may sign in from; anywhere the sign-in policy allows when empty",
             "items": {
               "type": "string"
             },
@@ -11779,16 +12458,20 @@
             ]
           },
           "createdAt": {
+            "description": "When the user was added",
             "format": "date-time",
             "type": "string"
           },
           "disabled": {
+            "description": "Whether the user is kept from signing in",
             "type": "boolean"
           },
           "email": {
+            "description": "The person's email address",
             "type": "string"
           },
           "grants": {
+            "description": "The roles the user holds, and where",
             "items": {
               "$ref": "#/components/schemas/Grant"
             },
@@ -11802,16 +12485,20 @@
             "description": "Where the user belongs, and so who manages them"
           },
           "id": {
+            "description": "The user's ID",
             "type": "string"
           },
           "lastSignInAt": {
+            "description": "When the person last signed in",
             "format": "date-time",
             "type": "string"
           },
           "lastSignInIp": {
+            "description": "The address the person last signed in from",
             "type": "string"
           },
           "locale": {
+            "description": "The language the panel speaks to the person, such as en or pt-BR",
             "type": "string"
           },
           "lockedUntil": {
@@ -11824,6 +12511,7 @@
             "type": "boolean"
           },
           "name": {
+            "description": "The person's name",
             "type": "string"
           },
           "passwordSet": {
@@ -11840,10 +12528,12 @@
             "type": "boolean"
           },
           "updatedAt": {
+            "description": "When the user last changed",
             "format": "date-time",
             "type": "string"
           },
           "username": {
+            "description": "What the person signs in with",
             "type": "string"
           }
         },
@@ -11866,6 +12556,7 @@
         "additionalProperties": false,
         "properties": {
           "sha256": {
+            "description": "Its SHA-256 checksum, as the recipe gives it",
             "type": "string"
           },
           "signature": {
@@ -11873,13 +12564,16 @@
             "type": "string"
           },
           "size": {
+            "description": "Its size, in bytes",
             "format": "int64",
             "type": "integer"
           },
           "url": {
+            "description": "Where the file was downloaded from",
             "type": "string"
           },
           "verifiedAt": {
+            "description": "When it was checked",
             "format": "date-time",
             "type": "string"
           }
@@ -11916,6 +12610,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "The labels it had",
             "type": "object"
           },
           "scope": {
@@ -11930,6 +12625,7 @@
             "description": "The desired state as it was; secret fields hold references, never values"
           },
           "time": {
+            "description": "When it was written",
             "format": "date-time",
             "type": "string"
           }
@@ -12010,11 +12706,14 @@
       },
       "WebhookStatus": {
         "additionalProperties": false,
+        "description": "What Racksail last found and did: where the resource is, and what putting it in place reported",
         "properties": {
           "code": {
+            "description": "Names the message, for the panel to translate",
             "type": "string"
           },
           "conditions": {
+            "description": "What the reconciler found, one condition each",
             "items": {
               "$ref": "#/components/schemas/Condition"
             },
@@ -12048,6 +12747,7 @@
             "type": "integer"
           },
           "phase": {
+            "description": "Where it is: waiting, being put in place, ready, working only in part, failed or being deleted",
             "enum": [
               "pending",
               "applying",
@@ -26233,7 +26933,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/Event"
+                            "$ref": "#/components/schemas/Event",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "event",
@@ -26573,7 +27274,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/InboxChange"
+                            "$ref": "#/components/schemas/InboxChange",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "changed",
@@ -27218,7 +27920,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/Job"
+                            "$ref": "#/components/schemas/Job",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "job",
@@ -27240,7 +27943,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/LogLine"
+                            "$ref": "#/components/schemas/LogLine",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "log",
@@ -30176,7 +30880,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/Notice"
+                            "$ref": "#/components/schemas/Notice",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "notice",
@@ -30198,7 +30903,8 @@
                       {
                         "properties": {
                           "data": {
-                            "$ref": "#/components/schemas/ResyncNotice"
+                            "$ref": "#/components/schemas/ResyncNotice",
+                            "description": "What the event says, as JSON"
                           },
                           "event": {
                             "const": "resync",

@@ -46,21 +46,21 @@ func (s Severity) Valid() bool { _, ok := severityRank[s]; return ok }
 
 // Event is something that happened.
 type Event struct {
-	ID       store.ID  `json:"id"`
+	ID       store.ID  `json:"id" doc:"The event's ID"`
 	Type     string    `json:"type" doc:"<kind>.<past-tense verb>, such as web.site.created"`
-	Time     time.Time `json:"time"`
-	Severity Severity  `json:"severity" enum:"info,notice,warning,error,critical"`
+	Time     time.Time `json:"time" doc:"When it happened"`
+	Severity Severity  `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent it is"`
 	// Subject is the resource the event is about.
 	Subject store.ID    `json:"subject,omitempty" doc:"The resource the event is about"`
 	Kind    string      `json:"kind,omitempty" doc:"The kind of the subject"`
-	Scope   store.Scope `json:"scope"`
-	Actor   *auth.Actor `json:"actor,omitempty"`
+	Scope   store.Scope `json:"scope" doc:"The owner the event belongs to, who may see it"`
+	Actor   *auth.Actor `json:"actor,omitempty" doc:"Who caused it, and for whom"`
 	// ChangeSet and Job link the event to what caused it.
-	ChangeSet store.ID `json:"changeSet,omitempty"`
-	Job       store.ID `json:"job,omitempty"`
+	ChangeSet store.ID `json:"changeSet,omitempty" doc:"The change set that caused it"`
+	Job       store.ID `json:"job,omitempty" doc:"The job that caused it"`
 	// Message is an English summary; the UI renders its own from the type.
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Message string          `json:"message" doc:"What happened, in English; the panel words it from the type"`
+	Data    json.RawMessage `json:"data,omitempty" doc:"What the event type says about what happened"`
 	// Seq orders events as the timeline stored them. It is set when an
 	// event is published and never reused, so it is what followers of the
 	// timeline, such as webhooks and live streams, keep their place by.
