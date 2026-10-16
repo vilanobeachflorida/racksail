@@ -92,8 +92,8 @@ type OpenAccountInput struct {
 	Slug     string                `json:"slug" minLength:"3" maxLength:"16" pattern:"^[a-z][a-z0-9]*$" doc:"The account's short name, which is also its Linux user" example:"acme"`
 	Name     string                `json:"name" minLength:"1" maxLength:"128" doc:"What the account is called" example:"Acme Inc."`
 	Reseller store.ID              `json:"reseller,omitempty" doc:"The reseller whose customer the account is; leave it out for the server's own"`
-	Limits   account.AccountLimits `json:"limits,omitzero"`
-	Note     string                `json:"note,omitempty" maxLength:"1000"`
+	Limits   account.AccountLimits `json:"limits,omitzero" doc:"What the account's processes may use together, enforced by the kernel; empty means no limit"`
+	Note     string                `json:"note,omitempty" maxLength:"1000" doc:"Notes for the people who run the server"`
 	// Owner adds a user who owns the account, with a sign-in link to
 	// choose their password.
 	Owner *AccountOwner `json:"owner,omitempty" doc:"A user to own the account, who gets a sign-in link to choose their password"`
@@ -102,8 +102,8 @@ type OpenAccountInput struct {
 // AccountOwner is the user an account is opened with.
 type AccountOwner struct {
 	Username string `json:"username" minLength:"2" maxLength:"64" doc:"What the owner signs in with"`
-	Name     string `json:"name,omitempty" maxLength:"128"`
-	Email    string `json:"email,omitempty" maxLength:"254"`
+	Name     string `json:"name,omitempty" maxLength:"128" doc:"The owner's name, as the panel shows it"`
+	Email    string `json:"email,omitempty" maxLength:"254" doc:"Where the owner gets notifications"`
 }
 
 type openAccountInput struct {

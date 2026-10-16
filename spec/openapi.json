@@ -51,10 +51,12 @@
         "additionalProperties": false,
         "properties": {
           "email": {
+            "description": "Where the owner gets notifications",
             "maxLength": 254,
             "type": "string"
           },
           "name": {
+            "description": "The owner's name, as the panel shows it",
             "maxLength": 128,
             "type": "string"
           },
@@ -2990,7 +2992,8 @@
         "additionalProperties": false,
         "properties": {
           "limits": {
-            "$ref": "#/components/schemas/AccountLimits"
+            "$ref": "#/components/schemas/AccountLimits",
+            "description": "What the account's processes may use together, enforced by the kernel; empty means no limit"
           },
           "name": {
             "description": "What the account is called",
@@ -3002,6 +3005,7 @@
             "type": "string"
           },
           "note": {
+            "description": "Notes for the people who run the server",
             "maxLength": 1000,
             "type": "string"
           },

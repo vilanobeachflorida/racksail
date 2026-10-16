@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -30,7 +31,20 @@ const (
 	groupTools  = "tools"
 )
 
-func newRootCommand() *cobra.Command {
+// newRootCommand builds every command.
+func newRootCommand() *cobra.Command { return buildRootCommand(true) }
+
+// newRootCommandFor builds the commands the arguments may run. The roles
+// that run Racksail have no use for the commands built from the API
+// document, so they skip building them.
+func newRootCommandFor(args []string) *cobra.Command {
+	return buildRootCommand(len(args) == 0 || !slices.Contains(roles, args[0]))
+}
+
+// roles are the commands that run Racksail rather than call it.
+var roles = []string{"panel", "agent", "edge", "wake-proxy", "dev", "install"}
+
+func buildRootCommand(withAPICommands bool) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "racksail",
 		Short: "Your server, your rules.",
@@ -58,6 +72,15 @@ func newRootCommand() *cobra.Command {
 	for _, cmd := range []*cobra.Command{newOpenAPICommand(), newVersionCommand(), newThemeCommand()} {
 		cmd.GroupID = groupTools
 		root.AddCommand(cmd)
+	}
+	// A binary whose registries have problems refuses to run, which the
+	// commands that need them say; building from them could fail first.
+	if withAPICommands && checkRegistries() == nil {
+		if err := addAPICommands(root, opts); err != nil {
+			root.PersistentPreRunE = func(*cobra.Command, []string) error {
+				return fmt.Errorf("building the commands from the API: %w", err)
+			}
+		}
 	}
 	root.SetHelpCommandGroupID(groupTools)
 	root.SetCompletionCommandGroupID(groupTools)

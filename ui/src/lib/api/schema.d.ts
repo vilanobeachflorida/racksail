@@ -2005,7 +2005,9 @@ export interface components {
             tasks?: number;
         };
         AccountOwner: {
+            /** @description Where the owner gets notifications */
             email?: string;
+            /** @description The owner's name, as the panel shows it */
             name?: string;
             /** @description What the owner signs in with */
             username: string;
@@ -3058,12 +3060,14 @@ export interface components {
             scope: components["schemas"]["Scope"];
         };
         OpenAccountInput: {
+            /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
             limits?: components["schemas"]["AccountLimits"];
             /**
              * @description What the account is called
              * @example Acme Inc.
              */
             name: string;
+            /** @description Notes for the people who run the server */
             note?: string;
             /** @description A user to own the account, who gets a sign-in link to choose their password */
             owner?: components["schemas"]["AccountOwner"];
