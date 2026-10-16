@@ -361,6 +361,49 @@ describe("toasts", () => {
     expect(undo).toHaveBeenCalled();
     expect(await screen.findByText("Undone")).toBeInTheDocument();
   });
+
+  it("stay through an undo that takes a while, and end with how it went", async () => {
+    let finish: (failure?: Error) => void = () => {};
+    const undo = vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          finish = (failure) => (failure ? reject(failure) : resolve());
+        }),
+    );
+    const labels = {
+      undo: "Undo",
+      undoing: "Undoing",
+      undone: "Undone",
+      failed: (e: unknown) => `Couldn't undo: ${(e as Error).message}`,
+    };
+    renderWithProviders(<Toaster />);
+    toastWithUndo({ message: "Deleted example.com", undo, labels });
+    const button = await screen.findByRole("button", { name: "Undo" });
+    const shown = button.closest("[data-sonner-toast]");
+    await userEvent.click(button);
+    expect(await screen.findByText("Undoing")).toBeInTheDocument();
+    // Longer than Sonner takes to remove a toast it closed.
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(shown).toBeInTheDocument();
+    expect(shown).toHaveAttribute("data-removed", "false");
+    expect(within(shown as HTMLElement).getByText("Undoing")).toBeInTheDocument();
+    // Undo is offered once.
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    finish();
+    // The same toast says how it went.
+    expect(await within(shown as HTMLElement).findByText("Undone")).toBeInTheDocument();
+    expect(undo).toHaveBeenCalledTimes(1);
+
+    toastWithUndo({ message: "Deleted shop.example.com", undo, labels });
+    const again = (await screen.findByRole("button", { name: "Undo" })).closest(
+      "[data-sonner-toast]",
+    ) as HTMLElement;
+    await userEvent.click(within(again).getByRole("button", { name: "Undo" }));
+    finish(new Error("the site came back already"));
+    expect(
+      await within(again).findByText("Couldn't undo: the site came back already"),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("the logo", () => {
