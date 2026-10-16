@@ -178,6 +178,13 @@ func (o owners) AccountsOf(ctx context.Context, reseller store.ID) ([]store.ID, 
 
 func newStack(t *testing.T, limits RateLimit) *stack {
 	t.Helper()
+	return newStackWith(t, limits, modules.NewRegistry())
+}
+
+// newStackWith is newStack with modules whose operations the server serves
+// too.
+func newStackWith(t *testing.T, limits RateLimit, mods *modules.Registry) *stack {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	db, err := store.OpenDB(ctx, filepath.Join(t.TempDir(), "state.db"))
@@ -295,7 +302,7 @@ func newStack(t *testing.T, limits RateLimit) *stack {
 	}
 	go runner.Run(ctx, time.Hour)
 	s.server = New(Options{
-		Auth: testAuth{actors: s.actors, identity: s.identity}, Modules: modules.NewRegistry(), Identity: s.identity, Accounts: s.owners,
+		Auth: testAuth{actors: s.actors, identity: s.identity}, Modules: mods, Identity: s.identity, Accounts: s.owners,
 		Services: &modules.Services{
 			Store: st, Kinds: kinds, Pipeline: engine, Jobs: q, Events: log, Audit: log, Agent: agentClient, Secrets: vault, Authorizer: authz,
 		},
