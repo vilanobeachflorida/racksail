@@ -457,6 +457,17 @@ func (s *Server) submit(ctx context.Context, params ChangeParams, req changeset.
 	if pipeline == nil {
 		return 0, nil, i18n.ErrUnavailable.New("what", "The change pipeline")
 	}
+	if !params.DryRun {
+		// What a change does can ask for a confirmation its operation
+		// doesn't, such as a user's new email address.
+		actor, err := Actor(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		if err := s.confirmChanges(ctx, actor, req.Changes); err != nil {
+			return 0, nil, err
+		}
+	}
 	out, err := Submit(ctx, pipeline, params, req)
 	if err != nil {
 		return 0, nil, err

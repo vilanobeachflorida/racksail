@@ -280,6 +280,67 @@ describe("confirming it's you", () => {
     expect(password).toBe("my password");
   });
 
+  it("asks before a new email address and saves it once confirmed", async () => {
+    let confirmed = false;
+    const saved: unknown[] = [];
+    const me = {
+      id: "user_1",
+      username: "ada",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      home: { level: "server" },
+      grants: [{ role: "admin", scope: { level: "server" } }],
+      allowFrom: [],
+      passwordSet: true,
+      twoFactor: false,
+      createdAt: "2026-10-01T10:00:00Z",
+      updatedAt: "2026-10-15T10:00:00Z",
+      revision: 3,
+      security: {
+        totp: false,
+        passkeys: 0,
+        recoveryCodes: 0,
+        methods: [],
+        devices: 0,
+        links: [],
+        required: false,
+      },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/me": () => json(me),
+      "PUT /api/v1/me": async (r) => {
+        if (!confirmed) {
+          return problem(403, "auth.step_up_required");
+        }
+        saved.push(await r.json());
+        return json(
+          { id: "chg_1", title: "Change your profile", state: "applying", changes: [] },
+          202,
+        );
+      },
+      "POST /api/v1/session/step-up": () => {
+        confirmed = true;
+        return json({ steppedUpUntil: "2030-01-01T10:00:00Z" });
+      },
+    });
+    renderApp(api, "/settings/profile");
+    const address = await screen.findByLabelText("Email address");
+    await userEvent.clear(address);
+    await userEvent.type(address, "ada@example.org");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    await userEvent.type(
+      within(dialog).getByLabelText("Password", { selector: "input" }),
+      "my password",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(saved).toEqual([{ name: "Ada Lovelace", email: "ada@example.org", locale: "" }]),
+    );
+  });
+
   it("gives up when the person doesn't confirm", async () => {
     const api = fakeApi({ "POST /api/v1/me/tokens": () => problem(403, "auth.step_up_required") });
     renderWithProviders(

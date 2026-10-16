@@ -17,7 +17,7 @@ People can sign in to the panel with an account they already have elsewhere: the
 | Username | The user whose username is what the provider says, such as `ada` |
 | Email | The one user with the email address the provider says. Two users with it match neither |
 
-Users with a role on the whole server are never matched, whatever the setting: usernames and email addresses are often the person's own choice at the provider, so nobody becomes an admin by picking one. They link their account themselves. **Add users who match nobody** adds a user, with the roles you give, for anyone the provider signs in who isn't linked or matched; you can only give roles you have yourself, and never an admin's.
+Users with a role on the whole server are never matched, whatever the setting: usernames and email addresses are often the person's own choice at the provider, so nobody becomes an admin by picking one. They link their account themselves. Since a username or an email address can decide whom someone signs in as, giving any user another one asks whoever does it in the panel to confirm it's them. **Add users who match nobody** adds a user, with the roles you give, for anyone the provider signs in who isn't linked or matched; you can only give roles you have yourself, and never an admin's.
 
 Connecting, changing and removing a provider are changes like any other, with a preview, the audit log and undo.
 

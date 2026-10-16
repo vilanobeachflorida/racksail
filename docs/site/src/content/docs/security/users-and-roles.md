@@ -67,7 +67,7 @@ Nobody can give more than they have: you can only give a role somewhere if you h
 
 When someone's roles change, their sessions get a new secret on their next request, carrying what they may do now; nobody keeps acting with roles they lost.
 
-Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user. Their username, email address, SSH keys and the addresses they may sign in from change only in their own session in the panel: not with an API token of theirs, whatever its permissions, and not by someone viewing the panel as them, since any of those could become a way in that outlasts the token or the viewing.
+Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user. Their username, email address, SSH keys and the addresses they may sign in from change only in their own session in the panel: not with an API token of theirs, whatever its permissions, and not by someone viewing the panel as them, since any of those could become a way in that outlasts the token or the viewing. A new email address, theirs or anyone's, also asks whoever gives it in the panel to confirm it's them, as SSH keys do.
 
 ## Users
 

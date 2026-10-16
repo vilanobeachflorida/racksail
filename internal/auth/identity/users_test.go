@@ -453,6 +453,37 @@ func TestOwnSignInTakesThePanel(t *testing.T) {
 	}
 }
 
+// What outside sign-in matches people by is a user's username and email
+// address, in whatever case; their name, language and the rest aren't.
+func TestSignInMatch(t *testing.T) {
+	ada := UserSpec{Username: "ada", Name: "Ada", Email: "ada@example.com", Locale: "en"}
+	for _, tc := range []struct {
+		name    string
+		change  func(*UserSpec)
+		changed bool
+	}{
+		{"a new name and language", func(s *UserSpec) { s.Name, s.Locale = "Ada Lovelace", "pt-BR" }, false},
+		{"the address in capitals", func(s *UserSpec) { s.Email = " ADA@Example.com" }, false},
+		{"another address", func(s *UserSpec) { s.Email = "ada@example.org" }, true},
+		{"no address", func(s *UserSpec) { s.Email = "" }, true},
+		{"another username", func(s *UserSpec) { s.Username = "lovelace" }, true},
+		{"new keys", func(s *UserSpec) { s.SSHKeys = []UserSSHKey{{Name: "laptop"}} }, false},
+	} {
+		next := ada
+		tc.change(&next)
+		if got := SignInMatchChanged(ada, next); got != tc.changed {
+			t.Errorf("%s: changed = %v", tc.name, got)
+		}
+	}
+	got, err := ApplyProfile(ada, json.RawMessage(`{"name":" Ada L. ","email":" ada@example.org ","locale":"en-GB"}`))
+	if err != nil || got.Name != "Ada L." || got.Email != "ada@example.org" || got.Locale != "en-GB" || got.Username != "ada" {
+		t.Errorf("a profile = %+v, %v", got, err)
+	}
+	if _, err := ApplyProfile(ada, json.RawMessage(`{"email":"not an address"}`)); !i18n.ErrInvalid.Is(err) {
+		t.Errorf("a bad address = %v", err)
+	}
+}
+
 func TestHelpingUsersBackIn(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)

@@ -63,6 +63,7 @@ Requests that change something must come from the panel's own pages: the panel r
 Sensitive changes ask the person to confirm it's them, with their password, an authenticator code or a passkey, unless they did in the last 10 minutes. They are:
 
 - changes to how someone signs in: second steps, passkeys, API tokens, SSH keys, outside sign-ins and where security alerts go;
+- a new email address for anyone, your own included, since outside sign-in may match people by it the first time they sign in; a new name or language doesn't ask;
 - adding, changing and deleting users, opening an account with an owner, and helping users back in;
 - viewing the panel as someone else;
 - changes the change pipeline rates critical, such as deleting an account.

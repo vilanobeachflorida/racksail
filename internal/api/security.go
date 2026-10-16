@@ -1,7 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -213,26 +217,132 @@ func (s *Server) stepUpForKinds(actor *auth.Actor, confirms bool) error {
 	return s.stepUpFor(actor, store.RiskCritical)
 }
 
-// requestConfirms reports whether a request's changes ask for a
-// confirmation.
-func (s *Server) requestConfirms(changes []changeset.Change) bool {
-	for _, c := range changes {
+// confirmChanges asks a person in the panel to confirm it's them before a
+// request's changes when one needs it: a change of a kind that asks for it,
+// or a profile change that gives a user another email address, which
+// outside sign-in may match people by, so it could become a way in. A
+// profile change that keeps the address is held to the user as read here:
+// one that lands meanwhile fails it with core.conflict rather than make it
+// change the address after all.
+func (s *Server) confirmChanges(ctx context.Context, actor *auth.Actor, changes []changeset.Change) error {
+	needs := s.stepUpFor(actor, store.RiskCritical)
+	if needs == nil {
+		// Confirmed recently, or not a person in the panel.
+		return nil
+	}
+	held := map[store.ID]bool{}
+	for i := range changes {
+		c := &changes[i]
 		if s.confirms(c.Kind, c.Op, c.Action) {
+			return needs
+		}
+		if c.Kind != identity.KindUser || c.Op != changeset.OpAction || c.Action != identity.ActionUpdateProfile {
+			continue
+		}
+		// A user who is gone, or whom the actor may not change, is the
+		// pipeline's to answer for, as is a profile that isn't valid.
+		u, ok := s.userFor(ctx, c.ID, auth.PermUserUpdateProfile)
+		if !ok {
+			continue
+		}
+		next, err := identity.ApplyProfile(u.Spec, c.Input)
+		if err != nil {
+			continue
+		}
+		if identity.SignInMatchChanged(u.Spec, next) {
+			return needs
+		}
+		// Only the first change of a user can name its revision; later ones
+		// plan against what the first one leaves.
+		if !held[c.ID] && c.Revision == 0 {
+			c.Revision = u.Revision
+		}
+		held[c.ID] = true
+	}
+	return nil
+}
+
+// userFor reads a user the signed-in actor may use perm on, to decide what
+// a change of them needs; ok is false when they're gone or out of reach.
+func (s *Server) userFor(ctx context.Context, id store.ID, perm auth.Permission) (*store.Object[identity.UserSpec, identity.UserStatus], bool) {
+	st := s.store()
+	if st == nil {
+		return nil, false
+	}
+	u, err := identity.UserKind.Get(ctx, st, id)
+	if err != nil || u.Deleted() || allowed(ctx, s.authorizer(), perm, auth.Target{Scope: u.Scope, Object: u.ID}) != nil {
+		return nil, false
+	}
+	return u, true
+}
+
+// changeSetConfirms reports whether applying a preview asks for a
+// confirmation: a change of a kind that asks for it, or one that would
+// leave a user with another username or email address than the store has
+// now, which is what applying it changes.
+func (s *Server) changeSetConfirms(ctx context.Context, cs *changeset.ChangeSet) bool {
+	for _, c := range cs.Changes {
+		if s.confirms(c.Kind, c.Op, c.Action) {
+			return true
+		}
+		if c.Kind != identity.KindUser || (c.Op != changeset.OpUpdate && c.Op != changeset.OpAction) {
+			continue
+		}
+		u, ok := s.userFor(ctx, c.ID, auth.PermUserRead)
+		if !ok {
+			continue
+		}
+		// Settings that can't be read count as a change.
+		var next identity.UserSpec
+		if json.Unmarshal(c.After, &next) != nil || identity.SignInMatchChanged(u.Spec, next) {
 			return true
 		}
 	}
 	return false
 }
 
-// changeSetConfirms reports whether applying or undoing a change set asks
-// for a confirmation.
-func (s *Server) changeSetConfirms(cs *changeset.ChangeSet) bool {
-	for _, c := range cs.Changes {
-		if s.confirms(c.Kind, c.Op, c.Action) {
+// undoConfirms reports whether undoing a change set asks for a
+// confirmation, from the changes its undo makes.
+func (s *Server) undoConfirms(cs *changeset.ChangeSet) bool {
+	for _, c := range undoChanges(cs) {
+		if s.confirms(c.kind, c.op, "") {
 			return true
 		}
 	}
 	return false
+}
+
+// undoChange is what undoing a change set does to one resource.
+type undoChange struct {
+	kind string
+	op   changeset.Op
+}
+
+// undoChanges is what undoing a change set does, as Undo builds it:
+// creates become deletes, deletes become creates, and updates and actions
+// become updates that put back the settings they replaced, except those
+// that changed nothing and those of a resource whose creation is undone
+// too.
+func undoChanges(cs *changeset.ChangeSet) []undoChange {
+	created := map[store.ID]bool{}
+	for _, c := range cs.Changes {
+		if c.Op == changeset.OpCreate {
+			created[c.ID] = true
+		}
+	}
+	var out []undoChange
+	for _, c := range cs.Changes {
+		switch {
+		case c.Op == changeset.OpCreate:
+			out = append(out, undoChange{c.Kind, changeset.OpDelete})
+		case c.Op == changeset.OpDelete:
+			out = append(out, undoChange{c.Kind, changeset.OpCreate})
+		case created[c.ID], bytes.Equal(c.Before, c.After) && maps.Equal(c.Labels, c.LabelsBefore):
+		default:
+			out = append(out, undoChange{c.Kind, changeset.OpUpdate})
+		}
+	}
+	return out
 }
 
 // requireIdentity refuses identity operations on a panel without the
@@ -258,23 +368,14 @@ func (s *Server) requestRisk(changes []changeset.Change) store.Risk {
 	return risk
 }
 
-// undoRisk is the risk of undoing a change set: its creates become deletes
-// and its deletes creates.
+// undoRisk is the risk of undoing a change set, from the changes its undo
+// makes.
 func (s *Server) undoRisk(cs *changeset.ChangeSet) store.Risk {
 	risk := store.RiskRead
-	for _, c := range cs.Changes {
-		k, ok := s.kinds.Get(c.Kind)
-		if !ok {
-			continue
+	for _, c := range undoChanges(cs) {
+		if k, ok := s.kinds.Get(c.kind); ok {
+			risk = store.MaxRisk(risk, opRisk(k.Info(), c.op, ""))
 		}
-		op := c.Op
-		switch op {
-		case changeset.OpCreate:
-			op = changeset.OpDelete
-		case changeset.OpDelete:
-			op = changeset.OpCreate
-		}
-		risk = store.MaxRisk(risk, opRisk(k.Info(), op, c.Action))
 	}
 	return risk
 }

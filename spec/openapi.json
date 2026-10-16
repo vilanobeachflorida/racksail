@@ -24380,7 +24380,7 @@
     },
     "/api/v1/core/users/{id}/actions/update_profile": {
       "post": {
-        "description": "Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
+        "description": "Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own. A new email address takes confirming it's you in the panel, since outside sign-in may match people by it. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.",
         "operationId": "updateProfileCoreUser",
         "parameters": [
           {

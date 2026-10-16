@@ -34,6 +34,7 @@ function Details({ me }: { me: Me }) {
   const api = useApi();
   const client = useQueryClient();
   const { refresh } = useSession();
+  const { guard } = useStepUp();
   const [, setLocaleChoice] = useLocaleChoice();
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email ?? "");
@@ -52,12 +53,16 @@ function Details({ me }: { me: Me }) {
     try {
       const chosen = locale === browser ? "" : locale;
       // The profile changes through a change set of the person's own user,
-      // which is in place once it's answered.
-      await updateMe(api, {
-        name: name.trim(),
-        email: email.trim(),
-        locale: chosen,
-      });
+      // which is in place once it's answered. A new email address asks the
+      // person to confirm it's them first, since outside sign-in may match
+      // people by it.
+      await guard(() =>
+        updateMe(api, {
+          name: name.trim(),
+          email: email.trim(),
+          locale: chosen,
+        }),
+      );
       await client.invalidateQueries({ queryKey: ["me"] });
       setLocaleChoice(chosen === "" ? null : chosen);
       await refresh();

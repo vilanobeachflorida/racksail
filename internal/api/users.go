@@ -317,7 +317,7 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 		if err := s.stepUpFor(actor, s.requestRisk(changes)); err != nil {
 			return nil, err
 		}
-		if err := s.stepUpForKinds(actor, s.requestConfirms(changes)); err != nil {
+		if err := s.confirmChanges(ctx, actor, changes); err != nil {
 			return nil, err
 		}
 	}

@@ -232,7 +232,7 @@ func (s *Server) registerChangeSets() {
 			if err := s.stepUpFor(actor, s.requestRisk(in.Body.Changes)); err != nil {
 				return nil, err
 			}
-			if err := s.stepUpForKinds(actor, s.requestConfirms(in.Body.Changes)); err != nil {
+			if err := s.confirmChanges(ctx, actor, in.Body.Changes); err != nil {
 				return nil, err
 			}
 		}
@@ -262,7 +262,7 @@ func (s *Server) registerChangeSets() {
 		if err := s.stepUpFor(actor, preview.Risk); err != nil {
 			return nil, err
 		}
-		if err := s.stepUpForKinds(actor, s.changeSetConfirms(preview)); err != nil {
+		if err := s.stepUpForKinds(actor, s.changeSetConfirms(ctx, preview)); err != nil {
 			return nil, err
 		}
 		cs, err := s.pipeline().Apply(ctx, changeset.ApplyRequest{Actor: actor, ChangeSet: in.ID, IdempotencyKey: in.IdempotencyKey})
@@ -297,7 +297,7 @@ func (s *Server) registerChangeSets() {
 			if err := s.stepUpFor(actor, s.undoRisk(original)); err != nil {
 				return nil, err
 			}
-			if err := s.stepUpForKinds(actor, s.changeSetConfirms(original)); err != nil {
+			if err := s.stepUpForKinds(actor, s.undoConfirms(original)); err != nil {
 				return nil, err
 			}
 		}
