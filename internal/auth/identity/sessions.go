@@ -437,10 +437,14 @@ func (s *Service) sessionsOf(ctx context.Context, user, current store.ID) ([]Ses
 	return out, nil
 }
 
-// EndMySession ends one of the actor's sessions.
+// EndMySession ends one of the actor's sessions. Someone viewing the panel
+// as the person can't, as they can't sign them out elsewhere.
 func (s *Service) EndMySession(ctx context.Context, actor *auth.Actor, id store.ID) error {
 	if err := requirePerson(actor); err != nil {
 		return err
+	}
+	if actor.Impersonator != "" {
+		return auth.ErrImpersonating.New("user", actor.Name, "action", "end their sessions")
 	}
 	x, err := s.opts.Store.Session(ctx, id)
 	if err != nil || x.User != actor.Person() {

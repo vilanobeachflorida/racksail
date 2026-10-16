@@ -684,6 +684,7 @@ func TestImpersonation(t *testing.T) {
 	bob := h.user("bob", store.AccountScope(acct), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(acct)})
 	viewer := h.user("vic", store.ServerScope(), auth.Grant{Role: auth.RoleReadOnly, Scope: store.ServerScope()})
 
+	bobsOwn, _ := h.signIn("bob")
 	issued, err := h.svc.Impersonate(ctx, admin, bob.ID, client)
 	if err != nil {
 		t.Fatal(err)
@@ -697,6 +698,20 @@ func TestImpersonation(t *testing.T) {
 	}
 	if err := h.svc.ChangePassword(ctx, as, PasswordInput{Current: password, New: "something else long"}); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("changing their password = %v", err)
+	}
+	// Signing bob out is out of reach too, one session at a time as much as
+	// all of them.
+	if err := h.svc.EndMySession(ctx, as, store.ID(bobsOwn.SessionID)); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("ending one of their sessions = %v", err)
+	}
+	if _, err := h.svc.EndOtherSessions(ctx, as); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("signing them out elsewhere = %v", err)
+	}
+	if err := h.svc.ForgetDevice(ctx, as, ""); !auth.ErrImpersonating.Is(err) {
+		t.Errorf("forgetting their browsers = %v", err)
+	}
+	if _, err := h.svc.SessionOf(ctx, bobsOwn); err != nil {
+		t.Errorf("bob's own session = %v", err)
 	}
 	if _, err := h.svc.Impersonate(ctx, as, viewer.ID, client); !auth.ErrImpersonating.Is(err) {
 		t.Errorf("impersonating twice = %v", err)
