@@ -15,3 +15,5 @@ if not racksail_addon.supports("v1"):
 cd sdk/python
 PYTHONPATH=src python3 -m unittest discover -s tests
 ```
+
+The tests refuse to run on a Python older than the one `pyproject.toml` requires, such as the 3.9 macOS comes with; `make sdk-check` picks the newest `python3.x` on the `PATH` that is new enough, or the one `PYTHON` names.
