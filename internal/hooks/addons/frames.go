@@ -124,6 +124,20 @@ func (r *Runtime) frameActor(inst, token string) (*auth.Actor, bool) {
 	return fr.actor.Clone(), true
 }
 
+// FrameOf returns who a frame was opened for, while its address works,
+// without counting it as a use: the panel's API asks before the request
+// reaches the frame, to count it against that person's rate limit.
+func (r *Runtime) FrameOf(token string) *auth.Actor {
+	f := &r.frames
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fr, ok := f.open[frameKey(token)]
+	if !ok || fr.done(f.now()) {
+		return nil
+	}
+	return fr.actor.Clone()
+}
+
 // closeFrame closes one frame, once whoever it was opened for may no
 // longer use its add-on.
 func (r *Runtime) closeFrame(token string) {

@@ -69,7 +69,7 @@ Values that aren't text, and resources the answer leaves out, show as empty cell
 
 ## Screens
 
-A screen is a page the add-on serves itself at `GET /ui/<path>` on its socket, along with what the page loads: scripts, style sheets, images and fonts. When someone opens one, at `/api/v1/addons/<id>/ui/<path>`, the panel checks they may use the add-on and sends the frame it shows the screen in on to an address of its own, `/api/v1/addons/<id>/frames/<token>/ui/<path>`, with the query the screen was asked with. The token in it stands for that person with that add-on and nothing else, so what the page loads and asks for under the frame's address is signed in as them, without the panel's session:
+A screen is a page the add-on serves itself at `GET /ui/<path>` on its socket, along with what the page loads: scripts, style sheets, images and fonts. When someone opens one, at `/api/v1/addons/<id>/ui/<path>`, the panel checks they may use the add-on and sends the frame it shows the screen in on to an address of its own, `/api/v1/addons/<id>/frames/<token>/ui/<path>`, with the query the screen was asked with. The token in it stands for that person with that add-on and nothing else, so what the page loads and asks for under the frame's address is signed in as them, without the panel's session, and counts against their own rate limit:
 
 - the page runs in a sandbox with an origin of its own, so it can never read the panel's session, cookies or pages;
 - its scripts run when the add-on serves them, as `<script src="app.js">`, or inline with the nonce its request brings in `Racksail-Nonce`, as `<script nonce="…">`; styles may be inline too, and images and fonts `data:` URLs;

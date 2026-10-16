@@ -81,10 +81,15 @@ func (p *people) Members(ctx context.Context, account store.ID) ([]auth.Director
 
 func (p *people) SSHKeys(ctx context.Context, user store.ID) ([]auth.SSHKey, error) { return nil, nil }
 
-// signedIn signs every request in as one person.
+// signedIn signs in requests with the session cookie of one person.
 type signedIn struct{ actor *auth.Actor }
 
+const adaSession = "racksail_session=ada"
+
 func (s signedIn) Authenticate(ctx context.Context, r *http.Request) (*auth.Actor, error) {
+	if r.Header.Get("Cookie") != adaSession {
+		return nil, nil
+	}
 	return s.actor.Clone(), nil
 }
 
@@ -162,11 +167,16 @@ upstream: []
 	return srvAPI.Handler(), logs
 }
 
-// openScreen opens a screen and returns the frame the panel sends it to.
-func openScreen(t *testing.T, h http.Handler, path string) string {
+// openScreen opens a screen, with a session cookie when given one, and
+// returns the frame the panel sends it to.
+func openScreen(t *testing.T, h http.Handler, path, cookie string) string {
 	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	h.ServeHTTP(rec, req)
 	frame := rec.Header().Get("Location")
 	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(frame, "/api/v1/addons/site-guard/frames/") {
 		t.Fatalf("opening %s = %d %q %s", path, rec.Code, frame, rec.Body)
@@ -181,7 +191,7 @@ func openScreen(t *testing.T, h http.Handler, path string) string {
 // The log leaves the frame's token out.
 func TestAddonScreensOpenInFrames(t *testing.T) {
 	h, logs := withAddon(t, nil, nil)
-	frame := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html?tab=sites")
+	frame := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html?tab=sites", "")
 	if !strings.HasSuffix(frame, "/ui/overview.html?tab=sites") {
 		t.Fatalf("the frame of the screen = %q", frame)
 	}
@@ -227,13 +237,15 @@ func TestAddonScreensOpenInFrames(t *testing.T) {
 	}
 }
 
-// A frame stops working once the person it was opened for is turned off,
-// and stays closed when they're turned on again.
+// A frame's requests, which carry no session, are the person's it was
+// opened for: their own rate limit, and their name in the log. It stops
+// working once they're turned off, and stays closed when they're turned on
+// again.
 func TestFramesCloseForPeopleTurnedOff(t *testing.T) {
 	ada := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Name: "ada", Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleCollaborator, Scope: store.ServerScope()}}}
 	dir := &people{off: map[store.ID]bool{}}
-	h, _ := withAddon(t, signedIn{ada}, dir)
-	frame := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html")
+	h, logs := withAddon(t, signedIn{ada}, dir)
+	frame := openScreen(t, h, "/api/v1/addons/site-guard/ui/overview.html", adaSession)
 	load := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, frame, nil))
@@ -241,6 +253,15 @@ func TestFramesCloseForPeopleTurnedOff(t *testing.T) {
 	}
 	if rec := load(); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), string(ada.ID)) {
 		t.Fatalf("the frame = %d %s", rec.Code, rec.Body)
+	}
+	var framed bool
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(line, "/frames/…/ui/overview.html") {
+			framed = strings.Contains(line, `actor="user:`+string(ada.ID))
+		}
+	}
+	if !framed {
+		t.Errorf("the log doesn't say whose the frame's request was: %s", logs)
 	}
 	dir.mu.Lock()
 	dir.off[ada.ID] = true

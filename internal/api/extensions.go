@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 )
 
@@ -33,6 +34,11 @@ type Extension struct {
 	// them, since the session cookie isn't what lets them through, and the
 	// access log leaves the token out.
 	PathCredentials []string
+	// PathActor returns who the token in such a path stands for, or nil
+	// for nobody. The request counts against their rate limit and the
+	// access log names them, never whoever its session cookie signs in;
+	// the route itself still checks the token.
+	PathActor func(svc *modules.Services, token string) *auth.Actor
 	// Reserved are first path segments under Prefix the extension uses,
 	// which no module's kinds may.
 	Reserved []string
@@ -92,17 +98,44 @@ func (s *Server) addExtensions() {
 			if _, path, ok := strings.Cut(p, " "); ok {
 				p = path
 			}
-			s.credentials = append(s.credentials, strings.Split(strings.Trim(p, "/"), "/"))
+			c := pathCredential{segments: strings.Split(strings.Trim(p, "/"), "/")}
+			if who := e.PathActor; who != nil {
+				svc := s.opts.Services
+				c.actor = func(token string) *auth.Actor { return who(svc, token) }
+			}
+			s.credentials = append(s.credentials, c)
 		}
 	}
+}
+
+// pathCredential is a pattern of paths that carry a token of their own,
+// as segments, and who a token stands for.
+type pathCredential struct {
+	segments []string
+	actor    func(token string) *auth.Actor
+}
+
+// pathActor reports whether a request's path carries a token of its own,
+// and who the token stands for, nil for nobody.
+func (s *Server) pathActor(path string) (*auth.Actor, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for _, c := range s.credentials {
+		if i, ok := tokenAt(c.segments, parts); ok {
+			if c.actor == nil {
+				return nil, true
+			}
+			return c.actor(parts[i]), true
+		}
+	}
+	return nil, false
 }
 
 // loggedPath is a request's path as the access log keeps it, without the
 // token of a path that carries one.
 func (s *Server) loggedPath(path string) string {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	for _, pattern := range s.credentials {
-		if i, ok := tokenAt(pattern, parts); ok {
+	for _, c := range s.credentials {
+		if i, ok := tokenAt(c.segments, parts); ok {
 			parts[i] = "…"
 			return "/" + strings.Join(parts, "/")
 		}

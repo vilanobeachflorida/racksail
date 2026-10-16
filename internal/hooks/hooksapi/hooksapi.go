@@ -40,6 +40,12 @@ func init() {
 			framePattern: addonFrames,
 		},
 		PathCredentials: []string{framePattern},
+		PathActor: func(svc *modules.Services, token string) *auth.Actor {
+			if svc == nil || svc.Addons == nil {
+				return nil
+			}
+			return svc.Addons.FrameOf(token)
+		},
 	})
 }
 

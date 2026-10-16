@@ -5,9 +5,9 @@ import "testing"
 // The access log keeps the paths of routes signed in by a token in their
 // path, without the token.
 func TestLoggedPaths(t *testing.T) {
-	s := &Server{credentials: [][]string{
-		{"api", "v1", "addons", "{addon}", "frames", "{token}", "{path...}"},
-		{"api", "v1", "shares", "{token}"},
+	s := &Server{credentials: []pathCredential{
+		{segments: []string{"api", "v1", "addons", "{addon}", "frames", "{token}", "{path...}"}},
+		{segments: []string{"api", "v1", "shares", "{token}"}},
 	}}
 	for path, want := range map[string]string{
 		"/api/v1/addons/site-guard/frames/abc/ui/index.html": "/api/v1/addons/site-guard/frames/…/ui/index.html",

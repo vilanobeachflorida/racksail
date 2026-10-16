@@ -144,10 +144,10 @@ type Server struct {
 	// catalog is the answer of GET /events/types.
 	catalog eventCatalog
 	// crossOrigin keeps other sites' pages from changing anything with the
-	// session, and credentials are the patterns of paths that carry a
-	// token of their own instead, as segments.
+	// session, and credentials are the paths that carry a token of their
+	// own instead.
 	crossOrigin *http.CrossOriginProtection
-	credentials [][]string
+	credentials []pathCredential
 	// noSignIn is set when no authenticator is configured outside
 	// development mode.
 	noSignIn bool
@@ -513,6 +513,12 @@ func (s *Server) Handler() http.Handler {
 		case found != nil:
 			actor = found
 			ctx = auth.WithActor(ctx, actor)
+		}
+		if who, ok := s.pathActor(r.URL.Path); ok {
+			// The token in the path signs the request in, never the
+			// session it carries.
+			actor = who
+			ctx = auth.WithActor(ctx, who)
 		}
 		if isAPI {
 			rec.Header().Set("Cache-Control", "no-store")
