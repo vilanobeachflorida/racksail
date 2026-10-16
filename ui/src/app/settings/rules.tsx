@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { ScrollText } from "lucide-react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ScrollText, Webhook } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { useIntl } from "react-intl";
 import { Button } from "@/design/components/ui/button";
@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/design/components/ui/table";
+import { toast } from "@/design/components/ui/toaster";
 import { type Schemas, unwrap } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
@@ -38,6 +39,8 @@ import { ChangeDialog, useChangeFlow } from "./change-flow";
 
 type PolicySpec = Schemas["PolicySpec"];
 type TestResult = Schemas["TestResult"];
+type HookInfo = Schemas["HookInfo"];
+type SafeModeSource = Schemas["SafeModeSource"];
 
 /** Splits a comma-separated list, leaving out empty entries. */
 function list(text: string): string[] {
@@ -418,7 +421,313 @@ function Tester() {
   );
 }
 
-/** The server's rules, and the tester that tries a rule on a change before it is saved. */
+/** The hooks attached, in the order they run, and switching one the breaker turned off back on. */
+function Hooks() {
+  const intl = useIntl();
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<string | null>(null);
+  const hooks = useQuery({
+    queryKey: ["hooks"],
+    queryFn: () => unwrap(api.GET("/api/v1/hooks")),
+    retry: false,
+  });
+  // Without core.hook.read the server says no; the card is for those who may see it.
+  if (hooks.isError || !hooks.data) {
+    return null;
+  }
+  const enable = async (hook: HookInfo) => {
+    const key = `${hook.owner} ${hook.point}`;
+    setPending(key);
+    try {
+      await unwrap(
+        api.POST("/api/v1/hooks/enable", { body: { owner: hook.owner, point: hook.point } }),
+      );
+      toast.success(intl.formatMessage(m.hooksEnabled, { owner: hook.label || hook.owner }));
+      await queryClient.invalidateQueries({ queryKey: ["hooks"] });
+      await queryClient.invalidateQueries({ queryKey: ["hook-points"] });
+    } catch (error) {
+      toast.error(errorMessage(intl, error));
+    } finally {
+      setPending(null);
+    }
+  };
+  const list = hooks.data.hooks ?? [];
+  return (
+    <Card aria-labelledby="hooks-title">
+      <CardHeader>
+        <CardTitle id="hooks-title">{intl.formatMessage(m.hooksTitle)}</CardTitle>
+        <CardDescription>{intl.formatMessage(m.hooksHelp)}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {list.length === 0 ? (
+          <EmptyState icon={Webhook} title={intl.formatMessage(m.hooksNone)} />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{intl.formatMessage(m.hooksOwner)}</TableHead>
+                <TableHead>{intl.formatMessage(m.hooksPoint)}</TableHead>
+                <TableHead>{intl.formatMessage(m.hooksKind)}</TableHead>
+                <TableHead>{intl.formatMessage(m.hooksPriority)}</TableHead>
+                <TableHead>{intl.formatMessage(m.hooksState)}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {list.map((h) => (
+                <TableRow key={`${h.owner} ${h.point} ${h.kind} ${h.label ?? ""}`}>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{h.label || h.owner}</span>
+                      {h.label ? (
+                        <span className="font-mono text-muted-foreground text-xs">{h.owner}</span>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{h.point}</TableCell>
+                  <TableCell>{intl.formatMessage(m.hooksKindValue, { kind: h.kind })}</TableCell>
+                  <TableCell>{intl.formatNumber(h.priority)}</TableCell>
+                  <TableCell>
+                    {h.disabled ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="danger">{intl.formatMessage(m.hooksOff)}</Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          busy={pending === `${h.owner} ${h.point}`}
+                          disabled={pending !== null}
+                          aria-label={intl.formatMessage(m.hooksEnableLabel, {
+                            owner: h.label || h.owner,
+                            point: h.point,
+                          })}
+                          onClick={() => enable(h)}
+                        >
+                          {intl.formatMessage(m.hooksEnable)}
+                        </Button>
+                      </div>
+                    ) : (h.failures ?? 0) > 0 ? (
+                      <Badge variant="warning">
+                        {intl.formatMessage(m.hooksFailures, { count: h.failures })}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">
+                        {intl.formatMessage(m.hooksRunning)}
+                      </span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// The points are many, one for every stage of every operation on every
+// kind, so the list shows the first ones that match.
+const pointsShown = 50;
+
+/** Every point hooks can attach to, found by the start of its name. */
+function Points() {
+  const intl = useIntl();
+  const api = useApi();
+  const id = useId();
+  const [prefix, setPrefix] = useState("");
+  const points = useQuery({
+    queryKey: ["hook-points", prefix],
+    queryFn: () => unwrap(api.GET("/api/v1/hooks/points", { params: { query: { prefix } } })),
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+  if (points.isError) {
+    return null;
+  }
+  const all = points.data?.points ?? [];
+  const shown = all.slice(0, pointsShown);
+  return (
+    <Card aria-labelledby={`${id}-title`}>
+      <CardHeader>
+        <CardTitle id={`${id}-title`}>{intl.formatMessage(m.pointsTitle)}</CardTitle>
+        <CardDescription>{intl.formatMessage(m.pointsHelp)}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${id}-prefix`}>{intl.formatMessage(m.pointsFilter)}</Label>
+          <Input
+            id={`${id}-prefix`}
+            className="font-mono"
+            placeholder="web.site."
+            value={prefix}
+            onChange={(e) => setPrefix(e.target.value.trim())}
+          />
+        </div>
+        {all.length === 0 && !points.isPending ? (
+          <p className="text-muted-foreground text-sm">{intl.formatMessage(m.pointsNone)}</p>
+        ) : (
+          <ul
+            className="flex flex-col divide-y divide-border"
+            aria-label={intl.formatMessage(m.pointsTitle)}
+          >
+            {shown.map((p) => (
+              <li key={p.point} className="flex flex-col gap-1 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="font-mono text-sm">{p.point}</code>
+                  {p.config ? (
+                    <Badge variant="outline">
+                      {intl.formatMessage(p.checked ? m.pointsChecked : m.pointsConfig)}
+                    </Badge>
+                  ) : null}
+                  <Badge>
+                    {intl.formatMessage(m.pointsHooks, { count: (p.hooks ?? []).length })}
+                  </Badge>
+                </div>
+                {p.description ? (
+                  <p className="text-muted-foreground text-sm">{p.description}</p>
+                ) : null}
+                {(p.invariants ?? []).length > 0 ? (
+                  <p className="text-muted-foreground text-xs">
+                    {intl.formatMessage(m.pointsInvariants, {
+                      settings: intl.formatList(p.invariants ?? [], { type: "conjunction" }),
+                    })}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {all.length > shown.length ? (
+          <p className="text-muted-foreground text-sm">
+            {intl.formatMessage(m.pointsShown, { shown: shown.length, total: all.length })}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Says why safe mode is on, in the words of what turned it on. */
+function SafeModeSourceLine({ source }: { source: SafeModeSource }) {
+  const intl = useIntl();
+  return (
+    <li>
+      {source.kind === "boot"
+        ? intl.formatMessage(m.safeModeBoot)
+        : intl.formatMessage(m.safeModeSource, {
+            kind: source.kind,
+            reason: source.reason || intl.formatMessage(m.safeModeNoReason),
+          })}
+      {source.since ? (
+        <span className="text-muted-foreground">
+          {" "}
+          {intl.formatMessage(m.safeModeSince, {
+            when: intl.formatDate(source.since, { dateStyle: "medium", timeStyle: "short" }),
+          })}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+/** Safe mode: whether add-ons run, and turning them all off or on again. */
+function SafeMode() {
+  const intl = useIntl();
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const id = useId();
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const status = useQuery({
+    queryKey: ["safe-mode"],
+    queryFn: () => unwrap(api.GET("/api/v1/safe-mode")),
+    retry: false,
+  });
+  if (status.isError || !status.data) {
+    return null;
+  }
+  const run = async (on: boolean) => {
+    setBusy(true);
+    try {
+      const next = on
+        ? await unwrap(api.POST("/api/v1/safe-mode", { body: { reason: reason.trim() } }))
+        : await unwrap(api.DELETE("/api/v1/safe-mode"));
+      queryClient.setQueryData(["safe-mode"], next);
+      setReason("");
+      // Add-ons' hooks leave the pipeline in safe mode and come back after it.
+      await queryClient.invalidateQueries({ queryKey: ["hooks"] });
+      await queryClient.invalidateQueries({ queryKey: ["hook-points"] });
+    } catch (error) {
+      toast.error(errorMessage(intl, error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const st = status.data;
+  const sources = st.sources ?? [];
+  // The boot option lasts until the server starts without it; the rest can be turned off here.
+  const removable = sources.some((s) => s.kind !== "boot");
+  const boot = sources.some((s) => s.kind === "boot");
+  return (
+    <Card aria-labelledby={`${id}-title`}>
+      <CardHeader>
+        <CardTitle id={`${id}-title`}>{intl.formatMessage(m.safeModeTitle)}</CardTitle>
+        <CardDescription>{intl.formatMessage(m.safeModeHelp)}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {st.active ? (
+          <Alert tone="warning" title={intl.formatMessage(m.safeModeOn)}>
+            <ul className="flex list-disc flex-col gap-1 ps-4">
+              {sources.map((s) => (
+                <SafeModeSourceLine key={s.kind} source={s} />
+              ))}
+            </ul>
+          </Alert>
+        ) : (
+          <p className="text-sm">{intl.formatMessage(m.safeModeOff)}</p>
+        )}
+        {st.active ? (
+          <div className="flex flex-col gap-2">
+            {removable ? (
+              <div>
+                <Button variant="outline" busy={busy} onClick={() => run(false)}>
+                  {intl.formatMessage(m.safeModeLeave)}
+                </Button>
+              </div>
+            ) : null}
+            {boot ? (
+              <p className="text-muted-foreground text-sm">
+                {intl.formatMessage(m.safeModeBootStays)}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex min-w-60 flex-1 flex-col gap-1.5">
+              <Label htmlFor={`${id}-reason`}>{intl.formatMessage(m.safeModeReason)}</Label>
+              <Input
+                id={`${id}-reason`}
+                maxLength={500}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+            <Button
+              variant="destructive"
+              busy={busy}
+              disabled={reason.trim() === ""}
+              onClick={() => run(true)}
+            >
+              {intl.formatMessage(m.safeModeEnter)}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The server's rules, the tester that tries a rule before it is saved, the hooks and safe mode. */
 export default function RulesSettings() {
   const intl = useIntl();
   return (
@@ -429,6 +738,9 @@ export default function RulesSettings() {
       </div>
       <RuleList />
       <Tester />
+      <Hooks />
+      <Points />
+      <SafeMode />
     </div>
   );
 }

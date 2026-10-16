@@ -177,6 +177,160 @@ describe("the rules page", () => {
     expect(await screen.findByText("The settings aren't valid JSON.")).toBeInTheDocument();
     expect(sent).toBeUndefined();
   });
+
+  it("lists hooks and points, switches a hook back on and turns safe mode on and off", async () => {
+    const user = userEvent.setup();
+    let breakerOff = true;
+    let enabled: unknown;
+    let safe: Record<string, unknown> = { active: false };
+    const guard = () => ({
+      owner: "addon:site-guard",
+      label: "Site guard 1.2.0",
+      kind: "validate",
+      point: "web.site.deploy.validate",
+      priority: 100,
+      failures: breakerOff ? 5 : 0,
+      disabled: breakerOff,
+    });
+    const caddy = {
+      owner: "module:web",
+      kind: "system",
+      point: "system.caddy.config",
+      priority: 0,
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/core/policies": () => json({ items: [] }),
+      "GET /api/v1/hooks": () => json({ hooks: [caddy, guard()] }),
+      "POST /api/v1/hooks/enable": async (request) => {
+        enabled = await request.json();
+        breakerOff = false;
+        return new Response(null, { status: 204 });
+      },
+      "GET /api/v1/hooks/points": (request) => {
+        const prefix = new URL(request.url).searchParams.get("prefix") ?? "";
+        const points = [
+          {
+            point: "system.caddy.config",
+            description: "Caddy's configuration",
+            config: true,
+            checked: true,
+            invariants: ["admin.listen"],
+            hooks: [caddy],
+          },
+          {
+            point: "web.site.deploy.validate",
+            kind: "web.site",
+            operation: "deploy",
+            stage: "validate",
+            hooks: [guard()],
+          },
+          { point: "web.site.delete.validate", kind: "web.site", operation: "delete" },
+        ];
+        return json({ points: points.filter((p) => p.point.startsWith(prefix)) });
+      },
+      "GET /api/v1/safe-mode": () => json(safe),
+      "POST /api/v1/safe-mode": async (request) => {
+        const { reason } = (await request.json()) as { reason: string };
+        safe = {
+          active: true,
+          sources: [{ kind: "console", reason, since: "2026-10-15T12:00:00Z" }],
+        };
+        return json(safe);
+      },
+      "DELETE /api/v1/safe-mode": () => {
+        safe = { active: false };
+        return json(safe);
+      },
+    });
+    const { container } = renderShell({
+      modules: [],
+      messages: shellMessages,
+      api,
+      path: "/settings/rules",
+    });
+
+    const hooks = await screen.findByRole("region", { name: "Hooks" });
+    expect(await within(hooks).findByText("Site guard 1.2.0")).toBeInTheDocument();
+    expect(within(hooks).getByText("Patches configuration")).toBeInTheDocument();
+    expect(within(hooks).getByText("Switched off")).toBeInTheDocument();
+    await user.click(
+      within(hooks).getByRole("button", {
+        name: "Switch Site guard 1.2.0 back on at web.site.deploy.validate",
+      }),
+    );
+    await waitFor(() => expect(within(hooks).queryByText("Switched off")).not.toBeInTheDocument());
+    expect(enabled).toEqual({ owner: "addon:site-guard", point: "web.site.deploy.validate" });
+
+    const points = await screen.findByRole("region", { name: "Hook points" });
+    expect(await within(points).findByText("system.caddy.config")).toBeInTheDocument();
+    expect(
+      within(points).getByText("Configuration, checked before it is kept"),
+    ).toBeInTheDocument();
+    expect(
+      within(points).getByText("Hooks can only make these stricter: admin.listen"),
+    ).toBeInTheDocument();
+    expect(within(points).getByText("Nothing attached")).toBeInTheDocument();
+    await user.type(
+      within(points).getByRole("textbox", { name: "Points starting with" }),
+      "web.site.de",
+    );
+    await waitFor(() =>
+      expect(within(points).queryByText("system.caddy.config")).not.toBeInTheDocument(),
+    );
+    expect(within(points).getByText("web.site.deploy.validate")).toBeInTheDocument();
+    expect(within(points).getByText("web.site.delete.validate")).toBeInTheDocument();
+
+    const safeMode = screen.getByRole("region", { name: "Safe mode" });
+    expect(within(safeMode).getByText("Safe mode is off, and add-ons run.")).toBeInTheDocument();
+    const turnOn = within(safeMode).getByRole("button", { name: "Turn on safe mode" });
+    expect(turnOn).toBeDisabled();
+    await user.type(
+      within(safeMode).getByRole("textbox", { name: "Why" }),
+      "An add-on keeps failing",
+    );
+    await user.click(turnOn);
+    expect(
+      await within(safeMode).findByText("Safe mode is on, so no add-on runs"),
+    ).toBeInTheDocument();
+    expect(
+      within(safeMode).getByText(
+        "Turned on from the console or this panel: An add-on keeps failing",
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    expect(await axeViolations(container)).toEqual([]);
+    await user.click(within(safeMode).getByRole("button", { name: "Turn off safe mode" }));
+    expect(
+      await within(safeMode).findByText("Safe mode is off, and add-ons run."),
+    ).toBeInTheDocument();
+  });
+
+  it("says safe mode from the boot option lasts until the server starts without it", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/core/policies": () => json({ items: [] }),
+      "GET /api/v1/safe-mode": () =>
+        json({
+          active: true,
+          sources: [{ kind: "boot", reason: "The server was started with the boot option." }],
+        }),
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/rules" });
+    const safeMode = await screen.findByRole("region", { name: "Safe mode" });
+    expect(
+      within(safeMode).getByText("The server was started with the racksail.safe_mode boot option."),
+    ).toBeInTheDocument();
+    expect(
+      within(safeMode).getByText(
+        "The boot option keeps safe mode on until the server starts without it.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(safeMode).queryByRole("button", { name: "Turn off safe mode" })).toBeNull();
+    // Without core.hook.read the hooks and their points stay out of sight.
+    expect(screen.queryByRole("region", { name: "Hooks" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Hook points" })).toBeNull();
+  });
 });
 
 describe("the notifications page", () => {
