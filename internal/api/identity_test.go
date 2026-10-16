@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -227,6 +228,29 @@ func TestSignInLimitsSayWhenToTryAgain(t *testing.T) {
 	}
 	if p.Detail != want {
 		t.Errorf("detail = %q, want %q", p.Detail, want)
+	}
+}
+
+// A lockout says how long it lasts in Retry-After as well, as the API's own
+// rate limit and the limits on signing in from one address do.
+func TestLockoutsSayWhenToTryAgain(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	s.setUp()
+	b := s.browser()
+	for range identity.DefaultPolicy().LockoutAttempts {
+		b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": "not the password at all"}, nil)
+	}
+	resp := b.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
+	if resp.StatusCode != http.StatusTooManyRequests || s.problem(resp) != auth.ErrLocked.Code {
+		t.Fatalf("a locked-out user = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var p struct {
+		Params map[string]any `json:"params"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	after := resp.Header.Get("Retry-After")
+	if seconds, err := strconv.Atoi(after); err != nil || after != fmt.Sprint(p.Params["retryAfter"]) || seconds < 14*60 || seconds > 15*60 {
+		t.Errorf("Retry-After = %q, params = %v", after, p.Params)
 	}
 }
 
