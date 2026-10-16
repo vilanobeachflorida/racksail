@@ -91,7 +91,7 @@ func (h *harness) submit(t *testing.T, actor *auth.Actor, dryRun bool, changes .
 	return h.engine.Get(ctx, cs.ID)
 }
 
-func createAccount(spec Spec) changeset.Change {
+func createAccount(spec AccountSpec) changeset.Change {
 	id := store.NewID("acct")
 	raw, _ := json.Marshal(spec)
 	return changeset.Change{Op: changeset.OpCreate, Kind: Kind.Name(), ID: id, Scope: store.AccountScope(id), Spec: raw}
@@ -100,7 +100,7 @@ func createAccount(spec Spec) changeset.Change {
 func TestAccountLifecycle(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
-	change := createAccount(Spec{Slug: "acme", Name: "Acme Inc.", Limits: Limits{MemoryMax: 1 << 30, CPU: 150, Tasks: 512}})
+	change := createAccount(AccountSpec{Slug: "acme", Name: "Acme Inc.", Limits: AccountLimits{MemoryMax: 1 << 30, CPU: 150, Tasks: 512}})
 
 	preview, err := h.submit(t, h.admin, true, change)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestAccountLifecycle(t *testing.T) {
 	}
 
 	// Changing the limits rewrites the slice and keeps the IDs.
-	obj.Spec.Limits = Limits{MemoryMax: 2 << 30}
+	obj.Spec.Limits = AccountLimits{MemoryMax: 2 << 30}
 	raw, _ := json.Marshal(obj.Spec)
 	if cs, err := h.submit(t, h.admin, false, changeset.Change{Op: changeset.OpUpdate, Kind: Kind.Name(), ID: obj.ID, Spec: raw}); err != nil || cs.State != changeset.StateApplied {
 		t.Fatalf("update = %+v, %v", cs, err)
@@ -160,7 +160,7 @@ func TestAccountLifecycle(t *testing.T) {
 
 	// The account's owner sees it but can't change it.
 	owner := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleOwner, Scope: store.AccountScope(obj.ID)}}}
-	obj.Spec.Limits = Limits{}
+	obj.Spec.Limits = AccountLimits{}
 	raw, _ = json.Marshal(obj.Spec)
 	if _, err := h.submit(t, owner, true, changeset.Change{Op: changeset.OpUpdate, Kind: Kind.Name(), ID: obj.ID, Spec: raw}); !errors.Is(err, i18n.ErrForbidden) {
 		t.Errorf("an owner raised their own limits: %v", err)
@@ -210,33 +210,33 @@ func (h *harness) purge(ctx context.Context, id store.ID) error {
 
 func TestAccountValidation(t *testing.T) {
 	h := newHarness(t)
-	for name, spec := range map[string]Spec{
+	for name, spec := range map[string]AccountSpec{
 		"short slug":    {Slug: "ab", Name: "x"},
 		"upper slug":    {Slug: "Acme", Name: "x"},
 		"reserved slug": {Slug: "root", Name: "x"},
 		"no name":       {Slug: "acme"},
-		"memory":        {Slug: "acme", Name: "x", Limits: Limits{MemoryHigh: 2 << 30, MemoryMax: 1 << 30}},
-		"tiny memory":   {Slug: "acme", Name: "x", Limits: Limits{MemoryMax: 1 << 20}},
-		"few tasks":     {Slug: "acme", Name: "x", Limits: Limits{Tasks: 3}},
+		"memory":        {Slug: "acme", Name: "x", Limits: AccountLimits{MemoryHigh: 2 << 30, MemoryMax: 1 << 30}},
+		"tiny memory":   {Slug: "acme", Name: "x", Limits: AccountLimits{MemoryMax: 1 << 20}},
+		"few tasks":     {Slug: "acme", Name: "x", Limits: AccountLimits{Tasks: 3}},
 	} {
 		if _, err := h.submit(t, h.admin, true, createAccount(spec)); !i18n.ErrInvalid.Is(err) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
 	// An account belongs to itself.
-	raw, _ := json.Marshal(Spec{Slug: "acme", Name: "x"})
+	raw, _ := json.Marshal(AccountSpec{Slug: "acme", Name: "x"})
 	other := changeset.Change{Op: changeset.OpCreate, Kind: Kind.Name(), ID: store.NewID("acct"), Scope: store.AccountScope(store.NewID("acct")), Spec: raw}
 	if _, err := h.submit(t, h.admin, true, other); !ErrOwnScope.Is(err) {
 		t.Errorf("another account's scope = %v", err)
 	}
-	created := createAccount(Spec{Slug: "acme", Name: "Acme"})
+	created := createAccount(AccountSpec{Slug: "acme", Name: "Acme"})
 	if _, err := h.submit(t, h.admin, false, created); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.submit(t, h.admin, true, createAccount(Spec{Slug: "ACME", Name: "Again"})); err == nil {
+	if _, err := h.submit(t, h.admin, true, createAccount(AccountSpec{Slug: "ACME", Name: "Again"})); err == nil {
 		t.Error("short names are unique, whatever their case")
 	}
-	renamed, _ := json.Marshal(Spec{Slug: "acme2", Name: "Acme"})
+	renamed, _ := json.Marshal(AccountSpec{Slug: "acme2", Name: "Acme"})
 	if _, err := h.submit(t, h.admin, true, changeset.Change{Op: changeset.OpUpdate, Kind: Kind.Name(), ID: created.ID, Spec: renamed}); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("renaming = %v", err)
 	}
@@ -248,7 +248,7 @@ func TestResellersCreateTheirOwnAccounts(t *testing.T) {
 	reseller, rival := store.NewID("rsl"), store.NewID("rsl")
 	res := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Grants: []auth.Grant{{Role: auth.RoleReseller, Scope: store.ResellerScope(reseller)}}}
 
-	change := createAccount(Spec{Slug: "shop", Name: "Shop", Reseller: reseller})
+	change := createAccount(AccountSpec{Slug: "shop", Name: "Shop", Reseller: reseller})
 	if _, err := h.submit(t, res, true, change); !errors.Is(err, i18n.ErrForbidden) {
 		t.Fatalf("without being expected = %v", err)
 	}
@@ -266,13 +266,13 @@ func TestResellersCreateTheirOwnAccounts(t *testing.T) {
 	}
 
 	// Naming another reseller is refused, even when expected.
-	stolen := createAccount(Spec{Slug: "stolen", Name: "Stolen", Reseller: rival})
+	stolen := createAccount(AccountSpec{Slug: "stolen", Name: "Stolen", Reseller: rival})
 	h.owners.Expect(stolen.ID, reseller, time.Minute)
 	if _, err := h.submit(t, res, true, stolen); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("another reseller's account = %v", err)
 	}
 	// So is a direct account of the server.
-	direct := createAccount(Spec{Slug: "direct", Name: "Direct"})
+	direct := createAccount(AccountSpec{Slug: "direct", Name: "Direct"})
 	h.owners.Expect(direct.ID, reseller, time.Minute)
 	if _, err := h.submit(t, res, true, direct); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("a server account = %v", err)
@@ -288,7 +288,7 @@ func TestResellersCreateTheirOwnAccounts(t *testing.T) {
 }
 
 func TestSteps(t *testing.T) {
-	steps, err := Steps(Spec{Slug: "acme", Name: "Acme\nInc:"}, 20001)
+	steps, err := Steps(AccountSpec{Slug: "acme", Name: "Acme\nInc:"}, 20001)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestSteps(t *testing.T) {
 			}
 		}
 	}
-	for _, s := range RemoveSteps(Spec{Slug: "acme"}) {
+	for _, s := range RemoveSteps(AccountSpec{Slug: "acme"}) {
 		if err := s.Input.(interface{ Validate() error }).Validate(); err != nil {
 			t.Errorf("%s: %v", s.Op, err)
 		}

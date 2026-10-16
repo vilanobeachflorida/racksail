@@ -28,7 +28,7 @@ type reconciler struct {
 const homeMode = 0o750
 
 // SliceLimits turns an account's limits into its slice's.
-func SliceLimits(l Limits) system.ResourceLimits {
+func SliceLimits(l AccountLimits) system.ResourceLimits {
 	return system.ResourceLimits{
 		MemoryHighBytes: l.MemoryHigh, MemoryMaxBytes: l.MemoryMax, CPUQuotaPercent: l.CPU,
 		CPUWeight: l.CPUWeight, IOWeight: l.IOWeight, TasksMax: l.Tasks,
@@ -37,7 +37,7 @@ func SliceLimits(l Limits) system.ResourceLimits {
 
 // Steps returns what makes the machine match an account whose Linux IDs
 // are uid: its group and user, its home and its slice.
-func Steps(spec Spec, uid int) ([]agent.Step, error) {
+func Steps(spec AccountSpec, uid int) ([]agent.Step, error) {
 	slice, err := system.AccountSliceSpec(spec.Slug, SliceLimits(spec.Limits)).Render()
 	if err != nil {
 		return nil, fmt.Errorf("account %s: rendering its slice: %w", spec.Slug, err)
@@ -75,7 +75,7 @@ func comment(name string) string {
 // RemoveSteps returns what removes an account from the machine, its files
 // included; the change pipeline snapshots them first where the storage
 // allows.
-func RemoveSteps(spec Spec) []agent.Step {
+func RemoveSteps(spec AccountSpec) []agent.Step {
 	return []agent.Step{
 		agent.RemoveUnit.Step(agent.UnitInput{Name: system.AccountSlice(spec.Slug)}),
 		agent.DeleteUser.Step(agent.DeleteUserInput{Name: spec.Slug}),
@@ -84,7 +84,7 @@ func RemoveSteps(spec Spec) []agent.Step {
 	}
 }
 
-func (r *reconciler) Plan(ctx context.Context, obj *store.Object[Spec, Status], req reconcile.Request) (reconcile.Plan, error) {
+func (r *reconciler) Plan(ctx context.Context, obj *store.Object[AccountSpec, AccountStatus], req reconcile.Request) (reconcile.Plan, error) {
 	if obj.Deleted() {
 		if err := r.checkEmpty(ctx, obj, req.Read); err != nil {
 			return reconcile.Plan{}, err
@@ -104,7 +104,7 @@ func (r *reconciler) Plan(ctx context.Context, obj *store.Object[Spec, Status], 
 	return reconcile.Plan{Steps: append(steps, rest...)}, nil
 }
 
-func (r *reconciler) Apply(ctx context.Context, obj *store.Object[Spec, Status], plan reconcile.Plan, ex reconcile.Executor) (Status, error) {
+func (r *reconciler) Apply(ctx context.Context, obj *store.Object[AccountSpec, AccountStatus], plan reconcile.Plan, ex reconcile.Executor) (AccountStatus, error) {
 	st := obj.Status
 	now := time.Now()
 	if !obj.Deleted() && st.UID == 0 {
@@ -141,7 +141,7 @@ func (f failed) Run(ctx context.Context, steps []agent.Step) ([]agent.StepResult
 
 // checkEmpty refuses to remove an account while resources still belong to
 // it: removing its files would pull them out from under those resources.
-func (r *reconciler) checkEmpty(ctx context.Context, obj *store.Object[Spec, Status], rd store.Reader) error {
+func (r *reconciler) checkEmpty(ctx context.Context, obj *store.Object[AccountSpec, AccountStatus], rd store.Reader) error {
 	if r.kinds == nil || rd == nil {
 		return nil
 	}

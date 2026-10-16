@@ -24,7 +24,7 @@ func (h *harness) createAccount(slug string, reseller store.ID) store.ID {
 	h.t.Helper()
 	ctx := context.Background()
 	id := store.NewID("acct")
-	spec, _ := json.Marshal(account.Spec{Slug: slug, Name: slug, Reseller: reseller})
+	spec, _ := json.Marshal(account.AccountSpec{Slug: slug, Name: slug, Reseller: reseller})
 	r := &store.Resource{Meta: store.Meta{ID: id, Kind: account.Kind.Name(), Scope: store.AccountScope(id)}, Spec: spec}
 	if err := h.resources.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, r) }); err != nil {
 		h.t.Fatal(err)

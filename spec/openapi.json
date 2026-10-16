@@ -1,6 +1,172 @@
 {
   "components": {
     "schemas": {
+      "AccountLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "description": "CPU time, as a percentage of one CPU: 200 is two whole CPUs",
+            "format": "int64",
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cpuWeight": {
+            "description": "The account's share of CPU time when the CPUs are busy, from 1 to 10000, where 100 is the default",
+            "format": "int64",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ioWeight": {
+            "description": "The account's share of disk time when disks are busy, from 1 to 10000, where 100 is the default",
+            "format": "int64",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "memoryHigh": {
+            "description": "Memory in bytes above which the account's processes are slowed down and their memory reclaimed",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "memoryMax": {
+            "description": "Memory in bytes the account's processes can never use more of",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tasks": {
+            "description": "How many processes and threads the account may run at once",
+            "format": "int64",
+            "maximum": 4194304,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "AccountOwner": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "username": {
+            "description": "What the owner signs in with",
+            "maxLength": 64,
+            "minLength": 2,
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "type": "object"
+      },
+      "AccountSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/AccountLimits",
+            "description": "What the account's processes may use together, enforced by the kernel; empty means no limit"
+          },
+          "name": {
+            "description": "What the account is called, such as the customer's name",
+            "examples": [
+              "Acme Inc."
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "note": {
+            "description": "Notes for the people who run the server",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "reseller": {
+            "description": "The reseller whose customer the account is; empty for the server's own customers. It can't be changed.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The account's short name, which is also the name of its Linux user: lowercase letters and digits, 3 to 16 characters, starting with a letter. It can't be changed.",
+            "examples": [
+              "acme"
+            ],
+            "maxLength": 16,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ],
+        "type": "object"
+      },
+      "AccountStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "home": {
+            "description": "Where the account's files live",
+            "type": "string"
+          },
+          "message": {
+            "description": "English summary of the current state",
+            "type": "string"
+          },
+          "observedGeneration": {
+            "description": "The generation the reconciler last acted on",
+            "format": "int64",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "pending",
+              "applying",
+              "ready",
+              "degraded",
+              "failed",
+              "deleting"
+            ],
+            "type": "string"
+          },
+          "slice": {
+            "description": "The systemd slice the account's services run in",
+            "type": "string"
+          },
+          "uid": {
+            "description": "The account's Linux user and group ID",
+            "format": "int64",
+            "type": "integer"
+          },
+          "user": {
+            "description": "The account's Linux user",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ActionInfo": {
         "additionalProperties": false,
         "properties": {
@@ -732,10 +898,10 @@
             "type": "string"
           },
           "spec": {
-            "$ref": "#/components/schemas/Spec"
+            "$ref": "#/components/schemas/AccountSpec"
           },
           "status": {
-            "$ref": "#/components/schemas/Status"
+            "$ref": "#/components/schemas/AccountStatus"
           },
           "updatedAt": {
             "format": "date-time",
@@ -789,7 +955,7 @@
             "type": "string"
           },
           "spec": {
-            "$ref": "#/components/schemas/Spec"
+            "$ref": "#/components/schemas/AccountSpec"
           }
         },
         "required": [
@@ -842,7 +1008,7 @@
             "type": "object"
           },
           "spec": {
-            "$ref": "#/components/schemas/Spec"
+            "$ref": "#/components/schemas/AccountSpec"
           }
         },
         "required": [
@@ -2422,52 +2588,6 @@
         ],
         "type": "object"
       },
-      "Limits": {
-        "additionalProperties": false,
-        "properties": {
-          "cpu": {
-            "description": "CPU time, as a percentage of one CPU: 200 is two whole CPUs",
-            "format": "int64",
-            "maximum": 100000,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "cpuWeight": {
-            "description": "The account's share of CPU time when the CPUs are busy, from 1 to 10000, where 100 is the default",
-            "format": "int64",
-            "maximum": 10000,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "ioWeight": {
-            "description": "The account's share of disk time when disks are busy, from 1 to 10000, where 100 is the default",
-            "format": "int64",
-            "maximum": 10000,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "memoryHigh": {
-            "description": "Memory in bytes above which the account's processes are slowed down and their memory reclaimed",
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "memoryMax": {
-            "description": "Memory in bytes the account's processes can never use more of",
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "tasks": {
-            "description": "How many processes and threads the account may run at once",
-            "format": "int64",
-            "maximum": 4194304,
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
       "LinkInfo": {
         "additionalProperties": false,
         "properties": {
@@ -2870,7 +2990,7 @@
         "additionalProperties": false,
         "properties": {
           "limits": {
-            "$ref": "#/components/schemas/Limits"
+            "$ref": "#/components/schemas/AccountLimits"
           },
           "name": {
             "description": "What the account is called",
@@ -2886,7 +3006,7 @@
             "type": "string"
           },
           "owner": {
-            "$ref": "#/components/schemas/OpenAccountInputOwnerStruct",
+            "$ref": "#/components/schemas/AccountOwner",
             "description": "A user to own the account, who gets a sign-in link to choose their password"
           },
           "reseller": {
@@ -2907,29 +3027,6 @@
         "required": [
           "slug",
           "name"
-        ],
-        "type": "object"
-      },
-      "OpenAccountInputOwnerStruct": {
-        "additionalProperties": false,
-        "properties": {
-          "email": {
-            "maxLength": 254,
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 128,
-            "type": "string"
-          },
-          "username": {
-            "description": "What the owner signs in with",
-            "maxLength": 64,
-            "minLength": 2,
-            "type": "string"
-          }
-        },
-        "required": [
-          "username"
         ],
         "type": "object"
       },
@@ -4552,48 +4649,6 @@
         ],
         "type": "object"
       },
-      "Spec": {
-        "additionalProperties": false,
-        "properties": {
-          "limits": {
-            "$ref": "#/components/schemas/Limits",
-            "description": "What the account's processes may use together, enforced by the kernel; empty means no limit"
-          },
-          "name": {
-            "description": "What the account is called, such as the customer's name",
-            "examples": [
-              "Acme Inc."
-            ],
-            "maxLength": 128,
-            "minLength": 1,
-            "type": "string"
-          },
-          "note": {
-            "description": "Notes for the people who run the server",
-            "maxLength": 1000,
-            "type": "string"
-          },
-          "reseller": {
-            "description": "The reseller whose customer the account is; empty for the server's own customers. It can't be changed.",
-            "type": "string"
-          },
-          "slug": {
-            "description": "The account's short name, which is also the name of its Linux user: lowercase letters and digits, 3 to 16 characters, starting with a letter. It can't be changed.",
-            "examples": [
-              "acme"
-            ],
-            "maxLength": 16,
-            "minLength": 3,
-            "pattern": "^[a-z][a-z0-9]*$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "slug",
-          "name"
-        ],
-        "type": "object"
-      },
       "SshKeysOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -4610,61 +4665,6 @@
         "required": [
           "keys"
         ],
-        "type": "object"
-      },
-      "Status": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "conditions": {
-            "items": {
-              "$ref": "#/components/schemas/Condition"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "home": {
-            "description": "Where the account's files live",
-            "type": "string"
-          },
-          "message": {
-            "description": "English summary of the current state",
-            "type": "string"
-          },
-          "observedGeneration": {
-            "description": "The generation the reconciler last acted on",
-            "format": "int64",
-            "type": "integer"
-          },
-          "phase": {
-            "enum": [
-              "pending",
-              "applying",
-              "ready",
-              "degraded",
-              "failed",
-              "deleting"
-            ],
-            "type": "string"
-          },
-          "slice": {
-            "description": "The systemd slice the account's services run in",
-            "type": "string"
-          },
-          "uid": {
-            "description": "The account's Linux user and group ID",
-            "format": "int64",
-            "type": "integer"
-          },
-          "user": {
-            "description": "The account's Linux user",
-            "type": "string"
-          }
-        },
         "type": "object"
       },
       "Step": {

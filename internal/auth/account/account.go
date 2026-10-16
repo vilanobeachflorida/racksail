@@ -21,19 +21,19 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// Spec is what an account should be.
-type Spec struct {
+// AccountSpec is what an account should be.
+type AccountSpec struct {
 	Slug string `json:"slug" minLength:"3" maxLength:"16" pattern:"^[a-z][a-z0-9]*$" doc:"The account's short name, which is also the name of its Linux user: lowercase letters and digits, 3 to 16 characters, starting with a letter. It can't be changed." example:"acme"`
 	Name string `json:"name" minLength:"1" maxLength:"128" doc:"What the account is called, such as the customer's name" example:"Acme Inc."`
 	// Reseller is the reseller whose customer the account is.
-	Reseller store.ID `json:"reseller,omitempty" doc:"The reseller whose customer the account is; empty for the server's own customers. It can't be changed."`
-	Limits   Limits   `json:"limits,omitzero" doc:"What the account's processes may use together, enforced by the kernel; empty means no limit"`
-	Note     string   `json:"note,omitempty" maxLength:"1000" doc:"Notes for the people who run the server"`
+	Reseller store.ID      `json:"reseller,omitempty" doc:"The reseller whose customer the account is; empty for the server's own customers. It can't be changed."`
+	Limits   AccountLimits `json:"limits,omitzero" doc:"What the account's processes may use together, enforced by the kernel; empty means no limit"`
+	Note     string        `json:"note,omitempty" maxLength:"1000" doc:"Notes for the people who run the server"`
 }
 
-// Limits are what all of an account's processes may use together. They
+// AccountLimits are what all of an account's processes may use together. They
 // become the directives of the account's systemd slice.
-type Limits struct {
+type AccountLimits struct {
 	MemoryHigh int64 `json:"memoryHigh,omitempty" minimum:"0" doc:"Memory in bytes above which the account's processes are slowed down and their memory reclaimed"`
 	MemoryMax  int64 `json:"memoryMax,omitempty" minimum:"0" doc:"Memory in bytes the account's processes can never use more of"`
 	CPU        int   `json:"cpu,omitempty" minimum:"0" maximum:"100000" doc:"CPU time, as a percentage of one CPU: 200 is two whole CPUs"`
@@ -42,8 +42,8 @@ type Limits struct {
 	Tasks      int   `json:"tasks,omitempty" minimum:"0" maximum:"4194304" doc:"How many processes and threads the account may run at once"`
 }
 
-// Status is what the reconciler last saw of an account.
-type Status struct {
+// AccountStatus is what the reconciler last saw of an account.
+type AccountStatus struct {
 	store.Status
 	UID   int    `json:"uid,omitempty" doc:"The account's Linux user and group ID"`
 	User  string `json:"user,omitempty" doc:"The account's Linux user"`
@@ -60,7 +60,7 @@ var (
 )
 
 // Kind is core.account.
-var Kind = store.Define[Spec, Status](store.KindInfo{
+var Kind = store.Define[AccountSpec, AccountStatus](store.KindInfo{
 	Name: "core.account", Prefix: "acct", Scope: store.ScopeAccount,
 	Title: "Account", Plural: "accounts",
 	Description: "A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. " +
@@ -113,7 +113,7 @@ var reservedSlugs = []string{
 // Reserved reports whether slug can't be an account's short name.
 func Reserved(slug string) bool { return slices.Contains(reservedSlugs, slug) }
 
-func validate(ctx context.Context, obj, old *store.Object[Spec, Status]) error {
+func validate(ctx context.Context, obj, old *store.Object[AccountSpec, AccountStatus]) error {
 	var fields []i18n.FieldError
 	if obj.Scope.ID != obj.ID {
 		return ErrOwnScope.New()

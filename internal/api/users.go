@@ -89,18 +89,21 @@ type rolesOutput struct {
 
 // OpenAccountInput opens an account, and gives it an owner.
 type OpenAccountInput struct {
-	Slug     string         `json:"slug" minLength:"3" maxLength:"16" pattern:"^[a-z][a-z0-9]*$" doc:"The account's short name, which is also its Linux user" example:"acme"`
-	Name     string         `json:"name" minLength:"1" maxLength:"128" doc:"What the account is called" example:"Acme Inc."`
-	Reseller store.ID       `json:"reseller,omitempty" doc:"The reseller whose customer the account is; leave it out for the server's own"`
-	Limits   account.Limits `json:"limits,omitzero"`
-	Note     string         `json:"note,omitempty" maxLength:"1000"`
+	Slug     string                `json:"slug" minLength:"3" maxLength:"16" pattern:"^[a-z][a-z0-9]*$" doc:"The account's short name, which is also its Linux user" example:"acme"`
+	Name     string                `json:"name" minLength:"1" maxLength:"128" doc:"What the account is called" example:"Acme Inc."`
+	Reseller store.ID              `json:"reseller,omitempty" doc:"The reseller whose customer the account is; leave it out for the server's own"`
+	Limits   account.AccountLimits `json:"limits,omitzero"`
+	Note     string                `json:"note,omitempty" maxLength:"1000"`
 	// Owner adds a user who owns the account, with a sign-in link to
 	// choose their password.
-	Owner *struct {
-		Username string `json:"username" minLength:"2" maxLength:"64" doc:"What the owner signs in with"`
-		Name     string `json:"name,omitempty" maxLength:"128"`
-		Email    string `json:"email,omitempty" maxLength:"254"`
-	} `json:"owner,omitempty" doc:"A user to own the account, who gets a sign-in link to choose their password"`
+	Owner *AccountOwner `json:"owner,omitempty" doc:"A user to own the account, who gets a sign-in link to choose their password"`
+}
+
+// AccountOwner is the user an account is opened with.
+type AccountOwner struct {
+	Username string `json:"username" minLength:"2" maxLength:"64" doc:"What the owner signs in with"`
+	Name     string `json:"name,omitempty" maxLength:"128"`
+	Email    string `json:"email,omitempty" maxLength:"254"`
 }
 
 type openAccountInput struct {
@@ -401,7 +404,7 @@ func (s *Server) openAccount(ctx context.Context, in *openAccountInput) (*openAc
 		// in the store; it was just found to be theirs to open.
 		s.opts.Accounts.Expect(id, in.Body.Reseller, expectedFor)
 	}
-	spec, err := json.Marshal(account.Spec{Slug: in.Body.Slug, Name: in.Body.Name, Reseller: in.Body.Reseller, Limits: in.Body.Limits, Note: in.Body.Note})
+	spec, err := json.Marshal(account.AccountSpec{Slug: in.Body.Slug, Name: in.Body.Name, Reseller: in.Body.Reseller, Limits: in.Body.Limits, Note: in.Body.Note})
 	if err != nil {
 		return nil, err
 	}

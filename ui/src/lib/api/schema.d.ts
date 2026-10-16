@@ -1972,6 +1972,86 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccountLimits: {
+            /**
+             * Format: int64
+             * @description CPU time, as a percentage of one CPU: 200 is two whole CPUs
+             */
+            cpu?: number;
+            /**
+             * Format: int64
+             * @description The account's share of CPU time when the CPUs are busy, from 1 to 10000, where 100 is the default
+             */
+            cpuWeight?: number;
+            /**
+             * Format: int64
+             * @description The account's share of disk time when disks are busy, from 1 to 10000, where 100 is the default
+             */
+            ioWeight?: number;
+            /**
+             * Format: int64
+             * @description Memory in bytes above which the account's processes are slowed down and their memory reclaimed
+             */
+            memoryHigh?: number;
+            /**
+             * Format: int64
+             * @description Memory in bytes the account's processes can never use more of
+             */
+            memoryMax?: number;
+            /**
+             * Format: int64
+             * @description How many processes and threads the account may run at once
+             */
+            tasks?: number;
+        };
+        AccountOwner: {
+            email?: string;
+            name?: string;
+            /** @description What the owner signs in with */
+            username: string;
+        };
+        AccountSpec: {
+            /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
+            limits?: components["schemas"]["AccountLimits"];
+            /**
+             * @description What the account is called, such as the customer's name
+             * @example Acme Inc.
+             */
+            name: string;
+            /** @description Notes for the people who run the server */
+            note?: string;
+            /** @description The reseller whose customer the account is; empty for the server's own customers. It can't be changed. */
+            reseller?: string;
+            /**
+             * @description The account's short name, which is also the name of its Linux user: lowercase letters and digits, 3 to 16 characters, starting with a letter. It can't be changed.
+             * @example acme
+             */
+            slug: string;
+        };
+        AccountStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description Where the account's files live */
+            home?: string;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The systemd slice the account's services run in */
+            slice?: string;
+            /**
+             * Format: int64
+             * @description The account's Linux user and group ID
+             */
+            uid?: number;
+            /** @description The account's Linux user */
+            user?: string;
+        };
         ActionInfo: {
             description?: string;
             destructive?: boolean;
@@ -2210,8 +2290,8 @@ export interface components {
             scope: components["schemas"]["Scope"];
             /** @description Cluster server the resource is placed on; empty for the panel's own server */
             server?: string;
-            spec: components["schemas"]["Spec"];
-            status?: components["schemas"]["Status"];
+            spec: components["schemas"]["AccountSpec"];
+            status?: components["schemas"]["AccountStatus"];
             /** Format: date-time */
             updatedAt: string;
         };
@@ -2231,7 +2311,7 @@ export interface components {
             };
             /** @description The cluster server to place it on; the panel's own server when left out */
             server?: string;
-            spec: components["schemas"]["Spec"];
+            spec: components["schemas"]["AccountSpec"];
         };
         /** @description One page of accounts. */
         CoreAccountList: {
@@ -2254,7 +2334,7 @@ export interface components {
             secrets?: {
                 [key: string]: string;
             };
-            spec: components["schemas"]["Spec"];
+            spec: components["schemas"]["AccountSpec"];
         };
         /** @description Sign-in policy: How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes. */
         CoreSigninPolicy: {
@@ -2853,38 +2933,6 @@ export interface components {
         KindsOutputBody: {
             kinds: components["schemas"]["KindDescription"][] | null;
         };
-        Limits: {
-            /**
-             * Format: int64
-             * @description CPU time, as a percentage of one CPU: 200 is two whole CPUs
-             */
-            cpu?: number;
-            /**
-             * Format: int64
-             * @description The account's share of CPU time when the CPUs are busy, from 1 to 10000, where 100 is the default
-             */
-            cpuWeight?: number;
-            /**
-             * Format: int64
-             * @description The account's share of disk time when disks are busy, from 1 to 10000, where 100 is the default
-             */
-            ioWeight?: number;
-            /**
-             * Format: int64
-             * @description Memory in bytes above which the account's processes are slowed down and their memory reclaimed
-             */
-            memoryHigh?: number;
-            /**
-             * Format: int64
-             * @description Memory in bytes the account's processes can never use more of
-             */
-            memoryMax?: number;
-            /**
-             * Format: int64
-             * @description How many processes and threads the account may run at once
-             */
-            tasks?: number;
-        };
         LinkInfo: {
             /** Format: date-time */
             expiresAt: string;
@@ -3010,7 +3058,7 @@ export interface components {
             scope: components["schemas"]["Scope"];
         };
         OpenAccountInput: {
-            limits?: components["schemas"]["Limits"];
+            limits?: components["schemas"]["AccountLimits"];
             /**
              * @description What the account is called
              * @example Acme Inc.
@@ -3018,7 +3066,7 @@ export interface components {
             name: string;
             note?: string;
             /** @description A user to own the account, who gets a sign-in link to choose their password */
-            owner?: components["schemas"]["OpenAccountInputOwnerStruct"];
+            owner?: components["schemas"]["AccountOwner"];
             /** @description The reseller whose customer the account is; leave it out for the server's own */
             reseller?: string;
             /**
@@ -3026,12 +3074,6 @@ export interface components {
              * @example acme
              */
             slug: string;
-        };
-        OpenAccountInputOwnerStruct: {
-            email?: string;
-            name?: string;
-            /** @description What the owner signs in with */
-            username: string;
         };
         OpenedAccount: {
             changeSet: components["schemas"]["ChangeSet"];
@@ -3632,50 +3674,8 @@ export interface components {
             /** @enum {string} */
             type: "request" | "hook" | "rule" | "addon" | "module";
         };
-        Spec: {
-            /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
-            limits?: components["schemas"]["Limits"];
-            /**
-             * @description What the account is called, such as the customer's name
-             * @example Acme Inc.
-             */
-            name: string;
-            /** @description Notes for the people who run the server */
-            note?: string;
-            /** @description The reseller whose customer the account is; empty for the server's own customers. It can't be changed. */
-            reseller?: string;
-            /**
-             * @description The account's short name, which is also the name of its Linux user: lowercase letters and digits, 3 to 16 characters, starting with a letter. It can't be changed.
-             * @example acme
-             */
-            slug: string;
-        };
         SshKeysOutputBody: {
             keys: components["schemas"]["SSHKey"][] | null;
-        };
-        Status: {
-            code?: string;
-            conditions?: components["schemas"]["Condition"][] | null;
-            /** @description Where the account's files live */
-            home?: string;
-            /** @description English summary of the current state */
-            message?: string;
-            /**
-             * Format: int64
-             * @description The generation the reconciler last acted on
-             */
-            observedGeneration?: number;
-            /** @enum {string} */
-            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
-            /** @description The systemd slice the account's services run in */
-            slice?: string;
-            /**
-             * Format: int64
-             * @description The account's Linux user and group ID
-             */
-            uid?: number;
-            /** @description The account's Linux user */
-            user?: string;
         };
         Step: {
             /** @description The operation's input */
