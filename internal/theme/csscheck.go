@@ -35,11 +35,11 @@ var (
 		allowed: "only data: URLs of images and fonts", protected: true, strict: true,
 	}
 	templateCSSRules = cssRules{
-		what: "styles in templates", urls: []string{"data:image/", "data:font/", "#"},
+		what: "CSS in templates", urls: []string{"data:image/", "data:font/", "#"},
 		allowed: "only data: URLs of images and fonts", important: true, noLineComments: true,
 	}
 	svgCSSRules = cssRules{
-		what: "styles in theme files", urls: []string{"#"},
+		what: "CSS in SVG files", urls: []string{"#"},
 		allowed: "only parts of the same file", important: true,
 	}
 )
@@ -160,18 +160,18 @@ func checkCSS(css string, r cssRules, mode cssMode) ([]cssRule, error) {
 			if inURLs() && !r.allowsURL(t.value) {
 				return nil, r.refuse("can't load %q; %s are allowed, so nothing loads from elsewhere", t.value, r.allowed)
 			}
+		// Broken strings and urls are refused even in values, where only
+		// references matter: XML turns line breaks in attribute values into
+		// spaces, so a browser may read a whole string or url where this
+		// reading, given the value with its line breaks, finds a broken one.
 		case cssBadString:
-			if strict {
-				return nil, r.refuse("has a string that runs past the end of its line; close it, or end the line with a backslash to continue it")
-			}
+			return nil, r.refuse("has a string that runs past the end of its line; close it, or end the line with a backslash to continue it")
 		case cssURL:
 			if !r.allowsURL(t.value) {
 				return nil, r.refuse("can't load %q; %s are allowed, so nothing loads from elsewhere", t.value, r.allowed)
 			}
 		case cssBadURL:
-			if strict {
-				return nil, r.refuse("has a url() that browsers can't read; put the URL in quotes")
-			}
+			return nil, r.refuse("has a url() that browsers can't read; put the URL in quotes")
 		case cssCDO, cssCDC:
 			if strict {
 				return nil, r.refuse("can't contain HTML comment markers")
@@ -250,14 +250,9 @@ func checkCSS(css string, r cssRules, mode cssMode) ([]cssRule, error) {
 			if strict {
 				return nil, r.refuse("closes a %s it didn't open", closerName(t.kind))
 			}
-			// Elsewhere only what's inside url functions matters; drop what
-			// this closes.
-			for len(stack) > 0 && stack[len(stack)-1].closer != t.kind {
-				stack = stack[:len(stack)-1]
-			}
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
-			}
+			// In a value, as in CSS Syntax, a closer that doesn't match the
+			// innermost opener is only a token: a stray ] inside image-set()
+			// leaves the strings after it inside the function.
 		}
 	}
 	if strict && len(stack) > 0 {

@@ -3,7 +3,6 @@ package theme
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -306,84 +305,6 @@ func checkFile(p, ext string, data []byte, template string) error {
 		if !ok {
 			return fmt.Errorf("%s isn't a %s file", p, strings.TrimPrefix(ext, "."))
 		}
-	}
-	return nil
-}
-
-// Elements an SVG in a theme may not contain: anything that runs code,
-// embeds other documents or loads something.
-var forbiddenSVG = map[string]bool{
-	"script": true, "foreignobject": true, "iframe": true, "object": true, "embed": true,
-	"link": true, "audio": true, "video": true, "image": true, "animate": true, "set": true,
-	"animatemotion": true, "animatetransform": true, "handler": true, "listener": true,
-}
-
-// CheckSVG makes sure an SVG image is only a drawing: no scripts, event
-// handlers, embedded documents, entity declarations or references to
-// anything outside itself. Styles, in style elements and attributes and in
-// the attributes browsers read as CSS, are read as browsers read CSS, so
-// escapes and image functions can't hide a reference.
-func CheckSVG(data []byte) error {
-	if bytes.Contains(bytes.ToUpper(data), []byte("<!ENTITY")) {
-		return errors.New("SVG files can't declare entities")
-	}
-	dec := xml.NewDecoder(bytes.NewReader(data))
-	dec.Strict = true
-	root := true
-	var open []string
-	for {
-		tok, err := dec.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("the SVG can't be read: %w", err)
-		}
-		switch el := tok.(type) {
-		case xml.StartElement:
-			local := strings.ToLower(el.Name.Local)
-			if root && local != "svg" {
-				return errors.New("the file isn't an SVG image")
-			}
-			root = false
-			if forbiddenSVG[local] {
-				return fmt.Errorf("SVG images can't contain <%s> elements", el.Name.Local)
-			}
-			open = append(open, local)
-			for _, a := range el.Attr {
-				attr := strings.ToLower(a.Name.Local)
-				if strings.HasPrefix(attr, "on") {
-					return fmt.Errorf("SVG images can't have event handlers such as %s", a.Name.Local)
-				}
-				if attr == "href" && !strings.HasPrefix(strings.TrimSpace(a.Value), "#") {
-					return fmt.Errorf("SVG images can only link to their own parts, not %q", a.Value)
-				}
-				check := svgCSSRules.checkValue
-				if attr == "style" {
-					check = svgCSSRules.checkStyle
-				}
-				if err := check(a.Value); err != nil {
-					return err
-				}
-			}
-		case xml.EndElement:
-			if len(open) > 0 {
-				open = open[:len(open)-1]
-			}
-		case xml.CharData:
-			if len(open) > 0 && open[len(open)-1] == "style" {
-				if err := svgCSSRules.checkSheet(string(el)); err != nil {
-					return err
-				}
-			}
-		case xml.ProcInst:
-			if strings.EqualFold(el.Target, "xml-stylesheet") {
-				return errors.New("SVG images can't load style sheets")
-			}
-		}
-	}
-	if root {
-		return errors.New("the file isn't an SVG image")
 	}
 	return nil
 }

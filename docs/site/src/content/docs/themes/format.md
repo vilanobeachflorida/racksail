@@ -164,7 +164,15 @@ The panel bundles Inter (`Inter Variable`) and JetBrains Mono (`JetBrains Mono V
 | `loginBackground` | SVG, PNG, JPEG, WebP | The image behind the sign-in form |
 | `illustrations` | SVG, PNG, JPEG, WebP | Named images for empty states, such as `illustrations: { noSites: empty-sites.svg }` |
 
-Paths are relative to the package, without `..` or URLs. Every file is checked against its type. SVG files must be drawings only: no scripts, event handlers, embedded documents or images, animations, entity declarations or references outside the file.
+Paths are relative to the package, without `..` or URLs. Every file is checked against its type, and read the way browsers read it.
+
+SVG files must be drawings only:
+
+- **Elements:** SVG's shapes, text, groups, `defs`, `symbol` and `use`, gradients and patterns, clipping paths, masks, markers, filters, `style`, `title`, `desc` and `metadata`. No scripts, links, `foreignObject`, images (`image` and `feImage`), animations or fonts, and nothing from another namespace, such as an editor's own elements or HTML. Files exported for the web, or cleaned up with a tool such as SVGO, usually fit; an editor's own data, such as Inkscape's, has to go, so save those as plain SVG.
+- **Attributes:** the ones that place and style drawings, presentation attributes such as `fill` and `stroke`, `class`, `id`, `style`, `aria-*` and `data-*`, and `xml:lang` and `xml:space`. No event handlers, `src`, `xml:base` or attributes from other namespaces.
+- **References** only to parts of the same file: `href` and `xlink:href` start with `#`, and so does every `url()` in styles and presentation attributes. No `@import` or image functions such as `image-set()` that load anything else.
+- **Styles:** a `style` element holds only CSS, read as one sheet however comments or CDATA sections split it.
+- **Declarations:** a `<!DOCTYPE>` may name the SVG DTD but not declare entities or attribute defaults, and there are no processing instructions, such as `<?xml-stylesheet?>`, besides the XML declaration.
 
 ## Templates
 

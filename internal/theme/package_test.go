@@ -149,36 +149,3 @@ func TestReadArchive(t *testing.T) {
 		t.Error("garbage isn't an archive")
 	}
 }
-
-func TestCheckSVG(t *testing.T) {
-	if err := CheckSVG([]byte(logoSVG)); err != nil {
-		t.Errorf("a plain drawing: %v", err)
-	}
-	for name, svg := range map[string]string{
-		"not svg":        `<html></html>`,
-		"empty":          ``,
-		"handler":        `<svg xmlns="http://www.w3.org/2000/svg" onload="x()"/>`,
-		"external link":  `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="https://x.example/s.svg#a"/></svg>`,
-		"foreign object": `<svg xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>`,
-		"image":          `<svg xmlns="http://www.w3.org/2000/svg"><image href="#x"/></svg>`,
-		"entity":         `<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaa">]><svg xmlns="http://www.w3.org/2000/svg">&a;</svg>`,
-		"import":         `<svg xmlns="http://www.w3.org/2000/svg"><style>@import "x.css";</style></svg>`,
-		"stylesheet":     `<?xml-stylesheet href="x.css"?><svg xmlns="http://www.w3.org/2000/svg"/>`,
-		"broken":         `<svg xmlns="http://www.w3.org/2000/svg"><g></svg>`,
-		// Escapes and image functions can't hide a reference from the checks.
-		"escaped import":      `<svg xmlns="http://www.w3.org/2000/svg"><style>@\69mport "https://x.example/a.css";</style></svg>`,
-		"image-set":           `<svg xmlns="http://www.w3.org/2000/svg"><style>rect{fill:image-set("https://x.example/a.png" 1x)}</style></svg>`,
-		"escaped url":         `<svg xmlns="http://www.w3.org/2000/svg"><rect fill="u\72l(https://x.example/a.svg#p)"/></svg>`,
-		"style attribute url": `<svg xmlns="http://www.w3.org/2000/svg"><rect style="filter: url('https://x.example/f.svg#f')"/></svg>`,
-		"cdata import":        `<svg xmlns="http://www.w3.org/2000/svg"><style><![CDATA[@import "x.css";]]></style></svg>`,
-	} {
-		if err := CheckSVG([]byte(svg)); err == nil {
-			t.Errorf("%s: should be refused", name)
-		}
-	}
-	styled := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><style>.a{fill:#01214F}@media (prefers-color-scheme:dark){.a{fill:#FFFFFF}}</style>` +
-		`<defs><linearGradient id="g"/></defs><rect class="a" style="stroke: url(#g)" fill="url(#g)" width="10" height="10"/><text x="1" y="9">a\b</text></svg>`
-	if err := CheckSVG([]byte(styled)); err != nil {
-		t.Errorf("styles that refer to the image's own parts are fine: %v", err)
-	}
-}

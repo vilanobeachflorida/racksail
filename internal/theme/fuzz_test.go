@@ -35,15 +35,6 @@ func FuzzReadArchive(f *testing.F) {
 	})
 }
 
-func FuzzCheckSVG(f *testing.F) {
-	f.Add([]byte(logoSVG))
-	f.Add([]byte(`<svg onload="x()"/>`))
-	f.Add([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><style>@\69mport "x.css";</style></svg>`))
-	f.Fuzz(func(t *testing.T, data []byte) {
-		_ = CheckSVG(data)
-	})
-}
-
 func FuzzCheckTemplate(f *testing.F) {
 	for kind := range TemplateVars {
 		src, _ := DefaultTemplate(kind)

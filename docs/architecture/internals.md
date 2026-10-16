@@ -85,7 +85,7 @@ The binary refuses to start if any registry recorded a problem while packages in
 | `internal/edge` | The routing table and the server that answers from it |
 | `internal/config` | `racksail.toml` |
 | `internal/secrets` | Secret storage, encrypted at rest |
-| `internal/theme` | Themes: parsing and checks (schema, WCAG contrast in both palettes and the console palette, status hues, translucency, fonts), packages, layering, CSS rendering, templates, custom CSS and the terminal mark. Templates, SVG files and custom CSS are read with spec-following HTML and CSS tokenizers, so checks see what browsers see |
+| `internal/theme` | Themes: parsing and checks (schema, WCAG contrast in both palettes and the console palette, status hues, translucency, fonts), packages, layering, CSS rendering, templates, custom CSS and the terminal mark. Templates are read with a spec-following HTML tokenizer, SVG files as namespaced XML against an allowlist of drawing elements, and every style with a spec-following CSS tokenizer, so checks see what browsers see |
 | `internal/notify` | Notification channels |
 | `internal/recipes` | Recipes, their inputs and catalog indexes |
 | `internal/installer` | Answers files and the install, convert and restore plans |
