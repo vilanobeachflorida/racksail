@@ -13,11 +13,11 @@ test("every screen meets WCAG 2.2 AA", async ({ page }) => {
   // Each screen loads and is analyzed in turn, in both modes.
   test.setTimeout(30_000 + all.length * 15_000);
   for (const screen of all) {
-    await test.step(screen, async () => {
+    await test.step(screen.name, async () => {
       await waitForQuota(page.request);
-      await page.goto(screen);
+      await page.goto(screen.path);
       await page.waitForLoadState("networkidle");
-      expect.soft(await violationsInEachMode(page), `${screen} doesn't meet WCAG 2.2 AA`).toEqual([]);
+      expect.soft(await violationsInEachMode(page), `${screen.name} doesn't meet WCAG 2.2 AA`).toEqual([]);
     });
   }
 });
