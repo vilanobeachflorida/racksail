@@ -129,6 +129,9 @@ func TestDev(t *testing.T) {
 	if !c.Panel.Insecure || c.Panel.Listen != "127.0.0.1:7070" || c.Edge.HTTP != "127.0.0.1:7080" || !strings.HasPrefix(c.Paths.State, dir) || !strings.HasPrefix(c.Agent.Socket, dir) {
 		t.Errorf("dev = %+v", c)
 	}
+	if c.API.RateLimit != 0 || c.API.AnonymousRateLimit != Default().API.AnonymousRateLimit {
+		t.Errorf("racksail dev limits = %+v, want the signed-in person unlimited", c.API)
+	}
 	other, err := Dev(dir, DevAddresses{Panel: "127.0.0.1:7170", EdgeHTTP: "127.0.0.1:7180", EdgeHTTPS: "127.0.0.1:0"})
 	if err != nil || other.Panel.Listen != "127.0.0.1:7170" || other.Edge.HTTP != "127.0.0.1:7180" || other.Edge.HTTPS != "127.0.0.1:0" {
 		t.Errorf("addresses can be chosen: %+v, %v", other, err)
