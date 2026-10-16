@@ -56,15 +56,27 @@ func testUnitRules() UnitRules {
 	}
 }
 
-const goodService = "[Unit]\nDescription=Blog\nAfter=network-online.target mariadb.service\n\n[Service]\nUser=blog\nGroup=blog\nExecStart=/usr/bin/php -S 127.0.0.1:3000\nExecStartPre=-/usr/bin/true\n\n[Install]\nWantedBy=multi-user.target\n"
+// accountSandboxLines are the least an account's service is confined by.
+const accountSandboxLines = "ProtectSystem=strict\nProtectHome=tmpfs\nPrivateTmp=yes\nPrivateDevices=yes\nNoNewPrivileges=yes\n" +
+	"ProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectControlGroups=yes\nRestrictSUIDSGID=yes\n" +
+	"RestrictNamespaces=yes\nLockPersonality=yes\nSystemCallFilter=@system-service\nInaccessiblePaths=-/run/racksail\nSocketBindDeny=any\n"
+
+const goodService = "[Unit]\nDescription=Blog\nAfter=network-online.target mariadb.service\n\n[Service]\nUser=blog\nGroup=blog\n" +
+	"ExecStart=/usr/bin/php -S 127.0.0.1:3000\nExecStartPre=-/usr/bin/true\n" + accountSandboxLines + "\n[Install]\nWantedBy=multi-user.target\n"
 
 func TestCheckUnitFileAcceptsWhatRacksailRenders(t *testing.T) {
-	id, err := CheckUnitFile("racksail-site-blog.service", []byte(goodService), testUnitRules())
+	unit, err := CheckUnitFile("racksail-site-blog.service", []byte(goodService), testUnitRules())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id != (UnitIdentity{User: "blog", Group: "blog"}) {
-		t.Errorf("identity = %+v", id)
+	if unit.UnitIdentity != (UnitIdentity{User: "blog", Group: "blog"}) || unit.Mount != nil {
+		t.Errorf("unit = %+v", unit)
+	}
+	// Racksail's own service users run Racksail's code; the sandbox of
+	// accounts isn't required of them.
+	helper := "[Service]\nUser=racksail-sasl\nExecStart=/usr/bin/racksail sasl\n"
+	if _, err := CheckUnitFile("racksail-sasl.service", []byte(helper), testUnitRules()); err != nil {
+		t.Errorf("a service user's service: %v", err)
 	}
 
 	// Every unit the renderers produce for accounts passes the checks.
@@ -114,8 +126,12 @@ func TestCheckUnitFileAcceptsWhatRacksailRenders(t *testing.T) {
 	}
 
 	mount := "[Unit]\nDescription=Data disk\n[Mount]\nWhat=/dev/disk/by-uuid/0a1b2c3d-1111-2222-3333-444455556666\nWhere=/mnt/racksail/data\nType=btrfs\nOptions=noatime,compress=zstd:3,nosuid,nodev\n[Install]\nWantedBy=multi-user.target\n"
-	if _, err := CheckUnitFile("mnt-racksail-data.mount", []byte(mount), testUnitRules()); err != nil {
-		t.Errorf("mount: %v", err)
+	unit, err = CheckUnitFile("mnt-racksail-data.mount", []byte(mount), testUnitRules())
+	want := Mount{Source: "/dev/disk/by-uuid/0a1b2c3d-1111-2222-3333-444455556666", Target: "/mnt/racksail/data", FSType: "btrfs",
+		Options: []string{"noatime", "compress=zstd:3", "nosuid", "nodev"}}
+	if err != nil || unit.Mount == nil || unit.Mount.Source != want.Source || unit.Mount.Target != want.Target ||
+		unit.Mount.FSType != want.FSType || strings.Join(unit.Mount.Options, ",") != strings.Join(want.Options, ",") {
+		t.Errorf("mount = %+v, %v", unit.Mount, err)
 	}
 	automount := "[Automount]\nWhere=/mnt/racksail/data\nTimeoutIdleSec=10min\n"
 	if _, err := CheckUnitFile("mnt-racksail-data.automount", []byte(automount), testUnitRules()); err != nil {
@@ -171,11 +187,26 @@ func TestCheckUnitFileRefusesWhatCouldTakeTheServer(t *testing.T) {
 		{"timer reboots", "racksail-x.timer", "[Timer]\nOnCalendar=daily\nUnit=reboot.target\n"},
 		{"path makes directories", "racksail-x.path", "[Path]\nPathExists=/etc/x\nMakeDirectory=yes\n"},
 		{"loop mount", "mnt-racksail-data.mount", "[Mount]\nWhat=/srv/racksail/accounts/blog/x.img\nWhere=/mnt/racksail/data\nType=ext4\nOptions=loop,nosuid,nodev\n"},
-		{"setuid mount", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/sdb\nWhere=/mnt/racksail/data\nType=ext4\nOptions=suid\n"},
-		{"mount without nosuid", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/sdb\nWhere=/mnt/racksail/data\nType=ext4\nOptions=noatime\n"},
-		{"mount elsewhere", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/sdb\nWhere=/etc\nType=ext4\nOptions=nosuid,nodev\n"},
-		{"mount over /etc", "etc.mount", "[Mount]\nWhat=/dev/sdb\nWhere=/etc\nType=ext4\nOptions=nosuid,nodev\n"},
+		{"setuid mount", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/mnt/racksail/data\nType=ext4\nOptions=suid\n"},
+		{"mount without nosuid", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/mnt/racksail/data\nType=ext4\nOptions=noatime\n"},
+		{"mount elsewhere", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/etc\nType=ext4\nOptions=nosuid,nodev\n"},
+		{"mount over /etc", "etc.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/etc\nType=ext4\nOptions=nosuid,nodev\n"},
+		{"mount by kernel name", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/sdb\nWhere=/mnt/racksail/data\nType=ext4\nOptions=nosuid,nodev\n"},
+		{"mount by label", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-label/data\nWhere=/mnt/racksail/data\nType=ext4\nOptions=nosuid,nodev\n"},
+		{"mount through ..", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/../../sda\nWhere=/mnt/racksail/data\nType=ext4\nOptions=nosuid,nodev\n"},
+		{"mount without a type", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/mnt/racksail/data\nOptions=nosuid,nodev\n"},
+		{"subvolume of ext4", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/mnt/racksail/data\nType=ext4\nOptions=subvolid=5,nosuid,nodev\n"},
 		{"swap", "racksail-x.swap", "[Swap]\nWhat=/dev/sdb\n"},
+		{"account service without a sandbox", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n")},
+		{"account service missing one setting", "racksail-x.service",
+			service("User=blog\nExecStart=/bin/true\n" + strings.Replace(accountSandboxLines, "LockPersonality=yes\n", "", 1))},
+		{"sandbox turned off again", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "NoNewPrivileges=no\n")},
+		{"system calls only denied", "racksail-x.service",
+			service("User=blog\nExecStart=/bin/true\n" + strings.Replace(accountSandboxLines, "SystemCallFilter=@system-service", "SystemCallFilter=~@mount @system-service", 1))},
+		{"system call filter reset", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "SystemCallFilter=\n")},
+		{"system service calls taken away", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "SystemCallFilter=~@system-service\n")},
+		{"agent socket reachable again", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "InaccessiblePaths=\n")},
+		{"any socket bound", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "SocketBindDeny=\n")},
 	} {
 		if _, err := CheckUnitFile(tc.unit, []byte(tc.content), testUnitRules()); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: should be refused: %v", tc.name, err)
@@ -212,20 +243,29 @@ func TestCheckDropIn(t *testing.T) {
 }
 
 func TestCheckMount(t *testing.T) {
-	m, err := CheckMount(Mount{Source: "/dev/sdb1", Target: "/mnt/racksail/data", FSType: "btrfs", Options: []string{"noatime", "compress=zstd:3"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(m.Options, ",") != "noatime,compress=zstd:3,nosuid,nodev" {
-		t.Errorf("options = %v", m.Options)
+	for _, source := range []string{
+		"/dev/disk/by-id/ata-SIM_HDD_4TB_H0001", "/dev/disk/by-id/ata-SIM_HDD_4TB_H0001-part1",
+		"/dev/disk/by-uuid/0a1b2c3d-1111-2222-3333-444455556666", "/dev/disk/by-partuuid/7f3e9a10-01",
+	} {
+		m, err := CheckMount(Mount{Source: source, Target: "/mnt/racksail/data", FSType: "btrfs", Options: []string{"noatime", "compress=zstd:3", "subvol=/@data"}})
+		if err != nil {
+			t.Fatalf("CheckMount(%s): %v", source, err)
+		}
+		if strings.Join(m.Options, ",") != "noatime,compress=zstd:3,subvol=/@data,nosuid,nodev" {
+			t.Errorf("options = %v", m.Options)
+		}
 	}
 	for _, bad := range []Mount{
 		{Source: "/srv/racksail/accounts/x/disk.img", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"loop"}},
-		{Source: "/dev/sdb", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"suid"}},
-		{Source: "/dev/sdb", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"dev"}},
-		{Source: "/dev/sdb", Target: "/mnt/racksail/x", FSType: "nfs"},
+		{Source: "/dev/sdb", Target: "/mnt/racksail/x", FSType: "ext4"},
+		{Source: "/dev/disk/by-id/ata-HDD_1", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"suid"}},
+		{Source: "/dev/disk/by-id/ata-HDD_1", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"dev"}},
+		{Source: "/dev/disk/by-id/ata-HDD_1", Target: "/mnt/racksail/x", FSType: "nfs"},
+		{Source: "/dev/disk/by-id/ata-HDD_1", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"subvol=/"}},
+		{Source: "/dev/disk/by-id/ata-HDD_1", Target: "/", FSType: "btrfs"},
+		{Source: "/dev/disk/by-label/root", Target: "/mnt/racksail/x", FSType: "btrfs"},
 		{Source: "/etc", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"bind"}},
-		{Source: "/dev/../etc", Target: "/mnt/racksail/x", FSType: "ext4"},
+		{Source: "/dev/disk/by-id/../../sda", Target: "/mnt/racksail/x", FSType: "ext4"},
 	} {
 		if _, err := CheckMount(bad); !errors.Is(err, ErrInvalid) {
 			t.Errorf("CheckMount(%+v) should be refused: %v", bad, err)

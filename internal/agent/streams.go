@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -130,8 +132,71 @@ func streamReceive(ctx context.Context, env *Env, dir string, r io.Reader) error
 		if err := checkNoSymlinks(ctx, env, dir); err != nil {
 			return false, err
 		}
-		return true, env.System.Btrfs.Receive(ctx, dir, r)
+		return true, receive(ctx, env, dir, r)
 	})
+}
+
+// receive runs btrfs receive into dir and, when it fails, removes the
+// subvolumes it left half received.
+func receive(ctx context.Context, env *Env, dir string, r io.Reader) error {
+	before, err := subvolumesIn(ctx, env, dir)
+	if err != nil {
+		return err
+	}
+	err = env.System.Btrfs.Receive(ctx, dir, r, receiveSources(ctx, env, dir))
+	if err != nil {
+		if cerr := removeNewSubvolumes(ctx, env, dir, before); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+	}
+	return err
+}
+
+// receiveSources decides which subvolumes a stream received into dir may
+// take data from. btrfs receive looks the parent of an incremental stream,
+// and the sources of data shared between files, up by UUID anywhere on the
+// filesystem and copies from them, so every subvolume carrying the UUID
+// must be one Racksail reads in full, such as an earlier snapshot of the
+// same data, never the system's own subvolumes or their snapshots.
+func receiveSources(ctx context.Context, env *Env, dir string) func(uuid string) error {
+	return func(uuid string) error {
+		svs, err := env.System.Btrfs.Subvolumes(ctx, dir)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, sv := range svs {
+			if !strings.EqualFold(sv.UUID, uuid) && !strings.EqualFold(sv.ReceivedUUID, uuid) {
+				continue
+			}
+			found = true
+			if checkRead(sv.Path) != nil {
+				return fmt.Errorf("subvolume %s is %s, which Racksail doesn't read: %w", uuid, sv.Path, system.ErrInvalid)
+			}
+		}
+		if !found {
+			return fmt.Errorf("no subvolume %s is on the filesystem of %s: %w", uuid, dir, system.ErrNotFound)
+		}
+		return nil
+	}
+}
+
+// removeNewSubvolumes deletes the subvolumes below dir that weren't there
+// before.
+func removeNewSubvolumes(ctx context.Context, env *Env, dir string, before map[string]bool) error {
+	after, err := subvolumesIn(ctx, env, dir)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for p := range after {
+		if !before[p] {
+			if err := env.System.Btrfs.DeleteSubvolume(ctx, p); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func streamDownload(ctx context.Context, env *Env, p string, w io.Writer) error {

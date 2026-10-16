@@ -172,25 +172,27 @@ var ListFirewallElements = Register(Def[SetRefInput, SetElementList]{
 	},
 })
 
-var networkdNamePattern = regexp.MustCompile(`^50-racksail[A-Za-z0-9._-]*\.(network|netdev|link)$`)
-
 // NetworkConfigInput is the complete set of networkd files Racksail manages.
 type NetworkConfigInput struct {
-	Files map[string]string `json:"files" doc:"File name to contents; names start with 50-racksail"`
+	Files map[string]string `json:"files" doc:"File name to contents, as NetworkConfig renders them: 50-racksail-<name>.network and .netdev files"`
 	// ConfirmWithin applies the change on probation: unless
 	// ConfirmNetworkConfig is called within this many seconds, the agent
 	// puts the previous files back by itself. Zero applies it for good.
 	ConfirmWithin int `json:"confirmWithin,omitempty" doc:"Seconds to wait for confirmation before rolling back; zero keeps the change without asking"`
 }
 
-// Validate implements Input.
+// Validate implements Input. Every file is read the way networkd reads it
+// and held to the sections and directives Racksail renders.
 func (in NetworkConfigInput) Validate() error {
+	if len(in.Files) > 256 {
+		return fmt.Errorf("give at most 256 networkd files")
+	}
 	for name, content := range in.Files {
-		if !networkdNamePattern.MatchString(name) {
-			return fmt.Errorf("networkd file %q must be named 50-racksail*.network, .netdev or .link", name)
-		}
 		if len(content) > 64<<10 {
 			return fmt.Errorf("networkd file %s is too large", name)
+		}
+		if err := system.CheckNetworkdFile(name, []byte(content)); err != nil {
+			return err
 		}
 	}
 	if in.ConfirmWithin < 0 || in.ConfirmWithin > 3600 {

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path"
@@ -110,6 +111,46 @@ func TestPathPolicy(t *testing.T) {
 	}
 }
 
+// The agent's own state and audit trail stay out of reach of every
+// operation, even when a module lets file operations into the directories
+// around them.
+func TestAgentsOwnLocationsAreOutOfReach(t *testing.T) {
+	ctx := context.Background()
+	_, c := newLocal(t)
+	policy.Lock()
+	saved := slices.Clone(policy.writeRoots)
+	policy.writeRoots = append(policy.writeRoots, "/var/log", "/var/lib")
+	policy.Unlock()
+	defer func() {
+		policy.Lock()
+		policy.writeRoots = saved
+		policy.Unlock()
+	}()
+	for _, p := range []string{system.AgentAuditLog, system.AgentAuditLog + ".1", system.AgentLogDir, system.AgentClusterFile, system.AgentStateDir + "/ledger/x"} {
+		if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: p, Content: []byte("{}"), Mode: 0o600}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("writing %s: %v", p, err)
+		}
+		if _, err := RemovePath.Call(ctx, c, RemovePathInput{Path: p, Recursive: true}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("removing %s: %v", p, err)
+		}
+		if _, err := EnsureSymlink.Call(ctx, c, EnsureSymlinkInput{Path: p, Target: "/srv/racksail/x"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("linking %s: %v", p, err)
+		}
+		if _, err := ReadFile.Call(ctx, c, ReadFileInput{Path: p}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("reading %s: %v", p, err)
+		}
+	}
+	// Nor through the directories that hold them.
+	for _, p := range []string{"/var/log", "/var/lib"} {
+		if _, err := RemovePath.Call(ctx, c, RemovePathInput{Path: p, Recursive: true}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("removing %s: %v", p, err)
+		}
+	}
+	if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: "/var/log/racksail-other.log", Content: []byte("x"), Mode: 0o644}, CallOptions{}); err != nil {
+		t.Errorf("a neighbour of the trail stays writable: %v", err)
+	}
+}
+
 func TestUsersAndGroups(t *testing.T) {
 	ctx := context.Background()
 	m, c := newLocal(t)
@@ -171,18 +212,41 @@ func newAccount(t *testing.T, c Client, name string, id int) {
 	}
 }
 
+// sandboxLines are the least confinement an account's service gets.
+var sandboxLines = func() string {
+	entries, err := system.Sandbox{User: "x"}.Entries()
+	if err != nil {
+		panic(err)
+	}
+	var b strings.Builder
+	for _, e := range entries[1:] {
+		b.WriteString(e.Key + "=" + e.Value + "\n")
+	}
+	return b.String()
+}()
+
+// sandboxed adds the sandbox an account's service needs to a unit's
+// [Service] section, so a test's refusal is about what it means to test.
+func sandboxed(unit string) []byte {
+	return []byte(strings.Replace(unit, "[Service]\n", "[Service]\n"+sandboxLines, 1))
+}
+
 func TestUnitsAndPolicy(t *testing.T) {
 	ctx := context.Background()
 	m, c := newLocal(t)
-	root := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nExecStart=/bin/true\n")}
+	root := EnsureUnitInput{Name: "racksail-site-blog.service", Content: sandboxed("[Service]\nExecStart=/bin/true\n")}
 	if _, err := EnsureUnit.Call(ctx, c, root, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("a service without a user: %v", err)
 	}
-	other := EnsureUnitInput{Name: "evil.service", Content: []byte("[Service]\nUser=nobody\n")}
+	other := EnsureUnitInput{Name: "evil.service", Content: sandboxed("[Service]\nUser=nobody\n")}
 	if _, err := EnsureUnit.Call(ctx, c, other, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("a unit not named racksail-*: %v", err)
 	}
-	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=blog\nExecStart=/usr/bin/sleep infinity\n")}
+	bare := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=blog\nExecStart=/usr/bin/sleep infinity\n")}
+	if _, err := EnsureUnit.Call(ctx, c, bare, CallOptions{Check: true}); !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "runs as an account") {
+		t.Errorf("an account's service without its sandbox: %v", err)
+	}
+	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: sandboxed("[Service]\nUser=blog\nExecStart=/usr/bin/sleep infinity\n")}
 	// A preview can't see the user an earlier step creates, so check mode
 	// lets a missing user through; running it can't.
 	if res, err := EnsureUnit.Call(ctx, c, unit, CallOptions{Check: true}); err != nil || !res.Changed {
@@ -223,7 +287,7 @@ func TestUnitsAndPolicy(t *testing.T) {
 		"[Service]\nUser=blog\nExecStart=+/bin/sh -c id\n",
 		"[Service]\nUser=blog\nExecStart=/bin/true\nUser = root\n",
 	} {
-		in := EnsureUnitInput{Name: "racksail-site-x.service", Content: []byte(content)}
+		in := EnsureUnitInput{Name: "racksail-site-x.service", Content: sandboxed(content)}
 		if _, err := EnsureUnit.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("EnsureUnit(%q) should be refused: %v", content, err)
 		}
@@ -235,7 +299,7 @@ func TestUnitsAndPolicy(t *testing.T) {
 
 	// Racksail's own units are rendered by the agent, never written.
 	for _, name := range system.PlatformUnitNames() {
-		in := EnsureUnitInput{Name: name, Content: []byte("[Service]\nUser=blog\nExecStart=/bin/true\n")}
+		in := EnsureUnitInput{Name: name, Content: sandboxed("[Service]\nUser=blog\nExecStart=/bin/true\n")}
 		if _, err := EnsureUnit.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("writing %s: %v", name, err)
 		}
@@ -374,7 +438,10 @@ func TestStorageOps(t *testing.T) {
 	if res, _ := SetSubvolumeQuota.Call(ctx, c, QuotaInput{Path: sv.Path, LimitBytes: 5 << 30}, CallOptions{}); res.Changed {
 		t.Error("the same quota is no change")
 	}
-	snap := SnapshotInput{Source: sv.Path, Dest: "/.snapshots/blog-1", ReadOnly: true}
+	if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: SnapshotDir, Mode: 0o700}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	snap := SnapshotInput{Source: sv.Path, Dest: SnapshotDir + "/blog-1", ReadOnly: true}
 	if res, err := CreateSnapshot.Call(ctx, c, snap, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("snapshot = %+v, %v", res, err)
 	}
@@ -387,16 +454,25 @@ func TestStorageOps(t *testing.T) {
 	if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: "/mnt/racksail/pool", Mode: 0o755}, CallOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	const sda, sdb = "/dev/disk/by-id/ata-SIM_HDD_4TB_H0001", "/dev/disk/by-id/ata-SIM_HDD_4TB_H0002"
 	for _, bad := range []system.Mount{
 		{Source: "/srv/racksail/accounts/blog/disk.img", Target: "/mnt/racksail/img", FSType: "ext4", Options: []string{"loop"}},
-		{Source: "/dev/sdb", Target: "/mnt/racksail/x", FSType: "ext4", Options: []string{"suid"}},
-		{Source: "/dev/sdb", Target: "/var/lib/racksail", FSType: "ext4"},
+		{Source: sdb, Target: "/mnt/racksail/x", FSType: "btrfs", Options: []string{"suid"}},
+		{Source: sdb, Target: "/var/lib/racksail", FSType: "btrfs"},
+		{Source: "/dev/sda", Target: "/mnt/racksail/pool", FSType: "btrfs"},
+		// Mount points sit right below the data disks' location.
+		{Source: sda, Target: "/mnt/racksail/pool/inner", FSType: "btrfs"},
+		{Source: sda, Target: "/srv/racksail/accounts/blog", FSType: "btrfs"},
+		{Source: sda, Target: "/mnt/racksail", FSType: "btrfs"},
 	} {
 		if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: bad}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("mount %+v should be refused: %v", bad, err)
 		}
 	}
-	mount := MountInput{Mount: system.Mount{Source: "/dev/sda", Target: "/mnt/racksail/pool", FSType: "btrfs"}}
+	mount := MountInput{Mount: system.Mount{Source: sda, Target: "/mnt/racksail/pool", FSType: "btrfs"}}
+	if res, err := EnsureMounted.Call(ctx, c, mount, CallOptions{Check: true}); err != nil || !res.Changed {
+		t.Fatalf("mount in check mode = %+v, %v", res, err)
+	}
 	if res, err := EnsureMounted.Call(ctx, c, mount, CallOptions{}); err != nil || !res.Changed {
 		t.Fatalf("mount = %+v, %v", res, err)
 	}
@@ -406,11 +482,124 @@ func TestStorageOps(t *testing.T) {
 			t.Errorf("data disks are mounted with nosuid and nodev: %+v", mt)
 		}
 	}
+	// The pool is the same mount whichever of its disks names it.
+	disks, _ := ListDisks.Call(ctx, c, Empty{}, CallOptions{})
+	pool, _ := system.FindDevice(disks.Disks, sdb)
+	for _, again := range []string{sda, sdb, "/dev/disk/by-uuid/" + pool.UUID()} {
+		in := MountInput{Mount: system.Mount{Source: again, Target: "/mnt/racksail/pool", FSType: "btrfs"}}
+		if res, err := EnsureMounted.Call(ctx, c, in, CallOptions{}); err != nil || res.Changed {
+			t.Errorf("mounting %s again = %+v, %v", again, res, err)
+		}
+	}
 	if _, err := WipeDevice.Call(ctx, c, DeviceInput{Device: "/dev/sdb"}, CallOptions{}); err == nil {
 		t.Error("wiping a member of a mounted pool must fail")
 	}
+	if _, err := WipeDevice.Call(ctx, c, DeviceInput{Device: sdb}, CallOptions{}); err == nil {
+		t.Error("wiping a member of a mounted pool by its link must fail")
+	}
 	if res, err := StartScrub.Call(ctx, c, MountPointInput{Mount: "/mnt/racksail/pool"}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("scrub = %+v, %v", res, err)
+	}
+	if res, err := AddBtrfsDevice.Call(ctx, c, BtrfsDeviceInput{Mount: "/mnt/racksail/pool", Device: sdb}, CallOptions{}); err != nil || res.Changed {
+		t.Errorf("adding a member by its link = %+v, %v", res, err)
+	}
+}
+
+// A compromised panel could otherwise bring the system disk, or a
+// filesystem mounted elsewhere, into the locations its file operations
+// write, and change the system through them.
+func TestMountsTakeOnlyDataDisks(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	b := m.Backend()
+	disks, err := ListDisks.Call(ctx, c, Empty{}, CallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, _ := system.FindDevice(disks.Disks, "/dev/nvme0n1p2")
+	efi, _ := system.FindDevice(disks.Disks, "/dev/nvme0n1p1")
+	for _, target := range []string{"/mnt/racksail/a", "/mnt/racksail/b"} {
+		if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: target, Mode: 0o755}, CallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := FormatDevice.Call(ctx, c, FormatInput{Spec: system.FormatSpec{Type: "ext4", Devices: []string{"/dev/sda"}}}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	const data = "/dev/disk/by-id/ata-SIM_HDD_4TB_H0001"
+	if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: system.Mount{Source: data, Target: "/mnt/racksail/a", FSType: "ext4"}}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		mount system.Mount
+		code  error
+	}{
+		"the system disk":              {system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001-part2", Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput},
+		"the root filesystem":          {system.Mount{Source: "/dev/disk/by-uuid/" + root.UUID(), Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput},
+		"its top level":                {system.Mount{Source: "/dev/disk/by-uuid/" + root.UUID(), Target: "/mnt/racksail/b", FSType: "btrfs", Options: []string{"subvolid=5"}}, ErrInvalidInput},
+		"its snapshots":                {system.Mount{Source: "/dev/disk/by-partuuid/" + root.Partition.PartUUID, Target: "/mnt/racksail/b", FSType: "btrfs", Options: []string{"subvol=/@snapshots"}}, ErrInvalidInput},
+		"the boot partition":           {system.Mount{Source: "/dev/disk/by-uuid/" + efi.UUID(), Target: "/mnt/racksail/b", FSType: "vfat"}, ErrInvalidInput},
+		"the whole system disk":        {system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001", Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput},
+		"a disk mounted elsewhere":     {system.Mount{Source: data, Target: "/mnt/racksail/b", FSType: "ext4"}, ErrConflict},
+		"a disk that isn't there":      {system.Mount{Source: "/dev/disk/by-id/ata-NOTHING", Target: "/mnt/racksail/b", FSType: "ext4"}, ErrNotFound},
+		"a filesystem it doesn't hold": {system.Mount{Source: "/dev/disk/by-id/ata-SIM_HDD_4TB_H0002", Target: "/mnt/racksail/b", FSType: "ext4"}, ErrInvalidInput},
+	} {
+		if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: tc.mount}, CallOptions{}); !errors.Is(err, tc.code) {
+			t.Errorf("%s: %v, want %v", name, err, tc.code)
+		}
+		// A unit mounting the same at boot is refused alike.
+		unit := "[Mount]\nWhat=" + tc.mount.Source + "\nWhere=/mnt/racksail/b\nType=" + tc.mount.FSType + "\nOptions=" +
+			strings.Join(append(tc.mount.Options, "nosuid", "nodev"), ",") + "\n"
+		if _, err := EnsureUnit.Call(ctx, c, EnsureUnitInput{Name: "mnt-racksail-b.mount", Content: []byte(unit)}, CallOptions{}); !errors.Is(err, tc.code) {
+			t.Errorf("%s as a unit: %v, want %v", name, err, tc.code)
+		}
+	}
+	// A mount point a link was planted at is refused, and no operation
+	// plants one where data disks are mounted.
+	if err := b.Files.Symlink(ctx, "/etc", "/mnt/racksail/link"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FormatDevice.Call(ctx, c, FormatInput{Spec: system.FormatSpec{Type: "ext4", Devices: []string{"/dev/sdb"}}}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	spare := system.Mount{Source: "/dev/disk/by-id/ata-SIM_HDD_4TB_H0002", Target: "/mnt/racksail/link", FSType: "ext4"}
+	if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: spare}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a mount point that is a link: %v", err)
+	}
+	if _, err := EnsureSymlink.Call(ctx, c, EnsureSymlinkInput{Path: "/mnt/racksail/c", Target: "/srv/racksail/accounts"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a link where data disks are mounted: %v", err)
+	}
+	extract := ExtractArchiveInput{Root: system.DataDisksDir, Archive: "a/x.tar", Dest: ".", Format: "tar"}
+	if _, err := ExtractArchive.Call(ctx, c, extract, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("unpacking into where data disks are mounted: %v", err)
+	}
+	// The system disk's filesystems stay mounted.
+	if _, err := Unmount.Call(ctx, c, UnmountInput{Target: "/srv/racksail"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("unmounting the accounts' area of the system disk: %v", err)
+	}
+	if _, err := Unmount.Call(ctx, c, UnmountInput{Target: "/var/lib/racksail"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("unmounting the panel's state: %v", err)
+	}
+	// A spare data disk mounts, and a unit mounts it at boot.
+	spare.Target = "/mnt/racksail/b"
+	if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: spare}, CallOptions{}); err != nil {
+		t.Errorf("a spare data disk: %v", err)
+	}
+	if res, err := Unmount.Call(ctx, c, UnmountInput{Target: "/mnt/racksail/a"}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("unmounting a data disk = %+v, %v", res, err)
+	}
+	unit := "[Mount]\nWhat=" + spare.Source + "\nWhere=/mnt/racksail/b\nType=ext4\nOptions=noatime,nosuid,nodev\n[Install]\nWantedBy=multi-user.target\n"
+	if res, err := EnsureUnit.Call(ctx, c, EnsureUnitInput{Name: "mnt-racksail-b.mount", Content: []byte(unit)}, CallOptions{}); err != nil || !res.Changed {
+		t.Errorf("a unit for a mounted data disk = %+v, %v", res, err)
+	}
+	// In a preview, the partition an earlier step makes isn't there yet.
+	planned := "[Mount]\nWhat=/dev/disk/by-id/nvme-SIM_SSD_1TB_S0002-part1\nWhere=/mnt/racksail/fast\nType=xfs\nOptions=nosuid,nodev\n"
+	if _, err := EnsureUnit.Call(ctx, c, EnsureUnitInput{Name: "mnt-racksail-fast.mount", Content: []byte(planned)}, CallOptions{Check: true}); err != nil {
+		t.Errorf("a planned partition in check mode: %v", err)
+	}
+	onSystem := "[Mount]\nWhat=/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001-part3\nWhere=/mnt/racksail/fast\nType=xfs\nOptions=nosuid,nodev\n"
+	if _, err := EnsureUnit.Call(ctx, c, EnsureUnitInput{Name: "mnt-racksail-fast.mount", Content: []byte(onSystem)}, CallOptions{Check: true}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a planned partition of the system disk: %v", err)
 	}
 }
 
@@ -433,7 +622,10 @@ func TestSnapshotPaths(t *testing.T) {
 		"/.snapshots/racksail/chg_01old/root",
 	}}
 	dir := SnapshotDir + "/chg_01test"
-	want := []Snapshot{{Source: blog, Path: dir + "/" + snapshotName(blog)}, {Source: "/", Path: dir + "/" + snapshotName("/")}}
+	// The root filesystem holds what Racksail mustn't read, so its
+	// snapshot goes where only the agent reaches.
+	sealed := SystemSnapshotDir + "/chg_01test"
+	want := []Snapshot{{Source: blog, Path: dir + "/" + snapshotName(blog)}, {Source: "/", Path: sealed + "/" + snapshotName("/")}}
 	if !strings.HasPrefix(path.Base(want[0].Path), "srv-racksail-accounts-blog-") || !strings.HasPrefix(path.Base(want[1].Path), "root-") {
 		t.Errorf("snapshot names = %v", want)
 	}
@@ -462,18 +654,53 @@ func TestSnapshotPaths(t *testing.T) {
 	if data, err := b.Files.ReadFile(ctx, want[0].Path+"/index.html", 0); err != nil || string(data) != "home" {
 		t.Errorf("the snapshot holds the site's files: %q, %v", data, err)
 	}
-	if info, err := b.Files.Stat(ctx, dir); err != nil || info.Perm() != 0o700 {
-		t.Errorf("snapshot directory = %v, %v", info, err)
+	for _, d := range []string{dir, sealed} {
+		if info, err := b.Files.Stat(ctx, d); err != nil || info.Perm() != 0o700 {
+			t.Errorf("snapshot directory %s = %v, %v", d, info, err)
+		}
 	}
 	svs, _ := b.Btrfs.Subvolumes(ctx, "/.snapshots")
 	readOnly := 0
 	for _, sv := range svs {
-		if strings.HasPrefix(sv.Path, dir+"/") && sv.ReadOnly {
+		if (strings.HasPrefix(sv.Path, dir+"/") || strings.HasPrefix(sv.Path, sealed+"/")) && sv.ReadOnly {
 			readOnly++
 		}
 	}
 	if readOnly != 2 {
 		t.Errorf("read-only snapshots = %d in %+v", readOnly, svs)
+	}
+
+	// Nothing reads the system's snapshot, sends it, copies it or writes
+	// near it: it holds root's secrets.
+	shadow := want[1].Path + "/etc/shadow"
+	if _, err := ReadFile.Call(ctx, c, ReadFileInput{Path: shadow}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("reading a system snapshot: %v", err)
+	}
+	if _, err := ListDir.Call(ctx, c, PathInput{Path: want[1].Path}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("listing a system snapshot: %v", err)
+	}
+	if err := c.Download(ctx, shadow, io.Discard); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("downloading from a system snapshot: %v", err)
+	}
+	if err := c.SendSnapshot(ctx, SnapshotStreamInput{Snapshot: want[1].Path}, io.Discard); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("sending a system snapshot: %v", err)
+	}
+	if _, err := SaveSnapshot.Call(ctx, c, SaveSnapshotInput{Snapshot: want[1].Path, Dest: "/srv/racksail/root.btrfs"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("saving a system snapshot: %v", err)
+	}
+	if _, err := CreateSnapshot.Call(ctx, c, SnapshotInput{Source: want[1].Path, Dest: blog + "/root"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("copying a system snapshot: %v", err)
+	}
+	if _, err := EnsureSubvolume.Call(ctx, c, SubvolumeInput{Path: sealed + "/root-00000000"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("making a subvolume among the system's snapshots: %v", err)
+	}
+	for _, p := range []string{SystemSnapshotDir, sealed, "/.snapshots/other/etc/shadow", "/.snapshots"} {
+		if _, err := StatPath.Call(ctx, c, PathInput{Path: p}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("stat %s: %v", p, err)
+		}
+		if _, err := EnsureSymlink.Call(ctx, c, EnsureSymlinkInput{Path: p, Target: blog}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("a link at %s: %v", p, err)
+		}
 	}
 	again, err := SnapshotPaths.Call(ctx, c, in, CallOptions{})
 	if err != nil || again.Changed || !slices.Equal(again.Snapshots, want) {
@@ -486,6 +713,12 @@ func TestSnapshotPaths(t *testing.T) {
 		if _, err := DeleteSubvolume.Call(ctx, c, SubvolumeInput{Path: s.Path}, CallOptions{}); err != nil {
 			t.Errorf("deleting %s: %v", s.Path, err)
 		}
+	}
+	if _, err := b.Files.Stat(ctx, want[1].Path); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("the system's snapshot is still there: %v", err)
+	}
+	if _, err := DeleteSubvolume.Call(ctx, c, SubvolumeInput{Path: sealed + "/../../etc"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("deleting outside the system's snapshots: %v", err)
 	}
 	if _, err := RemovePath.Call(ctx, c, RemovePathInput{Path: dir}, CallOptions{}); err != nil {
 		t.Errorf("removing the emptied directory: %v", err)
@@ -502,8 +735,17 @@ func TestNetworkAndSystemOps(t *testing.T) {
 	if res, err := ApplyFirewall.Call(ctx, c, ApplyFirewallInput{Ruleset: ruleset}, CallOptions{}); err != nil || res.Changed {
 		t.Errorf("the same ruleset is no change: %+v, %v", res, err)
 	}
-	if _, err := ApplyFirewall.Call(ctx, c, ApplyFirewallInput{Ruleset: "flush ruleset\ntable inet filter {}\n"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
-		t.Errorf("foreign tables: %v", err)
+	for _, bad := range []string{
+		"flush ruleset\ntable inet filter {}\n",
+		"flush ruleset\n" + ruleset,
+		"include \"/etc/shadow\"\n" + ruleset,
+		"table inet racksail {\n include \"/root/.ssh/id_ed25519\"\n}\n",
+		ruleset + "add rule inet filter input accept\n",
+		ruleset + "delete table inet filter\n",
+	} {
+		if _, err := ApplyFirewall.Call(ctx, c, ApplyFirewallInput{Ruleset: bad}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("ruleset %q: %v", bad, err)
+		}
 	}
 	bans := SetElementsInput{Set: system.SetRef{Family: "inet", Table: "racksail", Set: "bans"}, Elements: []system.SetElement{{Value: "198.51.100.4"}}}
 	if _, err := AddFirewallElements.Call(ctx, c, bans, CallOptions{}); err != nil {
@@ -519,6 +761,31 @@ func TestNetworkAndSystemOps(t *testing.T) {
 	}
 	if res, _ := ApplyNetworkConfig.Call(ctx, c, files, CallOptions{}); res.Changed {
 		t.Error("the same network files are no change")
+	}
+	rendered, err := system.NetworkConfig{
+		NetDevs:  []system.NetDev{{Name: "br0", Kind: "bridge"}},
+		Networks: []system.NetworkFile{{Name: "enp1s0", MatchName: "enp1s0", Bridge: "br0"}, {Name: "br0", MatchName: "br0", DHCP: "yes"}},
+	}.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderedFiles := map[string]string{}
+	for name, data := range rendered {
+		renderedFiles[name] = string(data)
+	}
+	if _, err := ApplyNetworkConfig.Call(ctx, c, NetworkConfigInput{Files: renderedFiles}, CallOptions{Check: true}); err != nil {
+		t.Errorf("rendered network files: %v", err)
+	}
+	for _, bad := range []map[string]string{
+		{"50-racksail-lan.link": "[Match]\nOriginalName=enp1s0\n[Link]\nName=lan0\n"},
+		{"50-racksail-enp1s0.network": "[Match]\nName=enp1s0\n[Network]\nIPForward=yes\n"},
+		{"50-racksail-all.network": "[Network]\nDHCP=yes\n"},
+		{"50-racksail-wg0.netdev": "[NetDev]\nName=wg0\nKind=wireguard\n[WireGuard]\nPrivateKeyFile=/etc/shadow\n"},
+		{"10-other.network": "[Match]\nName=enp1s0\n"},
+	} {
+		if _, err := ApplyNetworkConfig.Call(ctx, c, NetworkConfigInput{Files: bad}, CallOptions{Check: true}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("network files %v: %v", bad, err)
+		}
 	}
 	sysctl := SysctlInput{Name: "network", Values: map[string]string{"net.core.default_qdisc": "fq", "net.ipv4.tcp_congestion_control": "bbr"}}
 	if res, err := SetSysctl.Call(ctx, c, sysctl, CallOptions{}); err != nil || !res.Changed {

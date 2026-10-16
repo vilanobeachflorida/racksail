@@ -33,7 +33,7 @@ func newAgentCommand() *cobra.Command {
 		Short: "Run the agent, which changes the machine on the panel's behalf",
 		Long: "Runs the agent as root. It accepts typed operations from a fixed allowlist on its Unix socket, " +
 			"agent.socket in racksail.toml (/run/racksail/agent.sock by default), which only the racksail group can reach, " +
-			"and records every call in /var/log/racksail/agent-audit.jsonl. A server that joined a cluster with " +
+			"and records every call in /var/log/racksail-agent/audit.jsonl, which only root can read. A server that joined a cluster with " +
 			"`racksail agent join` also connects out to the panel's hub and serves the panel over those connections; " +
 			"--listen-tls additionally accepts the panel directly with mutual TLS. " +
 			"With --sim it acts on a simulated server instead and needs no root; its socket is then in a directory of " +
@@ -76,7 +76,7 @@ func newAgentCommand() *cobra.Command {
 				} else {
 					log.Warn("the racksail group doesn't exist; only root can reach the agent socket")
 				}
-				if err := os.MkdirAll(filepath.Dir(system.AgentAuditLog), 0o750); err != nil {
+				if err := os.MkdirAll(system.AgentLogDir, 0o700); err != nil {
 					return err
 				}
 				fileAudit, err := agent.OpenFileAudit(system.AgentAuditLog, auditMaxBytes)

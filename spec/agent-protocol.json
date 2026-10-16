@@ -720,6 +720,16 @@
           "fsType": {
             "type": "string"
           },
+          "holders": {
+            "description": "Devices built on the disk, such as RAID arrays, LVM volumes or encrypted volumes",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "label": {
             "type": "string"
           },
@@ -2275,7 +2285,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "File name to contents; names start with 50-racksail",
+            "description": "File name to contents, as NetworkConfig renders them: 50-racksail-\u003cname\u003e.network and .netdev files",
             "type": "object"
           }
         },
@@ -2455,6 +2465,16 @@
         "properties": {
           "fsType": {
             "type": "string"
+          },
+          "holders": {
+            "description": "Devices built on the partition, such as RAID arrays, LVM volumes or encrypted volumes",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "label": {
             "type": "string"
@@ -3668,6 +3688,10 @@
           },
           "readOnly": {
             "type": "boolean"
+          },
+          "receivedUuid": {
+            "description": "The UUID it had where it was sent from, when it was received",
+            "type": "string"
           },
           "uuid": {
             "type": "string"
@@ -6159,6 +6183,7 @@
     },
     "/v1/ops/DeleteSubvolume": {
       "post": {
+        "description": "Deletes a subvolume in a location Racksail manages, or a snapshot of the system that SnapshotPaths took, with everything in it.",
         "operationId": "DeleteSubvolume",
         "parameters": [
           {
@@ -7169,7 +7194,7 @@
     },
     "/v1/ops/EnsureMounted": {
       "post": {
-        "description": "Mounts a block device below /mnt/racksail or the accounts' area, always with nosuid and nodev, so nothing on it runs with privileges it brought along.",
+        "description": "Mounts a data disk at /mnt/racksail/\u003cname\u003e or over the accounts' area, always with nosuid and nodev, so nothing on it runs with privileges it brought along. The disk is named by its link under /dev/disk; the system disk, a disk with RAID or LVM on it and a filesystem mounted anywhere else are refused, as is a mount point that is a symbolic link.",
         "operationId": "EnsureMounted",
         "parameters": [
           {
@@ -7507,7 +7532,7 @@
     },
     "/v1/ops/EnsureUnit": {
       "post": {
-        "description": "Writes a racksail-* unit file and reloads systemd when the file changed. The file may only use the sections and directives Racksail renders; services run as an account or one of Racksail's service users, never as root, and nothing else runs commands. Racksail's own units are installed with InstallPlatformUnits.",
+        "description": "Writes a racksail-* unit file and reloads systemd when the file changed. The file may only use the sections and directives Racksail renders; services run as an account, in the sandbox accounts get, or one of Racksail's service users, never as root, and nothing else runs commands. Mount units mount data disks only, as EnsureMounted does. Racksail's own units are installed with InstallPlatformUnits.",
         "operationId": "EnsureUnit",
         "parameters": [
           {
@@ -13231,7 +13256,7 @@
     },
     "/v1/ops/SnapshotPaths": {
       "post": {
-        "description": "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected.",
+        "description": "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected. Snapshots of the system's own subvolumes, such as the root filesystem, go where only the agent reaches them.",
         "operationId": "SnapshotPaths",
         "parameters": [
           {
@@ -14016,6 +14041,7 @@
     },
     "/v1/ops/Unmount": {
       "post": {
+        "description": "Unmounts a data disk mounted at /mnt/racksail/\u003cname\u003e or over the accounts' area. Filesystems of the system disk stay where they are.",
         "operationId": "Unmount",
         "parameters": [
           {

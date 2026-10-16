@@ -88,8 +88,25 @@ var (
 	fsTypePattern      = regexp.MustCompile(`^[a-z0-9.]+$`)
 )
 
+// mountPoint checks that a mount point is a directory reached without a
+// symbolic link, since mount and umount resolve links in the path they're
+// given.
+func (m *mounts) mountPoint(ctx context.Context, target string) error {
+	if err := checkPath(target); err != nil {
+		return err
+	}
+	info, err := (&files{m.h}).Beneath("/").Stat(ctx, target)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("mount point %s isn't a directory: %w", target, system.ErrInvalid)
+	}
+	return nil
+}
+
 func (m *mounts) Mount(ctx context.Context, mt system.Mount) error {
-	if err := checkPath(mt.Target); err != nil {
+	if err := m.mountPoint(ctx, mt.Target); err != nil {
 		return err
 	}
 	if !mountSourcePattern.MatchString(mt.Source) || !fsTypePattern.MatchString(mt.FSType) {
@@ -110,11 +127,11 @@ func (m *mounts) Mount(ctx context.Context, mt system.Mount) error {
 }
 
 func (m *mounts) Unmount(ctx context.Context, target string) error {
-	if err := checkPath(target); err != nil {
-		return err
-	}
 	if target == "/" {
 		return fmt.Errorf("refusing to unmount /: %w", system.ErrInvalid)
+	}
+	if err := m.mountPoint(ctx, target); err != nil {
+		return err
 	}
 	_, err := m.h.exec(ctx, progUmount, "--", target)
 	return wrap("unmounting "+target, err)

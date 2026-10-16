@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/system"
 	"github.com/vilanobeachflorida/racksail/internal/system/sim"
 )
@@ -106,7 +108,10 @@ func TestSnapshotFiles(t *testing.T) {
 	if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: blog + "/index.html", Content: []byte("v1"), Mode: 0o644}, CallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	snap := "/.snapshots/blog-1"
+	if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: SnapshotDir, Mode: 0o700}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	snap := SnapshotDir + "/blog-1"
 	if _, err := CreateSnapshot.Call(ctx, c, SnapshotInput{Source: blog, Dest: snap, ReadOnly: true}, CallOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +201,129 @@ func TestStreamsLocallyAndOverHTTP(t *testing.T) {
 	records, _ := srv.Runtime().Audit().Recent(AuditFilter{Op: "streams/Upload"})
 	if len(records) != 2 || !records[0].Changed {
 		t.Errorf("uploads must be audited: %v", records)
+	}
+}
+
+// Streams exist for what is too large for an operation's JSON, so the
+// limit on operations' bodies doesn't apply to them.
+func TestStreamsOutgrowTheOperationsLimit(t *testing.T) {
+	ctx := context.Background()
+	m := sim.New(sim.Options{Hostname: "big"})
+	srv := NewServer(m.Backend(), "test", nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	client := NewHTTPClient(ts.URL, ts.Client())
+	size := int64(maxBody) + 8<<20
+	in := UploadInput{Path: "/srv/racksail/big.bin", Mode: 0o600}
+	if err := client.Upload(ctx, in, io.LimitReader(repeatReader('r'), size)); err != nil {
+		t.Fatalf("uploading %d bytes: %v", size, err)
+	}
+	info, err := m.Backend().Files.Stat(ctx, in.Path)
+	if err != nil || info.Size != size {
+		t.Fatalf("uploaded file = %+v, %v", info, err)
+	}
+	var got countingWriter
+	if err := client.Download(ctx, in.Path, &got); err != nil || got.n != size {
+		t.Errorf("downloading it = %d bytes, %v", got.n, err)
+	}
+	// Receiving reads the whole body too; this one isn't a send stream.
+	err = client.ReceiveSnapshot(ctx, "/srv/racksail", io.LimitReader(repeatReader('x'), size))
+	if !errors.Is(err, ErrInvalidInput) || strings.Contains(err.Error(), "too large") {
+		t.Errorf("a large body that isn't a send stream: %v", err)
+	}
+	// Operations keep their limit.
+	_, err = client.Call(ctx, "WriteFile", bytes.Repeat([]byte(" "), maxBody+1), CallOptions{})
+	if !errors.Is(err, i18n.ErrTooLarge) {
+		t.Errorf("an operation over the limit: %v", err)
+	}
+}
+
+type repeatReader byte
+
+func (r repeatReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(r)
+	}
+	return len(p), nil
+}
+
+type countingWriter struct{ n int64 }
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.n += int64(len(p))
+	return len(p), nil
+}
+
+// btrfs receive finds the parent of an incremental stream by UUID anywhere
+// on the filesystem, so a stream may only build on a subvolume Racksail
+// reads, never on a snapshot of the system.
+func TestReceivedStreamsStayWithinWhatRacksailReads(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	b := m.Backend()
+	blog := "/srv/racksail/accounts/blog"
+	if _, err := EnsureSubvolume.Call(ctx, c, SubvolumeInput{Path: blog}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureDir.Call(ctx, c, EnsureDirInput{Path: SnapshotDir, Mode: 0o700}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"blog-1", "blog-2"} {
+		if _, err := WriteFile.Call(ctx, c, WriteFileInput{Path: blog + "/index.html", Content: []byte(name), Mode: 0o644}, CallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CreateSnapshot.Call(ctx, c, SnapshotInput{Source: blog, Dest: SnapshotDir + "/" + name, ReadOnly: true}, CallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var full, incremental bytes.Buffer
+	if err := c.SendSnapshot(ctx, SnapshotStreamInput{Snapshot: SnapshotDir + "/blog-1"}, &full); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SendSnapshot(ctx, SnapshotStreamInput{Snapshot: SnapshotDir + "/blog-2", Parent: SnapshotDir + "/blog-1"}, &incremental); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureSubvolume.Call(ctx, c, SubvolumeInput{Path: "/srv/racksail/replica"}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ReceiveSnapshot(ctx, "/srv/racksail/replica", &full); err != nil {
+		t.Fatalf("a full stream: %v", err)
+	}
+	if err := c.ReceiveSnapshot(ctx, "/srv/racksail/replica", &incremental); err != nil {
+		t.Fatalf("an incremental stream on a snapshot Racksail reads: %v", err)
+	}
+	if got, _ := b.Files.ReadFile(ctx, "/srv/racksail/replica/blog-2/index.html", 0); string(got) != "blog-2" {
+		t.Errorf("replica = %q", got)
+	}
+
+	// A stream claiming a snapshot of the system as its parent would hand
+	// out a copy of everything root keeps.
+	snaps, err := SnapshotPaths.Call(ctx, c, SnapshotPathsInput{Label: "chg_01x", Paths: []string{"/etc/racksail/generated/a.conf"}}, CallOptions{})
+	if err != nil || len(snaps.Snapshots) != 1 {
+		t.Fatalf("snapshots = %+v, %v", snaps, err)
+	}
+	svs, _ := b.Btrfs.Subvolumes(ctx, "/.snapshots")
+	var rootUUID string
+	for _, sv := range svs {
+		if sv.Path == snaps.Snapshots[0].Path {
+			rootUUID = sv.UUID
+		}
+	}
+	forged := `{"format":"racksail-sim-send/1","name":"stolen","parent":"root","parentUuid":"` + rootUUID + `"}` + "\n"
+	err = c.ReceiveSnapshot(ctx, "/srv/racksail/replica", strings.NewReader(forged))
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "doesn't read") {
+		t.Errorf("a stream building on the system's snapshot: %v", err)
+	}
+	if _, err := b.Files.Stat(ctx, "/srv/racksail/replica/stolen"); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("a refused stream leaves nothing behind: %v", err)
+	}
+	unknown := `{"format":"racksail-sim-send/1","name":"orphan","parentUuid":"00000000-0000-4000-8000-000000000000"}` + "\n"
+	if err := c.ReceiveSnapshot(ctx, "/srv/racksail/replica", strings.NewReader(unknown)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a stream building on nothing: %v", err)
+	}
+	records, _ := c.Runtime().Audit().Recent(AuditFilter{Op: "streams/ReceiveSnapshot", Failed: true})
+	if len(records) != 2 {
+		t.Errorf("refused streams are audited: %+v", records)
 	}
 }
 

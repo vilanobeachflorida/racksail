@@ -123,58 +123,185 @@ type UnitIdentity struct {
 	Dynamic bool
 }
 
+// CheckedUnit is what the checks of a unit file leave for the agent to
+// check against the machine: who a service runs as, and what a mount unit
+// mounts.
+type CheckedUnit struct {
+	UnitIdentity
+	// Mount is what a mount unit mounts; nil for other units.
+	Mount *Mount
+}
+
 // CheckUnitFile checks a unit file Racksail installs on the panel's behalf:
 // racksail-* services, sockets, timers, paths, slices and targets, and mount
 // units for Racksail's own locations. Services must name the user they run
-// as, which is returned; their commands can't take the prefixes that run
+// as, which is returned; an account's services must also keep the sandbox
+// security.md requires; their commands can't take the prefixes that run
 // them with full privileges, and nothing else in any unit can run a
 // command.
-func CheckUnitFile(name string, data []byte, rules UnitRules) (UnitIdentity, error) {
+func CheckUnitFile(name string, data []byte, rules UnitRules) (CheckedUnit, error) {
 	if !ValidUnitName(name) {
-		return UnitIdentity{}, fmt.Errorf("%q is not a unit name: %w", name, ErrInvalid)
+		return CheckedUnit{}, fmt.Errorf("%q is not a unit name: %w", name, ErrInvalid)
 	}
 	typ := path.Ext(name)[1:]
 	sections, ok := unitSections[typ]
 	if !ok {
-		return UnitIdentity{}, fmt.Errorf("unit %s: Racksail doesn't install %s units: %w", name, typ, ErrInvalid)
+		return CheckedUnit{}, fmt.Errorf("unit %s: Racksail doesn't install %s units: %w", name, typ, ErrInvalid)
 	}
 	u, err := ParseUnitFile(data)
 	if err != nil {
-		return UnitIdentity{}, fmt.Errorf("unit %s: %w", name, err)
+		return CheckedUnit{}, fmt.Errorf("unit %s: %w", name, err)
 	}
 	c := &unitChecker{unit: name, rules: rules}
 	seen := map[string]bool{}
 	for _, s := range u.Sections {
 		keys, ok := sections[s.Name]
 		if !ok {
-			return UnitIdentity{}, fmt.Errorf("unit %s can't have a [%s] section: %w", name, s.Name, ErrInvalid)
+			return CheckedUnit{}, fmt.Errorf("unit %s can't have a [%s] section: %w", name, s.Name, ErrInvalid)
 		}
 		seen[s.Name] = true
 		if err := c.check(s, keys); err != nil {
-			return UnitIdentity{}, err
+			return CheckedUnit{}, err
 		}
 	}
+	out := CheckedUnit{UnitIdentity: c.id}
 	switch typ {
 	case "service":
 		if c.id.User == "" {
-			return UnitIdentity{}, fmt.Errorf("service %s must say which user it runs as, other than root: %w", name, ErrInvalid)
+			return CheckedUnit{}, fmt.Errorf("service %s must say which user it runs as, other than root: %w", name, ErrInvalid)
 		}
 		if !c.hasExec {
-			return UnitIdentity{}, fmt.Errorf("service %s has no command: %w", name, ErrInvalid)
+			return CheckedUnit{}, fmt.Errorf("service %s has no command: %w", name, ErrInvalid)
+		}
+		if !strings.HasPrefix(c.id.User, "racksail-") {
+			if err := checkAccountSandbox(name, u); err != nil {
+				return CheckedUnit{}, err
+			}
 		}
 	case "mount", "automount":
-		if c.where == "" {
-			return UnitIdentity{}, fmt.Errorf("unit %s needs Where=: %w", name, ErrInvalid)
+		if c.mount.Target == "" {
+			return CheckedUnit{}, fmt.Errorf("unit %s needs Where=: %w", name, ErrInvalid)
 		}
-		if typ == "mount" && (c.what == "" || !c.secureOptions) {
-			return UnitIdentity{}, fmt.Errorf("mount %s needs What= and Options= with nosuid and nodev: %w", name, ErrInvalid)
+		if typ == "automount" {
+			break
 		}
+		if c.mount.Source == "" || c.mount.FSType == "" || !c.secureOptions {
+			return CheckedUnit{}, fmt.Errorf("mount %s needs What=, Type= and Options= with nosuid and nodev: %w", name, ErrInvalid)
+		}
+		if _, err := CheckMountOptions(c.mount.Options, c.mount.FSType); err != nil {
+			return CheckedUnit{}, fmt.Errorf("unit %s: Options=%s: %w", name, strings.Join(c.mount.Options, ","), err)
+		}
+		m := c.mount
+		out.Mount = &m
 	case "socket":
 		if !seen["Socket"] || !c.listens {
-			return UnitIdentity{}, fmt.Errorf("socket %s doesn't listen on anything: %w", name, ErrInvalid)
+			return CheckedUnit{}, fmt.Errorf("socket %s doesn't listen on anything: %w", name, ErrInvalid)
 		}
 	}
-	return c.id, nil
+	return out, nil
+}
+
+// accountSandbox is the least confinement security.md requires of the
+// services of accounts, as the last assignment of each setting in
+// [Service] leaves it. Service users of Racksail's own, named racksail-*,
+// run Racksail's code; accounts run whatever they upload.
+var accountSandbox = []struct {
+	key    string
+	values []string
+}{
+	{"ProtectSystem", []string{"strict"}},
+	{"ProtectHome", []string{"tmpfs", "yes", "true", "on", "1"}},
+	{"PrivateTmp", []string{"yes", "true", "on", "1", "disconnected"}},
+	{"PrivateDevices", []string{"yes", "true", "on", "1"}},
+	{"NoNewPrivileges", []string{"yes", "true", "on", "1"}},
+	{"ProtectKernelTunables", []string{"yes", "true", "on", "1"}},
+	{"ProtectKernelModules", []string{"yes", "true", "on", "1"}},
+	{"ProtectControlGroups", []string{"yes", "true", "on", "1", "private", "strict"}},
+	{"RestrictSUIDSGID", []string{"yes", "true", "on", "1"}},
+	{"RestrictNamespaces", []string{"yes", "true", "on", "1"}},
+	{"LockPersonality", []string{"yes", "true", "on", "1"}},
+}
+
+// checkAccountSandbox refuses an account's service that lacks part of the
+// sandbox: the settings above, the system call filter of a system service,
+// the agent's and the panel's sockets out of reach and binding sockets
+// denied unless allowed one by one.
+func checkAccountSandbox(name string, u UnitFile) error {
+	last := map[string]string{}
+	var filter syscallFilter
+	var inaccessible, bindDeny []string
+	for _, s := range u.Sections {
+		if s.Name != "Service" {
+			continue
+		}
+		for _, e := range s.Entries {
+			last[e.Key] = e.Value
+			// An empty assignment empties a list setting.
+			switch e.Key {
+			case "SystemCallFilter":
+				filter.assign(e.Value)
+			case "InaccessiblePaths":
+				inaccessible = appendOrReset(inaccessible, e.Value)
+			case "SocketBindDeny":
+				bindDeny = appendOrReset(bindDeny, e.Value)
+			}
+		}
+	}
+	for _, want := range accountSandbox {
+		v, ok := last[want.key]
+		if !ok || !slices.Contains(want.values, strings.ToLower(v)) {
+			return fmt.Errorf("service %s runs as an account, so it needs %s=%s: %w", name, want.key, want.values[0], ErrInvalid)
+		}
+	}
+	if !filter.allows("@system-service") {
+		return fmt.Errorf("service %s runs as an account, so it needs SystemCallFilter=@system-service: %w", name, ErrInvalid)
+	}
+	if !slices.Contains(inaccessible, "-"+RunDir) && !slices.Contains(inaccessible, RunDir) {
+		return fmt.Errorf("service %s runs as an account, so it needs InaccessiblePaths=-%s: %w", name, RunDir, ErrInvalid)
+	}
+	if !slices.Contains(bindDeny, "any") {
+		return fmt.Errorf("service %s runs as an account, so it needs SocketBindDeny=any: %w", name, ErrInvalid)
+	}
+	return nil
+}
+
+// syscallFilter follows SystemCallFilter= assignments as systemd does: the
+// first one after a reset decides whether the filter allows only what it
+// lists or denies what it lists; later ones beginning with ~ take entries
+// away from an allowlist and the others add to it.
+type syscallFilter struct {
+	set     bool
+	allow   bool
+	allowed map[string]bool
+}
+
+func (f *syscallFilter) assign(value string) {
+	if strings.TrimSpace(value) == "" {
+		*f = syscallFilter{}
+		return
+	}
+	deny := strings.HasPrefix(value, "~")
+	if !f.set {
+		f.set, f.allow, f.allowed = true, !deny, map[string]bool{}
+	}
+	if !f.allow {
+		return
+	}
+	for _, w := range strings.Fields(strings.TrimPrefix(value, "~")) {
+		f.allowed[w] = !deny
+	}
+}
+
+// allows reports whether the filter is an allowlist that keeps group.
+func (f *syscallFilter) allows(group string) bool { return f.set && f.allow && f.allowed[group] }
+
+// appendOrReset adds the words of a list setting's value, or empties the
+// list for an empty assignment, as systemd does.
+func appendOrReset(list []string, value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return append(list, strings.Fields(value)...)
 }
 
 // CheckDropIn checks a drop-in for a unit: it may tune resources, limits,
@@ -205,24 +332,30 @@ func CheckDropIn(unit string, data []byte, rules UnitRules) error {
 type valueCheck func(c *unitChecker, v string) error
 
 type unitChecker struct {
-	unit  string
+	unit string
+	// what the file is, for messages: a unit unless said otherwise.
+	what  string
 	rules UnitRules
 	id    UnitIdentity
 
 	hasExec       bool
 	listens       bool
-	what, where   string
+	mount         Mount
 	secureOptions bool
 }
 
 func (c *unitChecker) check(s UnitSection, keys map[string]valueCheck) error {
+	what := c.what
+	if what == "" {
+		what = "unit"
+	}
 	for _, e := range s.Entries {
 		check, ok := keys[e.Key]
 		if !ok {
-			return fmt.Errorf("unit %s: %s= isn't allowed in [%s]: %w", c.unit, e.Key, s.Name, ErrInvalid)
+			return fmt.Errorf("%s %s: %s= isn't allowed in [%s]: %w", what, c.unit, e.Key, s.Name, ErrInvalid)
 		}
 		if err := check(c, e.Value); err != nil {
-			return fmt.Errorf("unit %s: %s=%s: %w", c.unit, e.Key, e.Value, err)
+			return fmt.Errorf("%s %s: %s=%s: %w", what, c.unit, e.Key, e.Value, err)
 		}
 	}
 	return nil
@@ -647,7 +780,6 @@ func listen(c *unitChecker, v string) error {
 // Mounts.
 
 var (
-	mountDevicePattern = regexp.MustCompile(`^/dev/[A-Za-z0-9][A-Za-z0-9/_.:+=-]*$`)
 	mountFSTypes       = []string{"btrfs", "ext4", "xfs", "vfat", "exfat", "f2fs"}
 	mountOptionPattern = regexp.MustCompile(`^[a-z0-9_.-]+(=[A-Za-z0-9_.:/@+-]+)?$`)
 	// mountOptions are the options a mount may use; anything that gives
@@ -656,20 +788,26 @@ var (
 	mountOptions = []string{
 		"defaults", "rw", "ro", "noatime", "relatime", "nodiratime", "lazytime", "nosuid", "nodev", "noexec", "exec",
 		"nofail", "discard", "ssd", "nossd", "autodefrag", "noautodefrag", "acl", "noacl", "user_xattr", "barrier",
-		"compress", "compress-force", "space_cache", "subvol", "subvolid", "commit", "discard", "errors", "data",
+		"compress", "compress-force", "space_cache", "subvol", "subvolid", "commit", "errors", "data",
 		"uid", "gid", "umask", "fmask", "dmask", "x-systemd.device-timeout", "x-systemd.mount-timeout",
 	}
+	// btrfsOptions only mean something to Btrfs; subvol and subvolid pick
+	// which part of the filesystem is mounted.
+	btrfsOptions = []string{"ssd", "nossd", "autodefrag", "noautodefrag", "compress", "compress-force", "space_cache", "subvol", "subvolid"}
 )
 
-// CheckMountOptions checks a mount's options and adds nosuid and nodev
-// when they're missing, so nothing on a data disk can run with privileges
-// it brought along.
-func CheckMountOptions(options []string) ([]string, error) {
+// CheckMountOptions checks a mount's options for a filesystem type and adds
+// nosuid and nodev when they're missing, so nothing on a data disk can run
+// with privileges it brought along.
+func CheckMountOptions(options []string, fstype string) ([]string, error) {
 	out := slices.Clone(options)
 	for _, o := range options {
 		key, _, _ := strings.Cut(o, "=")
 		if !mountOptionPattern.MatchString(o) || !slices.Contains(mountOptions, key) {
 			return nil, refuse("mount option %q isn't allowed", o)
+		}
+		if slices.Contains(btrfsOptions, key) && fstype != "btrfs" {
+			return nil, refuse("mount option %q is only for btrfs", o)
 		}
 	}
 	for _, o := range []string{"nosuid", "nodev"} {
@@ -680,20 +818,23 @@ func CheckMountOptions(options []string) ([]string, error) {
 	return out, nil
 }
 
-// CheckMount checks a filesystem the agent mounts: a block device with a
-// filesystem from a short list, and options that keep its files from
-// gaining privileges. The returned mount has nosuid and nodev set.
+// CheckMount checks a filesystem the agent mounts: a disk or partition named
+// by a stable link under /dev/disk, a filesystem from a short list, and
+// options that keep its files from gaining privileges. The returned mount
+// has nosuid and nodev set. Which disk the link leads to, and whether it may
+// be mounted, is for the agent to check against the machine.
 func CheckMount(m Mount) (Mount, error) {
-	if !mountDevicePattern.MatchString(m.Source) || strings.Contains(m.Source, "..") {
-		return m, refuse("mount source %q must be a block device", m.Source)
+	if !StableDevicePath(m.Source) {
+		return m, refuse("mount source %q must be a disk or partition named by its link in %s, %s or %s",
+			m.Source, DiskByIDDir, DiskByUUIDDir, DiskByPartUUIDDir)
 	}
 	if !slices.Contains(mountFSTypes, m.FSType) {
 		return m, refuse("filesystem type %q isn't one Racksail mounts", m.FSType)
 	}
-	if !path.IsAbs(m.Target) || path.Clean(m.Target) != m.Target {
+	if !path.IsAbs(m.Target) || path.Clean(m.Target) != m.Target || m.Target == "/" {
 		return m, refuse("mount point %q must be absolute and clean", m.Target)
 	}
-	opts, err := CheckMountOptions(m.Options)
+	opts, err := CheckMountOptions(m.Options, m.FSType)
 	if err != nil {
 		return m, err
 	}
@@ -702,10 +843,10 @@ func CheckMount(m Mount) (Mount, error) {
 }
 
 func mountWhat(c *unitChecker, v string) error {
-	if !mountDevicePattern.MatchString(v) || strings.Contains(v, "..") {
-		return refuse("must be a block device")
+	if !StableDevicePath(v) {
+		return refuse("must be a disk or partition named by its link in %s, %s or %s", DiskByIDDir, DiskByUUIDDir, DiskByPartUUIDDir)
 	}
-	c.what = v
+	c.mount.Source = v
 	return nil
 }
 
@@ -719,22 +860,21 @@ func mountWhere(c *unitChecker, v string) error {
 	if c.rules.MountPoint == nil || !c.rules.MountPoint(v) {
 		return refuse("%s isn't a location Racksail mounts filesystems at", v)
 	}
-	c.where = v
+	c.mount.Target = v
 	return nil
 }
 
-func mountType(_ *unitChecker, v string) error {
+func mountType(c *unitChecker, v string) error {
 	if !slices.Contains(mountFSTypes, v) {
 		return refuse("filesystem type %q isn't one Racksail mounts", v)
 	}
+	c.mount.FSType = v
 	return nil
 }
 
 func mountOptionsValue(c *unitChecker, v string) error {
 	opts := strings.Split(v, ",")
-	if _, err := CheckMountOptions(opts); err != nil {
-		return err
-	}
+	c.mount.Options = opts
 	c.secureOptions = slices.Contains(opts, "nosuid") && slices.Contains(opts, "nodev")
 	return nil
 }

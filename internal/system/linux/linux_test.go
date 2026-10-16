@@ -6,9 +6,11 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +30,8 @@ type fakeRunner struct {
 	mu      sync.Mutex
 	calls   []system.Command
 	handler func(cmd system.Command) (system.Output, error)
+	// stdin is what the last streamed program read.
+	stdin []byte
 }
 
 func (f *fakeRunner) Run(ctx context.Context, cmd system.Command) (system.Output, error) {
@@ -47,6 +51,18 @@ func (f *fakeRunner) Stream(ctx context.Context, cmd system.Command, in io.Reade
 	f.mu.Lock()
 	f.calls = append(f.calls, cmd)
 	f.mu.Unlock()
+	if in == nil {
+		return nil
+	}
+	// The program reads all it is given, as btrfs receive does, and fails
+	// when its input breaks off.
+	data, err := io.ReadAll(in)
+	f.mu.Lock()
+	f.stdin = data
+	f.mu.Unlock()
+	if err != nil {
+		return &system.ExitError{Program: cmd.Path, ExitCode: 1, Stderr: "ERROR: short read from stream"}
+	}
 	return nil
 }
 
@@ -455,6 +471,19 @@ func TestBtrfsParsing(t *testing.T) {
 	if len(svs) != 2 || svs[1].ParentUUID == "" || svs[0].ParentUUID != "" {
 		t.Fatalf("subvolumes = %+v", svs)
 	}
+	// With -R, subvolumes that arrived by receive name where they came from.
+	received := parseSubvolumeList([]byte("ID 256 gen 10 top level 5 parent_uuid -                                    received_uuid -                                    uuid 11111111-0000-0000-0000-000000000001 path @\n" +
+		"ID 261 gen 14 top level 258 parent_uuid -                                    received_uuid 22222222-0000-0000-0000-000000000009 uuid 11111111-0000-0000-0000-000000000004 path @srv/restore/blog-1\n"))
+	if len(received) != 2 || received[0].ReceivedUUID != "" || received[1].ReceivedUUID != "22222222-0000-0000-0000-000000000009" ||
+		received[1].UUID != "11111111-0000-0000-0000-000000000004" || received[1].Path != "@srv/restore/blog-1" {
+		t.Errorf("received subvolumes = %+v", received)
+	}
+	if m, ok := holdingMount(mounts, "/srv/racksail/accounts/blog"); !ok || m.Target != "/srv/racksail" {
+		t.Errorf("the mount holding an account = %+v", m)
+	}
+	if m, ok := holdingMount(mounts, "/boot/efi/EFI"); !ok || m.FSType != "vfat" {
+		t.Errorf("the mount holding the EFI partition = %+v", m)
+	}
 	if got := livePath(mounts, "/dev/nvme0n1p2", "@srv/accounts/blog"); got != "/srv/racksail/accounts/blog" {
 		t.Errorf("livePath = %q", got)
 	}
@@ -492,6 +521,31 @@ func TestDisksParsing(t *testing.T) {
 	}
 	if p := disks[0].Partitions[1]; p.Number != 2 || !slices.Equal(p.MountPoints, []string{"/", "/var/log"}) {
 		t.Errorf("partition = %+v", p)
+	}
+	// A root filesystem on RAID and LVM still marks its disks as the
+	// system's, and what's built on a disk keeps it in use.
+	layered := []byte(`{"blockdevices":[
+	 {"name":"sda","path":"/dev/sda","type":"disk","size":1000,"mountpoints":[null],"children":[
+	  {"name":"sda1","path":"/dev/sda1","type":"part","partn":1,"fstype":"linux_raid_member","mountpoints":[null],"children":[
+	   {"name":"md0","path":"/dev/md0","type":"raid1","fstype":"LVM2_member","mountpoints":[null],"children":[
+	    {"name":"vg-root","path":"/dev/mapper/vg-root","type":"lvm","fstype":"ext4","mountpoints":["/"]}]}]}]},
+	 {"name":"sdb","path":"/dev/sdb","type":"disk","size":1000,"mountpoints":[null],"children":[
+	  {"name":"vg-data","path":"/dev/mapper/vg-data","type":"lvm","fstype":"xfs","mountpoints":["/srv/data"]}]},
+	 {"name":"sdc","path":"/dev/sdc","type":"disk","size":1000,"mountpoints":[null],"children":[
+	  {"name":"sdc1","path":"/dev/sdc1","type":"part","partn":1,"fstype":"crypto_LUKS","mountpoints":[null],"children":[
+	   {"name":"luks-1","path":"/dev/mapper/luks-1","type":"crypt","mountpoints":[null]}]}]}]}`)
+	disks, err = parseLsblk(layered, nil)
+	if err != nil || len(disks) != 3 {
+		t.Fatalf("layered disks = %+v, %v", disks, err)
+	}
+	if !disks[0].System || !slices.Equal(disks[0].Partitions[0].Holders, []string{"md0", "vg-root"}) {
+		t.Errorf("a root on RAID and LVM = %+v", disks[0])
+	}
+	if disks[1].System || !slices.Equal(disks[1].Holders, []string{"vg-data"}) {
+		t.Errorf("a disk with LVM on it = %+v", disks[1])
+	}
+	if disks[2].System || !slices.Equal(disks[2].Partitions[0].Holders, []string{"luks-1"}) {
+		t.Errorf("an encrypted partition = %+v", disks[2])
 	}
 	old := []byte(`{"blockdevices":[{"name":"sdb","path":"/dev/sdb","type":"disk","size":"1000","rota":"1","rm":"0","mountpoints":[null]}]}`)
 	disks, err = parseLsblk(old, nil)
@@ -551,8 +605,23 @@ func TestFirewallAdapter(t *testing.T) {
 	if want := "delete table inet racksail\n" + string(ruleset) + "\n"; string(applied) != want {
 		t.Errorf("script = %q, want %q", applied, want)
 	}
-	if err := b.Firewall.Apply(ctx, []byte("table ip nat { }")); !errors.Is(err, system.ErrInvalid) {
-		t.Errorf("foreign table: %v", err)
+	for _, bad := range []string{
+		"table ip nat { }",
+		"flush ruleset\n" + string(ruleset),
+		"include \"/etc/shadow\"\n" + string(ruleset),
+		string(ruleset) + "\nadd rule ip nat postrouting accept\n",
+	} {
+		before := len(runner.argv())
+		if err := b.Firewall.Apply(ctx, []byte(bad)); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("Apply(%q): %v", bad, err)
+		}
+		if err := b.Firewall.Check(ctx, []byte(bad)); !errors.Is(err, system.ErrInvalid) {
+			t.Errorf("Check(%q): %v", bad, err)
+		}
+		// nft never sees a refused ruleset.
+		if after := runner.argv(); len(after) != before {
+			t.Errorf("ran %v for a refused ruleset", after[before:])
+		}
 	}
 	bans := system.SetRef{Family: "inet", Table: "racksail", Set: "bans"}
 	if err := b.Firewall.AddElements(ctx, bans, system.SetElement{Value: "192.0.2.7", Timeout: time.Hour}, system.SetElement{Value: "2001:db8::/32"}); err != nil {
@@ -702,12 +771,101 @@ func TestOSRunner(t *testing.T) {
 	}
 }
 
+// sendCommand builds one command of a Btrfs send stream, with its checksum.
+func sendCommand(kind uint16, attrs ...[]byte) []byte {
+	var payload []byte
+	for _, a := range attrs {
+		payload = append(payload, a...)
+	}
+	cmd := binary.LittleEndian.AppendUint32(nil, uint32(len(payload)))
+	cmd = binary.LittleEndian.AppendUint16(cmd, kind)
+	cmd = append(cmd, 0, 0, 0, 0)
+	cmd = append(cmd, payload...)
+	sum := ^crc32.Update(^uint32(0), crc32.MakeTable(crc32.Castagnoli), cmd)
+	binary.LittleEndian.PutUint32(cmd[6:10], sum)
+	return cmd
+}
+
+// sendAttribute is a type, length and value.
+func sendAttribute(kind uint16, value []byte) []byte {
+	a := binary.LittleEndian.AppendUint16(nil, kind)
+	a = binary.LittleEndian.AppendUint16(a, uint16(len(value)))
+	return append(a, value...)
+}
+
 func TestBtrfsReceiveIsConfined(t *testing.T) {
+	ctx := context.Background()
 	b, runner, _, _ := newTestBackend(t, nil)
-	if err := b.Btrfs.Receive(context.Background(), "/srv/racksail/restore", strings.NewReader("stream")); err != nil {
+	header := append([]byte("btrfs-stream\x00"), 1, 0, 0, 0)
+	stream := slices.Concat(header,
+		sendCommand(1, sendAttribute(15, []byte("blog")), sendAttribute(1, bytes.Repeat([]byte{1}, 16))),
+		sendCommand(18, sendAttribute(15, []byte("su")), sendAttribute(5, binary.LittleEndian.AppendUint64(nil, 0o104755))),
+		sendCommand(21))
+	if err := b.Btrfs.Receive(ctx, "/srv/racksail/restore", bytes.NewReader(stream), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := runner.argv(); len(got) != 1 || got[0] != "/usr/bin/btrfs receive --chroot -- /srv/racksail/restore" {
 		t.Errorf("commands = %q", got)
+	}
+	// btrfs gets the stream with the set-user-ID bit taken off.
+	if len(runner.stdin) != len(stream) || bytes.Contains(runner.stdin, binary.LittleEndian.AppendUint64(nil, 0o104755)) ||
+		!bytes.Contains(runner.stdin, binary.LittleEndian.AppendUint64(nil, 0o100755)) {
+		t.Errorf("btrfs got %x", runner.stdin)
+	}
+	// A stream the filter refuses fails with the filter's reason, not
+	// btrfs's.
+	device := slices.Concat(header, sendCommand(5, sendAttribute(15, []byte("sda")), sendAttribute(5, binary.LittleEndian.AppendUint64(nil, 0o060600))))
+	err := b.Btrfs.Receive(ctx, "/srv/racksail/restore", bytes.NewReader(device), nil)
+	if !errors.Is(err, system.ErrInvalid) || !strings.Contains(err.Error(), "device nodes") {
+		t.Errorf("a device node: %v", err)
+	}
+}
+
+func TestMountsAdapter(t *testing.T) {
+	ctx := context.Background()
+	b, runner, _, root := newTestBackend(t, nil)
+	for _, dir := range []string{"mnt/racksail/pool", "etc/racksail"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, root, "/mnt/racksail/file", "")
+	if err := os.Symlink("/etc", filepath.Join(root, "mnt/racksail/link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("racksail", filepath.Join(root, "mnt/elsewhere")); err != nil {
+		t.Fatal(err)
+	}
+	pool := system.Mount{Source: "/dev/disk/by-id/ata-HDD_H1", Target: "/mnt/racksail/pool", FSType: "btrfs", Options: []string{"noatime", "nosuid", "nodev"}}
+	if err := b.Mounts.Mount(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Mounts.Unmount(ctx, pool.Target); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/usr/bin/mount -t btrfs -o noatime,nosuid,nodev -- /dev/disk/by-id/ata-HDD_H1 /mnt/racksail/pool",
+		"/usr/bin/umount -- /mnt/racksail/pool",
+	}
+	if got := runner.argv(); !slices.Equal(got, want) {
+		t.Errorf("commands = %q", got)
+	}
+	// mount and umount follow links in the paths they're given, so a
+	// mount point reached through one is refused before they run.
+	for _, target := range []string{"/mnt/racksail/link", "/mnt/elsewhere/pool", "/mnt/racksail/file", "/mnt/racksail/missing"} {
+		bad := pool
+		bad.Target = target
+		if err := b.Mounts.Mount(ctx, bad); err == nil {
+			t.Errorf("mounting at %s should fail", target)
+		}
+		if err := b.Mounts.Unmount(ctx, target); err == nil {
+			t.Errorf("unmounting %s should fail", target)
+		}
+	}
+	if err := b.Mounts.Unmount(ctx, "/"); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("unmounting /: %v", err)
+	}
+	if got := runner.argv(); len(got) != len(want) {
+		t.Errorf("ran %q for refused mount points", got[len(want):])
 	}
 }

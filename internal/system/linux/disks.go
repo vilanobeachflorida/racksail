@@ -99,11 +99,14 @@ func parseLsblk(data []byte, byID map[string]string) ([]system.Disk, error) {
 			SizeBytes: flexInt(d.Size), Rotational: flexBool(d.Rota), Transport: deref(d.Tran), Removable: flexBool(d.RM),
 			FSType: deref(d.FSType), Label: deref(d.Label), UUID: deref(d.UUID), MountPoints: mountPoints(d.MountPoints),
 		}
-		if slices.Contains(disk.MountPoints, "/") {
-			disk.System = true
-		}
+		onSystem := slices.ContainsFunc(disk.MountPoints, isSystemMount)
 		for _, c := range d.Children {
 			if c.Type != "part" {
+				// A RAID array, LVM volume or encrypted volume on the whole
+				// disk.
+				holders, mounts := holdersOf([]lsblkDevice{c})
+				disk.Holders = append(disk.Holders, holders...)
+				onSystem = onSystem || slices.ContainsFunc(mounts, isSystemMount)
 				continue
 			}
 			p := system.Partition{
@@ -111,14 +114,34 @@ func parseLsblk(data []byte, byID map[string]string) ([]system.Disk, error) {
 				FSType: deref(c.FSType), Label: deref(c.Label), UUID: deref(c.UUID), PartUUID: deref(c.PartUUID),
 				MountPoints: mountPoints(c.MountPoints),
 			}
-			if slices.Contains(p.MountPoints, "/") || slices.Contains(p.MountPoints, "/boot/efi") {
-				disk.System = true
-			}
+			holders, mounts := holdersOf(c.Children)
+			p.Holders = holders
+			onSystem = onSystem || slices.ContainsFunc(p.MountPoints, isSystemMount) || slices.ContainsFunc(mounts, isSystemMount)
 			disk.Partitions = append(disk.Partitions, p)
 		}
+		disk.System = onSystem
 		out = append(out, disk)
 	}
 	return out, nil
+}
+
+// isSystemMount reports whether a filesystem mounted at p belongs to the
+// running system.
+func isSystemMount(p string) bool { return system.IsSystemMountPoint(p) }
+
+// holdersOf names the devices built on a disk or partition, such as an md
+// array and the LVM volumes on it, and where any of them are mounted, so a
+// disk whose root filesystem sits on RAID, LVM or an encrypted volume is
+// still known as the system's.
+func holdersOf(children []lsblkDevice) (names, mounts []string) {
+	for _, c := range children {
+		names = append(names, c.Name)
+		mounts = append(mounts, mountPoints(c.MountPoints)...)
+		n, m := holdersOf(c.Children)
+		names = append(names, n...)
+		mounts = append(mounts, m...)
+	}
+	return names, mounts
 }
 
 // diskIDs maps kernel device names to their preferred by-id link, favouring

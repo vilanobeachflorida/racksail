@@ -372,6 +372,116 @@ func (p RoutingPolicy) add(u *UnitFile) error {
 	return nil
 }
 
+// networkdFilePattern is how the networkd files Racksail writes are named.
+var networkdFilePattern = regexp.MustCompile(`^50-racksail-[a-z0-9][a-z0-9_.-]{0,62}\.(network|netdev)$`)
+
+// networkdKeys are the sections and directives NetworkConfig.Render
+// writes, by file type, with checks of their values.
+var networkdKeys = map[string]map[string]map[string]valueCheck{
+	"netdev": {
+		"NetDev": {
+			"Name": matching(ifaceNamePattern), "Kind": oneOf("bond", "bridge", "vlan", "dummy"),
+			"MTUBytes": intBetween(576, 65535), "MACAddress": matching(macPattern),
+		},
+		"VLAN": {"Id": intBetween(1, 4094)},
+		"Bond": {
+			"Mode": oneOf(bondModes...), "MIIMonitorSec": timeSpan, "TransmitHashPolicy": oneOf(hashPolicies...),
+			"LACPTransmitRate": oneOf("slow", "fast"),
+		},
+		"Bridge": {"STP": boolean},
+	},
+	"network": {
+		"Match": {"Name": eachWord(matching(ifaceGlobPattern)), "MACAddress": eachWord(matching(macPattern))},
+		"Link":  {"MTUBytes": intBetween(576, 65535), "RequiredForOnline": boolean},
+		"Network": {
+			"DHCP": oneOf("yes", "no", "ipv4", "ipv6"), "IPv6AcceptRA": boolean,
+			"Address": prefixValue, "Gateway": addressValue, "DNS": eachWord(addressValue),
+			"Domains": eachWord(matching(domainPattern)), "VLAN": matching(ifaceNamePattern),
+			"Bond": matching(ifaceNamePattern), "Bridge": matching(ifaceNamePattern),
+		},
+		"Route": {
+			"Destination": prefixValue, "Gateway": addressValue, "GatewayOnLink": boolean,
+			"PreferredSource": addressValue, "Table": intBetween(1, 0x7fffffff), "Metric": intBetween(0, 0xffffffff),
+		},
+		"RoutingPolicyRule": {
+			"From": prefixValue, "To": prefixValue, "FirewallMark": intBetween(1, 0xffffffff),
+			"Table": intBetween(1, 0x7fffffff), "Priority": intBetween(0, 32765),
+		},
+	},
+}
+
+func prefixValue(_ *unitChecker, v string) error {
+	if p, err := netip.ParsePrefix(v); err != nil || p.Addr().Zone() != "" {
+		return refuse("not an address with its prefix length")
+	}
+	return nil
+}
+
+func addressValue(_ *unitChecker, v string) error {
+	if _, err := netip.ParseAddr(v); err != nil {
+		return refuse("not an address")
+	}
+	return nil
+}
+
+func eachWord(check valueCheck) valueCheck {
+	return func(c *unitChecker, v string) error {
+		words := strings.Fields(v)
+		if len(words) == 0 {
+			return refuse("empty")
+		}
+		for _, w := range words {
+			if err := check(c, w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// CheckNetworkdFile holds a networkd file to what NetworkConfig.Render
+// writes: a .network or .netdev file named 50-racksail-*, read the way
+// networkd reads it, with only the sections and directives Racksail
+// renders and values those directives take. A .network file must match
+// interfaces by name or MAC address, since one without [Match] applies to
+// every interface; a .netdev file must name its device and its kind.
+func CheckNetworkdFile(name string, data []byte) error {
+	m := networkdFilePattern.FindStringSubmatch(name)
+	if m == nil {
+		return fmt.Errorf("networkd file %q must be named 50-racksail-<name>.network or .netdev: %w", name, ErrInvalid)
+	}
+	sections := networkdKeys[m[1]]
+	u, err := ParseUnitFile(data)
+	if err != nil {
+		return fmt.Errorf("networkd file %s: %w", name, err)
+	}
+	c := &unitChecker{unit: name, what: "networkd file"}
+	seen := map[string]bool{}
+	for _, sec := range u.Sections {
+		keys, ok := sections[sec.Name]
+		if !ok {
+			return fmt.Errorf("networkd file %s can't have a [%s] section: %w", name, sec.Name, ErrInvalid)
+		}
+		if err := c.check(sec, keys); err != nil {
+			return err
+		}
+		for _, e := range sec.Entries {
+			seen[sec.Name+"."+e.Key] = true
+		}
+	}
+	switch m[1] {
+	case "network":
+		if !seen["Match.Name"] && !seen["Match.MACAddress"] {
+			return fmt.Errorf("networkd file %s must match interfaces by Name= or MACAddress=: %w", name, ErrInvalid)
+		}
+	case "netdev":
+		if !seen["NetDev.Name"] || !seen["NetDev.Kind"] {
+			return fmt.Errorf("networkd file %s must give the device's Name= and Kind=: %w", name, ErrInvalid)
+		}
+	}
+	return nil
+}
+
 // RenderedNetworkd joins rendered files for golden tests and logs, sorted
 // by name.
 func RenderedNetworkd(files map[string][]byte) []byte {

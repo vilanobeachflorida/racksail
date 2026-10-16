@@ -182,26 +182,18 @@ var RestoreSnapshot = Register(Def[RestoreSnapshotInput, Result]{
 		defer f.Close()
 		h := sha256.New()
 		r := io.TeeReader(f, h)
-		err = env.System.Btrfs.Receive(ctx, in.Dir, r)
+		err = env.System.Btrfs.Receive(ctx, in.Dir, r, receiveSources(ctx, env, in.Dir))
 		if err == nil {
 			_, err = io.Copy(io.Discard, r)
 		}
 		if err == nil && hex.EncodeToString(h.Sum(nil)) != saved.SHA256 {
 			// Whatever arrived came from a file someone changed: it goes.
 			err = fmt.Errorf("%s no longer holds the stream SaveSnapshot wrote: %w", in.File, system.ErrInvalid)
-			after, lerr := subvolumesIn(ctx, env, in.Dir)
-			if lerr != nil {
-				return Result{}, errors.Join(err, lerr)
-			}
-			for p := range after {
-				if !before[p] {
-					if derr := env.System.Btrfs.DeleteSubvolume(ctx, p); derr != nil {
-						err = errors.Join(err, derr)
-					}
-				}
-			}
 		}
 		if err != nil {
+			if cerr := removeNewSubvolumes(ctx, env, in.Dir, before); cerr != nil {
+				err = errors.Join(err, cerr)
+			}
 			return Result{}, err
 		}
 		return Changed(effect), nil

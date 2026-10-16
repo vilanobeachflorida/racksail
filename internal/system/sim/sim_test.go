@@ -8,9 +8,13 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"io/fs"
 	"math/big"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -253,12 +257,56 @@ func TestSnapshotsSendReceive(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := New(Options{Hostname: "standby"}).Backend()
-	if err := other.Btrfs.Receive(ctx, "/.snapshots", &stream); err != nil {
+	if err := other.Btrfs.Receive(ctx, "/.snapshots", &stream, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := other.Files.ReadFile(ctx, "/.snapshots/blog-1/a.txt", 0)
 	if err != nil || string(got) != "one" {
 		t.Errorf("received content = %q, %v", got, err)
+	}
+	sent, _ := b.Btrfs.Subvolumes(ctx, "/.snapshots")
+	received, _ := other.Btrfs.Subvolumes(ctx, "/.snapshots")
+	var sentUUID, receivedUUID string
+	for _, sv := range sent {
+		if sv.Path == "/.snapshots/blog-1" {
+			sentUUID = sv.UUID
+		}
+	}
+	for _, sv := range received {
+		if sv.Path == "/.snapshots/blog-1" {
+			receivedUUID = sv.ReceivedUUID
+		}
+	}
+	if sentUUID == "" || receivedUUID != sentUUID {
+		t.Errorf("the received snapshot came from %q, sent %q", receivedUUID, sentUUID)
+	}
+
+	// An incremental stream builds on the snapshot received before, found
+	// by the UUID it came from, once the caller allows it.
+	if err := b.Files.WriteFile(ctx, "/srv/racksail/accounts/blog/a.txt", []byte("three"), 0o644, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Btrfs.Snapshot(ctx, "/srv/racksail/accounts/blog", "/.snapshots/blog-3", true); err != nil {
+		t.Fatal(err)
+	}
+	var incremental bytes.Buffer
+	if err := b.Btrfs.Send(ctx, "/.snapshots/blog-3", "/.snapshots/blog-1", &incremental); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Btrfs.Receive(ctx, "/.snapshots", bytes.NewReader(incremental.Bytes()), nil); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("an incremental stream without a policy: %v", err)
+	}
+	refuse := func(string) error { return system.ErrInvalid }
+	if err := other.Btrfs.Receive(ctx, "/.snapshots", bytes.NewReader(incremental.Bytes()), refuse); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a refused parent: %v", err)
+	}
+	var asked string
+	allow := func(uuid string) error { asked = uuid; return nil }
+	if err := other.Btrfs.Receive(ctx, "/.snapshots", bytes.NewReader(incremental.Bytes()), allow); err != nil || asked != sentUUID {
+		t.Errorf("incremental receive asked about %q: %v", asked, err)
+	}
+	if got, _ := other.Files.ReadFile(ctx, "/.snapshots/blog-3/a.txt", 0); string(got) != "three" {
+		t.Errorf("incremental content = %q", got)
 	}
 
 	if err := b.Btrfs.Snapshot(ctx, "/srv/racksail/accounts/blog", "/.snapshots/blog-2", false); err != nil {
@@ -309,9 +357,68 @@ func TestDisksAndPools(t *testing.T) {
 	}
 	disks, _ := b.Disks.List(ctx)
 	for _, d := range disks {
-		if d.Name == "nvme1n1" && (len(d.Partitions) != 2 || d.Partitions[1].Name != "nvme1n1p2") {
+		if d.Name == "nvme1n1" && (len(d.Partitions) != 2 || d.Partitions[1].Name != "nvme1n1p2" || d.Partitions[1].PartUUID == "") {
 			t.Errorf("partitions = %+v", d.Partitions)
 		}
+		// Every device of the pool carries its UUID, and the inventory
+		// shows where the pool is mounted.
+		if d.Name == "sda" && (d.UUID == "" || !slices.Equal(d.MountPoints, []string{"/mnt/racksail/pool"})) {
+			t.Errorf("sda = %+v", d)
+		}
+	}
+	sda, _ := system.FindDevice(disks, "/dev/sda")
+	sdb, _ := system.FindDevice(disks, "/dev/sdb")
+	if sda.UUID() == "" || sda.UUID() != sdb.UUID() {
+		t.Errorf("pool members carry %q and %q", sda.UUID(), sdb.UUID())
+	}
+
+	// A partition named by its stable link is mounted from the device the
+	// link leads to, as the kernel's mount table shows it.
+	if err := b.Disks.Format(ctx, system.FormatSpec{Type: "ext4", Devices: []string{"/dev/disk/by-id/nvme-SIM_SSD_1TB_S0002-part2"}, Label: "scratch"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Files.Mkdir(ctx, "/mnt/racksail/scratch", 0o755, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Mounts.Mount(ctx, system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_1TB_S0002-part2", Target: "/mnt/racksail/scratch", FSType: "ext4"}); err != nil {
+		t.Fatal(err)
+	}
+	mounts, _ := b.Mounts.List(ctx)
+	if !slices.ContainsFunc(mounts, func(m system.Mount) bool { return m.Source == "/dev/nvme1n1p2" && m.Target == "/mnt/racksail/scratch" }) {
+		t.Errorf("mounts = %+v", mounts)
+	}
+	disks, _ = b.Disks.List(ctx)
+	part, _ := system.FindDevice(disks, "/dev/nvme1n1p2")
+	if !slices.Equal(part.MountPoints(), []string{"/mnt/racksail/scratch"}) {
+		t.Errorf("the partition's mount points = %v", part.MountPoints())
+	}
+	if err := b.Disks.Wipe(ctx, "/dev/nvme1n1p2"); err == nil {
+		t.Error("wiping a mounted partition must fail")
+	}
+}
+
+func TestReceivedStreamsBringNoPrivileges(t *testing.T) {
+	ctx := context.Background()
+	_, b := newMachine(t)
+	tool := base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\n"))
+	stream := `{"format":"racksail-sim-send/1","name":"evil"}
+{"path":"bin/su","mode":` + strconv.Itoa(int(fs.ModeSetuid|fs.ModeSetgid|0o755)) + `,"data":"` + tool + `"}
+`
+	if err := b.Btrfs.Receive(ctx, "/srv/racksail", strings.NewReader(stream), nil); err != nil {
+		t.Fatal(err)
+	}
+	info, err := b.Files.Stat(ctx, "/srv/racksail/evil/bin/su")
+	if err != nil || info.Mode&(fs.ModeSetuid|fs.ModeSetgid) != 0 || info.Perm() != 0o755 {
+		t.Errorf("received file = %+v, %v", info, err)
+	}
+	device := `{"format":"racksail-sim-send/1","name":"dev"}
+{"path":"sda","mode":` + strconv.Itoa(int(fs.ModeDevice|0o666)) + `}
+`
+	if err := b.Btrfs.Receive(ctx, "/srv/racksail", strings.NewReader(device), nil); !errors.Is(err, system.ErrInvalid) {
+		t.Errorf("a device node: %v", err)
+	}
+	if _, err := b.Files.Stat(ctx, "/srv/racksail/dev"); !errors.Is(err, system.ErrNotFound) {
+		t.Errorf("a refused stream leaves nothing: %v", err)
 	}
 }
 

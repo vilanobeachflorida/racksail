@@ -115,17 +115,35 @@ func (rt *Runtime) applyNetwork(ctx context.Context, files map[string][]byte, wi
 	return NetworkChange{Token: p.Token, Deadline: p.Deadline}, nil
 }
 
+// maxRollbackRetry is the longest wait between attempts at putting the
+// previous network configuration back.
+const maxRollbackRetry = 5 * time.Minute
+
 // armRollback starts the timer. The caller holds rt.mu.
 func (rt *Runtime) armRollback(deadline time.Time) {
+	rt.scheduleRollback(max(deadline.Sub(rt.now()), 0), rt.rollbackRetry)
+}
+
+// scheduleRollback rolls the pending change back after wait. While putting
+// the previous files back fails, such as when networkctl can't reach
+// networkd for a moment, it tries again, waiting twice as long each time up
+// to maxRollbackRetry: the change was never confirmed, so nobody may be
+// able to reach the server to fix it. The caller holds rt.mu.
+func (rt *Runtime) scheduleRollback(wait, retry time.Duration) {
 	if rt.rollback != nil {
 		rt.rollback.Stop()
 	}
-	rt.rollback = time.AfterFunc(max(time.Until(deadline), 0), func() {
+	rt.rollback = time.AfterFunc(wait, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := rt.rollbackNetwork(ctx); err != nil {
-			rt.log.Error("rolling back the network change", "error", err)
+		err := rt.rollbackNetwork(ctx)
+		if err == nil {
+			return
 		}
+		rt.log.Error("rolling back the network change failed; trying again", "error", err, "in", retry)
+		rt.mu.Lock()
+		defer rt.mu.Unlock()
+		rt.scheduleRollback(retry, min(retry*2, maxRollbackRetry))
 	})
 }
 
@@ -156,6 +174,11 @@ func (rt *Runtime) confirmNetwork(ctx context.Context, token string, check bool)
 	}
 	if pending.Token != token {
 		return false, ErrConflict.New("op", "ConfirmNetworkConfig", "reason", "the token is for another network change")
+	}
+	if !rt.now().Before(pending.Deadline) {
+		// The rollback is due, or waiting to be tried again.
+		return false, ErrConflict.New("op", "ConfirmNetworkConfig", "reason",
+			"the time to confirm ran out at "+pending.Deadline.Format(time.RFC3339)+", so the change is being rolled back")
 	}
 	if check {
 		return true, nil
@@ -201,7 +224,9 @@ func (rt *Runtime) rollbackNetwork(ctx context.Context) error {
 	return nil
 }
 
-// recoverNetwork handles a change left pending by an earlier run.
+// recoverNetwork handles a change left pending by an earlier run: one still
+// within its time gets its timer back, and one past it is rolled back now,
+// or retried until that works.
 func (rt *Runtime) recoverNetwork(ctx context.Context) error {
 	rt.mu.Lock()
 	pending, err := rt.loadPending(ctx)
@@ -215,7 +240,13 @@ func (rt *Runtime) recoverNetwork(ctx context.Context) error {
 		return nil
 	}
 	rt.mu.Unlock()
-	return rt.rollbackNetwork(ctx)
+	if err := rt.rollbackNetwork(ctx); err != nil {
+		rt.mu.Lock()
+		rt.scheduleRollback(rt.rollbackRetry, min(rt.rollbackRetry*2, maxRollbackRetry))
+		rt.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // networkStatus reports the pending change, if any.

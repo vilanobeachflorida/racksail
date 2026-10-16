@@ -240,6 +240,9 @@ func (in EnsureSymlinkInput) Validate() error {
 	if err := checkWrite(in.Path); err != nil {
 		return err
 	}
+	if mountPointParent(path.Dir(in.Path)) {
+		return fmt.Errorf("%s is where data disks are mounted, so it holds directories only", path.Dir(in.Path))
+	}
 	target := in.Target
 	if !path.IsAbs(target) {
 		target = path.Join(path.Dir(in.Path), target)

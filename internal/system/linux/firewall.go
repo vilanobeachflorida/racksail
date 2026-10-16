@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
-	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,7 +60,7 @@ func (f *firewall) script(ctx context.Context, ruleset []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	kept, err := f.keptElements(ctx, tables, ruleset)
+	kept, err := f.keptElements(ctx, tables)
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +73,14 @@ type keptSet struct {
 	elems []system.SetElement
 }
 
-func (f *firewall) keptElements(ctx context.Context, newTables []system.RulesetTable, ruleset []byte) ([]keptSet, error) {
+func (f *firewall) keptElements(ctx context.Context, newTables []system.RulesetTable) ([]keptSet, error) {
 	out, err := f.h.exec(ctx, progNft, "--json", "list", "sets")
 	if err != nil {
 		return nil, fmt.Errorf("listing nftables sets: %w", err)
 	}
 	var kept []keptSet
 	for _, ref := range parseTimeoutSets(out) {
-		if !rulesetDeclaresSet(newTables, ruleset, ref) {
+		if !rulesetDeclaresSet(newTables, ref) {
 			continue
 		}
 		elems, err := f.Elements(ctx, ref)
@@ -129,15 +129,15 @@ func parseTimeoutSets(out []byte) []system.SetRef {
 	return refs
 }
 
-func rulesetDeclaresSet(tables []system.RulesetTable, ruleset []byte, ref system.SetRef) bool {
-	found := false
+// rulesetDeclaresSet reports whether the new ruleset declares the set in
+// the same table.
+func rulesetDeclaresSet(tables []system.RulesetTable, ref system.SetRef) bool {
 	for _, t := range tables {
-		found = found || (t.Family == ref.Family && t.Name == ref.Table)
+		if t.Family == ref.Family && t.Name == ref.Table && slices.Contains(t.Sets, ref.Set) {
+			return true
+		}
 	}
-	if !found {
-		return false
-	}
-	return regexp.MustCompile(`\bset\s+` + regexp.QuoteMeta(ref.Set) + `\s*\{`).Match(ruleset)
+	return false
 }
 
 func buildNftScript(current []system.RulesetTable, ruleset []byte, kept []keptSet) []byte {

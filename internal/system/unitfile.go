@@ -104,7 +104,15 @@ type Sandbox struct {
 	// SocketBindAllow lists what the workload may bind, in systemd's syntax
 	// ("tcp:8080"). Everything else is denied.
 	SocketBindAllow []string
-	// IPAddressDeny blocks addresses the workload must not reach.
+	// IPAddressDeny blocks addresses the workload must not reach, such as a
+	// cloud's metadata service. Nothing is denied by default. The agent's
+	// socket and the edge's admin socket are Unix sockets in /run/racksail,
+	// which InaccessiblePaths hides whatever the addresses. The panel's
+	// ports answer only those who sign in, as they do for anyone on the
+	// internet, and denying the server's own addresses would also cut a site
+	// off from its database on the same server, since systemd can't deny
+	// by port. A panel kept on a management address of its own is the case
+	// for this: callers deny that address.
 	IPAddressDeny []string
 	// AllowWriteExecute turns off MemoryDenyWriteExecute for runtimes with a
 	// JIT compiler. It has no effect with Legacy.
@@ -156,7 +164,7 @@ func (s Sandbox) Entries() ([]UnitEntry, error) {
 		UnitEntry{"CapabilityBoundingSet", ""},
 		UnitEntry{"SystemCallArchitectures", "native"},
 		UnitEntry{"SystemCallFilter", "@system-service"},
-		// The agent and panel sockets live here.
+		// The agent's socket and the edge's admin socket live here.
 		UnitEntry{"InaccessiblePaths", "-" + RunDir},
 	)
 	if !s.AllowWriteExecute || s.Legacy {

@@ -29,18 +29,24 @@ var EnsureUnit = Register(Def[EnsureUnitInput, Result]{
 	Name:    "EnsureUnit",
 	Summary: "Install a systemd unit",
 	Description: "Writes a racksail-* unit file and reloads systemd when the file changed. The file may only use the sections and " +
-		"directives Racksail renders; services run as an account or one of Racksail's service users, never as root, and nothing " +
-		"else runs commands. Racksail's own units are installed with InstallPlatformUnits.",
+		"directives Racksail renders; services run as an account, in the sandbox accounts get, or one of Racksail's service users, " +
+		"never as root, and nothing else runs commands. Mount units mount data disks only, as EnsureMounted does. " +
+		"Racksail's own units are installed with InstallPlatformUnits.",
 	Effects: func(in EnsureUnitInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectFile, Action: "write", Target: system.UnitDir + "/" + in.Name, DiskBytes: int64(len(in.Content))}}
 	},
 	Run: func(ctx context.Context, env *Env, in EnsureUnitInput) (Result, error) {
-		id, err := checkUnitFile(in.Name, in.Content)
+		unit, err := checkUnitFile(in.Name, in.Content)
 		if err != nil {
 			return Result{}, err
 		}
-		if err := checkServiceUser(ctx, env.System.Users, id, env.Check); err != nil {
+		if err := checkServiceUser(ctx, env.System.Users, unit.UnitIdentity, env.Check); err != nil {
 			return Result{}, fmt.Errorf("service %s: %w: %w", in.Name, err, system.ErrInvalid)
+		}
+		if unit.Mount != nil {
+			if _, err := checkDataDevice(ctx, env.System, *unit.Mount, env.Check); err != nil {
+				return Result{}, fmt.Errorf("mount %s: %w", in.Name, err)
+			}
 		}
 		units := env.System.Units
 		current, err := units.ReadUnit(ctx, in.Name)

@@ -142,8 +142,12 @@ func (in ExtractArchiveInput) Validate() error {
 	if _, err := system.CleanTreeName(in.Archive); err != nil {
 		return err
 	}
-	if _, err := system.CleanTreeName(in.Dest); err != nil {
+	dest, err := system.CleanTreeName(in.Dest)
+	if err != nil {
 		return err
+	}
+	if mountPointParent(path.Join(in.Root, dest)) {
+		return fmt.Errorf("%s is where data disks are mounted, so nothing is unpacked into it", path.Join(in.Root, dest))
 	}
 	if !in.Format.Valid() {
 		return fmt.Errorf("archive format %q", in.Format)

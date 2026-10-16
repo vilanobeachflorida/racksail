@@ -71,6 +71,17 @@ var agentHardening = []UnitEntry{
 	{"UMask", "0022"},
 }
 
+// platformMemoryLow is the memory racksail.slice protects: what the agent,
+// the panel and the edge claim with platformShare, together.
+const platformMemoryLow = "128M"
+
+// platformShare is a platform service's share of racksail.slice: five
+// times the weight of all the accounts together, and the memory it keeps
+// when the machine runs short.
+func platformShare(memoryLow string) []UnitEntry {
+	return []UnitEntry{{"CPUWeight", "500"}, {"IOWeight", "500"}, {"MemoryLow", memoryLow}}
+}
+
 // mountNamespacing are the settings that give a service a mount namespace
 // of its own, which the agent must not have.
 var mountNamespacing = []string{
@@ -89,13 +100,19 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 	}
 	files := map[string]UnitFile{}
 
+	// racksail-accounts.slice sits inside racksail.slice, since its name
+	// extends that one's (decision D4). Weights on racksail.slice would
+	// favour the accounts as much as the platform over the system's own
+	// services, such as sshd and journald, so it keeps the default weight
+	// and shares the machine evenly with system.slice. Inside it, each
+	// platform service outweighs all the accounts together, so the panel
+	// stays responsive and the edge keeps answering when a site is busy.
+	// The slice protects as much memory as its services claim, so none of
+	// that protection reaches the accounts.
 	var platform UnitFile
-	platform.Section("Unit").Add("Description", "Racksail platform services").
+	platform.Section("Unit").Add("Description", "Racksail platform services and accounts").
 		Add("Documentation", documentation).Add("Before", "slices.target")
-	// The platform outweighs accounts under contention, so the panel stays
-	// responsive and the edge keeps answering when a site is busy.
-	platform.Section("Slice").AddEntries(accounting...).
-		Add("CPUWeight", "500").Add("IOWeight", "500").Add("MemoryLow", "128M")
+	platform.Section("Slice").AddEntries(accounting...).Add("MemoryLow", platformMemoryLow)
 	files[PlatformSlice] = platform
 
 	var accounts UnitFile
@@ -112,11 +129,14 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 		Add("Type", "notify").
 		Add("ExecStart", binary+" agent").
 		Add("Slice", PlatformSlice).
+		AddEntries(platformShare("32M")...).
 		Add("Restart", "on-failure").Add("RestartSec", "2s").
 		// The agent socket lives here; the panel reaches it through the
 		// socket's group.
 		Add("RuntimeDirectory", "racksail").Add("RuntimeDirectoryMode", "0755").Add("RuntimeDirectoryPreserve", "yes").
 		Add("StateDirectory", "racksail-agent").Add("StateDirectoryMode", "0700").
+		// The audit trail, which only root reads.
+		Add("LogsDirectory", "racksail-agent").Add("LogsDirectoryMode", "0700").
 		Add("LimitNOFILE", "65536").
 		AddEntries(agentHardening...)
 	agent.Section("Install").Add("WantedBy", "multi-user.target")
@@ -131,6 +151,7 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 		Add("ExecStart", binary+" panel").
 		Add("User", "racksail").Add("Group", "racksail").
 		Add("Slice", PlatformSlice).
+		AddEntries(platformShare("64M")...).
 		Add("Restart", "on-failure").Add("RestartSec", "2s").
 		Add("StateDirectory", "racksail").Add("StateDirectoryMode", "0750").
 		Add("CacheDirectory", "racksail").Add("CacheDirectoryMode", "0750").
@@ -166,6 +187,7 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 		Add("ExecStart", binary+" edge").
 		Add("User", "racksail-edge").Add("Group", "racksail-edge").
 		Add("Slice", PlatformSlice).
+		AddEntries(platformShare("32M")...).
 		Add("Restart", "on-failure").Add("RestartSec", "2s").
 		Add("AmbientCapabilities", "CAP_NET_BIND_SERVICE").
 		Add("CapabilityBoundingSet", "CAP_NET_BIND_SERVICE").

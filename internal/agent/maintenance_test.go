@@ -69,8 +69,14 @@ func TestUpgradesSnapshotFirstAndSkipHeldPackages(t *testing.T) {
 		t.Fatalf("upgrade = %+v, %v", res, err)
 	}
 	for _, s := range res.Snapshots {
-		if !strings.HasPrefix(s.Path, SnapshotDir+"/upgrade_1/") {
-			t.Errorf("snapshot %s isn't under the label", s.Path)
+		// The system's own subvolumes are snapshotted where only the agent
+		// reaches them.
+		dir := SnapshotDir
+		if checkRead(s.Source) != nil {
+			dir = SystemSnapshotDir
+		}
+		if !strings.HasPrefix(s.Path, dir+"/upgrade_1/") {
+			t.Errorf("snapshot %s of %s isn't under the label in %s", s.Path, s.Source, dir)
 		}
 		if _, err := b.Files.Stat(ctx, s.Path); err != nil {
 			t.Errorf("snapshot %s wasn't taken: %v", s.Path, err)

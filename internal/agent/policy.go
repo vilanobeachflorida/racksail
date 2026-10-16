@@ -33,17 +33,23 @@ var policy = struct {
 }{
 	writeRoots: []string{
 		system.ConfigDir, system.StateDir, "/var/lib/racksail-db", "/srv/racksail", "/opt/racksail",
-		system.RunDir, system.DataDisksDir, "/var/log/racksail", "/.snapshots",
+		system.RunDir, system.DataDisksDir, "/var/log/racksail", SnapshotDir,
 	},
 	units:       []string{"racksail*", "systemd-networkd.service", "systemd-timesyncd.service", "nftables.service"},
 	aptSources:  map[string]system.AptSource{},
 	signingKeys: map[string][]byte{},
 }
 
-// mountRoots are where filesystems may be mounted: data disks, and the
-// accounts' area when it moves to one. Mounting over the platform's state or
-// configuration would hide it from the services that need it.
-var mountRoots = []string{system.DataDisksDir, "/srv/racksail"}
+// agentOnly are the agent's own: its state, its audit trail and the
+// snapshots of the system's subvolumes. No operation reaches them by path,
+// whatever roots modules add, so the panel can neither rewrite the record
+// of what it did nor read what the system keeps from it through a
+// snapshot.
+var agentOnly = []string{system.AgentStateDir, system.AgentLogDir, SystemSnapshotDir}
+
+// accountsArea is where accounts keep their data; it may move to a data
+// disk of its own.
+const accountsArea = "/srv/racksail"
 
 // AllowWrite lets file operations write below root, such as /etc/knot for
 // the DNS module. Call it from an init function.
@@ -124,10 +130,27 @@ func under(p string, roots []string) bool {
 	return false
 }
 
+// reserved reports whether p is, is inside or holds one of the agent's own
+// locations.
+func reserved(p string) bool {
+	if p == "/" {
+		return true
+	}
+	for _, r := range agentOnly {
+		if p == r || strings.HasPrefix(p, r+"/") || strings.HasPrefix(r, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // checkWrite validates a path an operation will change.
 func checkWrite(p string) error {
 	if err := cleanAbs(p); err != nil {
 		return err
+	}
+	if reserved(p) {
+		return fmt.Errorf("%s is the agent's own", p)
 	}
 	policy.RLock()
 	defer policy.RUnlock()
@@ -141,6 +164,9 @@ func checkWrite(p string) error {
 func checkRead(p string) error {
 	if err := cleanAbs(p); err != nil {
 		return err
+	}
+	if reserved(p) {
+		return fmt.Errorf("%s is the agent's own", p)
 	}
 	policy.RLock()
 	defer policy.RUnlock()
@@ -161,6 +187,9 @@ func isWriteRoot(p string) bool {
 // managedRoot returns the longest root of the policy that holds p: a write
 // root, or for reads a read root too.
 func managedRoot(p string, read bool) (string, bool) {
+	if reserved(p) {
+		return "", false
+	}
 	policy.RLock()
 	defer policy.RUnlock()
 	best := ""
@@ -266,22 +295,23 @@ func checkOwnedUnit(name string) error {
 func unitRules() system.UnitRules {
 	return system.UnitRules{
 		Dependency: unitAllowed,
-		MountPoint: func(p string) bool { return cleanAbs(p) == nil && under(p, mountRoots) },
+		MountPoint: func(p string) bool { return checkMountPoint(p) == nil },
 	}
 }
 
 // checkUnitFile validates a unit file written for the panel and returns
-// who the service runs as. Racksail's own units are rendered by the agent
+// what is left to check against the machine: who a service runs as and
+// what a mount unit mounts. Racksail's own units are rendered by the agent
 // itself, so they can't be written this way.
-func checkUnitFile(name string, content []byte) (system.UnitIdentity, error) {
+func checkUnitFile(name string, content []byte) (system.CheckedUnit, error) {
 	if err := checkOwnedUnit(name); err != nil {
-		return system.UnitIdentity{}, err
+		return system.CheckedUnit{}, err
 	}
 	if system.IsPlatformUnit(name) {
-		return system.UnitIdentity{}, fmt.Errorf("unit %s is one of Racksail's own; InstallPlatformUnits installs those", name)
+		return system.CheckedUnit{}, fmt.Errorf("unit %s is one of Racksail's own; InstallPlatformUnits installs those", name)
 	}
 	if len(content) > 1<<20 {
-		return system.UnitIdentity{}, fmt.Errorf("unit %s is larger than 1 MiB", name)
+		return system.CheckedUnit{}, fmt.Errorf("unit %s is larger than 1 MiB", name)
 	}
 	return system.CheckUnitFile(name, content, unitRules())
 }

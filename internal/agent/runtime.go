@@ -32,6 +32,9 @@ type Runtime struct {
 
 	// driftEvery is how often Start checks for drift.
 	driftEvery time.Duration
+	// rollbackRetry is the first wait before a failed network rollback is
+	// tried again.
+	rollbackRetry time.Duration
 
 	mu       sync.Mutex
 	reserved map[int]time.Time
@@ -113,6 +116,10 @@ type RuntimeOptions struct {
 	// DriftInterval is how often Start checks for drift; a minute by
 	// default.
 	DriftInterval time.Duration
+	// RollbackRetry is how long a network rollback that failed waits
+	// before it is tried again, doubling each time; five seconds by
+	// default.
+	RollbackRetry time.Duration
 }
 
 // NewRuntime returns the runtime for a backend.
@@ -132,8 +139,12 @@ func NewRuntime(backend *system.Backend, opts RuntimeOptions) *Runtime {
 	if opts.DriftInterval <= 0 {
 		opts.DriftInterval = time.Minute
 	}
+	if opts.RollbackRetry <= 0 {
+		opts.RollbackRetry = 5 * time.Second
+	}
 	return &Runtime{
-		backend: backend, audit: opts.Audit, log: opts.Log, now: opts.Clock, dir: opts.StateDir, driftEvery: opts.DriftInterval,
+		backend: backend, audit: opts.Audit, log: opts.Log, now: opts.Clock, dir: opts.StateDir,
+		driftEvery: opts.DriftInterval, rollbackRetry: opts.RollbackRetry,
 		reserved: map[int]time.Time{}, ledger: map[string]ledgerEntry{}, verified: map[string]time.Time{}, events: newEventHub(),
 		drift: map[string]Drift{},
 	}

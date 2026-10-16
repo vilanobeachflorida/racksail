@@ -88,16 +88,23 @@ func (f simFirewall) Ruleset(ctx context.Context) ([]byte, error) {
 
 func setKey(s system.SetRef) string { return s.Family + " " + s.Table + " " + s.Set }
 
-// rulesetHasSet reports whether the applied ruleset declares the set. The
-// caller holds m.mu.
+// rulesetHasSet reports whether the applied ruleset declares the set in
+// its table. The caller holds m.mu.
 func (m *Machine) rulesetHasSet(key string) bool {
 	parts := strings.Fields(key)
 	if len(parts) != 3 {
 		return false
 	}
-	table := regexp.MustCompile(`table\s+` + regexp.QuoteMeta(parts[0]) + `\s+` + regexp.QuoteMeta(parts[1]) + `\b`)
-	set := regexp.MustCompile(`\bset\s+` + regexp.QuoteMeta(parts[2]) + `\s*\{`)
-	return table.Match(m.ruleset) && set.Match(m.ruleset)
+	tables, err := system.CheckRuleset(m.ruleset)
+	if err != nil {
+		return false
+	}
+	for _, t := range tables {
+		if t.Family == parts[0] && t.Name == parts[1] && slices.Contains(t.Sets, parts[2]) {
+			return true
+		}
+	}
+	return false
 }
 
 func validElement(v string) bool {

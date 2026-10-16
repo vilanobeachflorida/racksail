@@ -16,7 +16,7 @@ import (
 
 type btrfs struct{ h *host }
 
-var subvolLine = regexp.MustCompile(`^ID (\d+) gen \d+ top level \d+ parent_uuid (\S+)\s+uuid (\S+) path (.+)$`)
+var subvolLine = regexp.MustCompile(`^ID (\d+) gen \d+ top level \d+ parent_uuid (\S+)\s+(?:received_uuid (\S+)\s+)?uuid (\S+) path (.+)$`)
 
 func (b *btrfs) mountinfo() ([]mountEntry, error) {
 	data, err := os.ReadFile(b.h.path("/proc/self/mountinfo"))
@@ -30,7 +30,7 @@ func (b *btrfs) Subvolumes(ctx context.Context, mount string) ([]system.Subvolum
 	if err := checkPath(mount); err != nil {
 		return nil, err
 	}
-	all, err := b.h.exec(ctx, progBtrfs, "subvolume", "list", "-q", "-u", "--", mount)
+	all, err := b.h.exec(ctx, progBtrfs, "subvolume", "list", "-q", "-R", "-u", "--", mount)
 	if err != nil {
 		return nil, fmt.Errorf("listing subvolumes of %s: %w", mount, err)
 	}
@@ -47,10 +47,8 @@ func (b *btrfs) Subvolumes(ctx context.Context, mount string) ([]system.Subvolum
 		readOnly[sv.ID] = true
 	}
 	device := ""
-	for _, m := range mounts {
-		if m.Target == mount {
-			device = m.Source
-		}
+	if m, ok := holdingMount(mounts, mount); ok && m.FSType == "btrfs" {
+		device = m.Source
 	}
 	svs := parseSubvolumeList(all)
 	for i := range svs {
@@ -68,9 +66,12 @@ func parseSubvolumeList(out []byte) []system.Subvolume {
 			return
 		}
 		id, _ := strconv.ParseUint(m[1], 10, 64)
-		sv := system.Subvolume{ID: id, UUID: m[3], Path: m[4]}
+		sv := system.Subvolume{ID: id, UUID: m[4], Path: m[5]}
 		if m[2] != "-" {
 			sv.ParentUUID = m[2]
+		}
+		if m[3] != "" && m[3] != "-" {
+			sv.ReceivedUUID = m[3]
 		}
 		svs = append(svs, sv)
 	})
@@ -133,22 +134,30 @@ func (b *btrfs) Snapshot(ctx context.Context, source, dest string, readOnly bool
 	return wrap("snapshotting "+source, err)
 }
 
+// holdingMount returns the mount p is on: the deepest mount point above it,
+// whatever its filesystem.
+func holdingMount(mounts []mountEntry, p string) (mountEntry, bool) {
+	var best mountEntry
+	found := false
+	for _, m := range mounts {
+		if isUnderPath(p, m.Target) && (!found || len(m.Target) >= len(best.Target)) {
+			best, found = m, true
+		}
+	}
+	return best, found
+}
+
 // mountPointOf returns where the filesystem holding p is mounted.
 func (b *btrfs) mountPointOf(p string) (string, error) {
 	mounts, err := b.mountinfo()
 	if err != nil {
 		return "", err
 	}
-	best := ""
-	for _, m := range mounts {
-		if m.FSType == "btrfs" && isUnderPath(p, m.Target) && len(m.Target) > len(best) {
-			best = m.Target
-		}
-	}
-	if best == "" {
+	m, ok := holdingMount(mounts, p)
+	if !ok || m.FSType != "btrfs" {
 		return "", fmt.Errorf("%s is not on a Btrfs filesystem: %w", p, system.ErrInvalid)
 	}
-	return best, nil
+	return m.Target, nil
 }
 
 func (b *btrfs) SetQuota(ctx context.Context, p string, limit int64) error {
@@ -268,12 +277,18 @@ func (b *btrfs) Send(ctx context.Context, snapshot, parent string, w io.Writer) 
 	return wrap("sending "+snapshot, b.h.run.Stream(ctx, system.Command{Path: progBtrfs, Args: args}, nil, w))
 }
 
-func (b *btrfs) Receive(ctx context.Context, dir string, r io.Reader) error {
+func (b *btrfs) Receive(ctx context.Context, dir string, r io.Reader, allow func(uuid string) error) error {
 	if err := checkPath(dir); err != nil {
 		return err
 	}
+	filter := system.FilterSendStream(r, allow)
 	// --chroot confines what the stream does to dir, whatever paths it names.
-	return wrap("receiving into "+dir, b.h.run.Stream(ctx, system.Command{Path: progBtrfs, Args: []string{"receive", "--chroot", "--", dir}}, r, io.Discard))
+	err := b.h.run.Stream(ctx, system.Command{Path: progBtrfs, Args: []string{"receive", "--chroot", "--", dir}}, filter, io.Discard)
+	if ferr := filter.Err(); ferr != nil {
+		// btrfs only saw the stream end early; say why.
+		return fmt.Errorf("receiving into %s: %w", dir, ferr)
+	}
+	return wrap("receiving into "+dir, err)
 }
 
 func (b *btrfs) AddDevice(ctx context.Context, mount, device string) error {

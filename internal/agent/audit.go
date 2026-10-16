@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -112,7 +113,9 @@ func newestMatching(records []AuditRecord, f AuditFilter) []AuditRecord {
 
 // FileAudit appends records to a file as JSON lines, starting a new file
 // when it reaches its size limit and keeping one previous file. Recent reads
-// both, newest first.
+// both, newest first. The file is never reached through a symbolic link,
+// and a file that was moved or removed under it is started again, so
+// records never go to a file nobody can find.
 type FileAudit struct {
 	mu      sync.Mutex
 	path    string
@@ -137,18 +140,36 @@ func OpenFileAudit(path string, maxSize int64) (*FileAudit, error) {
 	return a, nil
 }
 
+// auditFlags open the trail for appending without following a link to
+// somewhere else.
+const auditFlags = os.O_WRONLY | os.O_APPEND | os.O_CREATE | syscall.O_NOFOLLOW
+
 func (a *FileAudit) open() error {
-	f, err := os.OpenFile(a.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(a.path, auditFlags, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening the audit trail: %w", err)
 	}
 	fi, err := f.Stat()
 	if err != nil {
 		f.Close()
 		return err
 	}
+	if !fi.Mode().IsRegular() {
+		f.Close()
+		return fmt.Errorf("the audit trail %s isn't a regular file", a.path)
+	}
 	a.file, a.size = f, fi.Size()
 	return nil
+}
+
+// current reports whether the open file is still the one at the path.
+func (a *FileAudit) current() bool {
+	open, err := a.file.Stat()
+	if err != nil {
+		return false
+	}
+	named, err := os.Lstat(a.path)
+	return err == nil && os.SameFile(open, named)
 }
 
 // Record implements Auditor.
@@ -160,6 +181,12 @@ func (a *FileAudit) Record(r AuditRecord) error {
 	line = append(line, '\n')
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if !a.current() {
+		a.file.Close()
+		if err := a.open(); err != nil {
+			return err
+		}
+	}
 	if a.size+int64(len(line)) > a.maxSize {
 		if err := a.rotate(); err != nil {
 			return err
@@ -196,7 +223,7 @@ func (a *FileAudit) Recent(f AuditFilter) ([]AuditRecord, error) {
 }
 
 func readAuditFile(p string) ([]AuditRecord, error) {
-	f, err := os.Open(p)
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

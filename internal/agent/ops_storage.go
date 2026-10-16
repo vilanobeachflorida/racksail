@@ -14,13 +14,17 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
-// SubvolumeInput names a Btrfs subvolume.
+// SubvolumeInput names a Btrfs subvolume: one in a location Racksail
+// manages, or for deleting, a snapshot SnapshotPaths took of the system.
 type SubvolumeInput struct {
 	Path string `json:"path" doc:"Absolute path of the subvolume"`
 }
 
 // Validate implements Input.
 func (in SubvolumeInput) Validate() error {
+	if systemSnapshot(in.Path) {
+		return nil
+	}
 	if err := checkWrite(in.Path); err != nil {
 		return err
 	}
@@ -28,6 +32,19 @@ func (in SubvolumeInput) Validate() error {
 		return fmt.Errorf("%s is a Racksail root directory", in.Path)
 	}
 	return nil
+}
+
+// subvolumeView returns the view of files a subvolume operation works
+// through. Snapshots of the system are reached below their own directory,
+// which no other operation reaches, and only to be deleted.
+func subvolumeView(env *Env, p string, deleting bool) (system.Files, error) {
+	if systemSnapshot(p) {
+		if !deleting {
+			return nil, fmt.Errorf("%s is a snapshot of the system: %w", p, system.ErrInvalid)
+		}
+		return env.System.Files.Beneath(SystemSnapshotDir), nil
+	}
+	return beneath(env, p, false)
 }
 
 func isSubvolume(ctx context.Context, b system.Btrfs, p string) (bool, error) {
@@ -51,7 +68,7 @@ var EnsureSubvolume = Register(Def[SubvolumeInput, Result]{
 		return []system.Effect{{Type: system.EffectStorage, Action: "create-subvolume", Target: in.Path}}
 	},
 	Run: func(ctx context.Context, env *Env, in SubvolumeInput) (Result, error) {
-		files, err := beneath(env, in.Path, false)
+		files, err := subvolumeView(env, in.Path, false)
 		if err != nil {
 			return Result{}, err
 		}
@@ -82,11 +99,13 @@ var EnsureSubvolume = Register(Def[SubvolumeInput, Result]{
 var DeleteSubvolume = Register(Def[SubvolumeInput, Result]{
 	Name:    "DeleteSubvolume",
 	Summary: "Delete a Btrfs subvolume",
+	Description: "Deletes a subvolume in a location Racksail manages, or a snapshot of the system that SnapshotPaths took, " +
+		"with everything in it.",
 	Effects: func(in SubvolumeInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectStorage, Action: "delete-subvolume", Target: in.Path, Destructive: true}}
 	},
 	Run: func(ctx context.Context, env *Env, in SubvolumeInput) (Result, error) {
-		files, err := beneath(env, in.Path, false)
+		files, err := subvolumeView(env, in.Path, true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -197,19 +216,41 @@ type SnapshotResult struct {
 	Unprotected []string `json:"unprotected,omitempty" doc:"Paths no snapshot covers, because they aren't on Btrfs"`
 }
 
-// SnapshotDir is where pre-change snapshots of the system disk go. Other
-// Btrfs filesystems keep theirs in .snapshots/racksail at their mount point.
+// SnapshotDir is where pre-change snapshots of the system disk's subvolumes
+// that Racksail manages go, such as the accounts' area. Other Btrfs
+// filesystems keep theirs in .snapshots/racksail at their mount point.
 const SnapshotDir = "/.snapshots/racksail"
+
+// SystemSnapshotDir is where snapshots of the system's own subvolumes go,
+// such as the root filesystem before an upgrade. They hold everything on
+// the system, root's secrets included, so only the agent reaches them: no
+// operation reads, sends or copies them, and DeleteSubvolume removes them.
+const SystemSnapshotDir = "/.snapshots/racksail-system"
+
+// systemSnapshot reports whether p is a snapshot SnapshotPaths took of the
+// system: SystemSnapshotDir/<label>/<name>.
+func systemSnapshot(p string) bool {
+	rest, ok := strings.CutPrefix(p, SystemSnapshotDir+"/")
+	if !ok || cleanAbs(p) != nil {
+		return false
+	}
+	label, name, ok := strings.Cut(rest, "/")
+	return ok && snapshotLabelPattern.MatchString(label) && snapshotNamePattern.MatchString(name)
+}
+
+var snapshotNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,200}-[0-9a-f]{8}$`)
 
 // SnapshotPaths snapshots the subvolumes that hold the given paths, once each,
 // so data a change removes can be brought back. Snapshots of the system disk
-// go to /.snapshots/racksail/<label>, others next to their filesystem. Taking
+// go to /.snapshots/racksail/<label>, or /.snapshots/racksail-system/<label>
+// for the system's own subvolumes, others next to their filesystem. Taking
 // them again does nothing.
 var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
 	Name:    "SnapshotPaths",
 	Summary: "Snapshot what a change is about to remove",
 	Description: "Takes read-only Btrfs snapshots of the subvolumes holding the given paths, once per subvolume, " +
-		"before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected.",
+		"before a risky change removes data under them. Paths that aren't on Btrfs are reported as unprotected. " +
+		"Snapshots of the system's own subvolumes, such as the root filesystem, go where only the agent reaches them.",
 	Run: func(ctx context.Context, env *Env, in SnapshotPathsInput) (SnapshotResult, error) {
 		out := SnapshotResult{Snapshots: []Snapshot{}}
 		mounts, err := env.System.Mounts.List(ctx)
@@ -243,11 +284,20 @@ var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
 					source = sv.Path
 				}
 			}
+			// A subvolume Racksail may read in full is snapshotted where
+			// Racksail reads; the system's own are kept from the panel.
+			systemDisk := mt.Source == rootDevice
+			sealed := source != "" && checkRead(source) != nil
 			dir := path.Join(SnapshotDir, in.Label)
-			if mt.Source != rootDevice {
+			switch {
+			case !systemDisk && sealed:
+				source = ""
+			case !systemDisk:
 				dir = path.Join(mt.Target, ".snapshots", "racksail", in.Label)
+			case sealed:
+				dir = path.Join(SystemSnapshotDir, in.Label)
 			}
-			if source == "" || checkWrite(dir) != nil {
+			if source == "" || (!sealed && checkWrite(dir) != nil) {
 				out.Unprotected = append(out.Unprotected, p)
 				continue
 			}
@@ -257,7 +307,7 @@ var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
 			taken[source] = true
 			dest := path.Join(dir, snapshotName(source))
 			out.Snapshots = append(out.Snapshots, Snapshot{Source: source, Path: dest})
-			files, err := beneath(env, dest, false)
+			files, err := snapshotView(env, dest, systemDisk)
 			if err != nil {
 				return out, err
 			}
@@ -271,7 +321,7 @@ var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
 			if env.Check {
 				continue
 			}
-			if err := makeSnapshotDir(ctx, files, dir); err != nil {
+			if err := makeSnapshotDir(ctx, files, dir, systemDisk); err != nil {
 				return out, err
 			}
 			if err := env.System.Btrfs.Snapshot(ctx, source, dest, true); err != nil {
@@ -281,6 +331,16 @@ var SnapshotPaths = Register(Def[SnapshotPathsInput, SnapshotResult]{
 		return out, nil
 	},
 })
+
+// snapshotView returns the view of files below which a snapshot goes. On
+// the system disk the agent picks every directory on the way, so they are
+// reached from / without following links.
+func snapshotView(env *Env, dest string, systemDisk bool) (system.Files, error) {
+	if systemDisk {
+		return env.System.Files.Beneath("/"), nil
+	}
+	return beneath(env, dest, false)
+}
 
 // mountOf returns the mount a path is on: the deepest mount point above it.
 func mountOf(mounts []system.Mount, p string) (system.Mount, bool) {
@@ -309,11 +369,12 @@ func snapshotName(source string) string {
 }
 
 // makeSnapshotDir creates the directory snapshots go in, readable by root
-// only: a snapshot of the system disk holds a copy of everything on it. f
-// is a view below the directory's managed root.
-func makeSnapshotDir(ctx context.Context, f system.Files, dir string) error {
+// only: a snapshot holds a copy of everything in its subvolume. f is a view
+// below the directory's managed root, or below / on the system disk, where
+// the agent creates whatever is missing on the way.
+func makeSnapshotDir(ctx context.Context, f system.Files, dir string, systemDisk bool) error {
 	var missing []string
-	for d := dir; checkWrite(d) == nil; d = path.Dir(d) {
+	for d := dir; d != "/" && (systemDisk || checkWrite(d) == nil); d = path.Dir(d) {
 		if _, err := f.Stat(ctx, d); err == nil {
 			break
 		} else if !errors.Is(err, system.ErrNotFound) {
@@ -438,7 +499,7 @@ var AddBtrfsDevice = Register(Def[BtrfsDeviceInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
-		if slices.Contains(usage.Devices, in.Device) {
+		if slices.Contains(usage.Devices, kernelDevice(ctx, env.System, in.Device)) {
 			return Unchanged(), nil
 		}
 		if err := deviceUnused(ctx, env.System, in.Device); err != nil {
@@ -464,7 +525,7 @@ var RemoveBtrfsDevice = Register(Def[BtrfsDeviceInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
-		if !slices.Contains(usage.Devices, in.Device) {
+		if !slices.Contains(usage.Devices, kernelDevice(ctx, env.System, in.Device)) {
 			return Unchanged(), nil
 		}
 		effect := system.Effect{Type: system.EffectStorage, Action: "remove-device", Target: in.Mount, Detail: in.Device}
@@ -564,14 +625,99 @@ func (in MountInput) Validate() error {
 	return err
 }
 
-// checkMountPoint validates where a filesystem is mounted: below the data
-// disks or the accounts' area, never over the platform's state.
+// checkMountPoint validates where a filesystem is mounted: a directory right
+// below the data disks' location, or the accounts' area itself, never the
+// platform's state. Mount points are kept where no operation can put a
+// symbolic link, since mount and systemd follow one at a mount point:
+// nothing but the agent writes in /, /mnt or /srv, and in the data disks'
+// location only directories are made.
 func checkMountPoint(p string) error {
 	if err := cleanAbs(p); err != nil {
 		return err
 	}
-	if !under(p, mountRoots) {
-		return fmt.Errorf("filesystems are mounted under %s, not at %s", strings.Join(mountRoots, " or "), p)
+	if p == accountsArea || (path.Dir(p) == system.DataDisksDir && mountNamePattern.MatchString(path.Base(p))) {
+		return nil
+	}
+	return fmt.Errorf("filesystems are mounted at %s/<name> or at %s, not at %s", system.DataDisksDir, accountsArea, p)
+}
+
+var mountNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+// mountPointParent reports whether p is the directory mount points are made
+// in, where only directories may be made.
+func mountPointParent(p string) bool { return p == system.DataDisksDir }
+
+// checkDataDevice checks the device a mount names against the machine.
+// Mount points are also where file operations write, so whatever a mount
+// brings there becomes theirs to change: only a data disk may come, never
+// the system disk, nor a filesystem mounted anywhere else, where it would be
+// someone else's. The device must be a disk or partition of the inventory,
+// off the system disk, with nothing such as RAID or LVM built on it, and
+// hold the filesystem the mount names. It returns the kernel paths of the
+// devices holding the filesystem, as the mount table shows them. In check
+// mode an earlier step may still create the partition or the filesystem,
+// so only what is already there is checked.
+func checkDataDevice(ctx context.Context, sys *system.Backend, m system.Mount, check bool) ([]string, error) {
+	disks, err := sys.Disks.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dev, ok := system.FindDevice(disks, m.Source)
+	if !ok {
+		if check {
+			return nil, checkPlannedDevice(disks, m.Source)
+		}
+		return nil, fmt.Errorf("%s isn't a disk or partition of this server: %w", m.Source, system.ErrNotFound)
+	}
+	switch {
+	case dev.Disk.System:
+		return nil, fmt.Errorf("%s is on %s, the disk the system runs from: %w", m.Source, dev.Disk.Path, system.ErrInvalid)
+	case dev.Partition == nil && len(dev.Disk.Partitions) > 0:
+		return nil, fmt.Errorf("%s has partitions; mount one of them: %w", m.Source, system.ErrInvalid)
+	case len(dev.Holders()) > 0:
+		return nil, fmt.Errorf("%s is in use by %s: %w", m.Source, strings.Join(dev.Holders(), ", "), system.ErrExists)
+	case dev.FSType() != m.FSType && !(check && dev.FSType() == ""):
+		fstype := dev.FSType()
+		if fstype == "" {
+			fstype = "no filesystem"
+		}
+		return nil, fmt.Errorf("%s holds %s, not %s: %w", m.Source, fstype, m.FSType, system.ErrInvalid)
+	}
+	mounts, err := sys.Mounts.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, d := range system.FilesystemDevices(disks, dev) {
+		if d.Disk.System {
+			return nil, fmt.Errorf("%s shares its filesystem with %s, on the disk the system runs from: %w", m.Source, d.Path(), system.ErrInvalid)
+		}
+		if len(d.Holders()) > 0 {
+			return nil, fmt.Errorf("%s shares its filesystem with %s, which is in use by %s: %w", m.Source, d.Path(), strings.Join(d.Holders(), ", "), system.ErrExists)
+		}
+		for _, mp := range d.MountPoints() {
+			if mp != m.Target {
+				return nil, fmt.Errorf("%s is already mounted at %s: %w", m.Source, mp, system.ErrExists)
+			}
+		}
+		for _, mt := range mounts {
+			if mt.Source == d.Path() && mt.Target != m.Target {
+				return nil, fmt.Errorf("%s is already mounted at %s: %w", m.Source, mt.Target, system.ErrExists)
+			}
+		}
+		paths = append(paths, d.Path())
+	}
+	return paths, nil
+}
+
+// checkPlannedDevice checks, in check mode, a device that isn't there yet,
+// such as the first partition of a disk an earlier step partitions: as far
+// as its name tells, it must not be on the system disk.
+func checkPlannedDevice(disks []system.Disk, source string) error {
+	for _, d := range disks {
+		if d.ByID != "" && strings.HasPrefix(source, d.ByID+"-part") && d.System {
+			return fmt.Errorf("%s is on %s, the disk the system runs from: %w", source, d.Path, system.ErrInvalid)
+		}
 	}
 	return nil
 }
@@ -581,8 +727,9 @@ func checkMountPoint(p string) error {
 var EnsureMounted = Register(Def[MountInput, Result]{
 	Name:    "EnsureMounted",
 	Summary: "Mount a filesystem",
-	Description: "Mounts a block device below " + system.DataDisksDir + " or the accounts' area, always with nosuid and nodev, " +
-		"so nothing on it runs with privileges it brought along.",
+	Description: "Mounts a data disk at " + system.DataDisksDir + "/<name> or over the accounts' area, always with nosuid and nodev, " +
+		"so nothing on it runs with privileges it brought along. The disk is named by its link under /dev/disk; the system disk, " +
+		"a disk with RAID or LVM on it and a filesystem mounted anywhere else are refused, as is a mount point that is a symbolic link.",
 	Effects: func(in MountInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectStorage, Action: "mount", Target: in.Mount.Target, Detail: in.Mount.Source}}
 	},
@@ -591,24 +738,30 @@ var EnsureMounted = Register(Def[MountInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
-		in.Mount = mount
+		if err := checkNoSymlinks(ctx, env, mount.Target); err != nil {
+			return Result{}, err
+		}
+		devices, err := checkDataDevice(ctx, env.System, mount, env.Check)
+		if err != nil {
+			return Result{}, err
+		}
 		mounts, err := env.System.Mounts.List(ctx)
 		if err != nil {
 			return Result{}, err
 		}
 		for _, m := range mounts {
-			if m.Target == in.Mount.Target {
-				if m.Source == in.Mount.Source && m.FSType == in.Mount.FSType {
+			if m.Target == mount.Target {
+				if slices.Contains(devices, m.Source) && m.FSType == mount.FSType {
 					return Unchanged(), nil
 				}
 				return Result{}, fmt.Errorf("%s is already mounted from %s: %w", m.Target, m.Source, system.ErrExists)
 			}
 		}
-		effect := system.Effect{Type: system.EffectStorage, Action: "mount", Target: in.Mount.Target, Detail: in.Mount.Source}
+		effect := system.Effect{Type: system.EffectStorage, Action: "mount", Target: mount.Target, Detail: mount.Source}
 		if env.Check {
 			return Changed(effect), nil
 		}
-		return Changed(effect), env.System.Mounts.Mount(ctx, in.Mount)
+		return Changed(effect), env.System.Mounts.Mount(ctx, mount)
 	},
 })
 
@@ -620,10 +773,11 @@ type UnmountInput struct {
 // Validate implements Input.
 func (in UnmountInput) Validate() error { return checkMountPoint(in.Target) }
 
-// Unmount unmounts a filesystem Racksail mounted.
+// Unmount unmounts a data disk Racksail mounted.
 var Unmount = Register(Def[UnmountInput, Result]{
-	Name:    "Unmount",
-	Summary: "Unmount a filesystem",
+	Name:        "Unmount",
+	Summary:     "Unmount a filesystem",
+	Description: "Unmounts a data disk mounted at " + system.DataDisksDir + "/<name> or over the accounts' area. Filesystems of the system disk stay where they are.",
 	Effects: func(in UnmountInput) []system.Effect {
 		return []system.Effect{{Type: system.EffectStorage, Action: "unmount", Target: in.Target}}
 	},
@@ -632,8 +786,16 @@ var Unmount = Register(Def[UnmountInput, Result]{
 		if err != nil {
 			return Result{}, err
 		}
-		if !slices.ContainsFunc(mounts, func(m system.Mount) bool { return m.Target == in.Target }) {
+		i := slices.IndexFunc(mounts, func(m system.Mount) bool { return m.Target == in.Target })
+		if i < 0 {
 			return Unchanged(), nil
+		}
+		disks, err := env.System.Disks.List(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		if dev, ok := system.FindDevice(disks, mounts[i].Source); ok && dev.Disk.System {
+			return Result{}, fmt.Errorf("%s holds the system disk's %s: %w", in.Target, mounts[i].Source, system.ErrInvalid)
 		}
 		effect := system.Effect{Type: system.EffectStorage, Action: "unmount", Target: in.Target}
 		if env.Check {
@@ -731,61 +893,66 @@ var StartDiskSelfTest = Register(Def[SelfTestInput, Result]{
 	},
 })
 
-// deviceUnused refuses devices that hold the system, are mounted or belong
-// to a mounted filesystem (members of a multi-device Btrfs pool share its
-// UUID), so destructive disk operations can only hit spare disks.
+// kernelDevice returns the kernel's path of a device named by a link under
+// /dev/disk, as Btrfs lists its devices, or dev itself when the inventory
+// doesn't know it.
+func kernelDevice(ctx context.Context, sys *system.Backend, dev string) string {
+	disks, err := sys.Disks.List(ctx)
+	if err != nil {
+		return dev
+	}
+	if d, ok := system.FindDevice(disks, dev); ok {
+		return d.Path()
+	}
+	return dev
+}
+
+// deviceUnused refuses devices that hold the system, are mounted, carry a
+// RAID array, LVM or an encrypted volume, or belong to a mounted filesystem
+// (members of a multi-device Btrfs pool share its UUID), so destructive disk
+// operations can only hit spare disks. A whole disk is in use when any of
+// its partitions is.
 func deviceUnused(ctx context.Context, sys *system.Backend, device string) error {
 	disks, err := sys.Disks.List(ctx)
 	if err != nil {
 		return err
 	}
-	type dev struct {
-		path, uuid string
-		mounts     []string
-		system     bool
+	found, ok := system.FindDevice(disks, device)
+	if !ok {
+		return fmt.Errorf("device %s: %w", device, system.ErrNotFound)
 	}
-	var all []dev
-	for _, d := range disks {
-		all = append(all, dev{d.Path, d.UUID, d.MountPoints, d.System})
-		for _, p := range d.Partitions {
-			all = append(all, dev{p.Path, p.UUID, p.MountPoints, d.System})
-		}
+	if found.Disk.System {
+		return fmt.Errorf("%s holds the running system: %w", found.Disk.Path, system.ErrExists)
 	}
 	mountedUUIDs := map[string]bool{}
-	for _, d := range all {
-		if len(d.mounts) > 0 && d.uuid != "" {
-			mountedUUIDs[d.uuid] = true
-		}
-	}
-	name := strings.TrimPrefix(device, "/dev/")
 	for _, d := range disks {
-		target := d.Path == device || d.Name == name || (d.ByID != "" && d.ByID == device)
-		for _, p := range d.Partitions {
-			if p.Path == device || p.Name == name {
-				target = true
+		all := []system.BlockDevice{{Disk: d}}
+		for i := range d.Partitions {
+			all = append(all, system.BlockDevice{Disk: d, Partition: &d.Partitions[i]})
+		}
+		for _, x := range all {
+			if len(x.MountPoints()) > 0 && x.UUID() != "" {
+				mountedUUIDs[strings.ToLower(x.UUID())] = true
 			}
 		}
-		if !target {
-			continue
-		}
-		if d.System {
-			return fmt.Errorf("%s holds the running system: %w", d.Path, system.ErrExists)
-		}
-		own := []dev{{d.Path, d.UUID, d.MountPoints, d.System}}
-		for _, p := range d.Partitions {
-			own = append(own, dev{p.Path, p.UUID, p.MountPoints, d.System})
-		}
-		for _, x := range own {
-			if len(x.mounts) > 0 {
-				return fmt.Errorf("%s is mounted at %s: %w", x.path, strings.Join(x.mounts, ", "), system.ErrExists)
-			}
-			if x.uuid != "" && mountedUUIDs[x.uuid] {
-				return fmt.Errorf("%s belongs to a mounted filesystem: %w", x.path, system.ErrExists)
-			}
-		}
-		return nil
 	}
-	return fmt.Errorf("device %s: %w", device, system.ErrNotFound)
+	own := []system.BlockDevice{found}
+	if found.Partition == nil {
+		for i := range found.Disk.Partitions {
+			own = append(own, system.BlockDevice{Disk: found.Disk, Partition: &found.Disk.Partitions[i]})
+		}
+	}
+	for _, x := range own {
+		switch {
+		case len(x.MountPoints()) > 0:
+			return fmt.Errorf("%s is mounted at %s: %w", x.Path(), strings.Join(x.MountPoints(), ", "), system.ErrExists)
+		case len(x.Holders()) > 0:
+			return fmt.Errorf("%s is in use by %s: %w", x.Path(), strings.Join(x.Holders(), ", "), system.ErrExists)
+		case x.UUID() != "" && mountedUUIDs[strings.ToLower(x.UUID())]:
+			return fmt.Errorf("%s belongs to a mounted filesystem: %w", x.Path(), system.ErrExists)
+		}
+	}
+	return nil
 }
 
 // DeviceInput names a block device.

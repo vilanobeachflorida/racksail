@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -141,6 +142,123 @@ func TestFileAudit(t *testing.T) {
 	if len(again) != 3 || !again[0].Time.Equal(all[0].Time) {
 		t.Errorf("after reopening = %v", again)
 	}
+	// A trail removed under the agent starts again where it can be found,
+	// rather than going on in a file nobody can open.
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Record(AuditRecord{Time: start.Add(time.Hour), Op: "ReadFile"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(p); err != nil || !strings.Contains(string(data), `"op":"ReadFile"`) {
+		t.Errorf("the trail after it was removed = %q, %v", data, err)
+	}
+}
+
+func TestFileAuditNeverFollowsALink(t *testing.T) {
+	dir := t.TempDir()
+	elsewhere := filepath.Join(dir, "elsewhere")
+	if err := os.WriteFile(elsewhere, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "audit.jsonl")
+	if err := os.Symlink(elsewhere, p); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := OpenFileAudit(p, 0); err == nil {
+		a.Close()
+		t.Error("opening a trail that is a link must fail")
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenFileAudit(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	// A link swapped in afterwards isn't written through either.
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Record(AuditRecord{Op: "WriteFile"}); err == nil {
+		t.Error("recording through a link must fail")
+	}
+	if data, _ := os.ReadFile(elsewhere); len(data) != 0 {
+		t.Errorf("the link's target got %q", data)
+	}
+	if _, err := readAuditFile(p); err == nil {
+		t.Error("reading the trail through a link must fail")
+	}
+}
+
+// A rollback that fails, such as when networkd can't be reached for a
+// moment, is tried again until the previous configuration is back.
+func TestNetworkRollbackIsRetried(t *testing.T) {
+	ctx := context.Background()
+	m := sim.New(sim.Options{Hostname: "retry"})
+	b := m.Backend()
+	before, _ := b.Network.Config(ctx)
+	rt := NewRuntime(b, RuntimeOptions{RollbackRetry: 20 * time.Millisecond})
+	c := NewLocalRuntime(rt)
+	events, stop := rt.Subscribe()
+	defer stop()
+	in := NetworkConfigInput{Files: map[string]string{"50-racksail-enp1s0.network": "[Match]\nName=enp1s0\n[Network]\nAddress=203.0.113.9/24\n"}, ConfirmWithin: 1}
+	res, err := ApplyNetworkConfig.Call(ctx, c, in, CallOptions{})
+	if err != nil || res.Pending == nil {
+		t.Fatalf("apply = %+v, %v", res, err)
+	}
+	for range 3 {
+		m.FailNext("network.apply_config", "", errors.New("networkctl: connection refused"))
+	}
+	select {
+	case e := <-events:
+		if e.Type != EventNetworkRolledBack {
+			t.Errorf("event = %+v", e)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the rollback wasn't tried again")
+	}
+	after, _ := b.Network.Config(ctx)
+	if len(after) != len(before) {
+		t.Errorf("config after the rollback = %v, before %v", after, before)
+	}
+	attempts := 0
+	for _, call := range m.Calls() {
+		if call.Area == "network" && call.Op == "apply_config" {
+			attempts++
+		}
+	}
+	if attempts != 5 {
+		t.Errorf("apply attempts = %d, want the change and four rollbacks", attempts)
+	}
+}
+
+func TestLateConfirmationWhileRollingBack(t *testing.T) {
+	ctx := context.Background()
+	m := sim.New(sim.Options{Hostname: "late"})
+	b := m.Backend()
+	now := time.Now()
+	var mu sync.Mutex
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	rt := NewRuntime(b, RuntimeOptions{Clock: clock, RollbackRetry: time.Hour})
+	c := NewLocalRuntime(rt)
+	in := NetworkConfigInput{Files: map[string]string{"50-racksail-enp1s0.network": "[Match]\nName=enp1s0\n"}, ConfirmWithin: 60}
+	res, err := ApplyNetworkConfig.Call(ctx, c, in, CallOptions{})
+	if err != nil || res.Pending == nil {
+		t.Fatalf("apply = %+v, %v", res, err)
+	}
+	// The deadline passes while the rollback can't be done yet.
+	mu.Lock()
+	now = now.Add(2 * time.Minute)
+	mu.Unlock()
+	_, err = ConfirmNetworkConfig.Call(ctx, c, ConfirmNetworkInput{Token: res.Pending.Token}, CallOptions{})
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "ran out") {
+		t.Errorf("confirming after the deadline: %v", err)
+	}
 }
 
 func TestDrift(t *testing.T) {
@@ -152,7 +270,7 @@ func TestDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	newAccount(t, c, "blog", 20001)
-	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: []byte("[Service]\nUser=blog\nExecStart=/bin/true\n")}
+	unit := EnsureUnitInput{Name: "racksail-site-blog.service", Content: sandboxed("[Service]\nUser=blog\nExecStart=/bin/true\n")}
 	if _, err := EnsureUnit.Call(ctx, c, unit, CallOptions{Owner: site}); err != nil {
 		t.Fatal(err)
 	}

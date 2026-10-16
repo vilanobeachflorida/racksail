@@ -30,10 +30,10 @@ import (
 // ProtocolVersion is the version of the agent protocol.
 const ProtocolVersion = "1.1.0"
 
-// maxBody bounds requests and responses on the agent socket. The largest are
+// maxBody bounds the requests and responses of operations. The largest are
 // files written or read whole, whose contents travel base64-encoded in JSON,
 // so it leaves room for the largest file in that encoding plus the rest of
-// the request.
+// the request. Streams move what is larger and bound it themselves.
 const maxBody = (maxFileContent+2)/3*4 + 1<<20
 
 // bodyReadTimeout bounds reading one request. Panels on other servers reach
@@ -221,7 +221,16 @@ func requestedOp(p string) string {
 
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
-	inner := http.MaxBytesHandler(s.mux, maxBody)
+	capped := http.MaxBytesHandler(s.mux, maxBody)
+	// Streams carry Btrfs send streams and uploads far larger than any
+	// operation's JSON; each bounds what it reads itself.
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pattern := s.mux.Handler(r); strings.HasPrefix(pattern, "POST /v1/streams/") {
+			s.mux.ServeHTTP(w, r)
+			return
+		}
+		capped.ServeHTTP(w, r)
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		caller, err := identify(r)
 		if err != nil {

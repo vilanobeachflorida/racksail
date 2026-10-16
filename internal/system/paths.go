@@ -15,8 +15,12 @@ const (
 	AgentStateDir = "/var/lib/racksail-agent"
 	// AgentClusterFile holds the hub and certificate of a joined server.
 	AgentClusterFile = "/var/lib/racksail-agent/cluster.json"
+	// AgentLogDir holds the agent's audit trail. Only root reads it, and no
+	// operation reaches it, so the panel can't change the record of what it
+	// asked for.
+	AgentLogDir = "/var/log/racksail-agent"
 	// AgentAuditLog is the agent's audit trail, rotated to .1 when large.
-	AgentAuditLog = "/var/log/racksail/agent-audit.jsonl"
+	AgentAuditLog = "/var/log/racksail-agent/audit.jsonl"
 	// EdgeStateDir holds the edge's certificates and ACME accounts.
 	EdgeStateDir = "/var/lib/racksail-edge"
 	// CredstoreDir is where systemd looks for encrypted credentials that

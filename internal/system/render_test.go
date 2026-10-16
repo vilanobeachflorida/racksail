@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -207,6 +208,23 @@ func TestWakeGolden(t *testing.T) {
 	}
 }
 
+// lastValue returns the last value given to key in a section, as systemd
+// takes it.
+func lastValue(u UnitFile, section, key string) string {
+	v := ""
+	for _, s := range u.Sections {
+		if s.Name != section {
+			continue
+		}
+		for _, e := range s.Entries {
+			if e.Key == key {
+				v = e.Value
+			}
+		}
+	}
+	return v
+}
+
 func TestAgentSharesTheHostsMounts(t *testing.T) {
 	units, err := PlatformUnits("/usr/bin/racksail")
 	if err != nil {
@@ -246,6 +264,32 @@ func TestPlatformUnitsGolden(t *testing.T) {
 	}
 	if bytes.Contains(units[AgentUnit], []byte("User=")) {
 		t.Error("the agent runs as root")
+	}
+	// racksail-accounts.slice is inside racksail.slice, so racksail.slice
+	// keeps the default weight, the platform services outweigh the
+	// accounts inside it, and its memory protection is theirs alone.
+	slice, _ := ParseUnitFile(units[PlatformSlice])
+	if v := lastValue(slice, "Slice", "CPUWeight"); v != "" {
+		t.Errorf("racksail.slice has CPUWeight=%s, which favours the accounts over the system's services too", v)
+	}
+	accounts, _ := ParseUnitFile(units[AccountsSlice])
+	accountWeight, _ := strconv.Atoi(lastValue(accounts, "Slice", "CPUWeight"))
+	var protected int
+	for _, name := range []string{AgentUnit, PanelUnit, EdgeUnit} {
+		u, _ := ParseUnitFile(units[name])
+		weight, _ := strconv.Atoi(lastValue(u, "Service", "CPUWeight"))
+		io, _ := strconv.Atoi(lastValue(u, "Service", "IOWeight"))
+		if weight <= accountWeight || io <= accountWeight {
+			t.Errorf("%s weighs %d and %d, not more than the accounts' %d", name, weight, io, accountWeight)
+		}
+		low, _ := strconv.Atoi(strings.TrimSuffix(lastValue(u, "Service", "MemoryLow"), "M"))
+		protected += low
+	}
+	if want := strconv.Itoa(protected) + "M"; lastValue(slice, "Slice", "MemoryLow") != want {
+		t.Errorf("racksail.slice protects %s, its services %s", lastValue(slice, "Slice", "MemoryLow"), want)
+	}
+	if !bytes.Contains(units[AgentUnit], []byte("LogsDirectory=racksail-agent\nLogsDirectoryMode=0700\n")) {
+		t.Error("the agent's audit trail is in a directory of its own that only root reads")
 	}
 	for _, bad := range []string{"racksail", "/usr/bin/rack sail", "/usr/bin/../racksail"} {
 		if _, err := PlatformUnits(bad); !errors.Is(err, ErrInvalid) {
@@ -290,6 +334,12 @@ func TestNetworkdGolden(t *testing.T) {
 		}
 	}
 	golden(t, "networkd.golden", RenderedNetworkd(files))
+	// What the renderer writes is what the agent accepts.
+	for name, data := range files {
+		if err := CheckNetworkdFile(name, data); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 
 	for _, bad := range []NetworkConfig{
 		{NetDevs: []NetDev{{Name: "vlan0", Kind: "vlan"}}},
@@ -303,6 +353,36 @@ func TestNetworkdGolden(t *testing.T) {
 	} {
 		if _, err := bad.Render(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("Render(%+v) should fail: %v", bad, err)
+		}
+	}
+}
+
+func TestCheckNetworkdFileRefusesWhatRacksailDoesntRender(t *testing.T) {
+	for _, tc := range []struct{ name, file, content string }{
+		{"a link file", "50-racksail-x.link", "[Match]\nOriginalName=eth0\n[Link]\nName=lan0\n"},
+		{"someone else's file", "10-netplan-eth0.network", "[Match]\nName=eth0\n"},
+		{"a name without a stem", "50-racksail.network", "[Match]\nName=eth0\n"},
+		{"no match", "50-racksail-x.network", "[Network]\nDHCP=yes\n"},
+		{"empty match", "50-racksail-x.network", "[Match]\n[Network]\nDHCP=yes\n"},
+		{"forwarding", "50-racksail-x.network", "[Match]\nName=eth0\n[Network]\nIPForward=yes\n"},
+		{"masquerading", "50-racksail-x.network", "[Match]\nName=eth0\n[Network]\nIPMasquerade=both\n"},
+		{"a DHCP server", "50-racksail-x.network", "[Match]\nName=eth0\n[DHCPServer]\nPoolOffset=10\n"},
+		{"a bad address", "50-racksail-x.network", "[Match]\nName=eth0\n[Network]\nAddress=203.0.113.9\n"},
+		{"a host name for DNS", "50-racksail-x.network", "[Match]\nName=eth0\n[Network]\nDNS=dns.example\n"},
+		{"a bad interface", "50-racksail-x.network", "[Match]\nName=eth0; rm\n"},
+		{"a bad table", "50-racksail-x.network", "[Match]\nName=eth0\n[Route]\nDestination=0.0.0.0/0\nTable=main\n"},
+		{"a wireguard device", "50-racksail-wg0.netdev", "[NetDev]\nName=wg0\nKind=wireguard\n[WireGuard]\nPrivateKeyFile=/etc/shadow\n"},
+		{"an unnamed device", "50-racksail-x.netdev", "[NetDev]\nKind=dummy\n"},
+		{"a VLAN out of range", "50-racksail-v.netdev", "[NetDev]\nName=v\nKind=vlan\n[VLAN]\nId=5000\n"},
+		{"a carriage return", "50-racksail-x.network", "[Match]\nName=eth0\r\n"},
+	} {
+		if err := CheckNetworkdFile(tc.file, []byte(tc.content)); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: should be refused: %v", tc.name, err)
+		}
+	}
+	for _, good := range []string{"[Match]\nName=enp1s0\n", "[Match]\nMACAddress=52:54:00:12:34:56\n[Network]\nDHCP=yes\nDNS=9.9.9.9 2620:fe::fe\n"} {
+		if err := CheckNetworkdFile("50-racksail-x.network", []byte(good)); err != nil {
+			t.Errorf("%q: %v", good, err)
 		}
 	}
 }
