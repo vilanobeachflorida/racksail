@@ -287,7 +287,7 @@ func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	}
 	// What only the person in the panel changes stays theirs.
 	if resp := call("PUT", "/api/v1/session/preferences", map[string]any{"mode": "dark"}); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrPanelOnly.Code {
-		t.Errorf("a token changing display preferences = %d %s", resp.StatusCode, bodyOf(resp))
+		t.Errorf("a token changing preferences for the web UI = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 	if resp := call("PUT", "/api/v1/me", map[string]any{"name": "Mallory", "email": "mallory@example.net"}); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("a read-only token changing the profile = %d %s", resp.StatusCode, bodyOf(resp))

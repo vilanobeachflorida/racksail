@@ -115,7 +115,7 @@ func (s *Service) UpdateProfile(actor *auth.Actor, in ProfileInput) (changeset.R
 	}, nil
 }
 
-// Preferences returns the display preferences the actor keeps.
+// Preferences returns the preferences for the web UI the actor keeps.
 func (s *Service) Preferences(ctx context.Context, actor *auth.Actor) (json.RawMessage, error) {
 	u, err := s.User(ctx, actor.Person())
 	if err != nil {
@@ -124,8 +124,9 @@ func (s *Service) Preferences(ctx context.Context, actor *auth.Actor) (json.RawM
 	return u.Preferences, nil
 }
 
-// SetPreferences keeps the actor's display preferences, which are theirs
-// alone and nothing else about their user.
+// SetPreferences keeps the actor's preferences for the web UI, how the
+// panel looks and how it works for them, which are theirs alone and
+// nothing else about their user.
 func (s *Service) SetPreferences(ctx context.Context, actor *auth.Actor, prefs json.RawMessage) error {
 	if err := requirePerson(actor); err != nil {
 		return err
