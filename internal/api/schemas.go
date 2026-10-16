@@ -83,7 +83,9 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 	for key, p := range base.Properties {
 		props[key] = p
 	}
-	props["spec"], props["status"] = d.spec, d.status
+	title := sentenceTitle(info)
+	props["spec"] = described(d.spec, "What the "+title+" should be: its settings")
+	props["status"] = described(d.status, "What Racksail last saw of the "+title+", as its reconciler reports")
 	d.resource = s.register(name, &huma.Schema{
 		Type: huma.TypeObject, Description: info.Title + ": " + info.Description,
 		Properties: props, Required: base.Required, AdditionalProperties: false,
@@ -92,7 +94,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		Type:        huma.TypeObject,
 		Description: "One page of " + plural(info) + ".",
 		Properties: map[string]*huma.Schema{
-			"items": {Type: huma.TypeArray, Items: d.resource},
+			"items": {Type: huma.TypeArray, Items: d.resource, Description: "The " + plural(info) + " on this page"},
 			"next":  {Type: huma.TypeString, Description: "The cursor of the next page; empty on the last one"},
 		},
 		Required:             []string{"items"},
@@ -110,7 +112,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		"id":      {Type: huma.TypeString, Description: "An ID chosen up front, starting with " + info.Prefix + "_; one is made when left out"},
 		"server":  {Type: huma.TypeString, Description: "The cluster server to place it on; the panel's own server when left out"},
 		"labels":  labels,
-		"spec":    d.spec,
+		"spec":    described(d.spec, "The new "+title+"'s settings"),
 		"secrets": secrets,
 	}
 	required := []string{"spec"}
@@ -136,7 +138,7 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 	d.edit = s.register(name+"UpdateRequest", &huma.Schema{
 		Type: huma.TypeObject, Description: "New settings for a " + strings.ToLower(info.Title) + ".",
 		Properties: map[string]*huma.Schema{
-			"spec":     d.spec,
+			"spec":     described(d.spec, "The "+title+"'s new settings, which replace the old ones whole"),
 			"labels":   labels,
 			"secrets":  secrets,
 			"revision": {Type: huma.TypeInteger, Format: "int64", Description: "The revision the settings were read at; when someone changed them since, the update fails with a conflict"},
@@ -152,6 +154,14 @@ func (s *Server) kindSchemas(k store.Kind) kindDoc {
 		}
 	}
 	return d
+}
+
+// described returns a copy of a schema, usually a reference to a named
+// one, that says what the field holding it is.
+func described(schema *huma.Schema, description string) *huma.Schema {
+	c := *schema
+	c.Description = description
+	return &c
 }
 
 // plural names a kind's resources in sentences: "sites", "mail domains".

@@ -542,11 +542,11 @@ func (e *Engine) runValidate(ctx context.Context, c *compiled, owner store.Scope
 
 // FieldResult is what a default rule did with one field.
 type FieldResult struct {
-	Field string `json:"field"`
-	Value any    `json:"value,omitempty"`
+	Field string `json:"field" doc:"The field, as a dotted path such as headers.security"`
+	Value any    `json:"value,omitempty" doc:"The value its expression gave"`
 	// Set says the field was filled in or overridden; a field the request
 	// already set and the default doesn't override is left as it was.
-	Set bool `json:"set"`
+	Set bool `json:"set" doc:"Whether the field was filled in or replaced; one the change already set, which the rule doesn't override, keeps its value"`
 }
 
 // fill evaluates a default rule's fields for one change and returns the

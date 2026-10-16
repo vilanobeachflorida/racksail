@@ -127,15 +127,10 @@ func (r userReconciler) PlanAction(ctx context.Context, req reconcile.ActionRequ
 	}
 	spec := obj.Spec
 	switch req.Action {
-	case "update_profile":
-		var in ProfileInput
-		if err := json.Unmarshal(req.Input, &in); err != nil {
+	case ActionUpdateProfile:
+		if spec, err = ApplyProfile(spec, req.Input); err != nil {
 			return reconcile.ActionPlan{}, err
 		}
-		if fields := checkProfile(in, "input."); len(fields) > 0 {
-			return reconcile.ActionPlan{}, i18n.Invalid(fields...)
-		}
-		spec.Name, spec.Email, spec.Locale = strings.TrimSpace(in.Name), strings.TrimSpace(in.Email), strings.TrimSpace(in.Locale)
 	case "add_ssh_key":
 		var in SSHKeyInput
 		if err := json.Unmarshal(req.Input, &in); err != nil {

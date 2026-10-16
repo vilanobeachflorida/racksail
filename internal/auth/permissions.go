@@ -166,9 +166,9 @@ func Known(perm Permission, kinds []store.Kind) bool {
 
 // RoleInfo describes a role for people choosing one.
 type RoleInfo struct {
-	Role        Role               `json:"role" enum:"admin,reseller,owner,collaborator,readonly"`
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
+	Role        Role               `json:"role" enum:"admin,reseller,owner,collaborator,readonly" doc:"The role's name, as grants give it"`
+	Title       string             `json:"title" doc:"What the role is called"`
+	Description string             `json:"description" doc:"What it lets someone do"`
 	Patterns    []string           `json:"patterns" doc:"The permissions the role carries, as patterns such as * or *.read"`
 	Levels      []store.ScopeLevel `json:"levels" doc:"Where the role can be given: on the server, a reseller or an account"`
 }

@@ -280,6 +280,67 @@ describe("confirming it's you", () => {
     expect(password).toBe("my password");
   });
 
+  it("asks before a new email address and saves it once confirmed", async () => {
+    let confirmed = false;
+    const saved: unknown[] = [];
+    const me = {
+      id: "user_1",
+      username: "ada",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      home: { level: "server" },
+      grants: [{ role: "admin", scope: { level: "server" } }],
+      allowFrom: [],
+      passwordSet: true,
+      twoFactor: false,
+      createdAt: "2026-10-01T10:00:00Z",
+      updatedAt: "2026-10-15T10:00:00Z",
+      revision: 3,
+      security: {
+        totp: false,
+        passkeys: 0,
+        recoveryCodes: 0,
+        methods: [],
+        devices: 0,
+        links: [],
+        required: false,
+      },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/me": () => json(me),
+      "PUT /api/v1/me": async (r) => {
+        if (!confirmed) {
+          return problem(403, "auth.step_up_required");
+        }
+        saved.push(await r.json());
+        return json(
+          { id: "chg_1", title: "Change your profile", state: "applying", changes: [] },
+          202,
+        );
+      },
+      "POST /api/v1/session/step-up": () => {
+        confirmed = true;
+        return json({ steppedUpUntil: "2030-01-01T10:00:00Z" });
+      },
+    });
+    renderApp(api, "/settings/profile");
+    const address = await screen.findByLabelText("Email address");
+    await userEvent.clear(address);
+    await userEvent.type(address, "ada@example.org");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    await userEvent.type(
+      within(dialog).getByLabelText("Password", { selector: "input" }),
+      "my password",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(saved).toEqual([{ name: "Ada Lovelace", email: "ada@example.org", locale: "" }]),
+    );
+  });
+
   it("gives up when the person doesn't confirm", async () => {
     const api = fakeApi({ "POST /api/v1/me/tokens": () => problem(403, "auth.step_up_required") });
     renderWithProviders(
@@ -294,6 +355,49 @@ describe("confirming it's you", () => {
     const dialog = await screen.findByRole("dialog", { name: "Confirm it's you" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("refused"));
+  });
+});
+
+describe("sign-in providers", () => {
+  it("say when nothing provides what they name any more", async () => {
+    const provider = (id: string, title: string, name: string, status: unknown) => ({
+      id,
+      kind: "core.signin_provider",
+      scope: { level: "server" },
+      revision: 1,
+      generation: 1,
+      createdAt: "2026-10-01T10:00:00Z",
+      updatedAt: "2026-10-15T10:00:00Z",
+      spec: { capability: "identity", provider: name, title },
+      status,
+    });
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/signin-policies": () => json({ items: [], next: "" }),
+      "GET /api/v1/core/signin-providers": () =>
+        json({
+          items: [
+            provider("signprov_1", "Company directory", "ldap-sign-in", {
+              phase: "degraded",
+              code: "auth.provider_missing",
+              message:
+                "Nothing on this panel provides ldap-sign-in. Install the add-on that does, or check the name.",
+            }),
+            provider("signprov_2", "Single sign-on", "oidc-sign-in", { phase: "ready" }),
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/settings/sign-in");
+    const list = await screen.findByRole("list", { name: "Sign-in providers" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("Not available");
+    expect(items[0]).toHaveTextContent(
+      "Nothing on this panel provides ldap-sign-in. Install the add-on that does, or check the name.",
+    );
+    expect(items[1]).not.toHaveTextContent("Not available");
+    expect(items[1]).toHaveTextContent("oidc-sign-in");
   });
 });
 
@@ -379,6 +483,225 @@ describe("viewing the panel as someone", () => {
     await userEvent.click(stop);
     await waitFor(() => expect(load).toHaveBeenCalledWith("/"));
     expect(stopped).toBe(true);
+  });
+
+  it("shows the person's sessions without a way to sign them out", async () => {
+    const session = (id: string, device: string, current: boolean) => ({
+      id,
+      current,
+      device,
+      method: "password",
+      ip: "198.51.100.7",
+      createdAt: "2026-10-15T09:00:00Z",
+      lastSeenAt: "2026-10-15T10:00:00Z",
+      expiresAt: "2026-10-15T21:00:00Z",
+    });
+    const viewed: PanelSession = {
+      ...ada,
+      user: { id: "user_2", name: "Bea" },
+      impersonation: {
+        by: "user_1",
+        name: "Ada",
+        startedAt: "2026-10-15T10:00:00Z",
+        endsAt: "2026-10-15T11:00:00Z",
+      },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me/sessions": () =>
+        json({
+          sessions: [
+            session("ses_1", "Firefox on Linux", true),
+            session("ses_2", "Safari on iPhone", false),
+          ],
+        }),
+    });
+    renderApp(api, "/settings/sessions");
+    expect(await screen.findByText("Safari on iPhone")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Sign out everywhere else" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+  });
+
+  const viewed: PanelSession = {
+    ...ada,
+    user: { id: "user_2", name: "Bea", username: "bea" },
+    impersonation: {
+      by: "user_1",
+      name: "Ada",
+      startedAt: "2026-10-15T10:00:00Z",
+      endsAt: "2026-10-15T11:00:00Z",
+    },
+  };
+  const bea = {
+    id: "user_2",
+    username: "bea",
+    name: "Bea",
+    email: "bea@example.com",
+    home: { level: "account", id: "acct_1" },
+    grants: [{ role: "owner", scope: { level: "account", id: "acct_1" } }],
+    allowFrom: [],
+    passwordSet: true,
+    twoFactor: true,
+    createdAt: "2026-10-01T10:00:00Z",
+    updatedAt: "2026-10-15T10:00:00Z",
+    revision: 3,
+    security: {
+      totp: true,
+      passkeys: 1,
+      recoveryCodes: 8,
+      methods: ["signprov_1"],
+      devices: 2,
+      links: ["signprov_2"],
+      alertChannel: "ntfy",
+      required: false,
+    },
+  };
+  const absent = (...names: string[]) => {
+    for (const name of names) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  };
+
+  it("shows how the person signs in without a way to change it", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me": () => json(bea),
+      "GET /api/v1/me/passkeys": () =>
+        json({
+          passkeys: [
+            {
+              id: "passkey_1",
+              name: "Bea's phone",
+              synced: true,
+              createdAt: "2026-10-02T10:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/me/mfa": () =>
+        json({ methods: [{ id: "signprov_1", title: "Push approval", enabled: true }] }),
+      "GET /api/v1/me/links": () =>
+        json({
+          links: [
+            {
+              provider: "signprov_2",
+              title: "Company directory",
+              username: "bea",
+              linkedAt: "2026-10-03T10:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/auth/options": () =>
+        json({
+          passkeys: true,
+          setupRequired: false,
+          providers: [
+            { id: "signprov_2", title: "Company directory", method: "password" },
+            { id: "signprov_3", title: "Keycloak", method: "redirect" },
+          ],
+        }),
+      "GET /api/v1/me/devices": () =>
+        json({
+          devices: [1, 2].map((n) => ({
+            id: `device_${n}`,
+            name: n === 1 ? "Firefox on Linux" : "Safari on iPhone",
+            current: n === 1,
+            createdAt: "2026-10-04T10:00:00Z",
+            lastUsedAt: "2026-10-15T10:00:00Z",
+            expiresAt: "2026-11-04T10:00:00Z",
+          })),
+        }),
+      "GET /api/v1/me/alerts": () =>
+        json({
+          channel: "ntfy",
+          types: [{ id: "ntfy", title: "ntfy", settings: { type: "object" } }],
+        }),
+    });
+    renderApp(api, "/settings/security");
+    expect(await screen.findByText("Safari on iPhone")).toBeInTheDocument();
+    expect(await screen.findByText("Bea's phone")).toBeInTheDocument();
+    expect(await screen.findByText("Company directory")).toBeInTheDocument();
+    expect(await screen.findByText("Push approval")).toBeInTheDocument();
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+    absent(
+      "Set up",
+      "Remove",
+      "Add a passkey",
+      "Rename Bea's phone",
+      "Remove Bea's phone",
+      "Make new codes",
+      "Turn off",
+      "Stop signing in with it",
+      "Link",
+      "Stop trusting",
+      "Stop trusting all",
+      "Change its settings",
+    );
+    // Nothing is offered to link, and where alerts go shows without
+    // changing.
+    expect(screen.queryByText("Keycloak")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Send them to" })).toBeDisabled();
+  });
+
+  it("shows the person's tokens and keys without a way to change them", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me/tokens": () =>
+        json({
+          tokens: [
+            {
+              id: "tok_1",
+              user: "user_2",
+              name: "Deploys",
+              hint: "rsk_abcd",
+              permissions: ["*.read"],
+              accounts: null,
+              allowFrom: null,
+              createdAt: "2026-10-15T10:00:00Z",
+            },
+          ],
+        }),
+      "GET /api/v1/me/ssh-keys": () =>
+        json({
+          keys: [
+            {
+              id: "sshkey_1",
+              name: "Laptop",
+              type: "ssh-ed25519",
+              fingerprint: "SHA256:abc",
+              publicKey: "ssh-ed25519 AAAA laptop",
+            },
+          ],
+        }),
+    });
+    const { unmount } = renderApp(api, "/settings/tokens");
+    expect(await screen.findByText("Deploys")).toBeInTheDocument();
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+    absent("Make a token", "Revoke");
+    unmount();
+    renderApp(api, "/settings/ssh-keys");
+    expect(await screen.findByText("Laptop")).toBeInTheDocument();
+    absent("Add a key", "Remove");
+  });
+
+  it("changes the person's name but not their address or password", async () => {
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(viewed),
+      "GET /api/v1/me": () => json(bea),
+    });
+    renderApp(api, "/settings/profile");
+    const address = await screen.findByLabelText("Email address");
+    expect(address).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Name")).not.toHaveAttribute("readonly");
+    expect(screen.getByText(/how they sign in can only be looked at/)).toBeInTheDocument();
+    absent("Change the password");
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
   });
 });
 

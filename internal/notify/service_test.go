@@ -277,8 +277,13 @@ func TestRetriesThenGivesUp(t *testing.T) {
 	if n := len(r.requests()); n != 4 {
 		t.Errorf("%d attempts, want the first and three more", n)
 	}
-	c, _ := ChannelKind.Get(context.Background(), p.store, id)
-	if c.Status.Phase != store.PhaseDegraded || c.Status.ConsecutiveFailures != 4 {
+	// The channel's status is written after the delivery it reports on.
+	var c *store.Object[ChannelSpec, ChannelStatus]
+	waitFor(t, "noted the last failure", func() bool {
+		c, _ = ChannelKind.Get(context.Background(), p.store, id)
+		return c != nil && c.Status.ConsecutiveFailures == 4
+	})
+	if c.Status.Phase != store.PhaseDegraded {
 		t.Errorf("a channel that keeps failing is degraded: %+v", c.Status)
 	}
 	// One that gets through puts it right.

@@ -61,37 +61,37 @@ func (h HookDecl) DeadlineDuration() (time.Duration, error) {
 // installed, approved by the person installing it and enforced at runtime.
 type Permissions struct {
 	// Hooks are the hook levels the add-on may use.
-	Hooks []Kind      `yaml:"hooks,omitempty" json:"hooks,omitempty"`
-	Read  []DataScope `yaml:"read,omitempty" json:"read,omitempty"`
-	Write []DataScope `yaml:"write,omitempty" json:"write,omitempty"`
+	Hooks []Kind      `yaml:"hooks,omitempty" json:"hooks,omitempty" doc:"The hook levels the add-on may use: observe, validate, modify and system"`
+	Read  []DataScope `yaml:"read,omitempty" json:"read,omitempty" doc:"The kinds, and the fields of them, the add-on may see"`
+	Write []DataScope `yaml:"write,omitempty" json:"write,omitempty" doc:"The kinds, and the fields of them, the add-on may change, which it may also see"`
 	// Secrets grants secrets:read, shown with a red warning.
-	Secrets bool `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Secrets bool `yaml:"secrets,omitempty" json:"secrets,omitempty" doc:"secrets.read: the add-on may read the secrets of the resources it may see"`
 	// Network lists the hosts the add-on may reach; none by default.
-	Network   []string  `yaml:"network,omitempty" json:"network,omitempty"`
-	Resources Resources `yaml:"resources,omitempty" json:"resources,omitzero"`
+	Network   []string  `yaml:"network,omitempty" json:"network,omitempty" doc:"The hosts, addresses or networks the add-on may reach; none when empty"`
+	Resources Resources `yaml:"resources,omitempty" json:"resources,omitzero" doc:"The most CPU and memory the add-on's process may use"`
 	// Override grants core.override, which only a server admin can approve.
-	Override bool `yaml:"override,omitempty" json:"override,omitempty"`
+	Override bool `yaml:"override,omitempty" json:"override,omitempty" doc:"core.override: the add-on's system hooks may loosen what hooks otherwise can't, which only a server admin can approve"`
 }
 
 // DataScope grants access to a kind, optionally to some fields only.
 type DataScope struct {
-	Kind   string   `yaml:"kind" json:"kind"`
-	Fields []string `yaml:"fields,omitempty" json:"fields,omitempty"`
+	Kind   string   `yaml:"kind" json:"kind" doc:"The kind, such as web.site"`
+	Fields []string `yaml:"fields,omitempty" json:"fields,omitempty" doc:"The spec fields it reaches, as dotted paths; every one when empty"`
 }
 
 // Resources caps the add-on's process.
 type Resources struct {
-	CPU      string `yaml:"cpu,omitempty" json:"cpu,omitempty"`
-	MemoryMB int    `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty"`
+	CPU      string `yaml:"cpu,omitempty" json:"cpu,omitempty" doc:"The most CPU time, in percent of one CPU, such as 20%"`
+	MemoryMB int    `yaml:"memoryMB,omitempty" json:"memoryMB,omitempty" doc:"The most memory, in MB"`
 }
 
 // UIExtension is a declarative addition to the UI.
 type UIExtension struct {
-	Type  string `yaml:"type" json:"type"`
-	Label string `yaml:"label" json:"label"`
-	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty"`
-	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty"`
-	Path  string `yaml:"path,omitempty" json:"path,omitempty"`
+	Type  string `yaml:"type" json:"type" doc:"Where the entry goes: nav, tab, card, command, settings or column"`
+	Label string `yaml:"label" json:"label" doc:"What the panel calls the entry"`
+	Icon  string `yaml:"icon,omitempty" json:"icon,omitempty" doc:"The entry's icon, by its name in Lucide, such as shield"`
+	Kind  string `yaml:"kind,omitempty" json:"kind,omitempty" doc:"The kind whose screens a tab or column goes on"`
+	Path  string `yaml:"path,omitempty" json:"path,omitempty" doc:"For a column, the add-on's GET route that answers its values; otherwise the page under the add-on's /ui/ the entry shows"`
 }
 
 // AddonRoute is an API route the add-on serves under /api/v1/addons/<id>/.
@@ -185,25 +185,25 @@ const (
 // PolicySpec is the spec of a core.policy resource: a CEL rule evaluated
 // inside the panel with a cost limit.
 type PolicySpec struct {
-	Name        string     `json:"name" yaml:"name"`
-	Description string     `json:"description,omitempty" yaml:"description,omitempty"`
-	Type        PolicyType `json:"type" yaml:"type" enum:"validate,default"`
+	Name        string     `json:"name" yaml:"name" doc:"A short name for the rule, shown when it refuses a change"`
+	Description string     `json:"description,omitempty" yaml:"description,omitempty" doc:"What the rule is for, in a sentence or two"`
+	Type        PolicyType `json:"type" yaml:"type" enum:"validate,default" doc:"validate rules refuse changes; default rules fill in or override fields of new resources"`
 	// Kinds and Operations narrow the rule; empty means all.
-	Kinds      []string `json:"kinds,omitempty" yaml:"kinds,omitempty"`
-	Operations []string `json:"operations,omitempty" yaml:"operations,omitempty"`
+	Kinds      []string `json:"kinds,omitempty" yaml:"kinds,omitempty" doc:"The kinds the rule applies to, such as web.site; every kind when empty"`
+	Operations []string `json:"operations,omitempty" yaml:"operations,omitempty" doc:"The operations it applies to, such as create, update, delete or an action; every one when empty"`
 	// Expression is true when a validate rule must refuse the change.
-	Expression string         `json:"expression,omitempty" yaml:"expression,omitempty"`
-	Message    string         `json:"message,omitempty" yaml:"message,omitempty"`
-	Defaults   []FieldDefault `json:"defaults,omitempty" yaml:"defaults,omitempty"`
-	Enabled    bool           `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Priority   int            `json:"priority,omitempty" yaml:"priority,omitempty"`
+	Expression string         `json:"expression,omitempty" yaml:"expression,omitempty" doc:"For validate rules: a CEL expression that is true when the change must be refused"`
+	Message    string         `json:"message,omitempty" yaml:"message,omitempty" doc:"For validate rules: what the person making a refused change is told"`
+	Defaults   []FieldDefault `json:"defaults,omitempty" yaml:"defaults,omitempty" doc:"For default rules: the fields filled in, each from a CEL expression"`
+	Enabled    bool           `json:"enabled,omitempty" yaml:"enabled,omitempty" doc:"Whether the rule takes part in changes"`
+	Priority   int            `json:"priority,omitempty" yaml:"priority,omitempty" doc:"Where the rule runs among hooks, lower first"`
 }
 
 // FieldDefault fills a field on create from a CEL expression.
 type FieldDefault struct {
-	Field      string `json:"field" yaml:"field"`
-	Expression string `json:"expression" yaml:"expression"`
-	Override   bool   `json:"override,omitempty" yaml:"override,omitempty"`
+	Field      string `json:"field" yaml:"field" doc:"The spec field filled in, as a dotted path such as headers.security"`
+	Expression string `json:"expression" yaml:"expression" doc:"A CEL expression whose value the field gets"`
+	Override   bool   `json:"override,omitempty" yaml:"override,omitempty" doc:"Replace a value the new resource already has, rather than only fill in an empty field"`
 }
 
 // Validate checks a rule's structure against the policy schema. Compiling

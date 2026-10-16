@@ -8,7 +8,7 @@ People can sign in to the panel with an account they already have elsewhere: the
 ## Connecting a provider
 
 1. Install the add-on from **Marketplace → Add-ons**. Its permissions ask to reach any address, since which directory or provider it talks to is yours to choose next; it only ever gets the settings below and the sign-ins it checks.
-2. Under **Settings → Sign-in**, add a sign-in provider: the add-on's provider, the title the sign-in screen shows, the settings as JSON, and the one **secret** it needs, the directory's bind password or the client secret, which is stored encrypted and sent to the add-on only with each call.
+2. Under **Settings → Sign-in**, add a sign-in provider: the add-on's provider, by the name the add-on provides it under, such as `ldap-sign-in`, the title the sign-in screen shows, the settings as JSON, and the one **secret** it needs, the directory's bind password or the client secret, which is stored encrypted and sent to the add-on only with each call. A name nothing on the panel provides is refused, and a provider whose add-on is removed later shows as not available, and can't be changed, until the add-on is back; it can still be removed.
 3. Choose how someone signing in for the first time finds their user:
 
 | Match | What happens |
@@ -17,7 +17,7 @@ People can sign in to the panel with an account they already have elsewhere: the
 | Username | The user whose username is what the provider says, such as `ada` |
 | Email | The one user with the email address the provider says. Two users with it match neither |
 
-Users with a role on the whole server are never matched, whatever the setting: usernames and email addresses are often the person's own choice at the provider, so nobody becomes an admin by picking one. They link their account themselves. **Add users who match nobody** adds a user, with the roles you give, for anyone the provider signs in who isn't linked or matched; you can only give roles you have yourself, and never an admin's.
+Users with a role on the whole server are never matched, whatever the setting: usernames and email addresses are often the person's own choice at the provider, so nobody becomes an admin by picking one. They link their account themselves. Since a username or an email address can decide whom someone signs in as, giving any user another one asks whoever does it in the panel to confirm it's them. **Add users who match nobody** adds a user, with the roles you give, for anyone the provider signs in who isn't linked or matched; you can only give roles you have yourself, and never an admin's.
 
 Connecting, changing and removing a provider are changes like any other, with a preview, the audit log and undo.
 

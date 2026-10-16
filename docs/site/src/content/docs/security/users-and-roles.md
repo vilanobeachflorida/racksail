@@ -49,7 +49,7 @@ A user can have several roles in different places, such as owner of one account 
 
 ### Collaborators
 
-A collaborator gets the permissions their grant names, as names or patterns, such as `web.site.read` and `web.site.deploy`, or `mail.*`. Without any they can only look. A grant can also be kept to one resource, such as one site, for someone who only deploys that site.
+A collaborator gets the permissions their grant names, as names or patterns, such as `web.site.read` and `web.site.deploy`, or `mail.*`. Without any they can only look. A grant can also be kept to one resource, such as one site, for someone who only deploys that site. A grant only names what its place carries: what belongs to the whole server, such as the sign-in policy or storage, only a grant on the whole server, and changing an account itself only a grant above it.
 
 ### Special permissions
 
@@ -67,7 +67,7 @@ Nobody can give more than they have: you can only give a role somewhere if you h
 
 When someone's roles change, their sessions get a new secret on their next request, carrying what they may do now; nobody keeps acting with roles they lost.
 
-Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user. Their username, email address, SSH keys and the addresses they may sign in from change only in their own session in the panel: not with an API token of theirs, whatever its permissions, and not by someone viewing the panel as them, since any of those could become a way in that outlasts the token or the viewing.
+Everyone may change their own name, email address, language and SSH keys under **Settings**, whatever their roles, and nothing else of their own user. Their username, email address, SSH keys and the addresses they may sign in from change only in their own session in the panel: not with an API token of theirs, whatever its permissions, and not by someone viewing the panel as them, since any of those could become a way in that outlasts the token or the viewing. A new email address, theirs or anyone's, also asks whoever gives it in the panel to confirm it's them, as SSH keys do.
 
 ## Users
 
@@ -97,7 +97,7 @@ To see what a customer sees, someone with `core.impersonate` opens the customer'
 
 - a banner across the top of every screen says whose panel it is, in colors no theme can change, its button included;
 - everything done is recorded with both names;
-- what the person signs in with, their password, second steps, passkeys, tokens, SSH keys and email address, stays out of reach;
+- what the person signs in with, their password, second steps, recovery codes, passkeys, outside sign-ins, tokens, SSH keys and email address, stays out of reach, and so do where their security alerts go, their sessions and their trusted browsers: none of them can be changed, ended or forgotten from there, so their screens show them without offering to, and helping others back in waits until the viewing ends;
 - it ends after an hour at most, or with **Stop viewing as** in the banner or the command bar.
 
 ## The audit log

@@ -45,11 +45,11 @@ func HookPoint(kind, operation string, stage Stage) string {
 // Source says who contributed part of a change set.
 type Source struct {
 	// Type is request, hook, rule, addon or module.
-	Type string `json:"type" enum:"request,hook,rule,addon,module"`
+	Type string `json:"type" enum:"request,hook,rule,addon,module" doc:"Who contributed it: the request itself, a hook, a rule, an add-on or a module"`
 	// Name identifies the contributor, such as an add-on id and version.
-	Name string `json:"name,omitempty"`
+	Name string `json:"name,omitempty" doc:"Which contributor it was, such as an add-on's id and version"`
 	// Hook is the hook point the contribution came through.
-	Hook string `json:"hook,omitempty"`
+	Hook string `json:"hook,omitempty" doc:"The hook point the contribution came through"`
 }
 
 // RequestSource is the source of changes the requester asked for.
@@ -68,46 +68,46 @@ const (
 // FieldDiff is one changed field of a spec.
 type FieldDiff struct {
 	// Path locates the field with dots and indexes, such as domains[0].
-	Path   string          `json:"path"`
-	Op     DiffOp          `json:"op" enum:"add,remove,replace"`
-	Before json.RawMessage `json:"before,omitempty"`
-	After  json.RawMessage `json:"after,omitempty"`
+	Path   string          `json:"path" doc:"The field, with dots and indexes, such as domains[0]"`
+	Op     DiffOp          `json:"op" enum:"add,remove,replace" doc:"Whether the field was added, removed or replaced"`
+	Before json.RawMessage `json:"before,omitempty" doc:"Its value before the change"`
+	After  json.RawMessage `json:"after,omitempty" doc:"Its value after the change"`
 	// Sensitive values are left out of the diff.
-	Sensitive bool `json:"sensitive,omitempty"`
+	Sensitive bool `json:"sensitive,omitempty" doc:"Whether the field holds a secret, whose values the diff leaves out"`
 }
 
 // ResourceChange is one change to one resource.
 type ResourceChange struct {
-	Op Op `json:"op" enum:"create,update,delete,action"`
+	Op Op `json:"op" enum:"create,update,delete,action" doc:"What the change does: creates, updates or deletes the resource, or takes one of its actions"`
 	// Action is the action name when Op is action.
-	Action string      `json:"action,omitempty"`
-	Kind   string      `json:"kind"`
-	ID     store.ID    `json:"id"`
-	Scope  store.Scope `json:"scope"`
+	Action string      `json:"action,omitempty" doc:"The action taken, when the change is one"`
+	Kind   string      `json:"kind" doc:"The resource's kind"`
+	ID     store.ID    `json:"id" doc:"The resource the change is about"`
+	Scope  store.Scope `json:"scope" doc:"Who the resource belongs to"`
 	// Server is the cluster server the resource is placed on; empty for the
 	// server running the panel.
-	Server store.ID `json:"server,omitempty"`
+	Server store.ID `json:"server,omitempty" doc:"The cluster server the resource is placed on; empty for the panel's own server"`
 	// Revision is the revision the change was planned against.
-	Revision int64             `json:"revision,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	Revision int64             `json:"revision,omitempty" doc:"The revision of the resource the change was planned against"`
+	Labels   map[string]string `json:"labels,omitempty" doc:"The resource's labels after the change"`
 	// LabelsBefore are the labels before an update or action, so undo can
 	// put them back.
-	LabelsBefore map[string]string `json:"labelsBefore,omitempty"`
+	LabelsBefore map[string]string `json:"labelsBefore,omitempty" doc:"Its labels before the change, which undoing it puts back"`
 	// Before and After are the specs, kept so the change can be undone.
 	// Sensitive fields in them only ever hold references to secrets.
-	Before json.RawMessage `json:"before,omitempty"`
-	After  json.RawMessage `json:"after,omitempty"`
+	Before json.RawMessage `json:"before,omitempty" doc:"Its settings before the change, which undoing it puts back; secret fields hold references, never values"`
+	After  json.RawMessage `json:"after,omitempty" doc:"Its settings after the change; secret fields hold references, never values"`
 	// Input is an action's input. It is recorded with the change set, so
 	// actions never take secrets as input.
-	Input  json.RawMessage `json:"input,omitempty"`
-	Diff   []FieldDiff     `json:"diff,omitempty"`
-	Source Source          `json:"source"`
+	Input  json.RawMessage `json:"input,omitempty" doc:"The action's input"`
+	Diff   []FieldDiff     `json:"diff,omitempty" doc:"What the change does to each field of the settings"`
+	Source Source          `json:"source" doc:"Who asked for the change: the request, or the hook or add-on that added it"`
 	// Steps are agent operations an action runs once, on top of the
 	// resource's reconcile.
-	Steps []agent.Step `json:"steps,omitempty"`
+	Steps []agent.Step `json:"steps,omitempty" doc:"The agent operations an action runs on the machine, besides what applying the resource does"`
 	// Checks confirm that an action's steps worked. They run after the steps
 	// and the resource's reconcile, whose own plan has checks of its own.
-	Checks []reconcile.HealthCheck `json:"checks,omitempty"`
+	Checks []reconcile.HealthCheck `json:"checks,omitempty" doc:"What confirms an action's steps worked, once they have run"`
 	// Output is what an action returned once it was applied.
 	Output json.RawMessage `json:"output,omitempty" doc:"What the action returned, once it was applied"`
 	// State says how far carrying the change out got: started while it runs
@@ -150,27 +150,27 @@ func (rc ResourceChange) Clone() ResourceChange {
 
 // Contribution labels what a hook or add-on added.
 type Contribution struct {
-	Source  Source `json:"source"`
-	Summary string `json:"summary"`
+	Source  Source `json:"source" doc:"Who contributed it"`
+	Summary string `json:"summary" doc:"What they contributed, in English"`
 	// Changes and Effects index into the change set's lists.
-	Changes []int `json:"changes,omitempty"`
-	Effects []int `json:"effects,omitempty"`
+	Changes []int `json:"changes,omitempty" doc:"The changes they added or rewrote, as indexes into the change set's changes"`
+	Effects []int `json:"effects,omitempty" doc:"The effects they added, as indexes into the change set's effects"`
 }
 
 // Conflict is two contributors changing the same field. A change set with
 // conflicts can't be applied until they are resolved.
 type Conflict struct {
-	Resource store.ID `json:"resource"`
-	Path     string   `json:"path"`
-	Sources  []Source `json:"sources"`
-	Message  string   `json:"message"`
+	Resource store.ID `json:"resource" doc:"The resource whose field two contributors change"`
+	Path     string   `json:"path" doc:"The field they both change"`
+	Sources  []Source `json:"sources" doc:"Who changes it"`
+	Message  string   `json:"message" doc:"What the conflict is, in English"`
 }
 
 // Estimate totals what applying a change set costs.
 type Estimate struct {
-	DownloadBytes int64 `json:"downloadBytes"`
-	DiskBytes     int64 `json:"diskBytes"`
-	MemoryBytes   int64 `json:"memoryBytes"`
+	DownloadBytes int64 `json:"downloadBytes" doc:"How much applying it downloads, in bytes"`
+	DiskBytes     int64 `json:"diskBytes" doc:"How much more disk it takes, in bytes"`
+	MemoryBytes   int64 `json:"memoryBytes" doc:"How much more memory what it runs takes, in bytes"`
 }
 
 // State is where a change set is in the pipeline.
@@ -187,31 +187,31 @@ const (
 
 // ChangeSet is a validated, planned set of changes and their consequences.
 type ChangeSet struct {
-	ID            store.ID         `json:"id"`
-	Title         string           `json:"title"`
-	Actor         *auth.Actor      `json:"actor,omitempty"`
-	Changes       []ResourceChange `json:"changes"`
-	Effects       []system.Effect  `json:"effects"`
-	Contributions []Contribution   `json:"contributions,omitempty"`
-	Conflicts     []Conflict       `json:"conflicts,omitempty"`
-	Risk          store.Risk       `json:"risk" enum:"read,low,medium,high,critical"`
-	Estimate      Estimate         `json:"estimate"`
+	ID            store.ID         `json:"id" doc:"The change set's ID, which starts with chg_"`
+	Title         string           `json:"title" doc:"What the change set does, in a few words"`
+	Actor         *auth.Actor      `json:"actor,omitempty" doc:"Who made it, and what acted for them"`
+	Changes       []ResourceChange `json:"changes" doc:"Its changes, in the order they are planned and applied"`
+	Effects       []system.Effect  `json:"effects" doc:"What applying it does to the machine: downloads, packages, ports, services, files and the rest"`
+	Contributions []Contribution   `json:"contributions,omitempty" doc:"What hooks and add-ons added to it, and who they are"`
+	Conflicts     []Conflict       `json:"conflicts,omitempty" doc:"Fields two contributors change; a change set with any can't be applied"`
+	Risk          store.Risk       `json:"risk" enum:"read,low,medium,high,critical" doc:"How much harm applying it can do: the highest risk of its changes"`
+	Estimate      Estimate         `json:"estimate" doc:"What applying it costs, all told"`
 	// Snapshot says the change set removes data, so before it is applied,
 	// read-only snapshots are taken of the Btrfs subvolumes that hold what it
 	// removes.
-	Snapshot bool `json:"snapshot,omitempty"`
+	Snapshot bool `json:"snapshot,omitempty" doc:"Whether it removes data, so read-only snapshots are taken first of what holds it"`
 	// Snapshots are the snapshots taken. A restore can bring back what the
 	// change set removed from them; they are deleted when the change set is
 	// no longer kept.
-	Snapshots []agent.Snapshot `json:"snapshots,omitempty"`
-	DryRun    bool             `json:"dryRun,omitempty"`
-	State     State            `json:"state" enum:"planned,applying,applied,failed,undone"`
+	Snapshots []agent.Snapshot `json:"snapshots,omitempty" doc:"The snapshots taken before it was applied, which a restore brings data back from"`
+	DryRun    bool             `json:"dryRun,omitempty" doc:"Whether it is a preview, which changes nothing until it is applied"`
+	State     State            `json:"state" enum:"planned,applying,applied,failed,undone" doc:"Where it is: planned, being applied, applied, failed or undone"`
 	// Job carries out the system changes once the change set is applied.
-	Job       store.ID   `json:"job,omitempty"`
-	UndoOf    store.ID   `json:"undoOf,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	AppliedAt *time.Time `json:"appliedAt,omitempty"`
+	Job       store.ID   `json:"job,omitempty" doc:"The job that carries out its changes on the machine"`
+	UndoOf    store.ID   `json:"undoOf,omitempty" doc:"The change set it undoes, when it is an undo"`
+	Error     string     `json:"error,omitempty" doc:"Why applying it failed"`
+	CreatedAt time.Time  `json:"createdAt" doc:"When it was planned"`
+	AppliedAt *time.Time `json:"appliedAt,omitempty" doc:"When its changes were written"`
 }
 
 // Clone returns a copy of cs whose actor, lists, maps and documents can be
@@ -331,7 +331,19 @@ type Request struct {
 	// IdempotencyKey makes retries of the same request return the first
 	// change set instead of applying twice.
 	IdempotencyKey string
+	// Confirm, when set, is asked about the change set as planned, just
+	// before anything is written, and an error stops it.
+	Confirm Confirm
 }
+
+// Confirm decides whether a planned change set may be written, from what
+// it does: the API asks a person in the panel to confirm it's them there
+// when a change needs it. It gets a copy of the plan, which is written only
+// at the revisions it was planned against, so nothing that lands meanwhile
+// makes it do what wasn't decided on: a request that names no revision is
+// planned and asked about again, and the others fail with core.conflict.
+// Dry runs change nothing and aren't asked about.
+type Confirm func(ctx context.Context, cs *ChangeSet) error
 
 // UndoRequest asks for a change set that reverts an applied one.
 type UndoRequest struct {
@@ -340,6 +352,8 @@ type UndoRequest struct {
 	ChangeSet      store.ID
 	DryRun         bool
 	IdempotencyKey string
+	// Confirm is asked about the undo as planned, as for any request.
+	Confirm Confirm
 }
 
 // ApplyRequest asks for a preview to be applied as it was shown.
@@ -348,6 +362,9 @@ type ApplyRequest struct {
 	// ChangeSet is the preview, a dry run.
 	ChangeSet      store.ID
 	IdempotencyKey string
+	// Confirm is asked about the preview as planned again, as for any
+	// request.
+	Confirm Confirm
 }
 
 // Pipeline is how anything changes Racksail.

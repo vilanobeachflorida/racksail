@@ -55,16 +55,16 @@ var Protected = []map[string][]string{{SessionScheme: {}}, {TokenScheme: {}}}
 
 // Check is one health check.
 type Check struct {
-	Name   string `json:"name" example:"agent"`
-	Status string `json:"status" enum:"ok,failing" example:"ok"`
+	Name   string `json:"name" example:"agent" doc:"What the check looks at, such as the agent or a module's service"`
+	Status string `json:"status" enum:"ok,failing" example:"ok" doc:"Whether it passes"`
 	// Message explains a failing check.
-	Message string `json:"message,omitempty"`
+	Message string `json:"message,omitempty" doc:"Why it fails"`
 }
 
 // HealthReport is the answer of the health endpoint.
 type HealthReport struct {
 	Status string  `json:"status" enum:"ok,degraded" example:"ok" doc:"ok when every check passes"`
-	Checks []Check `json:"checks"`
+	Checks []Check `json:"checks" doc:"Each check, in the order they're listed"`
 }
 
 // HealthCheck runs one check; a nil error means it passed.
@@ -486,7 +486,7 @@ func (s *Server) Handler() http.Handler {
 			}
 		}
 		ctx := withAudit(events.WithRequestID(r.Context(), id), s.services().Audit, s.opts.Log)
-		ctx = withOrigin(auth.WithClient(ctx, client), r, client)
+		ctx = withConfirmer(withOrigin(auth.WithClient(ctx, client), r, client), s)
 		if strings.HasPrefix(r.URL.Path, providerPath+"/") {
 			ctx = context.WithValue(ctx, queryKey{}, r.URL.Query())
 		}

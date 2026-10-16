@@ -44,7 +44,7 @@ type itemsInput struct {
 
 type itemList struct {
 	Body struct {
-		Items []recipes.ListedItem `json:"items"`
+		Items []recipes.ListedItem `json:"items" doc:"The items of every catalog that is on, featured first and then by name"`
 	}
 }
 

@@ -8,9 +8,18 @@ import { ErrorState } from "@/design/components/ui/states";
 import { toast } from "@/design/components/ui/toaster";
 import { useApi } from "@/lib/api/context";
 import { endMyOtherSessions, endMySession, listMySessions, type SessionView } from "../api";
-import { Item, ItemList, ListSkeleton, PageHeader, Section, TimeText } from "../components";
+import {
+  Item,
+  ItemList,
+  ListSkeleton,
+  PageHeader,
+  Section,
+  TimeText,
+  ViewingNote,
+} from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
+import { useViewing } from "../session";
 import { failureMessage } from "../util";
 
 /** How someone signed in, for people: "a password and an authenticator app". */
@@ -108,9 +117,12 @@ function Sessions() {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
+  // Someone viewing the panel as the person sees their sessions but can't
+  // sign them out anywhere.
+  const viewing = useViewing();
   const sessions = useQuery({ queryKey: ["me", "sessions"], queryFn: () => listMySessions(api) });
   const reload = () => client.invalidateQueries({ queryKey: ["me", "sessions"] });
-  const others = (sessions.data ?? []).filter((s) => !s.current).length;
+  const others = viewing ? 0 : (sessions.data ?? []).filter((s) => !s.current).length;
   const end = async (s: SessionView) => {
     try {
       await endMySession(api, s.id);
@@ -149,6 +161,7 @@ function Sessions() {
           ) : null
         }
       />
+      <ViewingNote />
       <Section
         title={intl.formatMessage(t.sessionsActive)}
         description={intl.formatMessage(t.sessionsActiveDescription)}
@@ -161,7 +174,12 @@ function Sessions() {
             onRetry={() => void sessions.refetch()}
           />
         ) : null}
-        {sessions.data ? <SessionList sessions={sessions.data} onEnd={(s) => void end(s)} /> : null}
+        {sessions.data ? (
+          <SessionList
+            sessions={sessions.data}
+            {...(viewing ? {} : { onEnd: (s: SessionView) => void end(s) })}
+          />
+        ) : null}
       </Section>
     </div>
   );

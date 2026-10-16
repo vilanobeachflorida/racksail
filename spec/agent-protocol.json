@@ -1027,6 +1027,7 @@
             "type": "string"
           },
           "destructive": {
+            "description": "Whether it removes data",
             "type": "boolean"
           },
           "detail": {
@@ -1364,6 +1365,7 @@
           },
           "params": {
             "additionalProperties": {},
+            "description": "The values the code's message is filled in with",
             "type": "object"
           },
           "value": {
@@ -4354,20 +4356,25 @@
         "additionalProperties": false,
         "properties": {
           "binary": {
+            "description": "The racksail binary the update replaced",
             "type": "string"
           },
           "confirmedAt": {
+            "description": "When the new release confirmed it works",
             "format": "date-time",
             "type": "string"
           },
           "from": {
+            "description": "The version before the update",
             "type": "string"
           },
           "installedAt": {
+            "description": "When the release was installed",
             "format": "date-time",
             "type": "string"
           },
           "panelBackup": {
+            "description": "The copy of the panel's database kept from before the update",
             "type": "string"
           },
           "reason": {
@@ -4375,10 +4382,12 @@
             "type": "string"
           },
           "rolledBackAt": {
+            "description": "When the update was rolled back",
             "format": "date-time",
             "type": "string"
           },
           "snapshots": {
+            "description": "The read-only snapshots of the system taken before the update",
             "items": {
               "$ref": "#/components/schemas/Snapshot"
             },
@@ -4397,12 +4406,15 @@
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag, such as v1.2.3",
             "type": "string"
           },
           "to": {
+            "description": "The version the update installed",
             "type": "string"
           },
           "unprotected": {
+            "description": "Paths no snapshot covers, because they aren't on Btrfs",
             "items": {
               "type": "string"
             },

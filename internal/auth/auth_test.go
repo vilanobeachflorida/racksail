@@ -66,6 +66,31 @@ func TestAuthorize(t *testing.T) {
 	}
 }
 
+// What only grants on the whole server carry, a grant on a reseller or an
+// account doesn't carry by naming it, whatever it is checked against.
+func TestServerOnlyPermissionsStayWithTheServer(t *testing.T) {
+	ctx := context.Background()
+	reseller, acct := store.NewID("rsl"), store.NewID("acct")
+	az := NewRoleAuthorizer(owners{acct: reseller})
+	for _, scope := range []store.Scope{store.ResellerScope(reseller), store.AccountScope(acct)} {
+		named := &Actor{Grants: []Grant{{Role: RoleCollaborator, Scope: scope, Permissions: []Permission{"core.signin_policy.update", "storage.*"}}}}
+		for _, target := range []store.Scope{scope, store.ServerScope()} {
+			for _, perm := range []Permission{"core.signin_policy.update", "storage.pool.create"} {
+				if err := az.Authorize(ctx, named, perm, Target{Scope: target}); err == nil {
+					t.Errorf("a grant on %s naming %s carries it on %s", scope, perm, target)
+				}
+			}
+		}
+		if scopes, all, _ := az.Scopes(ctx, named, "core.signin_policy.update"); all || len(scopes) != 0 {
+			t.Errorf("scopes of a grant on %s naming a server permission = %v, %v", scope, scopes, all)
+		}
+	}
+	admin := &Actor{Grants: []Grant{{Role: RoleCollaborator, Scope: store.ServerScope(), Permissions: []Permission{"core.signin_policy.update"}}}}
+	if err := az.Authorize(ctx, admin, "core.signin_policy.update", Target{Scope: store.ServerScope()}); err != nil {
+		t.Errorf("a grant on the server naming it = %v", err)
+	}
+}
+
 // The module that keeps resellers sets the ownership after the authorizer
 // is built; from then on a reseller's grant covers their customers.
 func TestSetOwnership(t *testing.T) {
@@ -191,11 +216,46 @@ func TestActor(t *testing.T) {
 
 func TestAuthenticators(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.RemoteAddr = "127.0.0.1:63049"
 	a, err := DevAuthenticator{}.Authenticate(context.Background(), req)
 	if err != nil || a == nil || a.Grants[0].Role != RoleAdmin {
 		t.Errorf("dev = %+v, %v", a, err)
 	}
+	// Records of what the developer does say where from without the port,
+	// and through what.
+	if a.IP != "127.0.0.1" || a.Source != SourceAPI {
+		t.Errorf("dev without the API's client = %s via %s", a.IP, a.Source)
+	}
+	req.Header.Set("User-Agent", "racksail/1.4.0 (darwin/arm64)")
+	if a, _ := (DevAuthenticator{}).Authenticate(WithClient(context.Background(), Client{IP: "::1"}), req); a.IP != "::1" || a.Source != SourceCLI {
+		t.Errorf("dev behind the API = %s via %s", a.IP, a.Source)
+	}
 	if a, err := (NoAuthenticator{}).Authenticate(context.Background(), req); a != nil || err != nil {
 		t.Error("NoAuthenticator finds nobody")
+	}
+}
+
+func TestSourceOf(t *testing.T) {
+	for _, tc := range []struct {
+		header map[string]string
+		want   Source
+	}{
+		{map[string]string{"User-Agent": "racksail/0.0.0-dev (linux/amd64)"}, SourceCLI},
+		{map[string]string{"User-Agent": "Mozilla/5.0", "Sec-Fetch-Site": "same-origin"}, SourceUI},
+		{map[string]string{"User-Agent": "Mozilla/5.0", "Sec-Fetch-Site": "none"}, SourceUI},
+		{map[string]string{"User-Agent": "curl/8.14.1"}, SourceAPI},
+		{map[string]string{"User-Agent": "Mozilla/5.0"}, SourceAPI},
+		{nil, SourceAPI},
+	} {
+		req := httptest.NewRequest("GET", "/api/v1/sites", nil)
+		for k, v := range tc.header {
+			req.Header.Set(k, v)
+		}
+		if got := SourceOf(req); got != tc.want {
+			t.Errorf("%v = %s, want %s", tc.header, got, tc.want)
+		}
+	}
+	if HostOf("[::1]:7407") != "::1" || HostOf("203.0.113.7") != "203.0.113.7" {
+		t.Error("HostOf keeps the port or loses the address")
 	}
 }

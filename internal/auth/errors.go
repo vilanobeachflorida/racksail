@@ -43,6 +43,7 @@ var (
 	ErrSSHKeyInvalid       = i18n.Define("auth.ssh_key_invalid", http.StatusUnprocessableEntity, "This isn't an SSH public key Racksail accepts: {reason}.")
 	ErrSSHKeyExists        = i18n.Define("auth.ssh_key_exists", http.StatusConflict, "This key is already on the list, as {name}.")
 	ErrProviderFailed      = i18n.Define("auth.provider_failed", http.StatusBadGateway, "{provider} couldn't answer: {reason}.")
+	ErrProviderMissing     = i18n.Define("auth.provider_missing", http.StatusUnprocessableEntity, "Nothing on this panel provides {provider}. Install the add-on that does, or check the name.")
 	ErrIdentityUnlinked    = i18n.Define("auth.identity_unlinked", http.StatusForbidden, "Your {provider} account isn't linked to a user of this panel. Sign in another way and link it in your security settings, or ask an admin.")
 	ErrLinkByHand          = i18n.Define("auth.link_by_hand", http.StatusForbidden, "Your {provider} account matches a user who manages the whole server, and those link their outside accounts themselves. Sign in another way and link it in your security settings.")
 	ErrIdentityTaken       = i18n.Define("auth.identity_taken", http.StatusConflict, "That {provider} account already signs in as another user of this panel.")

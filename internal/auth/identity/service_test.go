@@ -139,8 +139,19 @@ func TestPasswordSignIn(t *testing.T) {
 	for range DefaultPolicy().LockoutAttempts - 1 {
 		h.svc.SignIn(ctx, SignInInput{Username: "bob", Password: "still not it"}, "", client)
 	}
-	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "bob", Password: password}, "", client); !auth.ErrLocked.Is(err) {
+	_, err := h.svc.SignIn(ctx, SignInInput{Username: "bob", Password: password}, "", client)
+	if !auth.ErrLocked.Is(err) {
 		t.Fatalf("locked = %v", err)
+	}
+	// The lockout says how long it lasts, in minutes for people and in
+	// seconds for the answer's Retry-After header.
+	if p := i18n.From(err).Params; p["minutes"] != "15" || p["retryAfter"] != "900" {
+		t.Errorf("a lockout's params = %v", p)
+	}
+	h.clock.add(14*time.Minute + 30*time.Second)
+	_, err = h.svc.SignIn(ctx, SignInInput{Username: "bob", Password: password}, "", client)
+	if p := i18n.From(err).Params; p["minutes"] != "1" || p["retryAfter"] != "30" {
+		t.Errorf("half a minute before it ends = %v", p)
 	}
 	if h.eventTypes()["core.user.locked_out"] != 1 {
 		t.Error("a lockout is published")

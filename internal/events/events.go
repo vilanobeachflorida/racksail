@@ -46,21 +46,21 @@ func (s Severity) Valid() bool { _, ok := severityRank[s]; return ok }
 
 // Event is something that happened.
 type Event struct {
-	ID       store.ID  `json:"id"`
+	ID       store.ID  `json:"id" doc:"The event's ID, which starts with evt_"`
 	Type     string    `json:"type" doc:"<kind>.<past-tense verb>, such as web.site.created"`
-	Time     time.Time `json:"time"`
-	Severity Severity  `json:"severity" enum:"info,notice,warning,error,critical"`
+	Time     time.Time `json:"time" doc:"When it happened"`
+	Severity Severity  `json:"severity" enum:"info,notice,warning,error,critical" doc:"How urgent it is"`
 	// Subject is the resource the event is about.
 	Subject store.ID    `json:"subject,omitempty" doc:"The resource the event is about"`
 	Kind    string      `json:"kind,omitempty" doc:"The kind of the subject"`
-	Scope   store.Scope `json:"scope"`
-	Actor   *auth.Actor `json:"actor,omitempty"`
+	Scope   store.Scope `json:"scope" doc:"Who the event belongs to, which decides who may see it"`
+	Actor   *auth.Actor `json:"actor,omitempty" doc:"Who caused it, and what acted for them"`
 	// ChangeSet and Job link the event to what caused it.
-	ChangeSet store.ID `json:"changeSet,omitempty"`
-	Job       store.ID `json:"job,omitempty"`
+	ChangeSet store.ID `json:"changeSet,omitempty" doc:"The change set that caused it"`
+	Job       store.ID `json:"job,omitempty" doc:"The job that caused it"`
 	// Message is an English summary; the UI renders its own from the type.
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Message string          `json:"message" doc:"What happened, in English"`
+	Data    json.RawMessage `json:"data,omitempty" doc:"What the event carries, as its type describes"`
 	// Seq orders events as the timeline stored them. It is set when an
 	// event is published and never reused, so it is what followers of the
 	// timeline, such as webhooks and live streams, keep their place by.
@@ -189,24 +189,24 @@ const (
 
 // AuditRecord records one action and who took it.
 type AuditRecord struct {
-	ID    store.ID   `json:"id"`
-	Time  time.Time  `json:"time"`
-	Actor auth.Actor `json:"actor"`
+	ID    store.ID   `json:"id" doc:"The record's ID"`
+	Time  time.Time  `json:"time" doc:"When it happened"`
+	Actor auth.Actor `json:"actor" doc:"Who did it, and what acted for them"`
 	// Action is a permission name such as web.site.update or auth.login.
 	Action    string      `json:"action" doc:"What was done, named like the permission it needs, such as web.site.update"`
-	Kind      string      `json:"kind,omitempty"`
+	Kind      string      `json:"kind,omitempty" doc:"The kind of the resource acted on"`
 	Subject   store.ID    `json:"subject,omitempty" doc:"The resource acted on"`
-	Scope     store.Scope `json:"scope"`
-	ChangeSet store.ID    `json:"changeSet,omitempty"`
-	Outcome   Outcome     `json:"outcome" enum:"success,denied,failed"`
+	Scope     store.Scope `json:"scope" doc:"Who the resource belongs to, which decides who may see the record"`
+	ChangeSet store.ID    `json:"changeSet,omitempty" doc:"The change set it was part of"`
+	Outcome   Outcome     `json:"outcome" enum:"success,denied,failed" doc:"How it went: it was done, it was refused, or it was allowed but failed"`
 	// Reason explains a denial or failure.
-	Reason  string `json:"reason,omitempty"`
-	Summary string `json:"summary"`
+	Reason  string `json:"reason,omitempty" doc:"Why it was refused or failed"`
+	Summary string `json:"summary" doc:"What was done, in English"`
 	// Details holds a redacted summary of what changed.
-	Details json.RawMessage `json:"details,omitempty"`
+	Details json.RawMessage `json:"details,omitempty" doc:"What changed, with secrets left out"`
 	// RequestID is the API request the action came through, when it came
 	// through one, so the record can be matched with the access log.
-	RequestID string `json:"requestId,omitempty"`
+	RequestID string `json:"requestId,omitempty" doc:"The API request it came through, as the access log names it"`
 }
 
 // AuditLog stores audit records. Hooks can't turn it off.

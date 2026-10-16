@@ -63,11 +63,12 @@ import {
   Section,
   ShownOnce,
   TimeText,
+  ViewingNote,
 } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
 import { page } from "../page";
-import { useSession } from "../session";
+import { useSession, useViewing } from "../session";
 import { useStepUp } from "../step-up";
 import { AddonSetup, AddPasskey, TotpSetup } from "../two-factor";
 import { failureMessage } from "../util";
@@ -141,7 +142,15 @@ function Heading({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   );
 }
 
-function Authenticator({ me }: { me: Me }) {
+/**
+ * What the screen's sections take: viewing says someone is viewing the panel
+ * as the person, who then may only look at how they sign in.
+ */
+interface SectionProps {
+  viewing: boolean;
+}
+
+function Authenticator({ me, viewing }: SectionProps & { me: Me }) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -159,7 +168,7 @@ function Authenticator({ me }: { me: Me }) {
         }
         description={intl.formatMessage(t.totpDescription)}
         actions={
-          on ? (
+          viewing ? null : on ? (
             <ConfirmDialog
               trigger={<Button variant="outline">{intl.formatMessage(t.totpRemove)}</Button>}
               title={intl.formatMessage(t.totpRemoveTitle)}
@@ -243,7 +252,7 @@ function RenamePasskey({ passkey, onClose }: { passkey: PasskeyView; onClose: ()
   );
 }
 
-function Passkeys() {
+function Passkeys({ viewing }: SectionProps) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -264,7 +273,11 @@ function Passkeys() {
         </Heading>
       }
       description={intl.formatMessage(t.passkeysDescription)}
-      actions={<Button onClick={() => setAdding(true)}>{intl.formatMessage(t.passkeyAdd)}</Button>}
+      actions={
+        viewing ? null : (
+          <Button onClick={() => setAdding(true)}>{intl.formatMessage(t.passkeyAdd)}</Button>
+        )
+      }
     >
       {passkeys.isPending ? <ListSkeleton rows={2} /> : null}
       {passkeys.isError ? (
@@ -299,35 +312,37 @@ function Passkeys() {
                 />
               }
               actions={
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={intl.formatMessage(t.passkeyRename, { name: p.name })}
-                    onClick={() => setRenaming(p)}
-                  >
-                    <Pencil aria-hidden="true" />
-                  </Button>
-                  <ConfirmDialog
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={intl.formatMessage(t.passkeyRemove, { name: p.name })}
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </Button>
-                    }
-                    title={intl.formatMessage(t.passkeyRemoveTitle, { name: p.name })}
-                    description={intl.formatMessage(t.passkeyRemoveDescription)}
-                    confirmLabel={intl.formatMessage(t.remove)}
-                    onConfirm={async () => {
-                      if (await act(() => removePasskey(api, p.id))) {
-                        await reload();
+                viewing ? null : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage(t.passkeyRename, { name: p.name })}
+                      onClick={() => setRenaming(p)}
+                    >
+                      <Pencil aria-hidden="true" />
+                    </Button>
+                    <ConfirmDialog
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={intl.formatMessage(t.passkeyRemove, { name: p.name })}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
                       }
-                    }}
-                  />
-                </>
+                      title={intl.formatMessage(t.passkeyRemoveTitle, { name: p.name })}
+                      description={intl.formatMessage(t.passkeyRemoveDescription)}
+                      confirmLabel={intl.formatMessage(t.remove)}
+                      onConfirm={async () => {
+                        if (await act(() => removePasskey(api, p.id))) {
+                          await reload();
+                        }
+                      }}
+                    />
+                  </>
+                )
               }
             />
           ))}
@@ -353,7 +368,7 @@ function Passkeys() {
   );
 }
 
-function Recovery({ me }: { me: Me }) {
+function Recovery({ me, viewing }: SectionProps & { me: Me }) {
   const intl = useIntl();
   const api = useApi();
   const { guard } = useStepUp();
@@ -369,21 +384,23 @@ function Recovery({ me }: { me: Me }) {
         title={intl.formatMessage(t.recoveryTitle)}
         description={intl.formatMessage(t.recoveryDescription, { count: left })}
         actions={
-          <ConfirmDialog
-            trigger={<Button variant="outline">{intl.formatMessage(t.recoveryNew)}</Button>}
-            title={intl.formatMessage(t.recoveryNewTitle)}
-            description={intl.formatMessage(t.recoveryNewDescription)}
-            confirmLabel={intl.formatMessage(t.recoveryNew)}
-            destructive={false}
-            onConfirm={async () => {
-              try {
-                setCodes(await guard(() => newRecoveryCodes(api)));
-                await client.invalidateQueries({ queryKey: ["me"] });
-              } catch (error) {
-                toast.error(failureMessage(intl, error));
-              }
-            }}
-          />
+          viewing ? null : (
+            <ConfirmDialog
+              trigger={<Button variant="outline">{intl.formatMessage(t.recoveryNew)}</Button>}
+              title={intl.formatMessage(t.recoveryNewTitle)}
+              description={intl.formatMessage(t.recoveryNewDescription)}
+              confirmLabel={intl.formatMessage(t.recoveryNew)}
+              destructive={false}
+              onConfirm={async () => {
+                try {
+                  setCodes(await guard(() => newRecoveryCodes(api)));
+                  await client.invalidateQueries({ queryKey: ["me"] });
+                } catch (error) {
+                  toast.error(failureMessage(intl, error));
+                }
+              }}
+            />
+          )
         }
       >
         {left <= 2 ? (
@@ -402,7 +419,7 @@ function Recovery({ me }: { me: Me }) {
   );
 }
 
-function Addons() {
+function Addons({ viewing }: SectionProps) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -427,7 +444,7 @@ function Addons() {
             title={o.title}
             badge={<StateBadge on={o.enabled} />}
             actions={
-              o.enabled ? (
+              viewing ? null : o.enabled ? (
                 <ConfirmDialog
                   trigger={
                     <Button variant="outline" size="sm">
@@ -564,7 +581,7 @@ function LinkDialog({ provider, onClose }: { provider: SignInOption | null; onCl
   );
 }
 
-function Links() {
+function Links({ viewing }: SectionProps) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -597,7 +614,10 @@ function Links() {
         params: { provider: title(arrival.provider ?? ""), reason: "" },
       })
     : null;
-  const unlinked = providers.filter((p) => !(links.data ?? []).some((l) => l.provider === p.id));
+  // Someone viewing the panel as the person gets none to link.
+  const unlinked = viewing
+    ? []
+    : providers.filter((p) => !(links.data ?? []).some((l) => l.provider === p.id));
   const start = async (p: SignInOption) => {
     if (p.method === "password") {
       setLinking(p);
@@ -641,21 +661,23 @@ function Links() {
                 />
               }
               actions={
-                <ConfirmDialog
-                  trigger={
-                    <Button variant="outline" size="sm">
-                      {intl.formatMessage(t.unlink)}
-                    </Button>
-                  }
-                  title={intl.formatMessage(t.unlinkTitle, { provider: l.title })}
-                  description={intl.formatMessage(t.unlinkDescription)}
-                  confirmLabel={intl.formatMessage(t.unlink)}
-                  onConfirm={async () => {
-                    if (await act(() => unlinkMyIdentity(api, l.provider))) {
-                      await client.invalidateQueries({ queryKey: ["me", "links"] });
+                viewing ? null : (
+                  <ConfirmDialog
+                    trigger={
+                      <Button variant="outline" size="sm">
+                        {intl.formatMessage(t.unlink)}
+                      </Button>
                     }
-                  }}
-                />
+                    title={intl.formatMessage(t.unlinkTitle, { provider: l.title })}
+                    description={intl.formatMessage(t.unlinkDescription)}
+                    confirmLabel={intl.formatMessage(t.unlink)}
+                    onConfirm={async () => {
+                      if (await act(() => unlinkMyIdentity(api, l.provider))) {
+                        await client.invalidateQueries({ queryKey: ["me", "links"] });
+                      }
+                    }}
+                  />
+                )
               }
             />
           ))}
@@ -684,7 +706,7 @@ function Links() {
   );
 }
 
-function Devices() {
+function Devices({ viewing }: SectionProps) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -699,7 +721,7 @@ function Devices() {
       }
       description={intl.formatMessage(t.devicesDescription)}
       actions={
-        list.length > 1 ? (
+        list.length > 1 && !viewing ? (
           <ConfirmDialog
             trigger={<Button variant="outline">{intl.formatMessage(t.devicesForgetAll)}</Button>}
             title={intl.formatMessage(t.devicesForgetAllTitle)}
@@ -748,17 +770,19 @@ function Devices() {
                 />
               }
               actions={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (await act(() => forgetMyDevice(api, d.id))) {
-                      await reload();
-                    }
-                  }}
-                >
-                  {intl.formatMessage(t.deviceForget)}
-                </Button>
+                viewing ? null : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      if (await act(() => forgetMyDevice(api, d.id))) {
+                        await reload();
+                      }
+                    }}
+                  >
+                    {intl.formatMessage(t.deviceForget)}
+                  </Button>
+                )
               }
             />
           ))}
@@ -788,7 +812,7 @@ export function secretHints(names: readonly string[] | null | undefined): UIHint
   return hints;
 }
 
-function Alerts() {
+function Alerts({ viewing }: SectionProps) {
   const intl = useIntl();
   const api = useApi();
   const client = useQueryClient();
@@ -856,7 +880,7 @@ function Alerts() {
       ) : (
         <>
           <Field label={intl.formatMessage(t.alertsChannel)}>
-            <Select value={selected} onValueChange={setChoice}>
+            <Select value={selected} onValueChange={setChoice} disabled={viewing}>
               <SelectTrigger className="max-w-sm">
                 <SelectValue />
               </SelectTrigger>
@@ -875,7 +899,7 @@ function Alerts() {
               <p className="text-muted-foreground text-sm">
                 {intl.formatMessage(t.alertsSettingsHidden)}
               </p>
-              {type?.settings ? (
+              {type?.settings && !viewing ? (
                 <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                   {intl.formatMessage(t.alertsChangeSettings)}
                 </Button>
@@ -907,6 +931,7 @@ function Alerts() {
 function Security() {
   const intl = useIntl();
   const api = useApi();
+  const viewing = useViewing();
   const me = useQuery({ queryKey: ["me"], queryFn: () => getMe(api) });
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -914,6 +939,7 @@ function Security() {
         title={intl.formatMessage(t.securityTitle)}
         description={intl.formatMessage(t.securityDescription)}
       />
+      <ViewingNote />
       {me.isPending ? <ListSkeleton rows={4} /> : null}
       {me.isError ? (
         <ErrorState
@@ -934,13 +960,13 @@ function Security() {
               {intl.formatMessage(t.twoFactorWhy)}
             </Alert>
           ) : null}
-          <Authenticator me={me.data} />
-          <Passkeys />
-          <Recovery me={me.data} />
-          <Addons />
-          <Links />
-          <Devices />
-          <Alerts />
+          <Authenticator me={me.data} viewing={viewing} />
+          <Passkeys viewing={viewing} />
+          <Recovery me={me.data} viewing={viewing} />
+          <Addons viewing={viewing} />
+          <Links viewing={viewing} />
+          <Devices viewing={viewing} />
+          <Alerts viewing={viewing} />
         </>
       ) : null}
     </div>

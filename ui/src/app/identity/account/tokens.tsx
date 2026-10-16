@@ -44,9 +44,11 @@ import {
   PageHeader,
   ShownOnce,
   TimeText,
+  ViewingNote,
 } from "../components";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
+import { useViewing } from "../session";
 import { useStepUp } from "../step-up";
 import { failureMessage } from "../util";
 
@@ -72,13 +74,13 @@ function expired(token: TokenView): boolean {
   return token.expiresAt !== undefined && new Date(token.expiresAt).getTime() < Date.now();
 }
 
-/** The API tokens of a person, with a way to revoke each. */
+/** The API tokens of a person, with a way to revoke each when onRevoke is given. */
 export function TokenList({
   tokens,
   onRevoke,
 }: {
   tokens: readonly TokenView[];
-  onRevoke: (token: TokenView) => Promise<void>;
+  onRevoke?: (token: TokenView) => Promise<void>;
 }) {
   const intl = useIntl();
   return (
@@ -107,17 +109,19 @@ export function TokenList({
             />
           }
           actions={
-            <ConfirmDialog
-              trigger={
-                <Button variant="ghost" size="sm">
-                  {intl.formatMessage(t.tokenRevoke)}
-                </Button>
-              }
-              title={intl.formatMessage(t.tokenRevokeTitle, { name: tok.name })}
-              description={intl.formatMessage(t.tokenRevokeDescription)}
-              confirmLabel={intl.formatMessage(t.tokenRevoke)}
-              onConfirm={() => onRevoke(tok)}
-            />
+            onRevoke ? (
+              <ConfirmDialog
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    {intl.formatMessage(t.tokenRevoke)}
+                  </Button>
+                }
+                title={intl.formatMessage(t.tokenRevokeTitle, { name: tok.name })}
+                description={intl.formatMessage(t.tokenRevokeDescription)}
+                confirmLabel={intl.formatMessage(t.tokenRevoke)}
+                onConfirm={() => onRevoke(tok)}
+              />
+            ) : null
           }
         />
       ))}
@@ -321,7 +325,10 @@ function Tokens() {
   const client = useQueryClient();
   const tokens = useQuery({ queryKey: ["me", "tokens"], queryFn: () => listMyTokens(api) });
   const [creating, setCreating] = useState(false);
-  useAskedToAdd(() => setCreating(true));
+  // Someone viewing the panel as the person can't make or revoke their
+  // tokens.
+  const viewing = useViewing();
+  useAskedToAdd(() => setCreating(!viewing));
   const [created, setCreated] = useState<CreatedToken | null>(null);
   const reload = () => client.invalidateQueries({ queryKey: ["me", "tokens"] });
   const revoke = async (tok: TokenView) => {
@@ -333,7 +340,7 @@ function Tokens() {
       toast.error(failureMessage(intl, error));
     }
   };
-  const create = (
+  const create = viewing ? null : (
     <Button onClick={() => setCreating(true)}>
       <Plus aria-hidden="true" />
       {intl.formatMessage(t.tokenCreate)}
@@ -346,6 +353,7 @@ function Tokens() {
         description={intl.formatMessage(t.tokensDescription)}
         actions={tokens.data?.length ? create : null}
       />
+      <ViewingNote />
       {tokens.isPending ? <ListSkeleton rows={3} /> : null}
       {tokens.isError ? (
         <ErrorState
@@ -363,7 +371,7 @@ function Tokens() {
         />
       ) : null}
       {tokens.data && tokens.data.length > 0 ? (
-        <TokenList tokens={tokens.data} onRevoke={revoke} />
+        <TokenList tokens={tokens.data} {...(viewing ? {} : { onRevoke: revoke })} />
       ) : null}
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="sm:max-w-lg">

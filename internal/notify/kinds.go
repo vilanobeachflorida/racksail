@@ -162,7 +162,7 @@ type ChannelStatus struct {
 
 // ChannelTestOutput is what a test notification found.
 type ChannelTestOutput struct {
-	Notification *Notification `json:"notification"`
+	Notification *Notification `json:"notification" doc:"The test notification, with how sending it went"`
 }
 
 // ChannelKind is core.notification_channel.
@@ -227,7 +227,7 @@ func (in RelayTestInput) Validate() error {
 
 // RelayTestOutput is how the test went.
 type RelayTestOutput struct {
-	Sent  bool   `json:"sent"`
+	Sent  bool   `json:"sent" doc:"Whether the relay took the email"`
 	Error string `json:"error,omitempty" doc:"Why the relay didn't take the email"`
 }
 
