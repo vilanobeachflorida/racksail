@@ -33,12 +33,15 @@ var coreCommands = map[string]string{
 	"listAudit":      "audit list",
 	"exportAudit":    "audit export",
 
-	"getHealth":      "health",
-	"getVersion":     "server-version",
-	"getMetrics":     "metrics",
-	"listOperations": "operation list",
-	"listKinds":      "kind list",
-	"getKind":        "kind get",
+	"getHealth":       "health",
+	"getVersion":      "server-version",
+	"getMetrics":      "metrics",
+	"listOperations":  "operation list",
+	"listKinds":       "kind list",
+	"getKind":         "kind get",
+	"getResource":     "resource get",
+	"streamResources": "resource watch",
+	"searchResources": "resource search",
 
 	// The kinds add-ons add, which the API serves at paths naming them.
 	"listSchemaKindResources":      "kind resources",
@@ -48,9 +51,6 @@ var coreCommands = map[string]string{
 	"deleteSchemaKindResource":     "kind delete",
 	"getSchemaKindResourceHistory": "kind history",
 	"runSchemaKindAction":          "kind action",
-	"getResource":                  "resource get",
-	"streamResources":              "resource watch",
-	"searchResources":              "resource search",
 
 	"listInbox":        "inbox list",
 	"streamInbox":      "inbox watch",
