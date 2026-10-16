@@ -2,7 +2,6 @@ package i18n
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -17,16 +16,25 @@ func Format(msg string, params map[string]any) string {
 // value are left as they are, so a missing parameter is visible rather than
 // silently dropped. Braces that don't enclose a simple name are copied
 // unchanged, except the arguments the UI's ICU catalogs use: plurals such
-// as {count, plural, one {# day} other {# days}}, which pick the form
-// English takes for the count and put the count where # is; dates and
-// times of a time.Time, as {when, date, medium} and {when, time, short},
-// in the styles full, long, medium and short; and numbers, as {size,
-// number}, {size, number, integer} and {share, number, percent}.
+// as {count, plural, one {# day} other {# days}}, which pick the form =N
+// for exactly N, or else the form the language's CLDR plural rules give
+// the count, zero, one, two, few, many or other, and put the count where #
+// is; dates and times of a time.Time, as {when, date, medium} and {when,
+// time, short}, in the styles full, long, medium and short; and numbers,
+// as {size, number}, {size, number, integer} and {share, number, percent}.
 func FormatIn(locale Locale, msg string, params map[string]any) string {
-	return formatIn(conventionsOf(locale), msg, params)
+	return formatIn(writing{c: conventionsOf(locale), plurals: pluralRulesOf(locale)}, msg, params)
 }
 
-func formatIn(c *conventions, msg string, params map[string]any) string {
+// writing is how a language writes: its dates and numbers, and its plural
+// forms.
+type writing struct {
+	c       *conventions
+	plurals []pluralRule
+}
+
+func formatIn(w writing, msg string, params map[string]any) string {
+	c := w.c
 	if !strings.Contains(msg, "{") {
 		return msg
 	}
@@ -46,7 +54,7 @@ func formatIn(c *conventions, msg string, params map[string]any) string {
 		inner := msg[i+1 : end]
 		if v, ok := params[inner]; ok && isName(inner) {
 			b.WriteString(fmt.Sprint(v))
-		} else if text, ok := plural(inner, params, c); ok {
+		} else if text, ok := plural(inner, params, w); ok {
 			b.WriteString(text)
 		} else if text, ok := typed(inner, params, c); ok {
 			b.WriteString(text)
@@ -77,9 +85,11 @@ func closing(msg string, start int) int {
 
 // plural formats the inside of a plural placeholder, "count, plural, one
 // {...} other {...}", for the count params gives, choosing =N first, then
-// one for exactly 1 and other for everything else, and writing the count
-// as c says. ok is false when it isn't a plural or the count is missing.
-func plural(inner string, params map[string]any, c *conventions) (string, bool) {
+// the category the language's rules give the count, and other when the
+// message has no form for it or the count isn't a number, and writing the
+// count as the language does. ok is false when it isn't a plural or the
+// count is missing.
+func plural(inner string, params map[string]any, w writing) (string, bool) {
 	name, rest, ok := strings.Cut(inner, ",")
 	name = strings.TrimSpace(name)
 	if !ok || !isName(name) {
@@ -106,20 +116,15 @@ func plural(inner string, params map[string]any, c *conventions) (string, bool) 
 		options[strings.TrimSpace(rest[:open])] = rest[open+1 : end]
 		rest = rest[end+1:]
 	}
-	count := fmt.Sprint(v)
-	text, ok := options["="+count]
+	text, ok := options["="+fmt.Sprint(v)]
 	if !ok {
-		key := "other"
-		if n, err := strconv.ParseFloat(count, 64); err == nil && n == 1 {
-			key = "one"
-		}
-		if text, ok = options[key]; !ok {
+		if text, ok = options[pluralCategory(w.plurals, v)]; !ok {
 			if text, ok = options["other"]; !ok {
 				return "", false
 			}
 		}
 	}
-	return formatIn(c, strings.ReplaceAll(text, "#", countText(v, c)), params), true
+	return formatIn(w, strings.ReplaceAll(text, "#", countText(v, w.c)), params), true
 }
 
 func isName(s string) bool {

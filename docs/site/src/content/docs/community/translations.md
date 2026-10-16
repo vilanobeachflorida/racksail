@@ -19,7 +19,7 @@ The catalogs are JSON files, one per part of the panel. Those of the screens are
 | `ui/src/modules/<id>/messages/en.json` | Each module's screens, and its error codes |
 | `internal/notify/messages/en.json` | What emails and channel messages add to what they tell: how urgent it is, when it happened and what it's about, the link back to the panel and the footer |
 
-Messages are written in the ICU message format that react-intl reads. A message names its placeholders, and says how a sentence changes with a number or a choice:
+Messages are written in the ICU message format that react-intl reads. A message names its placeholders, and says how a sentence changes with a number or a choice. A plural chooses among the forms your language has, as the Unicode CLDR's plural rules name them: `zero`, `one`, `two`, `few`, `many` and `other`, with `=0` and the like for exact numbers. Polish, for instance, writes `{count, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}`. The screens and the notifications choose the same form for the same number:
 
 ```json
 {
