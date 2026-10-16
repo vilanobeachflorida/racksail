@@ -202,6 +202,8 @@ func (e *Engine) plan(ctx context.Context, req Request, id, undoOf store.ID) (*d
 	}
 	cs := p.cs
 	if e.opts.Hooks != nil {
+		// What hooks contribute is validated as the actor's own changes are.
+		ctx := planContext(ctx, req.Actor, e.opts.Authorizer, p.view)
 		requested := make([]ResourceChange, len(cs.Changes))
 		for i, c := range cs.Changes {
 			requested[i] = c.Clone()
@@ -261,9 +263,7 @@ func atChange(err error, i, n int) error {
 // the actor isn't allowed, or that stops after being allowed, is recorded in
 // the audit log.
 func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch Change, now time.Time) (err error) {
-	// A kind's validation can ask what the actor may do, such as whether
-	// they may create an account for the reseller it names.
-	ctx = auth.WithAuthorizer(auth.WithActor(ctx, actor), e.opts.Authorizer)
+	ctx = planContext(ctx, actor, e.opts.Authorizer, p.view)
 	kind, ok := e.opts.Kinds.Get(ch.Kind)
 	if !ok {
 		return i18n.ErrUnknownName.New("what", "kind", "name", ch.Kind)
@@ -272,6 +272,9 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	var old, next *store.Resource
 	var action store.Action
 	risk := info.Risks.Update
+	// A change to a resource no earlier change of the draft touched is
+	// planned against its stored version.
+	stored := !p.view.Planned(ch.ID)
 	switch ch.Op {
 	case OpCreate:
 		risk = info.Risks.Create
@@ -381,6 +384,11 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 		if ch.Op != OpDelete {
 			change.LabelsBefore = old.Labels
 		}
+		// The spec written is the one planned from this version, so a write
+		// that lands in between makes the change fail rather than be lost.
+		if ch.Op != OpDelete && change.Revision == 0 && stored {
+			change.Revision = old.Revision
+		}
 	}
 	var effects []system.Effect
 	rec, hasReconciler := e.reconciler(info.Name)
@@ -429,6 +437,26 @@ func (e *Engine) planChange(ctx context.Context, p *draft, actor *auth.Actor, ch
 	cs.Risk = store.MaxRisk(cs.Risk, risk)
 	p.titles = append(p.titles, title)
 	return nil
+}
+
+// planContext is the context a change is validated in. A kind's
+// validation can ask what the actor may do, such as whether they may
+// create an account for the reseller it names, and read the state the
+// change set leaves, such as the other users a change of roles affects.
+func planContext(ctx context.Context, actor *auth.Actor, authorizer auth.Authorizer, view *store.Overlay) context.Context {
+	ctx = auth.WithAuthorizer(auth.WithActor(ctx, actor), authorizer)
+	return store.WithReader(ctx, planned{view})
+}
+
+// planned lets validation read a draft's planned state and nothing more.
+type planned struct{ view *store.Overlay }
+
+func (p planned) Get(ctx context.Context, id store.ID) (*store.Resource, error) {
+	return p.view.Get(ctx, id)
+}
+
+func (p planned) List(ctx context.Context, q store.Query) (*store.Page, error) {
+	return p.view.List(ctx, q)
 }
 
 // changeTitle describes a change for people, such as "Update site" or

@@ -193,13 +193,20 @@ type fakeHooks struct {
 	// rewrite, when set, is what a modify hook does instead of adding an
 	// effect: anything, as a misbehaving Hooks implementation might.
 	rewrite func(cs *ChangeSet, changes []int)
+	// during, when set, runs at every validate point, as something else
+	// going on while a change is planned.
+	during func(ctx context.Context, point string)
 }
 
 func (f *fakeHooks) Validate(ctx context.Context, point string, cs *ChangeSet, change *ResourceChange) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.validate = append(f.validate, point)
-	if f.deny {
+	deny, during := f.deny, f.during
+	f.mu.Unlock()
+	if during != nil {
+		during(ctx, point)
+	}
+	if deny {
 		return i18n.ErrForbidden.New("action", "publish pages on Fridays")
 	}
 	return nil

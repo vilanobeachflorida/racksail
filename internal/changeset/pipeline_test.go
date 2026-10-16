@@ -306,6 +306,85 @@ func TestKindsWithoutReconcilersAreReadyOnceStored(t *testing.T) {
 	}
 }
 
+// A change is planned from the version of a resource it read. When another
+// change lands before it is written, it fails rather than putting back what
+// the other one changed, whether or not it named a revision.
+func TestChangesDontOverwriteWhatLandedMeanwhile(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	cs := e.submit(t, false, e.create("test.label", labelSpec{Name: "draft"}))
+	id := cs.Changes[0].ID
+	e.hooks.during = func(ctx context.Context, point string) {
+		if point != "test.label.update.validate" {
+			return
+		}
+		e.hooks.during = nil
+		err := e.store.Write(ctx, store.WriteMeta{Actor: "test"}, func(tx store.Tx) error {
+			cur, err := tx.Get(ctx, id)
+			if err != nil {
+				return err
+			}
+			cur.Spec = json.RawMessage(`{"name":"reviewed"}`)
+			return tx.Update(ctx, cur)
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	_, err := e.engine.Submit(ctx, Request{Actor: e.owner, Changes: []Change{{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"mine"}`)}}})
+	if !store.ErrConflict.Is(err) {
+		t.Fatalf("an update planned before another landed = %v", err)
+	}
+	got, err := labelKind.Get(ctx, e.store, id)
+	if err != nil || got.Spec.Name != "reviewed" {
+		t.Errorf("label = %+v, %v", got, err)
+	}
+	// Several changes of one resource in a request build on each other.
+	next := e.submit(t, false,
+		Change{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"one"}`)},
+		Change{Op: OpUpdate, Kind: "test.label", ID: id, Spec: json.RawMessage(`{"name":"two"}`)},
+	)
+	if next.State != StateApplied || next.Changes[0].Revision == 0 || next.Changes[1].Revision != 0 {
+		t.Errorf("changes = %+v", next.Changes)
+	}
+	if got, _ := labelKind.Get(ctx, e.store, id); got.Spec.Name != "two" {
+		t.Errorf("label = %+v", got.Spec)
+	}
+}
+
+// What validation sees of other resources is the state the change set
+// leaves: earlier changes of the same request included.
+func TestValidationReadsThePlannedState(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	var seen []string
+	e.hooks.during = func(ctx context.Context, point string) {
+		r, ok := store.ReaderFrom(ctx)
+		if !ok {
+			t.Errorf("%s has no reader", point)
+			return
+		}
+		page, err := r.List(ctx, store.Query{Kind: "test.label"})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for _, item := range page.Items {
+			obj, _ := labelKind.Decode(item)
+			seen = append(seen, obj.Spec.Name)
+		}
+		seen = append(seen, "|")
+	}
+	if _, err := e.engine.Submit(ctx, Request{Actor: e.owner, DryRun: true, Changes: []Change{
+		e.create("test.label", labelSpec{Name: "first"}), e.create("test.label", labelSpec{Name: "second"}),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(seen, " "); got != "| first |" {
+		t.Errorf("what the validate points saw: %q", got)
+	}
+}
+
 func TestChangeSetEvents(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)
