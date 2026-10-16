@@ -49,7 +49,7 @@ A user can have several roles in different places, such as owner of one account 
 
 ### Collaborators
 
-A collaborator gets the permissions their grant names, as names or patterns, such as `web.site.read` and `web.site.deploy`, or `mail.*`. Without any they can only look. A grant can also be kept to one resource, such as one site, for someone who only deploys that site.
+A collaborator gets the permissions their grant names, as names or patterns, such as `web.site.read` and `web.site.deploy`, or `mail.*`. Without any they can only look. A grant can also be kept to one resource, such as one site, for someone who only deploys that site. A grant only names what its place carries: what belongs to the whole server, such as the sign-in policy or storage, only a grant on the whole server, and changing an account itself only a grant above it.
 
 ### Special permissions
 

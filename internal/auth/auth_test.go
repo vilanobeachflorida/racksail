@@ -66,6 +66,31 @@ func TestAuthorize(t *testing.T) {
 	}
 }
 
+// What only grants on the whole server carry, a grant on a reseller or an
+// account doesn't carry by naming it, whatever it is checked against.
+func TestServerOnlyPermissionsStayWithTheServer(t *testing.T) {
+	ctx := context.Background()
+	reseller, acct := store.NewID("rsl"), store.NewID("acct")
+	az := NewRoleAuthorizer(owners{acct: reseller})
+	for _, scope := range []store.Scope{store.ResellerScope(reseller), store.AccountScope(acct)} {
+		named := &Actor{Grants: []Grant{{Role: RoleCollaborator, Scope: scope, Permissions: []Permission{"core.signin_policy.update", "storage.*"}}}}
+		for _, target := range []store.Scope{scope, store.ServerScope()} {
+			for _, perm := range []Permission{"core.signin_policy.update", "storage.pool.create"} {
+				if err := az.Authorize(ctx, named, perm, Target{Scope: target}); err == nil {
+					t.Errorf("a grant on %s naming %s carries it on %s", scope, perm, target)
+				}
+			}
+		}
+		if scopes, all, _ := az.Scopes(ctx, named, "core.signin_policy.update"); all || len(scopes) != 0 {
+			t.Errorf("scopes of a grant on %s naming a server permission = %v, %v", scope, scopes, all)
+		}
+	}
+	admin := &Actor{Grants: []Grant{{Role: RoleCollaborator, Scope: store.ServerScope(), Permissions: []Permission{"core.signin_policy.update"}}}}
+	if err := az.Authorize(ctx, admin, "core.signin_policy.update", Target{Scope: store.ServerScope()}); err != nil {
+		t.Errorf("a grant on the server naming it = %v", err)
+	}
+}
+
 // The module that keeps resellers sets the ownership after the authorizer
 // is built; from then on a reseller's grant covers their customers.
 func TestSetOwnership(t *testing.T) {

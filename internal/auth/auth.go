@@ -325,7 +325,8 @@ var RolePermissions = map[Role][]string{
 // reseller or owner pattern would match.
 var serverOnly = []string{"core.server.*", "core.module.*", "network.*", "storage.*", "cluster.*", "core.reseller.*", "core.signin_policy.*", "core.signin_provider.*"}
 
-// ServerOnly reports whether only grants on the whole server carry perm.
+// ServerOnly reports whether only grants on the whole server carry perm,
+// even by name.
 func ServerOnly(perm Permission) bool { return matchAny(serverOnly, string(perm)) }
 
 // AboveAccount reports whether grants on an account never carry perm even by
@@ -334,6 +335,19 @@ func ServerOnly(perm Permission) bool { return matchAny(serverOnly, string(perm)
 func AboveAccount(perm Permission) bool {
 	name := string(perm)
 	return strings.HasPrefix(name, "core.account.") && name != "core.account.read"
+}
+
+// carriedAt reports whether a grant on a scope of the given level can carry
+// a permission, or the permissions a pattern matches, at all, whatever its
+// role or the permissions it names.
+func carriedAt(level store.ScopeLevel, perm Permission) bool {
+	switch {
+	case level != store.ScopeServer && ServerOnly(perm):
+		return false
+	case level == store.ScopeAccount && AboveAccount(perm):
+		return false
+	}
+	return true
 }
 
 // RoleAuthorizer is the default Authorizer: roles map to permission
@@ -550,7 +564,8 @@ func patternsOf(g Grant) []string {
 }
 
 // grantable reports whether everything g lets its holder do, a lets its
-// holder do too.
+// holder do too. What a's scope never carries, such as what belongs to the
+// whole server on a reseller's grant, a's patterns don't pass on.
 func grantable(a, g Grant) bool {
 	for _, p := range g.Permissions {
 		if p.Special() && !slices.Contains(a.Permissions, p) {
@@ -560,7 +575,7 @@ func grantable(a, g Grant) bool {
 	held := patternsOf(a)
 	covered := func(patterns []string) bool {
 		for _, p := range patterns {
-			if !coveredBy(held, p) || (len(a.Limit) > 0 && !coveredBy(a.Limit, p)) {
+			if !coveredBy(held, p) || (len(a.Limit) > 0 && !coveredBy(a.Limit, p)) || !carriedAt(a.Scope.Level, Permission(p)) {
 				return false
 			}
 		}
@@ -624,6 +639,11 @@ func (g Grant) Validate() error {
 		case p == PermOverride && (g.Role != RoleAdmin || g.Scope.Level != store.ScopeServer):
 			// Loosening what protects every account is for server admins.
 			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "only an admin's grant on the whole server can carry core.override"))
+		case g.Scope.Level.Valid() && g.Scope.Level != store.ScopeServer && ServerOnly(p):
+			// Named or not, it would never let its holder do anything there.
+			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "only grants on the whole server carry "+string(p)))
+		case g.Scope.Level == store.ScopeAccount && AboveAccount(p):
+			fields = append(fields, i18n.Field("permissions["+itoa(i)+"]", i18n.ErrBadValue, "reason", "grants on an account never carry "+string(p)+"; resellers and admins change accounts"))
 		}
 	}
 	for i, p := range g.Limit {
@@ -702,8 +722,12 @@ func itoa(i int) string {
 	return string(b[n:])
 }
 
+// permits reports whether a grant carries a permission. What a grant's scope
+// never carries it doesn't, even when it names it, so the guard doesn't rest
+// on such permissions only ever being checked against scopes the grant
+// can't reach.
 func permits(g Grant, perm Permission) bool {
-	if g.Scope.Level == store.ScopeAccount && AboveAccount(perm) {
+	if !carriedAt(g.Scope.Level, perm) {
 		return false
 	}
 	if len(g.Limit) > 0 && !matchAny(g.Limit, string(perm)) {
@@ -721,9 +745,6 @@ func permits(g Grant, perm Permission) bool {
 		for _, p := range g.Permissions {
 			patterns = append(patterns, string(p))
 		}
-	}
-	if g.Scope.Level != store.ScopeServer && ServerOnly(perm) {
-		return false
 	}
 	return matchAny(patterns, string(perm))
 }
