@@ -2,8 +2,11 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -13,11 +16,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -293,6 +299,64 @@ func TestEveryOperationIsAuthorized(t *testing.T) {
 			t.Errorf("%s succeeded without a grant: %d %s", op.ID, resp.StatusCode, bodyOf(resp))
 		}
 	}
+}
+
+// opsModule is a module with operations of its own, as modules add them
+// through APIProvider.
+type opsModule struct {
+	modules.Base
+	register func(a huma.API, svc *modules.Services)
+}
+
+func (m *opsModule) RegisterAPI(a huma.API, svc *modules.Services) { m.register(a, svc) }
+
+func newOpsModule(t *testing.T, id string, register func(a huma.API, svc *modules.Services)) *opsModule {
+	t.Helper()
+	m := &opsModule{Base: modules.NewBase([]byte(`hardware: {arch: [amd64, arm64]}
+id: ` + id + `
+name: Operations
+description: A module with operations of its own, for the API's tests.
+version: 0.1.0
+license: AGPL-3.0-or-later
+category: operations
+profiles: [all-in-one]
+cost: {idleMemoryMB: 4, activeMemoryMB: 40, diskMB: 10}
+dependencies: {}
+upstream: []
+`)), register: register}
+	if err := m.ManifestErr(); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// A module's operation that has the ID a kind's generated operation needs
+// stops the server from being built, naming both, rather than leaving the
+// document with two operations of one ID.
+func TestKindOperationsKeepClearOfModulesOwn(t *testing.T) {
+	reg := modules.NewRegistry()
+	if err := reg.Add(newOpsModule(t, "clash", func(a huma.API, svc *modules.Services) {
+		op := huma.Operation{OperationID: "getTestSite", Method: http.MethodGet, Path: Prefix + "/clash/sites/{id}",
+			Summary: "Get a site", Description: "Gets a site the module keeps.", Security: Protected}
+		Describe(&op, Info{Risk: store.RiskRead})
+		huma.Register(a, op, func(ctx context.Context, in *struct {
+			ID string `path:"id"`
+		}) (*struct{}, error) {
+			return nil, nil
+		})
+	}), nil); err != nil {
+		t.Fatal(err)
+	}
+	kinds := store.NewKindRegistry()
+	if err := kinds.Register(siteKind); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if p := recover(); p == nil || !strings.Contains(fmt.Sprint(p), "getTestSite") || !strings.Contains(fmt.Sprint(p), "/clash/sites") {
+			t.Errorf("building the server = %v", p)
+		}
+	}()
+	New(Options{Modules: reg, Services: &modules.Services{Kinds: kinds}, Log: slog.New(slog.DiscardHandler)})
 }
 
 // Every operation that changes a kind has its hook points, so hooks can

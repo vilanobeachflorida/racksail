@@ -15,12 +15,6 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// typeName turns a kind name into the name of its schemas: web.site gives
-// WebSite and mail.mailbox_alias gives MailMailboxAlias.
-func typeName(kind string) string {
-	return camel(strings.FieldsFunc(kind, func(r rune) bool { return r == '.' || r == '_' || r == '-' })...)
-}
-
 // camel joins words, each starting with a capital letter.
 func camel(words ...string) string {
 	var b strings.Builder
@@ -32,16 +26,6 @@ func camel(words ...string) string {
 		}
 	}
 	return b.String()
-}
-
-// lowerFirst makes the first letter of an operation ID lowercase.
-func lowerFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	r[0] = unicode.ToLower(r[0])
-	return string(r)
 }
 
 // kindDoc holds the schemas of one kind in the API document.
@@ -69,7 +53,7 @@ func (s *Server) register(name string, schema *huma.Schema) *huma.Schema {
 // create and update requests.
 func (s *Server) kindSchemas(k store.Kind) kindDoc {
 	info := k.Info()
-	name := typeName(info.Name)
+	name := info.TypeName()
 	reg := s.api.OpenAPI().Components.Schemas
 	d := kindDoc{
 		name:    name,

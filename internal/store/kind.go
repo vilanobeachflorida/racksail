@@ -236,6 +236,64 @@ func (k *KindInfo) Module() string {
 	return module
 }
 
+// Path is where the API serves the kind's operations, below /api/v1:
+// <module>/<plural>, such as web/sites.
+func (k *KindInfo) Path() string { return k.Module() + "/" + k.Plural }
+
+// TypeName names the kind's schemas and operations: web.site gives WebSite
+// and mail.mailbox_alias gives MailMailboxAlias.
+func (k *KindInfo) TypeName() string {
+	return camel(strings.FieldsFunc(k.Name, func(r rune) bool { return r == '.' || r == '_' || r == '-' })...)
+}
+
+// OperationID is the ID of an operation the API generates for the kind:
+// list, get, create, update, delete or history, or the name of one of its
+// actions. web.site's are listWebSites, getWebSite, createWebSite,
+// updateWebSite, deleteWebSite, getWebSiteHistory and, for its deploy
+// action, deployWebSite.
+func (k *KindInfo) OperationID(operation string) string {
+	name := k.TypeName()
+	switch operation {
+	case "list":
+		return "list" + camel(k.Module(), k.Plural)
+	case "get", "create", "update", "delete":
+		return operation + name
+	case "history":
+		return "get" + name + "History"
+	}
+	id := camel(operation)
+	if id == "" {
+		return name
+	}
+	return strings.ToLower(id[:1]) + id[1:] + name
+}
+
+// OperationIDs lists the IDs of every operation the API generates for the
+// kind, which no other kind's may share.
+func (k *KindInfo) OperationIDs() []string {
+	ops := []string{"list", "get", "create", "update", "delete", "history"}
+	for _, a := range k.Actions {
+		ops = append(ops, a.Name)
+	}
+	out := make([]string, len(ops))
+	for i, op := range ops {
+		out[i] = k.OperationID(op)
+	}
+	return out
+}
+
+// camel joins words, each starting with a capital letter, splitting them
+// further at dots, underscores, hyphens and spaces.
+func camel(words ...string) string {
+	var b strings.Builder
+	for _, w := range words {
+		for _, part := range strings.FieldsFunc(w, func(r rune) bool { return r == '.' || r == '_' || r == '-' || r == ' ' }) {
+			b.WriteString(strings.ToUpper(part[:1]) + part[1:])
+		}
+	}
+	return b.String()
+}
+
 // Action returns the declared action with the given name.
 func (k *KindInfo) Action(name string) (Action, bool) {
 	for _, a := range k.Actions {

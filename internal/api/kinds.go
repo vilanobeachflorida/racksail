@@ -32,19 +32,36 @@ var (
 // KindPath returns where the operations of a kind live:
 // /api/v1/<module>/<plural>, such as /api/v1/web/sites.
 func KindPath(info *store.KindInfo) string {
-	return Prefix + "/" + info.Module() + "/" + info.Plural
+	return Prefix + "/" + info.Path()
 }
 
 // reservedModules are the first path segments of the core's own
 // operations, which no module's kinds may use.
 var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream", "metrics", "search", "inbox"}
 
-// registerKinds generates the operations of every registered kind.
+// registerKinds generates the operations of every registered kind. The
+// registry keeps kinds from sharing paths and operation IDs with each other;
+// here they are kept from those of the core's and modules' own operations,
+// which a mistake in a module could otherwise take.
 func (s *Server) registerKinds() {
 	reserved := append(slices.Clone(reservedModules), reservedByExtensions()...)
+	taken := map[string]string{}
+	for path, item := range s.api.OpenAPI().Paths {
+		for _, op := range []*huma.Operation{item.Get, item.Post, item.Put, item.Patch, item.Delete} {
+			if op != nil {
+				taken[op.OperationID] = path
+			}
+		}
+	}
 	for _, k := range s.kinds.All() {
-		if slices.Contains(reserved, k.Info().Module()) {
-			panic(fmt.Sprintf("api: kind %s uses %s, a path the core's own operations need", k.Info().Name, KindPath(k.Info())))
+		info := k.Info()
+		if slices.Contains(reserved, info.Module()) {
+			panic(fmt.Sprintf("api: kind %s uses %s, a path the core's own operations need", info.Name, KindPath(info)))
+		}
+		for _, id := range info.OperationIDs() {
+			if path, ok := taken[id]; ok {
+				panic(fmt.Sprintf("api: kind %s would generate operation %s, which %s already has", info.Name, id, path))
+			}
 		}
 		s.registerKind(k)
 	}
@@ -71,7 +88,7 @@ func (s *Server) registerKind(k store.Kind) {
 	base := KindPath(info)
 	title := sentenceTitle(info)
 	many := plural(info)
-	listID := "list" + camel(info.Module(), info.Plural)
+	listID := info.OperationID("list")
 	idParam := pathParam("id", "The "+title+"'s ID, which starts with "+info.Prefix+"_")
 	changeSet := s.schemaOf(typeOfChangeSet, "ChangeSet")
 	changeResponses := func(applied string) map[string]*huma.Response {
@@ -95,7 +112,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// Get.
 	op = &huma.Operation{
-		OperationID: "get" + d.name, Method: http.MethodGet, Path: base + "/{id}", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("get"), Method: http.MethodGet, Path: base + "/{id}", Tags: tags, Security: Protected,
 		Summary:     "Get " + withArticle(title),
 		Description: "Returns one " + title + ": its settings (spec), and what Racksail last saw of it (status). " + info.Description,
 		Parameters:  []*huma.Param{idParam, fieldsParam()},
@@ -106,7 +123,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// Create.
 	op = &huma.Operation{
-		OperationID: "create" + d.name, Method: http.MethodPost, Path: base, Tags: tags, Security: Protected,
+		OperationID: info.OperationID("create"), Method: http.MethodPost, Path: base, Tags: tags, Security: Protected,
 		Summary: "Create " + withArticle(title),
 		Description: info.Description + " Creating one is a change like any other: with dryRun=true the answer is the change set, " +
 			"what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.",
@@ -119,7 +136,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// Update.
 	op = &huma.Operation{
-		OperationID: "update" + d.name, Method: http.MethodPut, Path: base + "/{id}", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("update"), Method: http.MethodPut, Path: base + "/{id}", Tags: tags, Security: Protected,
 		Summary: "Change " + withArticle(title),
 		Description: "Replaces the " + title + "'s settings with new ones, previewed and applied like any change. " +
 			"Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.",
@@ -133,7 +150,7 @@ func (s *Server) registerKind(k store.Kind) {
 	// Delete.
 	revision := queryParam("revision", huma.TypeInteger, "The revision you read; when someone changed the "+title+" since, the delete fails with a conflict")
 	op = &huma.Operation{
-		OperationID: "delete" + d.name, Method: http.MethodDelete, Path: base + "/{id}", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("delete"), Method: http.MethodDelete, Path: base + "/{id}", Tags: tags, Security: Protected,
 		Summary: "Delete " + withArticle(title),
 		Description: "Deletes the " + title + " and removes what it set up on the server, previewed and applied like any change. " +
 			"Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.",
@@ -145,7 +162,7 @@ func (s *Server) registerKind(k store.Kind) {
 
 	// History.
 	op = &huma.Operation{
-		OperationID: "get" + d.name + "History", Method: http.MethodGet, Path: base + "/{id}/history", Tags: tags, Security: Protected,
+		OperationID: info.OperationID("history"), Method: http.MethodGet, Path: base + "/{id}/history", Tags: tags, Security: Protected,
 		Summary:     "Show " + withArticle(title) + "'s history",
 		Description: "Returns every recorded version of the " + title + "'s settings, oldest first, with the change set that wrote it and who made the change.",
 		Parameters:  []*huma.Param{idParam},
@@ -166,7 +183,7 @@ func (s *Server) registerKind(k store.Kind) {
 			description += fmt.Sprintf(" The answer comes when it is done, with what it returned in the change set's output; after %s it is 202 and the job carries on.", actionWait)
 		}
 		op = &huma.Operation{
-			OperationID: lowerFirst(camel(a.Name)) + d.name, Method: http.MethodPost, Path: base + "/{id}/actions/" + a.Name, Tags: tags, Security: Protected,
+			OperationID: info.OperationID(a.Name), Method: http.MethodPost, Path: base + "/{id}/actions/" + a.Name, Tags: tags, Security: Protected,
 			Summary:     strings.TrimSuffix(a.Summary, "."),
 			Description: description,
 			Parameters:  append([]*huma.Param{idParam}, changeParams()...),
