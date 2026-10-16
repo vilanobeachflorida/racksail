@@ -91,3 +91,5 @@ What the maintainers still have to set up or confirm. Each item is done, and its
 | # | Item |
 |---|---|
 | L1 | `conduct@racksail.dev`, where code of conduct reports go as `CODE_OF_CONDUCT.md`, `GOVERNANCE.md` and the documentation site's community pages say, is a placeholder. The address has to exist and reach every maintainer listed in `GOVERNANCE.md` and nobody else, or another address takes its place everywhere it appears. |
+| L2 | The official catalog's signing key doesn't exist yet. A maintainer creates it as `catalog/keys/README.md` describes and commits `catalog/keys/official.pub` with its copy in `internal/recipes/keys/`. Until then, panels don't add the official catalog and the Catalog workflow publishes nothing. |
+| L3 | The browser suite has no visual baselines yet, so CI compares no screens. A maintainer runs the Screenshots workflow on `main` and reviews what it commits. |
