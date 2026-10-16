@@ -33,10 +33,13 @@ import { builtinTheme, builtinThemes } from "@/design/theme/spec";
 import {
   type ConsoleKey,
   consoleKeys,
+  type Font,
   type PaletteKey,
   paletteKeys,
   type Theme,
   type ThemeProblem,
+  type Tokens,
+  type Typography,
 } from "@/design/theme/types";
 import {
   readThemeDocument,
@@ -173,6 +176,39 @@ export function pairPurpose(
 /** The hue a status color has to keep, such as "green" for success. */
 export function hueName(intl: IntlShape, token: string, fallback: string): string {
   return specMessage(intl, `app.theme.hue.${token}`, fallback);
+}
+
+/**
+ * Sets one of a theme's optional values, or leaves it out when it's
+ * cleared, as a theme.yaml would; a group left empty goes too. The panel
+ * accepts a theme without the value but refuses one with it empty, so the
+ * editor checks and exports the theme the person means.
+ */
+function setOptional<T extends object, K extends keyof T>(
+  owner: T,
+  key: K,
+  value: T[K] | undefined,
+): void {
+  if (value === undefined || isCleared(value)) {
+    delete owner[key];
+  } else {
+    owner[key] = value;
+  }
+}
+
+function isCleared(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value === "";
+  }
+  if (typeof value === "number") {
+    return Number.isNaN(value);
+  }
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  );
 }
 
 function download(name: string, text: string, type: string) {
@@ -562,14 +598,35 @@ export default function ThemeEditor() {
   };
   const setField = (
     field: "name" | "id" | "version" | "license" | "author" | "description",
-    value: string | undefined,
+    value: string,
   ) =>
     update((d) => {
       if (field === "author" || field === "description") {
-        d[field] = value;
+        setOptional(d, field, value);
       } else {
-        d[field] = value ?? "";
+        d[field] = value;
       }
+    });
+  // Changes the type tokens, which a theme may leave out altogether.
+  const setTypography = (change: (typography: Typography) => void) =>
+    update((d) => {
+      const typography = { ...d.tokens.typography };
+      change(typography);
+      setOptional(d.tokens, "typography", typography);
+    });
+  // A font with neither a family nor files is no font of the theme's.
+  const setFont = (typography: Typography, which: "sans" | "mono", font: Font) =>
+    setOptional(typography, which, font.family === "" && !font.files ? undefined : font);
+  // One value of a group of optional tokens, such as a corner's radius.
+  const setToken = <G extends "radius" | "shadows" | "motion" | "focusRing">(
+    group: G,
+    key: keyof NonNullable<Tokens[G]>,
+    value: string,
+  ) =>
+    update((d) => {
+      const values = { ...d.tokens[group] } as NonNullable<Tokens[G]>;
+      setOptional(values, key, value as NonNullable<Tokens[G]>[typeof key]);
+      setOptional(d.tokens, group, values);
     });
   const setColor = (m: Mode, key: PaletteKey, value: string) =>
     update((d) => {
@@ -788,46 +845,35 @@ export default function ThemeEditor() {
             </Tabs>
           </TabsContent>
           <TabsContent value="type" className="grid gap-4 sm:grid-cols-2">
-            <Field label={t(tm.themeFontSans)} description={t(tm.themeFontHelp)}>
-              <Input
-                value={theme.tokens.typography?.sans?.family ?? ""}
-                onChange={(e) =>
-                  update((d) => {
-                    d.tokens.typography = {
-                      ...d.tokens.typography,
-                      sans: { ...d.tokens.typography?.sans, family: e.target.value },
-                    };
-                  })
-                }
-              />
-            </Field>
-            <Field label={t(tm.themeFontMono)}>
-              <Input
-                value={theme.tokens.typography?.mono?.family ?? ""}
-                onChange={(e) =>
-                  update((d) => {
-                    d.tokens.typography = {
-                      ...d.tokens.typography,
-                      mono: { ...d.tokens.typography?.mono, family: e.target.value },
-                    };
-                  })
-                }
-              />
-            </Field>
+            {(["sans", "mono"] as const).map((which) => (
+              <Field
+                key={which}
+                label={t(which === "sans" ? tm.themeFontSans : tm.themeFontMono)}
+                description={which === "sans" ? t(tm.themeFontHelp) : undefined}
+              >
+                <Input
+                  value={theme.tokens.typography?.[which]?.family ?? ""}
+                  onChange={(e) =>
+                    setTypography((typography) =>
+                      setFont(typography, which, {
+                        ...typography[which],
+                        family: e.target.value,
+                      }),
+                    )
+                  }
+                />
+              </Field>
+            ))}
             {(["sans", "mono"] as const).map((which) => (
               <FontFilesField
                 key={which}
                 which={which}
                 files={theme.tokens.typography?.[which]?.files ?? []}
                 onChange={(files) =>
-                  update((d) => {
-                    const font = { family: "", ...d.tokens.typography?.[which] };
-                    if (files.length > 0) {
-                      font.files = files;
-                    } else {
-                      delete font.files;
-                    }
-                    d.tokens.typography = { ...d.tokens.typography, [which]: font };
+                  setTypography((typography) => {
+                    const font: Font = { family: "", ...typography[which] };
+                    setOptional(font, "files", files.length > 0 ? files : undefined);
+                    setFont(typography, which, font);
                   })
                 }
               />
@@ -836,9 +882,7 @@ export default function ThemeEditor() {
               <Input
                 value={theme.tokens.typography?.baseSize ?? ""}
                 onChange={(e) =>
-                  update((d) => {
-                    d.tokens.typography = { ...d.tokens.typography, baseSize: e.target.value };
-                  })
+                  setTypography((typography) => setOptional(typography, "baseSize", e.target.value))
                 }
               />
             </Field>
@@ -850,13 +894,9 @@ export default function ThemeEditor() {
                 max={2}
                 value={theme.tokens.typography?.scale ?? ""}
                 onChange={(e) =>
-                  update((d) => {
-                    const n = e.target.valueAsNumber;
-                    d.tokens.typography = {
-                      ...d.tokens.typography,
-                      scale: Number.isNaN(n) ? undefined : n,
-                    };
-                  })
+                  setTypography((typography) =>
+                    setOptional(typography, "scale", e.target.valueAsNumber),
+                  )
                 }
               />
             </Field>
@@ -869,15 +909,10 @@ export default function ThemeEditor() {
                   max={900}
                   value={theme.tokens.typography?.weights?.[w] ?? ""}
                   onChange={(e) =>
-                    update((d) => {
-                      const n = e.target.valueAsNumber;
-                      d.tokens.typography = {
-                        ...d.tokens.typography,
-                        weights: {
-                          ...d.tokens.typography?.weights,
-                          [w]: Number.isNaN(n) ? undefined : n,
-                        },
-                      };
+                    setTypography((typography) => {
+                      const weights = { ...typography.weights };
+                      setOptional(weights, w, e.target.valueAsNumber);
+                      setOptional(typography, "weights", weights);
                     })
                   }
                 />
@@ -909,11 +944,7 @@ export default function ThemeEditor() {
               <Field key={`radius-${size}`} label={t(tm.themeRadius, { size })}>
                 <Input
                   value={theme.tokens.radius?.[size] ?? ""}
-                  onChange={(e) =>
-                    update((d) => {
-                      d.tokens.radius = { ...d.tokens.radius, [size]: e.target.value };
-                    })
-                  }
+                  onChange={(e) => setToken("radius", size, e.target.value)}
                 />
               </Field>
             ))}
@@ -926,11 +957,7 @@ export default function ThemeEditor() {
               >
                 <Input
                   value={theme.tokens.shadows?.[size] ?? ""}
-                  onChange={(e) =>
-                    update((d) => {
-                      d.tokens.shadows = { ...d.tokens.shadows, [size]: e.target.value };
-                    })
-                  }
+                  onChange={(e) => setToken("shadows", size, e.target.value)}
                 />
               </Field>
             ))}
@@ -938,32 +965,20 @@ export default function ThemeEditor() {
               <Field key={speed} label={t(tm.themeMotion, { speed })}>
                 <Input
                   value={theme.tokens.motion?.[speed] ?? ""}
-                  onChange={(e) =>
-                    update((d) => {
-                      d.tokens.motion = { ...d.tokens.motion, [speed]: e.target.value };
-                    })
-                  }
+                  onChange={(e) => setToken("motion", speed, e.target.value)}
                 />
               </Field>
             ))}
             <Field label={t(tm.themeFocusWidth)}>
               <Input
                 value={theme.tokens.focusRing?.width ?? ""}
-                onChange={(e) =>
-                  update((d) => {
-                    d.tokens.focusRing = { ...d.tokens.focusRing, width: e.target.value };
-                  })
-                }
+                onChange={(e) => setToken("focusRing", "width", e.target.value)}
               />
             </Field>
             <Field label={t(tm.themeFocusOffset)}>
               <Input
                 value={theme.tokens.focusRing?.offset ?? ""}
-                onChange={(e) =>
-                  update((d) => {
-                    d.tokens.focusRing = { ...d.tokens.focusRing, offset: e.target.value };
-                  })
-                }
+                onChange={(e) => setToken("focusRing", "offset", e.target.value)}
               />
             </Field>
           </TabsContent>
@@ -972,13 +987,9 @@ export default function ThemeEditor() {
               theme={theme}
               onChange={(key, value) =>
                 update((d) => {
-                  const next = { ...d.console };
-                  if (value === undefined) {
-                    delete next[key];
-                  } else {
-                    next[key] = value;
-                  }
-                  d.console = Object.keys(next).length > 0 ? next : undefined;
+                  const colors = { ...d.console };
+                  setOptional(colors, key, value);
+                  setOptional(d, "console", colors);
                 })
               }
             />
@@ -1003,13 +1014,13 @@ export default function ThemeEditor() {
             <Field label={t(tm.themeAuthor)}>
               <Input
                 value={theme.author ?? ""}
-                onChange={(e) => setField("author", e.target.value || undefined)}
+                onChange={(e) => setField("author", e.target.value)}
               />
             </Field>
             <Field label={t(tm.themeDescriptionField)} className="sm:col-span-2">
               <Textarea
                 value={theme.description ?? ""}
-                onChange={(e) => setField("description", e.target.value || undefined)}
+                onChange={(e) => setField("description", e.target.value)}
               />
             </Field>
           </TabsContent>

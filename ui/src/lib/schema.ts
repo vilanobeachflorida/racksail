@@ -179,6 +179,8 @@ function equal(a: unknown, b: unknown): boolean {
 /**
  * Checks a value against a schema and returns every problem found, or an
  * empty list when it matches. root is the document $refs resolve against.
+ * The value is checked as the JSON it becomes, so properties set to
+ * undefined count as left out.
  */
 export function validate(
   schema: JSONSchema,
@@ -255,13 +257,16 @@ export function validate(
     if (s.maxItems !== undefined && value.length > s.maxItems) {
       issues.push({ path, keyword: "maxItems", params: { max: s.maxItems } });
     }
-    if (s.uniqueItems && new Set(value.map((v) => JSON.stringify(v))).size !== value.length) {
+    // Values are checked as the server gets them, in JSON, where an item
+    // that's undefined, or missing from a sparse list, is null.
+    const items = Array.from(value, (item) => (item === undefined ? null : item));
+    if (s.uniqueItems && new Set(items.map((v) => JSON.stringify(v))).size !== items.length) {
       issues.push({ path, keyword: "uniqueItems", params: {} });
     }
     if (s.items) {
-      const items = s.items;
-      value.forEach((item, i) => {
-        issues.push(...validate(items, item, root, joinPath(path, i)));
+      const itemSchema = s.items;
+      items.forEach((item, i) => {
+        issues.push(...validate(itemSchema, item, root, joinPath(path, i)));
       });
     }
   }
@@ -272,6 +277,11 @@ export function validate(
       }
     }
     for (const [key, child] of Object.entries(value)) {
+      // A property whose value is undefined isn't in the JSON at all, as
+      // the required check above already counts it.
+      if (child === undefined) {
+        continue;
+      }
       const property = s.properties?.[key];
       if (property) {
         issues.push(...validate(property, child, root, joinPath(path, key)));

@@ -30,6 +30,32 @@ async function editor() {
 
 const layerStyle = () => document.head.querySelector("style[data-rs-theme-layer]");
 
+/** Exports the theme as JSON and returns what the file holds. */
+async function exported(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<Record<string, unknown>> {
+  let file: Blob | undefined;
+  const create = vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    file = blob as Blob;
+    return "blob:theme";
+  });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  await user.click(screen.getByRole("button", { name: "Export JSON" }));
+  create.mockRestore();
+  click.mockRestore();
+  return JSON.parse(await (file as Blob).text());
+}
+
+/** The theme passes every check and can be exported and tried. */
+function accepted() {
+  expect(
+    screen.getByText("Every check passes, so the panel will accept this theme."),
+  ).toBeInTheDocument();
+  for (const name of ["Export theme.yaml", "Export JSON", "Try on the whole panel"]) {
+    expect(screen.getByRole("button", { name })).toBeEnabled();
+  }
+}
+
 describe("the theme editor", () => {
   it("checks contrast as colors change", async () => {
     const user = userEvent.setup();
@@ -215,6 +241,52 @@ describe("the theme editor", () => {
     expect(
       await screen.findByText("Every check passes, so the panel will accept this theme."),
     ).toBeInTheDocument();
+  });
+
+  // The panel accepts a theme without its optional fields, so emptying one
+  // leaves it out rather than making the theme one the panel refuses.
+  it("leaves out an author and description that are cleared", async () => {
+    const user = userEvent.setup();
+    await editor();
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    await user.clear(screen.getByRole("textbox", { name: "Author" }));
+    await user.clear(screen.getByRole("textbox", { name: "Description" }));
+    accepted();
+    const theme = await exported(user);
+    expect(theme).not.toHaveProperty("author");
+    expect(theme).not.toHaveProperty("description");
+    expect(theme).toMatchObject({ id: "racksail", name: "Racksail" });
+  });
+
+  it("leaves out a type scale, weights and lengths that are cleared", async () => {
+    const user = userEvent.setup();
+    await editor();
+    await user.click(screen.getByRole("tab", { name: "Type" }));
+    await user.clear(screen.getByRole("spinbutton", { name: "Type scale" }));
+    await user.clear(screen.getByRole("spinbutton", { name: "Bold weight" }));
+    await user.clear(screen.getByRole("textbox", { name: "Base text size" }));
+    accepted();
+    await user.click(screen.getByRole("tab", { name: "Shape and motion" }));
+    for (const size of ["Small", "Medium", "Large", "Extra large"]) {
+      await user.clear(screen.getByRole("textbox", { name: `${size} corners` }));
+    }
+    accepted();
+    const tokens = (await exported(user)).tokens as Record<string, Record<string, unknown>>;
+    expect(tokens.typography).not.toHaveProperty("scale");
+    expect(tokens.typography).not.toHaveProperty("baseSize");
+    expect(tokens.typography?.weights).toEqual({ regular: 400, medium: 500, semibold: 600 });
+    expect(tokens).not.toHaveProperty("radius");
+  });
+
+  it("leaves out the console palette once every color of it is cleared", async () => {
+    const user = userEvent.setup();
+    await editor();
+    await user.click(screen.getAllByRole("tab", { name: "Console" })[0] as HTMLElement);
+    for (const name of ["Background", "Text", "Accent", "Success", "Warning", "Danger"]) {
+      await user.clear(screen.getByRole("textbox", { name }));
+    }
+    accepted();
+    expect(await exported(user)).not.toHaveProperty("console");
   });
 
   it("asks for the files of a font the panel doesn't have", async () => {
