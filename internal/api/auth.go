@@ -78,7 +78,9 @@ type SignInAnswer struct {
 	// Challenge is set when a second step is needed.
 	Challenge string   `json:"challenge,omitempty" doc:"Send it back with the second step"`
 	Methods   []string `json:"methods,omitempty" doc:"The second steps the person can take: totp, passkey, recovery and mfa:<id>"`
-	Name      string   `json:"name,omitempty" doc:"Who is signing in, to greet them"`
+	// Titles name the second steps add-ons provide.
+	Titles map[string]string `json:"titles,omitempty" doc:"What to call each second step an add-on provides, by method"`
+	Name   string            `json:"name,omitempty" doc:"Who is signing in, to greet them"`
 	// Pending says what the person must do first once signed in.
 	Pending string `json:"pending,omitempty" enum:"two-factor,password" doc:"What the person must do before anything else"`
 }
@@ -99,7 +101,7 @@ func answer(res *identity.SignInResult, secure bool) *signInOutput {
 		out.SetCookie = issuedCookies(res.Issued, secure)
 		return out
 	}
-	out.Body.Challenge, out.Body.Methods = res.Challenge, res.Methods
+	out.Body.Challenge, out.Body.Methods, out.Body.Titles = res.Challenge, res.Methods, res.Titles
 	return out
 }
 

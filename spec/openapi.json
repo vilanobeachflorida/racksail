@@ -4526,6 +4526,13 @@
           "signedIn": {
             "description": "Whether the person is signed in now",
             "type": "boolean"
+          },
+          "titles": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "What to call each second step an add-on provides, by method",
+            "type": "object"
           }
         },
         "required": [

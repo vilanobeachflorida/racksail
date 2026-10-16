@@ -199,6 +199,9 @@ func TestMFAProviders(t *testing.T) {
 	if err != nil || first.Challenge == "" || first.Methods[0] != "mfa:"+string(id) {
 		t.Fatalf("first step = %+v, %v", first, err)
 	}
+	if first.Titles["mfa:"+string(id)] != "Phone approval" {
+		t.Errorf("titles = %v", first.Titles)
+	}
 	if _, err := h.svc.BeginSecondStepMFA(ctx, first.Challenge, id); err != nil {
 		t.Fatal(err)
 	}

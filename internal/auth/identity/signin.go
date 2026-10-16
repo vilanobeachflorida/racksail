@@ -31,7 +31,10 @@ type SignInResult struct {
 	// Methods are the second steps the person can take: totp, passkey,
 	// recovery and mfa:<name>.
 	Methods []string
-	User    *User
+	// Titles name the methods add-ons provide, by method, for the screen
+	// that offers them.
+	Titles map[string]string
+	User   *User
 }
 
 // LoginAttempt is what login policies at auth.login.validate decide on.
@@ -178,7 +181,7 @@ func (s *Service) afterFirstStep(ctx context.Context, u *User, method string, re
 			return &SignInResult{Issued: issued, User: u}, err
 		}
 		secret := s.challenges.put(&challenge{user: u.ID, purpose: "signin", method: method, persistent: remember})
-		return &SignInResult{Challenge: secret, Methods: factors, User: u}, nil
+		return &SignInResult{Challenge: secret, Methods: factors, Titles: s.methodTitles(ctx, factors), User: u}, nil
 	}
 	issued, err := s.signedIn(ctx, u, method, "", remember, client, true)
 	return &SignInResult{Issued: issued, User: u}, err
@@ -205,6 +208,27 @@ func (s *Service) admit(ctx context.Context, u *User, method string, client auth
 		}
 	}
 	return nil
+}
+
+// methodTitles names the second steps add-ons provide, from their
+// providers' titles.
+func (s *Service) methodTitles(ctx context.Context, methods []string) map[string]string {
+	var out map[string]string
+	for _, m := range methods {
+		id, ok := strings.CutPrefix(m, "mfa:")
+		if !ok {
+			continue
+		}
+		p, err := s.provider(ctx, store.ID(id), "mfa")
+		if err != nil {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[m] = p.Spec.Title
+	}
+	return out
 }
 
 // secondFactors lists the second steps u has set up.

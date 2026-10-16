@@ -3643,6 +3643,10 @@ export interface components {
             pending?: "two-factor" | "password";
             /** @description Whether the person is signed in now */
             signedIn: boolean;
+            /** @description What to call each second step an add-on provides, by method */
+            titles?: {
+                [key: string]: string;
+            };
         };
         SignInInput: {
             /** @description The password */
