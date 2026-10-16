@@ -10,7 +10,7 @@ Thanks for helping. Bug reports, documentation, translations, recipes and code a
 
 ## Setting up
 
-You need Go 1.27, Node.js 22.22.2 or later with npm (24.15 or later on Node.js 24), Python 3.11 or later for the Python add-on SDK's tests, git and make, on macOS or Linux. macOS's own `python3` is 3.9, which is too old: install a newer one, or name it with `make check PYTHON=/path/to/python3`.
+You need Go 1.27, Node.js 22.22.2 or later with npm (24.15 or later on Node.js 24), Python 3.11 or later for the Python add-on SDK's tests, git and make, on macOS or Linux. macOS's own `python3` is 3.9, which is too old: install a newer one, with Homebrew, uv or pyenv, or name it with `make check PYTHON=/path/to/python3`.
 
 ```sh
 git clone https://github.com/vilanobeachflorida/racksail.git

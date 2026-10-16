@@ -10,7 +10,7 @@ Racksail builds and runs on macOS and Linux without root and without a Debian se
 - Go 1.27
 - Node.js 22.22.2 or later with npm (24.15 or later on Node.js 24)
 - git and make
-- Python 3.11 or later, for the Python add-on SDK's tests. macOS's own `python3` is 3.9, which is too old; `make check` uses the newest `python3.x` on your `PATH` that is new enough, or the one `PYTHON` names
+- Python 3.11 or later, for the Python add-on SDK's tests. macOS's own `python3` is 3.9, which is too old; `make check` uses the newest `python3.x` on your `PATH` that is new enough, or else one that uv or pyenv installed, or the one `PYTHON` names
 
 The product is pure Go with CGO turned off, so every binary cross-compiles from any machine.
 

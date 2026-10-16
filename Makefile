@@ -220,8 +220,12 @@ SDK_TS_DEPS := sdk/ts/node_modules/.package-lock.json
 
 # The Python SDK needs Python 3.11 or later, and macOS comes with 3.9.
 # PYTHON names the interpreter its tests run on; without it, the newest
-# python3.x on the PATH that is new enough.
-PYTHON ?= $(firstword $(foreach p,$(foreach v,20 19 18 17 16 15 14 13 12 11,python3.$(v)) python3,\
+# python3.x on the PATH that is new enough, or else one that uv or pyenv
+# installed, which they keep off the PATH unless asked to.
+PYTHON_INSTALLED = $(shell uv python find '>=3.11' 2>/dev/null) \
+	$(wildcard $(or $(UV_PYTHON_INSTALL_DIR),$(or $(XDG_DATA_HOME),$(HOME)/.local/share)/uv/python)/cpython-3.*/bin/python3) \
+	$(wildcard $(or $(PYENV_ROOT),$(HOME)/.pyenv)/versions/3.*/bin/python3)
+PYTHON ?= $(firstword $(foreach p,$(foreach v,20 19 18 17 16 15 14 13 12 11,python3.$(v)) python3 $(PYTHON_INSTALLED),\
 	$(shell command -v $(p) >/dev/null 2>&1 && $(p) -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null && echo $(p))))
 
 # Debian's cloud image, which the end-to-end tests convert or install the
@@ -408,7 +412,7 @@ gen-check: gen
 sdk-check: $(SDK_TS_DEPS)
 	cd sdk/go && $(GO) vet ./... && $(GO) run $(STATICCHECK) ./... && $(GO) test ./...
 	cd sdk/ts && $(NPM) run typecheck && $(NPM) test
-	@test -n "$(PYTHON)" || { echo "the Python SDK's tests need Python 3.11 or later, and the PATH has none (python3 is $$(python3 --version 2>&1)); install one, or name it with PYTHON=/path/to/python3"; exit 1; }
+	@test -n "$(PYTHON)" || { echo "the Python SDK's tests need Python 3.11 or later, and neither the PATH nor uv or pyenv has one (python3 is $$(python3 --version 2>&1)); install one, or name it with PYTHON=/path/to/python3"; exit 1; }
 	cd sdk/python && PYTHONPATH=src $(PYTHON) -B -m unittest discover -s tests
 
 # Lints the workflows and the shell scripts; CI runs it, with shellcheck.
