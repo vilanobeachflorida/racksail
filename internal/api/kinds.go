@@ -290,13 +290,23 @@ func (s *Server) listKind(k store.Kind) handler {
 	}
 }
 
+// kindID reads the ID of a resource of a kind from a path. An ID that can't
+// be one of the kind's is reported as not found.
+func kindID(info *store.KindInfo, raw string) (store.ID, error) {
+	id, err := store.ParseID(raw)
+	if err != nil || id.Prefix() != info.Prefix {
+		return "", store.ErrNotFound.New("what", raw)
+	}
+	return id, nil
+}
+
 // readable reads a resource of a kind the signed-in actor may read. Others
 // are reported as not found, so other accounts' resources don't reveal that
 // they exist.
 func (s *Server) readable(ctx context.Context, info *store.KindInfo, raw string) (*store.Resource, error) {
-	id, err := store.ParseID(raw)
-	if err != nil || id.Prefix() != info.Prefix {
-		return nil, store.ErrNotFound.New("what", raw)
+	id, err := kindID(info, raw)
+	if err != nil {
+		return nil, err
 	}
 	r, err := s.store().Get(ctx, id)
 	if err != nil {
@@ -382,6 +392,12 @@ type updateBody struct {
 	Revision int64             `json:"revision"`
 }
 
+// Updates, deletes and actions don't read the resource first: the change
+// pipeline looks up the request's idempotency key before it reads anything,
+// so a retry gets the first answer even once the resource is gone, as after
+// a delete, and it answers for a resource the caller may not read as a read
+// would.
+
 func (s *Server) updateKind(k store.Kind) handler {
 	info := k.Info()
 	return func(hc huma.Context) (int, any, error) {
@@ -389,7 +405,7 @@ func (s *Server) updateKind(k store.Kind) handler {
 		if err != nil {
 			return 0, nil, err
 		}
-		r, err := s.readable(hc.Context(), info, hc.Param("id"))
+		id, err := kindID(info, hc.Param("id"))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -401,7 +417,7 @@ func (s *Server) updateKind(k store.Kind) handler {
 			return 0, nil, i18n.Invalid(i18n.Field("body.spec", i18n.ErrRequired))
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
-			Op: changeset.OpUpdate, Kind: info.Name, ID: r.ID, Spec: body.Spec, Labels: body.Labels,
+			Op: changeset.OpUpdate, Kind: info.Name, ID: id, Spec: body.Spec, Labels: body.Labels,
 			Secrets: body.Secrets, Revision: body.Revision,
 		}}}, false)
 	}
@@ -418,12 +434,12 @@ func (s *Server) deleteKind(k store.Kind) handler {
 		if err != nil {
 			return 0, nil, err
 		}
-		r, err := s.readable(hc.Context(), info, hc.Param("id"))
+		id, err := kindID(info, hc.Param("id"))
 		if err != nil {
 			return 0, nil, err
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
-			Op: changeset.OpDelete, Kind: info.Name, ID: r.ID, Revision: int64(revision),
+			Op: changeset.OpDelete, Kind: info.Name, ID: id, Revision: int64(revision),
 		}}}, false)
 	}
 }
@@ -435,7 +451,7 @@ func (s *Server) kindAction(k store.Kind, a store.Action) handler {
 		if err != nil {
 			return 0, nil, err
 		}
-		r, err := s.readable(hc.Context(), info, hc.Param("id"))
+		id, err := kindID(info, hc.Param("id"))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -444,7 +460,7 @@ func (s *Server) kindAction(k store.Kind, a store.Action) handler {
 			return 0, nil, err
 		}
 		return s.submit(hc.Context(), params, changeset.Request{Changes: []changeset.Change{{
-			Op: changeset.OpAction, Kind: info.Name, ID: r.ID, Action: a.Name, Input: input,
+			Op: changeset.OpAction, Kind: info.Name, ID: id, Action: a.Name, Input: input,
 		}}}, !a.Long)
 	}
 }

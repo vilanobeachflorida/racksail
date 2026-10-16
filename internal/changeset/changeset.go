@@ -346,9 +346,23 @@ type UndoRequest struct {
 type ApplyRequest struct {
 	Actor *auth.Actor
 	// ChangeSet is the preview, a dry run.
-	ChangeSet      store.ID
+	ChangeSet store.ID
+	// DryRun plans the preview again without applying it: the answer is the
+	// preview when applying it would still do what it shows.
+	DryRun         bool
 	IdempotencyKey string
 }
+
+// Call names the pipeline calls an idempotency key belongs to: a key
+// answers retries of the call it came with, by the actor who sent it.
+type Call string
+
+// Calls that take idempotency keys.
+const (
+	CallSubmit Call = "submit"
+	CallUndo   Call = "undo"
+	CallApply  Call = "apply"
+)
 
 // Pipeline is how anything changes Racksail.
 type Pipeline interface {
@@ -370,6 +384,14 @@ type Pipeline interface {
 	// List returns kept change sets, newest first, and the cursor of the
 	// next page.
 	List(ctx context.Context, q ListQuery) ([]*ChangeSet, string, error)
+	// Replay returns the change set that an earlier call by the actor with
+	// the same idempotency key produced, as long as the key answers, or nil
+	// when there was none; it changes nothing. While the earlier request is
+	// still being processed it gives changeset.duplicate_request. Callers
+	// that read or check anything before they reach the pipeline ask it
+	// first, so a retry gets the first answer whatever became since of what
+	// the request was about.
+	Replay(ctx context.Context, actor *auth.Actor, call Call, key string) (*ChangeSet, error)
 }
 
 // Hooks runs hook points for the pipeline. The hooks package implements it.

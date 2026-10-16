@@ -330,6 +330,9 @@ type RetryOptions struct {
 	// IdempotencyKey, when set, makes asking again with the same key within
 	// IdempotencyWindow answer with the job the first request queued.
 	IdempotencyKey string
+	// DryRun checks that the job can be retried, as a retry would, and
+	// returns it, queuing nothing.
+	DryRun bool
 }
 
 // Queue runs jobs.
@@ -347,12 +350,17 @@ type Queue interface {
 	// next page.
 	List(ctx context.Context, f Filter) ([]*Job, string, error)
 	// Cancel asks a running job to stop, and cancels a queued one before it
-	// starts. Canceling a job that finished changes nothing.
-	Cancel(ctx context.Context, id store.ID) error
+	// starts, and reports whether it did either. Canceling a job that
+	// finished changes nothing and reports false.
+	Cancel(ctx context.Context, id store.ID) (bool, error)
 	// Retry queues a failed or canceled job again with the same arguments.
 	// A job is retried once: asking again gets jobs.already_retried, naming
 	// the retry, unless the request carries the first one's idempotency key.
 	Retry(ctx context.Context, id store.ID, opts RetryOptions) (*Job, error)
+	// Retried returns the job that a retry by the actor with the idempotency
+	// key queued, within IdempotencyWindow, or nil when there was none. The
+	// API asks it before it reads the job a repeated request is about.
+	Retried(ctx context.Context, actor *auth.Actor, key string) (*Job, error)
 	Logs(ctx context.Context, id store.ID) ([]LogLine, error)
 	// LogsAfter returns up to limit lines of a job's log after the line
 	// numbered seq; zero means every line.

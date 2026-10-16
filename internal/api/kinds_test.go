@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -96,8 +97,23 @@ func TestKindOperations(t *testing.T) {
 		t.Errorf("without signing in = %d", resp.StatusCode)
 	}
 
-	// An update with the revision that was read.
+	// An update with the revision that was read, previewed first.
 	update := map[string]any{"spec": map[string]any{"domains": []string{"example.com", "www.example.com"}, "content": "v2"}, "revision": site.Revision}
+	var updatePreview changeset.ChangeSet
+	resp = s.call("owner", "PUT", sites+"/"+string(id)+"?dryRun=true", update, &updatePreview)
+	if resp.StatusCode != http.StatusOK || !updatePreview.DryRun || updatePreview.Job != "" || updatePreview.Changes[0].Op != changeset.OpUpdate || len(updatePreview.Changes[0].Diff) == 0 {
+		t.Fatalf("update preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var rewrites bool
+	for _, eff := range updatePreview.Effects {
+		rewrites = rewrites || (eff.Type == system.EffectFile && eff.Target == sitePath(id))
+	}
+	if !rewrites {
+		t.Errorf("the update's preview lists the page it writes again: %+v", updatePreview.Effects)
+	}
+	if s.file(sitePath(id)) != "v1" {
+		t.Error("previewing an update changes nothing")
+	}
 	resp = s.call("owner", "PUT", sites+"/"+string(id), update, &cs)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("update = %d %s", resp.StatusCode, bodyOf(resp))
@@ -112,6 +128,21 @@ func TestKindOperations(t *testing.T) {
 	var history historyBody
 	if s.call("owner", "GET", sites+"/"+string(id)+"/history", nil, &history); len(history.Versions) != 2 || history.Versions[1].ChangeSet != updated.ID || !strings.Contains(history.Versions[0].Actor, "user:") {
 		t.Errorf("history = %+v", history)
+	}
+
+	// An action previewed: its own steps are in the preview, and nothing
+	// runs.
+	var deployPreview changeset.ChangeSet
+	resp = s.call("owner", "POST", sites+"/"+string(id)+"/actions/deploy?dryRun=true", map[string]string{"message": "release 2"}, &deployPreview)
+	if resp.StatusCode != http.StatusOK || !deployPreview.DryRun || deployPreview.Job != "" || deployPreview.Changes[0].Action != "deploy" || len(deployPreview.Changes[0].Steps) != 1 {
+		t.Fatalf("deploy preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var marker bool
+	for _, eff := range deployPreview.Effects {
+		marker = marker || eff.Target == sitePath(id)+".release"
+	}
+	if !marker || s.file(sitePath(id)+".release") != "" {
+		t.Errorf("the preview lists the release marker and writes nothing: %+v", deployPreview.Effects)
 	}
 
 	// A short action is waited for; the answer is the finished change set.
@@ -211,6 +242,87 @@ func TestKindOperations(t *testing.T) {
 	s.finish("owner", &undo)
 	if resp := s.call("owner", "GET", sites+"/"+string(id), nil, &site); resp.StatusCode != http.StatusOK || site.Spec.Content != "v1" {
 		t.Errorf("the site is back: %d %+v", resp.StatusCode, site)
+	}
+}
+
+// A request repeated with its Idempotency-Key, as after an answer that got
+// lost, gets the first answer, even when the first request did away with
+// what it was about: the deleted site is purged, the undone change set
+// undone.
+func TestRetriesWithTheSameKey(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	sites := "/api/v1/test/sites/"
+	id := s.createSite("owner", "retried.test")
+	key := func(k string) []string { return []string{"Idempotency-Key", k} }
+
+	var updated changeset.ChangeSet
+	update := map[string]any{"spec": map[string]any{"domains": []string{"retried.test"}, "content": "v2"}}
+	if resp := s.call("owner", "PUT", sites+string(id), update, &updated, key("put-1")...); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("update = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &updated)
+	var pinged changeset.ChangeSet
+	if resp := s.call("owner", "POST", sites+string(id)+"/actions/ping", nil, &pinged, key("ping-1")...); resp.StatusCode != http.StatusOK {
+		t.Fatalf("ping = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+
+	// Undo the update, twice with one key.
+	var undo, undoAgain changeset.ChangeSet
+	undoPath := "/api/v1/changesets/" + string(updated.ID) + "/undo"
+	if resp := s.call("owner", "POST", undoPath, nil, &undo, key("undo-1")...); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("undo = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &undo)
+	if resp := s.call("owner", "POST", undoPath, nil, &undoAgain, key("undo-1")...); resp.StatusCode != http.StatusAccepted || undoAgain.ID != undo.ID {
+		t.Errorf("the undo again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", undoPath, nil, nil); s.problem(resp) != changeset.ErrNotApplied.Code {
+		t.Errorf("another undo without the key = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("stranger", "POST", undoPath, nil, nil, key("undo-1")...); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("someone else's key is their own: %d %s", resp.StatusCode, bodyOf(resp))
+	}
+
+	// Delete the site; once it is purged, the same requests still get their
+	// first answers.
+	var deleted, deletedAgain changeset.ChangeSet
+	if resp := s.call("owner", "DELETE", sites+string(id), nil, &deleted, key("del-1")...); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("delete = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &deleted)
+	if _, err := s.store.Get(context.Background(), id); !store.ErrNotFound.Is(err) {
+		t.Fatalf("the site should be purged: %v", err)
+	}
+	if resp := s.call("owner", "DELETE", sites+string(id), nil, &deletedAgain, key("del-1")...); resp.StatusCode != http.StatusAccepted || deletedAgain.ID != deleted.ID {
+		t.Errorf("deleting again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var updatedAgain, pingedAgain changeset.ChangeSet
+	if resp := s.call("owner", "PUT", sites+string(id), update, &updatedAgain, key("put-1")...); resp.StatusCode != http.StatusAccepted || updatedAgain.ID != updated.ID {
+		t.Errorf("updating again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", sites+string(id)+"/actions/ping", nil, &pingedAgain, key("ping-1")...); resp.StatusCode != http.StatusOK || pingedAgain.ID != pinged.ID {
+		t.Errorf("pinging again = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	// Without the key, the site is gone.
+	if resp := s.call("owner", "DELETE", sites+string(id), nil, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("deleting it without the key = %d", resp.StatusCode)
+	}
+
+	// Applying a preview, twice with one key.
+	var preview, applied, appliedAgain changeset.ChangeSet
+	create := map[string]any{"scope": map[string]any{"level": "account", "id": s.account}, "spec": map[string]any{"domains": []string{"preview.test"}, "content": "x"}}
+	s.call("owner", "POST", "/api/v1/test/sites?dryRun=true", create, &preview)
+	applyPath := "/api/v1/changesets/" + string(preview.ID) + "/apply"
+	var checked changeset.ChangeSet
+	if resp := s.call("owner", "POST", applyPath+"?dryRun=true", nil, &checked); resp.StatusCode != http.StatusOK || checked.ID != preview.ID || !checked.DryRun {
+		t.Errorf("checking the preview = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", applyPath, nil, &applied, key("apply-1")...); resp.StatusCode != http.StatusAccepted || applied.DryRun {
+		t.Fatalf("apply = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &applied)
+	if resp := s.call("owner", "POST", applyPath, nil, &appliedAgain, key("apply-1")...); resp.StatusCode != http.StatusAccepted || appliedAgain.ID != applied.ID {
+		t.Errorf("applying again = %d %s", resp.StatusCode, bodyOf(resp))
 	}
 }
 
@@ -413,8 +525,18 @@ func TestSubmittingAndApplyingChangeSets(t *testing.T) {
 	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/retry", nil, nil); s.problem(resp) != jobs.ErrNotRetryable.Code {
 		t.Errorf("retrying a job that succeeded = %d %s", resp.StatusCode, bodyOf(resp))
 	}
+	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/retry?dryRun=true", nil, nil); s.problem(resp) != jobs.ErrNotRetryable.Code {
+		t.Errorf("checking a retry of a job that succeeded = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/cancel?dryRun=true", nil, nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("checking a cancel = %d %s", resp.StatusCode, bodyOf(resp))
+	}
 	if resp := s.call("owner", "POST", "/api/v1/jobs/"+string(job.ID)+"/cancel", nil, nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("canceling a finished job = %d", resp.StatusCode)
+	}
+	// Nothing was canceled, so the audit log says nothing was.
+	if records, _, _ := s.log.QueryAudit(context.Background(), events.Query{Actor: s.actors["owner"].ID, Types: []string{"core.job.cancel"}}); len(records) != 0 {
+		t.Errorf("canceling a finished job is recorded: %+v", records)
 	}
 	if resp := s.call("stranger", "GET", "/api/v1/jobs/"+string(job.ID), nil, nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("another's job = %d", resp.StatusCode)

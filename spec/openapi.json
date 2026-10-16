@@ -13847,7 +13847,7 @@
     },
     "/api/v1/changesets/{id}/apply": {
       "post": {
-        "description": "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.",
+        "description": "Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying. With dryRun=true the preview is planned again and nothing is applied: the answer is the preview when applying it would still do what it shows.",
         "operationId": "applyChangeSet",
         "parameters": [
           {
@@ -13858,6 +13858,16 @@
             "schema": {
               "description": "The preview's ID",
               "type": "string"
+            }
+          },
+          {
+            "description": "Plan the preview again and answer with it, without applying it, when applying it would still do what it shows",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Plan the preview again and answer with it, without applying it, when applying it would still do what it shows",
+              "type": "boolean"
             }
           },
           {
@@ -13872,6 +13882,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSet"
+                }
+              }
+            },
+            "description": "The preview, which applying would still carry out as it shows, for a dry run"
+          },
           "202": {
             "content": {
               "application/json": {
@@ -13905,6 +13925,7 @@
         "tags": [
           "Changes"
         ],
+        "x-racksail-dry-run": true,
         "x-racksail-operation": "apply",
         "x-racksail-reversible": true,
         "x-racksail-risk": "high"
@@ -26817,7 +26838,7 @@
     },
     "/api/v1/jobs/{id}/cancel": {
       "post": {
-        "description": "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
+        "description": "Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished, or asking a job to stop again, changes nothing and isn't recorded in the audit log, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. With dryRun=true it only checks that you may cancel the job and answers with the job as it is. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.",
         "operationId": "cancelJob",
         "parameters": [
           {
@@ -26828,6 +26849,16 @@
             "schema": {
               "description": "The job's ID, which starts with job_",
               "type": "string"
+            }
+          },
+          {
+            "description": "Check that you may cancel the job, and answer with it as it is, without canceling it",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Check that you may cancel the job, and answer with it as it is, without canceling it",
+              "type": "boolean"
             }
           },
           {
@@ -26959,7 +26990,7 @@
     },
     "/api/v1/jobs/{id}/retry": {
       "post": {
-        "description": "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
+        "description": "Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job, even once the job it retried is no longer kept. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. With dryRun=true it checks that the job can be retried and answers 200 with it, queuing nothing. You can retry the jobs you started, and those of the owners you hold core.job.retry on.",
         "operationId": "retryJob",
         "parameters": [
           {
@@ -26970,6 +27001,16 @@
             "schema": {
               "description": "The job's ID, which starts with job_",
               "type": "string"
+            }
+          },
+          {
+            "description": "Check that the job can be retried, and answer with it, without queuing anything",
+            "explode": false,
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "description": "Check that the job can be retried, and answer with it, without queuing anything",
+              "type": "boolean"
             }
           },
           {
@@ -26984,6 +27025,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "The job a retry would run again, for a dry run"
+          },
           "202": {
             "content": {
               "application/json": {

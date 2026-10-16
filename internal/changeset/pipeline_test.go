@@ -117,6 +117,108 @@ func TestApplyingAPreview(t *testing.T) {
 	}
 }
 
+// A retry with the first request's idempotency key gets the first answer,
+// although by then the first request changed what it was about: the change
+// set it undid is undone, the resource it deleted is gone.
+func TestRetriesGetTheFirstAnswer(t *testing.T) {
+	ctx := context.Background()
+	for name, e := range map[string]*env{"memory": newEnv(t, Retention{}, nil), "sqlite": buildEnv(t, envConfig{db: openDB(t)})} {
+		t.Run(name, func(t *testing.T) {
+			id := e.submit(t, false, e.createPage(pageSpec{Path: "keyed.html", Content: "v1"})).Changes[0].ID
+			raw, _ := json.Marshal(pageSpec{Path: "keyed.html", Content: "v2"})
+			update := e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw})
+
+			undo := UndoRequest{Actor: e.owner, ChangeSet: update.ID, IdempotencyKey: "undo-1"}
+			first, err := e.engine.Undo(ctx, undo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.wait(t, first)
+			if again, err := e.engine.Undo(ctx, undo); err != nil || again.ID != first.ID {
+				t.Errorf("undoing again with the key = %+v, %v", again, err)
+			}
+			if _, err := e.engine.Undo(ctx, UndoRequest{Actor: e.owner, ChangeSet: update.ID}); !errors.Is(err, ErrNotApplied) {
+				t.Errorf("undoing again without it = %v", err)
+			}
+			if replayed, err := e.engine.Replay(ctx, e.owner, CallUndo, "undo-1"); err != nil || replayed == nil || replayed.ID != first.ID {
+				t.Errorf("replaying the undo = %+v, %v", replayed, err)
+			}
+			stranger := &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user")}
+			for who, replay := range map[string]func() (*ChangeSet, error){
+				"another actor": func() (*ChangeSet, error) { return e.engine.Replay(ctx, stranger, CallUndo, "undo-1") },
+				"another call":  func() (*ChangeSet, error) { return e.engine.Replay(ctx, e.owner, CallSubmit, "undo-1") },
+				"no key":        func() (*ChangeSet, error) { return e.engine.Replay(ctx, e.owner, CallUndo, "") },
+			} {
+				if cs, err := replay(); err != nil || cs != nil {
+					t.Errorf("%s: %+v, %v", who, cs, err)
+				}
+			}
+
+			del := Request{Actor: e.owner, Changes: []Change{{Op: OpDelete, Kind: "test.page", ID: id}}, IdempotencyKey: "del-1"}
+			gone, err := e.engine.Submit(ctx, del)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.wait(t, gone)
+			if _, err := e.store.Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("the page should be purged: %v", err)
+			}
+			if again, err := e.engine.Submit(ctx, del); err != nil || again.ID != gone.ID {
+				t.Errorf("deleting again with the key once the page is gone = %+v, %v", again, err)
+			}
+
+			// While the first request is still going, a retry is told so.
+			if _, _, err := e.engine.storage.ReserveKey(ctx, idempotencyKey(CallApply, e.owner, "busy"), time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.engine.Replay(ctx, e.owner, CallApply, "busy"); !errors.Is(err, ErrDuplicateRequest) {
+				t.Errorf("replaying a request still going = %v", err)
+			}
+		})
+	}
+}
+
+// A dry run of applying a preview plans it again and applies nothing: the
+// answer is the preview while applying it would still do what it shows.
+func TestCheckingAPreview(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, Retention{}, nil)
+	preview := e.submit(t, true, e.createPage(pageSpec{Path: "checked.html", Content: "x"}))
+	checked, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID, DryRun: true, IdempotencyKey: "check-1"})
+	if err != nil || checked.ID != preview.ID || !checked.DryRun || checked.Job != "" {
+		t.Fatalf("checking the preview = %+v, %v", checked, err)
+	}
+	if kept, _ := e.engine.Get(ctx, preview.ID); !kept.DryRun {
+		t.Error("checking a preview applies nothing")
+	}
+	if page, _ := e.store.List(ctx, store.Query{Kind: "test.page"}); len(page.Items) != 0 {
+		t.Error("nothing is written")
+	}
+	// A dry run keeps no key, so applying with the same one goes ahead.
+	applied, err := e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: preview.ID, IdempotencyKey: "check-1"})
+	if err != nil || applied.DryRun || applied.Job == "" {
+		t.Fatalf("applying after the check = %+v, %v", applied, err)
+	}
+	id := e.wait(t, applied).Changes[0].ID
+
+	// Once something else changed the page, the check says the preview is
+	// stale, and names the new one.
+	raw, _ := json.Marshal(pageSpec{Path: "checked.html", Content: "v2"})
+	stale := e.submit(t, true, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: raw})
+	current, _ := e.store.Get(ctx, id)
+	e.submit(t, false, Change{Op: OpUpdate, Kind: "test.page", ID: id, Spec: current.Spec, Labels: map[string]string{"team": "web"}})
+	_, err = e.engine.Apply(ctx, ApplyRequest{Actor: e.owner, ChangeSet: stale.ID, DryRun: true})
+	if !errors.Is(err, ErrPreviewStale) {
+		t.Fatalf("checking a stale preview = %v", err)
+	}
+	if fresh, err := e.engine.Get(ctx, store.ID(i18n.From(err).Params["preview"].(string))); err != nil || !fresh.DryRun {
+		t.Errorf("the new preview = %+v, %v", fresh, err)
+	}
+	if got, _ := e.store.Get(ctx, id); strings.Contains(string(got.Spec), "v2") {
+		t.Error("checking applied the stale preview")
+	}
+}
+
 func TestStalePreviewsAreNotApplied(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, Retention{}, nil)

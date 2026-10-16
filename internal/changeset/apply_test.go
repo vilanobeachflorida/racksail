@@ -101,7 +101,7 @@ func TestCanceledApplyEndsFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	running(t, e.jobs, cs.Job)
-	if err := e.jobs.Cancel(ctx, cs.Job); err != nil {
+	if _, err := e.jobs.Cancel(ctx, cs.Job); err != nil {
 		t.Fatal(err)
 	}
 	final := e.wait(t, cs)
@@ -155,7 +155,7 @@ func TestCanceledBeforeItStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.jobs.Cancel(ctx, cs.Job); err != nil {
+	if _, err := e.jobs.Cancel(ctx, cs.Job); err != nil {
 		t.Fatal(err)
 	}
 	final := e.wait(t, cs)

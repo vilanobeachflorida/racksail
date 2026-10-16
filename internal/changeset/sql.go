@@ -317,41 +317,54 @@ func (s *SQLStorage) ReserveKey(ctx context.Context, key string, now time.Time) 
 	var earlier store.ID
 	var busy bool
 	err := s.db.Write(ctx, func(tx *sql.Tx) error {
-		earlier, busy = "", false
-		var set, when string
-		err := tx.QueryRowContext(ctx, `SELECT change_set, time FROM idempotency_keys WHERE key = ?`, key).Scan(&set, &when)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-		case err != nil:
+		var err error
+		if earlier, busy, err = lookupKey(ctx, tx, key, now); err != nil || earlier != "" || busy {
 			return err
-		default:
-			t, err := store.ParseTime(when)
-			if err != nil {
-				return err
-			}
-			if now.Sub(t) <= IdempotencyWindow {
-				if set == "" && now.Sub(t) <= reservationTimeout {
-					busy = true
-					return nil
-				}
-				if set != "" {
-					var one int
-					err := tx.QueryRowContext(ctx, `SELECT 1 FROM change_sets WHERE id = ?`, set).Scan(&one)
-					if err == nil {
-						earlier = store.ID(set)
-						return nil
-					}
-					if !errors.Is(err, sql.ErrNoRows) {
-						return err
-					}
-				}
-			}
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO idempotency_keys (key, change_set, time) VALUES (?, '', ?)
 			ON CONFLICT (key) DO UPDATE SET change_set = '', time = excluded.time`, key, store.FormatTime(now))
 		return err
 	})
 	return earlier, busy, err
+}
+
+// LookupKey implements Storage.
+func (s *SQLStorage) LookupKey(ctx context.Context, key string, now time.Time) (store.ID, bool, error) {
+	return lookupKey(ctx, s.db.Reader(), key, now)
+}
+
+// lookupKey returns the change set a request with the key produced, as long
+// as it is kept, or whether one is still being processed.
+func lookupKey(ctx context.Context, q interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}, key string, now time.Time) (store.ID, bool, error) {
+	var set, when string
+	err := q.QueryRowContext(ctx, `SELECT change_set, time FROM idempotency_keys WHERE key = ?`, key).Scan(&set, &when)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	}
+	t, err := store.ParseTime(when)
+	if err != nil {
+		return "", false, err
+	}
+	switch {
+	case now.Sub(t) > IdempotencyWindow:
+		return "", false, nil
+	case set == "":
+		return "", now.Sub(t) <= reservationTimeout, nil
+	}
+	var one int
+	err = q.QueryRowContext(ctx, `SELECT 1 FROM change_sets WHERE id = ?`, set).Scan(&one)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	}
+	return store.ID(set), false, nil
 }
 
 // SettleKey implements Storage.

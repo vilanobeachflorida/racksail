@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -631,14 +632,16 @@ func (m *Manager) List(ctx context.Context, f Filter) ([]*Job, string, error) {
 }
 
 // Cancel implements Queue. A queued job is canceled at once; a running one
-// is asked to stop and ends as canceled.
-func (m *Manager) Cancel(ctx context.Context, id store.ID) error {
+// is asked to stop and ends as canceled. Asking a running job again, or
+// canceling one that ended, does nothing and reports false.
+func (m *Manager) Cancel(ctx context.Context, id store.ID) (bool, error) {
 	m.mu.Lock()
 	if r, ok := m.running[id]; ok {
+		asked := !r.canceled
 		r.canceled = true
 		r.cancel(i18n.ErrCanceled.New())
 		m.mu.Unlock()
-		return nil
+		return asked, nil
 	}
 	// The dispatcher won't start a job being canceled here.
 	m.dropped[id]++
@@ -652,28 +655,53 @@ func (m *Manager) Cancel(ctx context.Context, id store.ID) error {
 	}()
 	job, err := m.storage.get(ctx, id)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if job.State == StateQueued {
-		m.cancelQueued(job)
+	if job.State != StateQueued {
+		return false, nil
 	}
-	return nil
+	return m.cancelQueued(job), nil
 }
 
 // cancelQueued ends a queued job as canceled without running it, unless it
-// ended since it was read.
-func (m *Manager) cancelQueued(job *Job) {
+// ended since it was read, and reports whether it did.
+func (m *Manager) cancelQueued(job *Job) bool {
 	now := m.now().UTC()
 	f := i18n.ErrCanceled.New()
 	job.State, job.FinishedAt, job.Error = StateCanceled, &now, &Failure{Code: f.Code, Message: f.Message}
-	m.end(job, StateQueued)
+	return m.end(job, StateQueued)
+}
+
+// retryKey is where the job a retry with an idempotency key queued is kept.
+func retryKey(actor *auth.Actor, key string) string {
+	if key == "" {
+		return ""
+	}
+	return "retry\x00" + actor.String() + "\x00" + key
+}
+
+// Retried implements Queue.
+func (m *Manager) Retried(ctx context.Context, actor *auth.Actor, key string) (*Job, error) {
+	k := retryKey(actor, key)
+	if k == "" {
+		return nil, nil
+	}
+	earlier, err := m.storage.keyJob(ctx, k, m.now().UTC())
+	if err != nil || earlier == "" {
+		return nil, err
+	}
+	job, err := m.Get(ctx, earlier)
+	if store.ErrNotFound.Is(err) {
+		return nil, nil
+	}
+	return job, err
 }
 
 // Retry implements Queue.
 func (m *Manager) Retry(ctx context.Context, id store.ID, opts RetryOptions) (*Job, error) {
-	var key string
-	if opts.IdempotencyKey != "" {
-		key = "retry\x00" + opts.Actor.String() + "\x00" + opts.IdempotencyKey
+	key := retryKey(opts.Actor, opts.IdempotencyKey)
+	if opts.DryRun {
+		key = ""
 	}
 	m.retrying.Lock()
 	defer m.retrying.Unlock()
@@ -699,6 +727,16 @@ func (m *Manager) Retry(ctx context.Context, id store.ID, opts RetryOptions) (*J
 		if err := typ.Retryable(ctx, prev.clone()); err != nil {
 			return nil, err
 		}
+	}
+	if opts.DryRun {
+		next, err := m.storage.retryOf(ctx, prev.ID)
+		switch {
+		case err != nil:
+			return nil, err
+		case next != nil:
+			return nil, ErrAlreadyRetried.New("job", string(next.ID))
+		}
+		return prev, nil
 	}
 	job, err := m.queueRetry(ctx, prev, time.Time{})
 	if err != nil {

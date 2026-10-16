@@ -136,7 +136,7 @@ const replans = 3
 func (e *Engine) Submit(ctx context.Context, req Request) (*ChangeSet, error) {
 	var key string
 	if !req.DryRun {
-		key = idempotencyKey("submit", req.Actor, req.IdempotencyKey)
+		key = idempotencyKey(CallSubmit, req.Actor, req.IdempotencyKey)
 		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
 			return earlier, err
 		}
@@ -1267,34 +1267,43 @@ func changePermission(c ResourceChange) auth.Permission {
 	return auth.KindPermission(c.Kind, op)
 }
 
-// Undo implements Pipeline.
+// Undo implements Pipeline. The idempotency key is reserved before anything
+// is read, so a retry gets the first undo although the change set it undid
+// is undone by then.
 func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) {
-	orig, err := e.Get(ctx, req.ChangeSet)
-	if err != nil {
-		return nil, err
-	}
-	if orig.DryRun || (orig.State != StateApplied && orig.State != StateFailed) {
-		return nil, ErrNotApplied.New()
-	}
 	var key string
 	if !req.DryRun {
-		key = idempotencyKey("undo", req.Actor, req.IdempotencyKey)
+		key = idempotencyKey(CallUndo, req.Actor, req.IdempotencyKey)
 		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
 			return earlier, err
 		}
+	}
+	refuse := func(err error) (*ChangeSet, error) {
+		e.settle(ctx, key, "")
+		return nil, err
+	}
+	undoable := func(cs *ChangeSet) bool {
+		return !cs.DryRun && (cs.State == StateApplied || cs.State == StateFailed)
+	}
+	orig, err := e.Get(ctx, req.ChangeSet)
+	if err != nil {
+		return refuse(err)
+	}
+	if !undoable(orig) {
+		return refuse(ErrNotApplied.New())
+	}
+	if !req.DryRun {
 		if !e.claimSet(orig.ID) {
-			e.settle(ctx, key, "")
-			return nil, ErrUndoing.New("title", orig.Title)
+			return refuse(ErrUndoing.New("title", orig.Title))
 		}
 		defer e.release(orig.ID)
 		// Another undo may have finished between reading the change set and
 		// claiming it.
-		if orig, err = e.Get(ctx, req.ChangeSet); err != nil || (orig.State != StateApplied && orig.State != StateFailed) {
-			e.settle(ctx, key, "")
-			if err == nil {
-				err = ErrNotApplied.New()
-			}
-			return nil, err
+		if orig, err = e.Get(ctx, req.ChangeSet); err != nil {
+			return refuse(err)
+		}
+		if !undoable(orig) {
+			return refuse(ErrNotApplied.New())
 		}
 	}
 	changes, err := e.undoChanges(ctx, orig)
@@ -1302,14 +1311,12 @@ func (e *Engine) Undo(ctx context.Context, req UndoRequest) (*ChangeSet, error) 
 		err = ErrNothingToUndo.New("title", orig.Title)
 	}
 	if err != nil {
-		e.settle(ctx, key, "")
-		return nil, err
+		return refuse(err)
 	}
 	request := Request{Actor: req.Actor, Title: "Undo: " + orig.Title, Changes: changes, DryRun: req.DryRun}
 	p, err := e.plan(ctx, request, "", orig.ID)
 	if err != nil {
-		e.settle(ctx, key, "")
-		return nil, err
+		return refuse(err)
 	}
 	return e.finish(ctx, p, request, key, false)
 }
@@ -1424,36 +1431,42 @@ func (e *Engine) undoChanges(ctx context.Context, orig *ChangeSet) ([]Change, er
 // Apply implements Pipeline. Applies of one preview are taken one at a
 // time, so two requests that arrive together, as from a double click, apply
 // it once; the other is told it is already being applied, or that it is no
-// longer a preview.
+// longer a preview. A dry run plans the preview again and returns it when
+// applying it would still do what it shows, changing nothing.
 func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error) {
-	preview, err := e.Get(ctx, req.ChangeSet)
-	if err != nil {
-		return nil, err
-	}
 	// A retry with the key answers with what the first request applied,
 	// although the preview has become that change set.
-	key := idempotencyKey("apply", req.Actor, req.IdempotencyKey)
-	if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
-		return earlier, err
+	var key string
+	if !req.DryRun {
+		key = idempotencyKey(CallApply, req.Actor, req.IdempotencyKey)
+		if earlier, err := e.reserve(ctx, key); earlier != nil || err != nil {
+			return earlier, err
+		}
 	}
 	refuse := func(err error) (*ChangeSet, error) {
 		e.settle(ctx, key, "")
 		return nil, err
 	}
-	if !preview.DryRun {
-		return refuse(ErrNotPreview.New("title", preview.Title))
-	}
-	if !e.claimSet(preview.ID) {
-		return refuse(ErrApplying.New("title", preview.Title))
-	}
-	defer e.release(preview.ID)
-	// Another apply may have finished between reading the preview and
-	// claiming it.
-	if preview, err = e.Get(ctx, req.ChangeSet); err != nil {
+	preview, err := e.Get(ctx, req.ChangeSet)
+	if err != nil {
 		return refuse(err)
 	}
 	if !preview.DryRun {
 		return refuse(ErrNotPreview.New("title", preview.Title))
+	}
+	if !req.DryRun {
+		if !e.claimSet(preview.ID) {
+			return refuse(ErrApplying.New("title", preview.Title))
+		}
+		defer e.release(preview.ID)
+		// Another apply may have finished between reading the preview and
+		// claiming it.
+		if preview, err = e.Get(ctx, req.ChangeSet); err != nil {
+			return refuse(err)
+		}
+		if !preview.DryRun {
+			return refuse(ErrNotPreview.New("title", preview.Title))
+		}
 	}
 	stored, err := e.storage.Request(ctx, preview.ID)
 	if err != nil {
@@ -1467,18 +1480,20 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 		if err != nil {
 			return refuse(err)
 		}
-		if !e.claimSet(orig.ID) {
-			return refuse(ErrUndoing.New("title", orig.Title))
-		}
-		defer e.release(orig.ID)
-		if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
-			return refuse(err)
+		if !req.DryRun {
+			if !e.claimSet(orig.ID) {
+				return refuse(ErrUndoing.New("title", orig.Title))
+			}
+			defer e.release(orig.ID)
+			if orig, err = e.Get(ctx, preview.UndoOf); err != nil {
+				return refuse(err)
+			}
 		}
 		if orig.State != StateApplied && orig.State != StateFailed {
 			return refuse(ErrNotApplied.New())
 		}
 	}
-	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes}
+	request := Request{Actor: req.Actor, Title: stored.Title, Changes: stored.Changes, DryRun: req.DryRun}
 	p, err := e.plan(ctx, request, preview.ID, preview.UndoOf)
 	if err != nil {
 		return refuse(err)
@@ -1496,6 +1511,14 @@ func (e *Engine) Apply(ctx context.Context, req ApplyRequest) (*ChangeSet, error
 			return nil, err
 		}
 		return nil, ErrPreviewStale.New("title", preview.Title, "preview", string(fresh.ID))
+	}
+	if req.DryRun {
+		// The writes are made and thrown away, so the answer also says what
+		// applying would run into since, such as a name taken meanwhile.
+		if err := e.checkWrites(ctx, p.cs); err != nil {
+			return nil, err
+		}
+		return preview, nil
 	}
 	return e.finish(ctx, p, request, key, false)
 }

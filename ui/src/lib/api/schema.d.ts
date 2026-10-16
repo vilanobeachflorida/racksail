@@ -500,7 +500,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a preview
-         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying.
+         * @description Applies a preview, a change set made with dryRun=true, as it was shown. The changes are planned again for you; when they would now do something else, nothing is applied and the problem names a new preview to look at. A preview that carried secret values can't be applied this way; send the change again. A preview is applied once: while it is being applied, applying it again answers changeset.applying. With dryRun=true the preview is planned again and nothing is applied: the answer is the preview when applying it would still do what it shows.
          */
         post: operations["applyChangeSet"];
         delete?: never;
@@ -2660,7 +2660,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a job
-         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished changes nothing, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
+         * @description Asks a running job to stop, and cancels a queued one before it starts. Canceling a job that already finished, or asking a job to stop again, changes nothing and isn't recorded in the audit log, so sending the request again, with or without the same Idempotency-Key, is safe. What the job did before it stopped stays done; a change set whose job is canceled ends as failed, and the settings it stored are carried out at the next resync unless it is undone. With dryRun=true it only checks that you may cancel the job and answers with the job as it is. You can cancel the jobs you started, and those of the owners you hold core.job.cancel on.
          */
         post: operations["cancelJob"];
         delete?: never;
@@ -2700,7 +2700,7 @@ export interface paths {
         put?: never;
         /**
          * Retry a job
-         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
+         * @description Runs the work of a failed or canceled job again, as a new job with the next attempt number. The answer is the new job. A job is retried once: retrying it again answers jobs.already_retried, naming the retry, so a double click queues the work once; a repeat with the first request's Idempotency-Key answers with the same new job, even once the job it retried is no longer kept. Retrying a change set's job carries on from the change that didn't finish; it doesn't run an action that may already have run a second time, and a change set that was undone is never carried out again. With dryRun=true it checks that the job can be retried and answers 200 with it, queuing nothing. You can retry the jobs you started, and those of the owners you hold core.job.retry on.
          */
         post: operations["retryJob"];
         delete?: never;
@@ -9312,7 +9312,10 @@ export interface operations {
     };
     applyChangeSet: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Plan the preview again and answer with it, without applying it, when applying it would still do what it shows */
+                dryRun?: boolean;
+            };
             header?: {
                 /** @description Any unique string; a retry with the same key returns the first change set instead of applying it again */
                 "Idempotency-Key"?: string;
@@ -9325,6 +9328,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The preview, which applying would still carry out as it shows, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
             /** @description The change set, applied to the settings; its job carries out the rest */
             202: {
                 headers: {
@@ -15944,7 +15956,10 @@ export interface operations {
     };
     cancelJob: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Check that you may cancel the job, and answer with it as it is, without canceling it */
+                dryRun?: boolean;
+            };
             header?: {
                 /** @description Any unique string. Canceling a job again changes nothing, so a repeat is safe with or without it */
                 "Idempotency-Key"?: string;
@@ -16016,7 +16031,10 @@ export interface operations {
     };
     retryJob: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Check that the job can be retried, and answer with it, without queuing anything */
+                dryRun?: boolean;
+            };
             header?: {
                 /** @description Any unique string; a repeat of the request with the same key, within a day, answers with the job the first one queued instead of refusing */
                 "Idempotency-Key"?: string;
@@ -16029,6 +16047,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The job a retry would run again, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
             /** @description The new job */
             202: {
                 headers: {

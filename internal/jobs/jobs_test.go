@@ -282,14 +282,14 @@ func TestCancelAndWatch(t *testing.T) {
 		// The only worker is busy, so this one waits, and is canceled
 		// before it ever runs.
 		queued, _ := q.Enqueue(ctx, "test.count", 1, Options{})
-		if err := q.Cancel(ctx, queued.ID); err != nil {
-			t.Fatal(err)
+		if did, err := q.Cancel(ctx, queued.ID); err != nil || !did {
+			t.Fatalf("canceling a queued job = %v, %v", did, err)
 		}
 		if got := wait(t, q, queued.ID); got.State != StateCanceled || got.StartedAt != nil {
 			t.Errorf("canceled while queued = %+v", got)
 		}
-		if err := q.Cancel(ctx, job.ID); err != nil {
-			t.Fatal(err)
+		if did, err := q.Cancel(ctx, job.ID); err != nil || !did {
+			t.Fatalf("asking a running job to stop = %v, %v", did, err)
 		}
 		canceled := wait(t, q, job.ID)
 		if canceled.State != StateCanceled || canceled.Error.Code != i18n.ErrCanceled.Code {
@@ -301,8 +301,8 @@ func TestCancelAndWatch(t *testing.T) {
 		if len(list) != 2 {
 			t.Errorf("canceled jobs = %d", len(list))
 		}
-		if err := q.Cancel(ctx, job.ID); err != nil {
-			t.Errorf("canceling a finished job changes nothing: %v", err)
+		if did, err := q.Cancel(ctx, job.ID); err != nil || did {
+			t.Errorf("canceling a finished job changes nothing and says so: %v, %v", did, err)
 		}
 		closed, _ := q.Watch(ctx, job.ID)
 		if _, open := <-closed; open {
@@ -342,14 +342,18 @@ func TestHowJobsEnd(t *testing.T) {
 		started(t, q, running.ID)
 		// The only worker is busy, so this one is canceled before it runs.
 		queued, _ := q.Enqueue(ctx, "test.watched", true, Options{})
-		if err := q.Cancel(ctx, queued.ID); err != nil {
+		if _, err := q.Cancel(ctx, queued.ID); err != nil {
 			t.Fatal(err)
 		}
 		if job, why := ended.get(queued.ID); why != nil || job == nil || job.State != StateCanceled || job.Error.Code != i18n.ErrCanceled.Code {
 			t.Errorf("a job canceled while it waited: %v, %+v", why, job)
 		}
-		if err := q.Cancel(ctx, running.ID); err != nil {
-			t.Fatal(err)
+		if did, err := q.Cancel(ctx, running.ID); err != nil || !did {
+			t.Fatalf("canceling a running job = %v, %v", did, err)
+		}
+		// Asking again, while it stops or once it has, changes nothing.
+		if did, err := q.Cancel(ctx, running.ID); err != nil || did {
+			t.Errorf("asking a job to stop again = %v, %v", did, err)
 		}
 		wait(t, q, running.ID)
 		if job, why := ended.get(running.ID); !errors.Is(why, i18n.ErrCanceled) || job == nil || job.State != StateCanceled {
@@ -615,7 +619,7 @@ func TestRetention(t *testing.T) {
 		if len(list) != 2 || list[0].ID != last.ID || list[1].ID != blocked.ID {
 			t.Errorf("%s: old finished jobs are dropped and running ones kept: %+v", name, list)
 		}
-		if err := q.Cancel(ctx, blocked.ID); err != nil {
+		if _, err := q.Cancel(ctx, blocked.ID); err != nil {
 			t.Fatal(err)
 		}
 		if done := wait(t, q, blocked.ID); done.State != StateCanceled {
