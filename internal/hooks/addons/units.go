@@ -59,7 +59,6 @@ func TokenFile(id string) string { return TokenDir + "/" + id + ".token" }
 var (
 	// Instances are an add-on's id, with part of the account's for
 	// account add-ons.
-	idPattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}$`)
 	instancePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,79}$`)
 	versionPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$`)
 	hostNamePattern = regexp.MustCompile(`^(?i)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
