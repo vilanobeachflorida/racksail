@@ -135,14 +135,20 @@ func (s *Service) LoadPolicy(ctx context.Context) error {
 // cleanupEvery is how often what expired is removed.
 const cleanupEvery = 10 * time.Minute
 
+// offersEvery is how often the service looks at what add-ons and modules
+// provide, so the status of sign-in providers follows add-ons as they are
+// attached and removed. It only reads what the panel holds in memory.
+const offersEvery = 5 * time.Second
+
 // orphanAge is how old credentials of a user who isn't there must be
 // before they're removed: the first admin's are written just before their
 // user is.
 const orphanAge = time.Hour
 
 // Run keeps the policy current as it changes, removes the users of
-// accounts that are gone, and clears out expired sessions, devices, links
-// and tokens, until ctx ends.
+// accounts that are gone, clears out expired sessions, devices, links and
+// tokens, and has sign-in providers reconciled again when what they can
+// name comes or goes, until ctx ends.
 func (s *Service) Run(ctx context.Context) {
 	if err := s.LoadPolicy(ctx); err != nil {
 		s.opts.Log.Warn("reading the sign-in policy", "error", err)
@@ -155,7 +161,13 @@ func (s *Service) Run(ctx context.Context) {
 	}
 	tick := time.NewTicker(cleanupEvery)
 	defer tick.Stop()
+	offers := time.NewTicker(offersEvery)
+	defer offers.Stop()
 	s.cleanup(ctx)
+	// Add-ons attach what they provide as the panel reconciles them, which
+	// may be after the providers that name it were, so the first look has
+	// them all reconciled again.
+	offered := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -175,6 +187,8 @@ func (s *Service) Run(ctx context.Context) {
 			}
 		case <-tick.C:
 			s.cleanup(ctx)
+		case <-offers.C:
+			offered = s.followOffers(ctx, offered)
 		}
 	}
 }

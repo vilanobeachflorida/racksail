@@ -254,6 +254,48 @@ func TestLockoutsSayWhenToTryAgain(t *testing.T) {
 	}
 }
 
+// A sign-in provider names what an add-on or a module provides, or adding
+// it is refused, and the problem points at the name.
+func TestSignInProvidersNameWhatIsProvided(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	admin := s.setUp()
+	admin.do("POST", "/api/v1/session/step-up", map[string]any{"password": testPassword}, nil)
+	connect := func(name string) *http.Response {
+		return admin.do("POST", "/api/v1/core/signin-providers", map[string]any{"spec": map[string]any{"capability": "identity", "provider": name, "title": "Directory"}}, nil)
+	}
+	resp := connect("no-such-provider")
+	var p struct {
+		Detail string `json:"detail"`
+		Errors []struct {
+			Location string    `json:"location"`
+			Code     i18n.Code `json:"code"`
+		} `json:"errors"`
+	}
+	json.Unmarshal([]byte(bodyOf(resp)), &p)
+	if resp.StatusCode != http.StatusUnprocessableEntity || s.problem(resp) != auth.ErrProviderMissing.Code || !strings.Contains(p.Detail, "no-such-provider") ||
+		len(p.Errors) != 1 || p.Errors[0].Location != "spec.provider" || p.Errors[0].Code != auth.ErrProviderMissing.Code {
+		t.Errorf("a provider nothing provides = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	if err := s.hooks.Register(hooks.Registration{
+		Point: hooks.AuthProvider, Kind: hooks.Provide, Owner: "addon:ldap-sign-in",
+		Provider: &hooks.Provider{Name: "ldap-sign-in", Title: "LDAP sign-in", Open: func(ctx context.Context, settings json.RawMessage) (any, error) { return nil, nil }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp = connect("ldap-sign-in")
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("a provider an add-on provides = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	cs := s.finish("admin", changeSetOf(t, resp))
+	var provider struct {
+		Status identity.ProviderStatus `json:"status"`
+	}
+	admin.do("GET", "/api/v1/core/signin-providers/"+string(cs.Changes[0].ID), nil, &provider)
+	if provider.Status.Phase != store.PhaseReady {
+		t.Errorf("its status = %+v", provider.Status)
+	}
+}
+
 func TestStepUpAndTokensOverTheAPI(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	b := s.setUp()

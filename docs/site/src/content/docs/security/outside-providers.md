@@ -8,7 +8,7 @@ People can sign in to the panel with an account they already have elsewhere: the
 ## Connecting a provider
 
 1. Install the add-on from **Marketplace → Add-ons**. Its permissions ask to reach any address, since which directory or provider it talks to is yours to choose next; it only ever gets the settings below and the sign-ins it checks.
-2. Under **Settings → Sign-in**, add a sign-in provider: the add-on's provider, the title the sign-in screen shows, the settings as JSON, and the one **secret** it needs, the directory's bind password or the client secret, which is stored encrypted and sent to the add-on only with each call.
+2. Under **Settings → Sign-in**, add a sign-in provider: the add-on's provider, by the name the add-on provides it under, such as `ldap-sign-in`, the title the sign-in screen shows, the settings as JSON, and the one **secret** it needs, the directory's bind password or the client secret, which is stored encrypted and sent to the add-on only with each call. A name nothing on the panel provides is refused, and a provider whose add-on is removed later shows as not available, and can't be changed, until the add-on is back; it can still be removed.
 3. Choose how someone signing in for the first time finds their user:
 
 | Match | What happens |

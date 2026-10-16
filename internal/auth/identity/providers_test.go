@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/i18n"
 	"github.com/vilanobeachflorida/racksail/internal/notify"
+	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -547,5 +550,92 @@ func TestProvidersFromAddons(t *testing.T) {
 	}
 	if !slices.Contains(phone.methods, auth.MethodVerify) {
 		t.Errorf("calls = %v", phone.methods)
+	}
+}
+
+// A sign-in provider names what an add-on or a module provides, or the
+// change that connects it is refused. One whose add-on goes later says so
+// in its status rather than claim it's ready, until the add-on is back.
+func TestProvidersNameWhatIsProvided(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	save := func(op changeset.Op, id store.ID, spec ProviderSpec) (*changeset.ChangeSet, error) {
+		raw, _ := json.Marshal(spec)
+		return h.submit(root(), "Connect "+spec.Title, changeset.Change{Op: op, Kind: ProviderKind.Name(), ID: id, Scope: store.ServerScope(), Spec: raw})
+	}
+	missing := func(what string, err error, provider string) {
+		t.Helper()
+		e := i18n.From(err)
+		if !auth.ErrProviderMissing.Is(err) || len(e.Fields) != 1 || e.Fields[0].Path != "spec.provider" || !strings.Contains(e.Message, provider) {
+			t.Errorf("%s = %v", what, err)
+		}
+	}
+	_, err := save(changeset.OpCreate, "", ProviderSpec{Capability: "identity", Provider: "no-such-provider", Title: "Nobody"})
+	missing("a provider nothing provides", err, "no-such-provider")
+	h.provide(hooks.AuthProvider, "ldap-sign-in", func(json.RawMessage) (any, error) { return ldap{secret: "x"}, nil })
+	_, err = save(changeset.OpCreate, "", ProviderSpec{Capability: "mfa", Provider: "ldap-sign-in", Title: "Directory"})
+	missing("a second step that signs people in instead", err, "ldap-sign-in")
+	spec := ProviderSpec{Capability: "identity", Provider: "ldap-sign-in", Title: "Directory"}
+	cs, err := save(changeset.OpCreate, "", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := cs.Changes[0].ID
+	status := func() ProviderStatus {
+		t.Helper()
+		if err := h.runner.Reconcile(ctx, id, nil); err != nil {
+			t.Fatal(err)
+		}
+		p, err := ProviderKind.Get(ctx, h.resources, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Status
+	}
+	if st := status(); st.Phase != store.PhaseReady || !st.IsTrue(reconcile.ConditionReady) {
+		t.Errorf("a provider an add-on provides = %+v", st)
+	}
+
+	// The add-on goes: the provider says what's missing, the sign-in
+	// screen leaves it out, and it can't be changed until the add-on is
+	// back, only removed.
+	var refreshed []store.ID
+	h.svc.opts.Refresh = func(id store.ID, reason string) { refreshed = append(refreshed, id) }
+	offered := h.svc.followOffers(ctx, "")
+	h.hooks.Unregister("addon:ldap-sign-in")
+	if offered = h.svc.followOffers(ctx, offered); !slices.Equal(refreshed, []store.ID{id, id}) {
+		t.Errorf("reconciled again = %v", refreshed)
+	}
+	st := status()
+	ready, ok := st.Condition(reconcile.ConditionReady)
+	if st.Phase != store.PhaseDegraded || !ok || ready.Status != store.ConditionFalse || ready.Reason != "ProviderMissing" ||
+		ready.Code != auth.ErrProviderMissing.Code || !strings.Contains(ready.Message, "ldap-sign-in") {
+		t.Errorf("a provider whose add-on is gone = %+v", st)
+	}
+	if options, err := h.svc.SignInOptions(ctx); err != nil || len(options) != 0 {
+		t.Errorf("sign-in options = %+v, %v", options, err)
+	}
+	spec.Title = "Company directory"
+	_, err = save(changeset.OpUpdate, id, spec)
+	missing("changing it", err, "ldap-sign-in")
+
+	// It's back: following what add-ons provide has it reconciled again.
+	refreshed = nil
+	h.provide(hooks.AuthProvider, "ldap-sign-in", func(json.RawMessage) (any, error) { return ldap{secret: "x"}, nil })
+	if offered = h.svc.followOffers(ctx, offered); !slices.Equal(refreshed, []store.ID{id}) {
+		t.Errorf("reconciled again = %v", refreshed)
+	}
+	if h.svc.followOffers(ctx, offered); len(refreshed) != 1 {
+		t.Errorf("nothing changed, yet reconciled again: %v", refreshed)
+	}
+	if st := status(); st.Phase != store.PhaseReady {
+		t.Errorf("once the add-on is back = %+v", st)
+	}
+	if _, err := save(changeset.OpUpdate, id, spec); err != nil {
+		t.Errorf("changing it now = %v", err)
+	}
+	h.hooks.Unregister("addon:ldap-sign-in")
+	if _, err := h.submit(root(), "Remove it", changeset.Change{Op: changeset.OpDelete, Kind: ProviderKind.Name(), ID: id}); err != nil {
+		t.Errorf("removing one nothing provides = %v", err)
 	}
 }

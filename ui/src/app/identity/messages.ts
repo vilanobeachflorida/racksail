@@ -317,6 +317,7 @@ export const t = {
   providerAdd: m("identity.providerAdd"),
   providerAddTitle: m("identity.providerAddTitle"),
   providerChangeTitle: m("identity.providerChangeTitle"),
+  providerMissing: m("identity.providerMissing"),
   providerRemove: m("identity.providerRemove"),
   providerSaved: m("identity.providerSaved"),
   providerSecondStep: m("identity.providerSecondStep"),

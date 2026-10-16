@@ -358,6 +358,49 @@ describe("confirming it's you", () => {
   });
 });
 
+describe("sign-in providers", () => {
+  it("say when nothing provides what they name any more", async () => {
+    const provider = (id: string, title: string, name: string, status: unknown) => ({
+      id,
+      kind: "core.signin_provider",
+      scope: { level: "server" },
+      revision: 1,
+      generation: 1,
+      createdAt: "2026-10-01T10:00:00Z",
+      updatedAt: "2026-10-15T10:00:00Z",
+      spec: { capability: "identity", provider: name, title },
+      status,
+    });
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/signin-policies": () => json({ items: [], next: "" }),
+      "GET /api/v1/core/signin-providers": () =>
+        json({
+          items: [
+            provider("signprov_1", "Company directory", "ldap-sign-in", {
+              phase: "degraded",
+              code: "auth.provider_missing",
+              message:
+                "Nothing on this panel provides ldap-sign-in. Install the add-on that does, or check the name.",
+            }),
+            provider("signprov_2", "Single sign-on", "oidc-sign-in", { phase: "ready" }),
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/settings/sign-in");
+    const list = await screen.findByRole("list", { name: "Sign-in providers" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("Not available");
+    expect(items[0]).toHaveTextContent(
+      "Nothing on this panel provides ldap-sign-in. Install the add-on that does, or check the name.",
+    );
+    expect(items[1]).not.toHaveTextContent("Not available");
+    expect(items[1]).toHaveTextContent("oidc-sign-in");
+  });
+});
+
 describe("API tokens", () => {
   it("makes a token and shows it once", async () => {
     let made: unknown;

@@ -392,6 +392,7 @@
   "error.auth.password_change_required": "Choose a new password to continue.",
   "error.auth.pending": "Waiting for you to approve the sign-in.",
   "error.auth.provider_failed": "{provider} couldn't answer: {reason}.",
+  "error.auth.provider_missing": "Nothing on this panel provides {provider}. Install the add-on that does, or check the name.",
   "error.auth.provider_refused": "The sign-in didn't go through: {reason}.",
   "error.auth.self_delete": "You can't delete or turn off yourself. Ask another admin to do it.",
   "error.auth.session_expired": "Your session ended. Sign in again.",

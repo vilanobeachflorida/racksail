@@ -311,6 +311,7 @@
   "identity.providerAdd": "Add a provider",
   "identity.providerAddTitle": "Add a sign-in provider",
   "identity.providerChangeTitle": "Change a sign-in provider",
+  "identity.providerMissing": "Not available",
   "identity.providerRemove": "Remove {name}",
   "identity.providerSaved": "The sign-in provider is saved.",
   "identity.providerSecondStep": "Second step",

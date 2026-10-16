@@ -174,7 +174,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		return nil, err
 	}
 	for _, r := range []reconcile.Reconciler{
-		webhook.Reconciler(dispatcher), account.Reconciler(kinds), identity.PolicyReconciler(), identity.ProviderReconciler(),
+		webhook.Reconciler(dispatcher), account.Reconciler(kinds), identity.PolicyReconciler(),
 	} {
 		if err := recs.Register(r); err != nil {
 			return nil, err
@@ -295,10 +295,12 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		Events: timeline, Audit: timeline, Hooks: hookRunner, Authorizer: authorizer, Hostname: cfg.Panel.Hostname,
 		SetupFile: filepath.Join(cfg.Paths.State, setupCodeFile), Log: log,
 	})
-	// Users are reconciled by the service that signs them in, which only
-	// exists once the pipeline that changes them does.
-	if err := recs.Register(ids.UserReconciler()); err != nil {
-		return nil, err
+	// Users and sign-in providers are reconciled by the service that signs
+	// people in, which only exists once the pipeline that changes them does.
+	for _, r := range []reconcile.Reconciler{ids.UserReconciler(), ids.ProviderReconciler()} {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
 	}
 	svc.Identity = ids.Directory()
 	if accounts, err = reg.Accounts(svc); err != nil {
