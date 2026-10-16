@@ -36,8 +36,11 @@ const (
 	// puts back and the guard runs as.
 	PreviousBinary = UpdateDir + "/racksail.previous"
 	// PanelBackups is where the panel keeps a copy of its database from
-	// before an update, which a rollback puts back.
+	// before an update. The agent takes it into its own state, where the
+	// panel can't reach, and a rollback puts that copy back.
 	PanelBackups = system.StateDir + "/updates"
+	// PanelUser owns the panel's state, its backup among it.
+	PanelUser = "racksail"
 	// GuardUnit runs the guard once an update has had time to prove
 	// itself, and RestartUnit restarts the services onto a new binary.
 	GuardUnit   = "racksail-update-guard"
@@ -103,9 +106,17 @@ type InstallReleaseInput struct {
 	Binary          string   `json:"binary" doc:"Where the running racksail binary is"`
 	// Snapshot labels snapshots of /usr and /var/lib taken first.
 	Snapshot string `json:"snapshot,omitempty" doc:"Take read-only snapshots of the system first, under this label"`
-	// PanelBackup is the copy of the panel's database the panel made.
+	// PanelBackup is the copy of the panel's database the panel made, at
+	// PanelBackupPath for the release's tag.
 	PanelBackup string `json:"panelBackup,omitempty"`
 }
+
+// PanelBackupPath is where the panel keeps its database from before it
+// installs a release.
+func PanelBackupPath(tag string) string { return PanelBackups + "/" + tag + "/state.db" }
+
+// keptBackup is where the agent keeps the panel's backup for a release.
+func keptBackup(tag string) string { return UpdateDir + "/" + tag + "/state.db" }
 
 var (
 	tagPattern        = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
@@ -153,8 +164,8 @@ func (in InstallReleaseInput) Validate() error {
 	case in.Snapshot != "" && !snapshotLabel.MatchString(in.Snapshot):
 		return fmt.Errorf("label %q must be lowercase letters, digits and underscores, starting with a letter", in.Snapshot)
 	}
-	if in.PanelBackup != "" && (path.Clean(in.PanelBackup) != in.PanelBackup || !strings.HasPrefix(in.PanelBackup, PanelBackups+"/")) {
-		return fmt.Errorf("the panel's backup must be under %s", PanelBackups)
+	if in.PanelBackup != "" && in.PanelBackup != PanelBackupPath(in.Tag) {
+		return fmt.Errorf("the panel's backup is %s, not %s", PanelBackupPath(in.Tag), in.PanelBackup)
 	}
 	for field, urls := range map[string][]string{"download URLs": in.URLs, "bundle URLs": in.BundleURLs, "trusted root URLs": in.TrustedRootURLs} {
 		if err := checkURLs(field, urls); err != nil {
@@ -282,6 +293,47 @@ func copyFile(ctx context.Context, files system.Files, src, dest string, perm fs
 	return files.WriteFrom(ctx, dest, r, perm, owner)
 }
 
+// panelState is the view of the panel's state the agent works through.
+// The panel's user owns that state and could put a symbolic link anywhere
+// in it, so the view follows none; the state directory itself sits in a
+// directory only root may change.
+func panelState(files system.Files) system.Files { return files.Beneath(system.StateDir) }
+
+// keepPanelBackup copies the panel's backup of its database into the
+// agent's own state, which the panel can't reach, so a rollback only ever
+// puts back what was the panel's database. The backup must be a regular
+// file the panel's user owns, reached without following a link.
+func keepPanelBackup(ctx context.Context, files system.Files, from, to string) error {
+	panel := panelState(files)
+	info, err := panel.Stat(ctx, from)
+	if err != nil {
+		return err
+	}
+	if !info.Mode.IsRegular() || info.Owner != PanelUser {
+		return fmt.Errorf("%s isn't a file the panel made: %w", from, system.ErrInvalid)
+	}
+	r, err := panel.Open(ctx, from)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return files.WriteFrom(ctx, to, r, 0o600, system.Owner{})
+}
+
+// removeOtherUpdates deletes what the agent kept for earlier updates: their
+// downloads and the panel's backups from before them.
+func removeOtherUpdates(ctx context.Context, files system.Files, tag string) {
+	entries, err := files.ReadDir(ctx, UpdateDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if name := path.Base(e.Path); e.IsDir() && name != tag && tagPattern.MatchString(name) {
+			files.RemoveAll(ctx, UpdateDir+"/"+name)
+		}
+	}
+}
+
 // schedule runs a command once, after a delay, as a transient systemd
 // unit of its own, so it outlives the agent restarting under it.
 func schedule(ctx context.Context, env *agent.Env, unit string, delay time.Duration, args ...string) error {
@@ -298,8 +350,9 @@ var InstallRelease = agent.Register(agent.Def[InstallReleaseInput, InstallReleas
 	Name:    "InstallRelease",
 	Summary: "Install a Racksail release",
 	Description: "Downloads a release's binary, checks its checksum and its Sigstore signature by Racksail's release workflow against the " +
-		"trusted root the agent pins, snapshots the system, keeps the running binary for a rollback, puts the new one in its place and " +
-		"restarts Racksail's services onto it. A guard rolls the release back unless it confirms it works within fifteen minutes.",
+		"trusted root the agent pins, snapshots the system, keeps the running binary and a copy of the panel's database for a rollback, " +
+		"puts the new binary in its place and restarts Racksail's services onto it. A guard rolls the release back unless it confirms it " +
+		"works within fifteen minutes.",
 	Effects: func(in InstallReleaseInput) []system.Effect {
 		return installEffects(in)
 	},
@@ -351,7 +404,14 @@ var InstallRelease = agent.Register(agent.Def[InstallReleaseInput, InstallReleas
 		}
 		st := &UpdateState{
 			State: StateInstalled, Tag: in.Tag, From: Build().Version, To: next.String(), Binary: in.Binary,
-			PanelBackup: in.PanelBackup, InstalledAt: time.Now().UTC(),
+			InstalledAt: time.Now().UTC(),
+		}
+		if in.PanelBackup != "" {
+			kept := keptBackup(in.Tag)
+			if err := keepPanelBackup(ctx, files, in.PanelBackup, kept); err != nil {
+				return InstallReleaseResult{}, fmt.Errorf("keeping the panel's database from before the update: %w", err)
+			}
+			st.PanelBackup = kept
 		}
 		if in.Snapshot != "" {
 			snaps, err := snapshotSystem(ctx, env, in.Snapshot)
@@ -366,6 +426,9 @@ var InstallRelease = agent.Register(agent.Def[InstallReleaseInput, InstallReleas
 		if err := writeState(ctx, files, st); err != nil {
 			return InstallReleaseResult{}, err
 		}
+		// Only the last update can be rolled back, so what earlier ones
+		// kept goes once this one is recorded.
+		removeOtherUpdates(ctx, files, in.Tag)
 		if err := copyFile(ctx, files, staged, in.Binary, 0o755, system.Owner{}); err != nil {
 			return InstallReleaseResult{}, fmt.Errorf("installing the new binary: %w", err)
 		}
@@ -388,6 +451,9 @@ func installEffects(in InstallReleaseInput) []system.Effect {
 	if in.Snapshot != "" {
 		effects = append(effects, system.Effect{Type: system.EffectStorage, Action: "snapshot", Target: "/usr", Detail: in.Snapshot},
 			system.Effect{Type: system.EffectStorage, Action: "snapshot", Target: "/var/lib", Detail: in.Snapshot})
+	}
+	if in.PanelBackup != "" {
+		effects = append(effects, system.Effect{Type: system.EffectFile, Action: "write", Target: keptBackup(in.Tag), Detail: "the panel's database from before the update"})
 	}
 	effects = append(effects, system.Effect{Type: system.EffectFile, Action: "write", Target: in.Binary, Detail: in.Tag, DiskBytes: in.Size * 2})
 	for _, s := range Services {
@@ -576,13 +642,24 @@ func Guard(ctx context.Context, sys *system.Backend, now bool) (bool, error) {
 		return false, fmt.Errorf("stopping the panel: %w", err)
 	}
 	if st.PanelBackup != "" {
+		// Only a copy the agent kept goes back, and into the panel's state
+		// without following a link the panel's user may have left there.
+		if st.PanelBackup != keptBackup(st.Tag) {
+			return false, fmt.Errorf("%s isn't the panel's database the agent kept before the update", st.PanelBackup)
+		}
+		panel := panelState(files)
 		db := system.StateDir + "/state.db"
-		owner := system.Owner{User: "racksail", Group: "racksail"}
-		if err := copyFile(ctx, files, st.PanelBackup, db, 0o640, owner); err != nil {
+		r, err := files.Open(ctx, st.PanelBackup)
+		if err != nil {
+			return false, fmt.Errorf("putting back the panel's database: %w", err)
+		}
+		err = panel.WriteFrom(ctx, db, r, 0o640, system.Owner{User: PanelUser, Group: PanelUser})
+		r.Close()
+		if err != nil {
 			return false, fmt.Errorf("putting back the panel's database: %w", err)
 		}
 		for _, suffix := range []string{"-wal", "-shm"} {
-			if err := files.Remove(ctx, db+suffix); err != nil && !errors.Is(err, system.ErrNotFound) {
+			if err := panel.Remove(ctx, db+suffix); err != nil && !errors.Is(err, system.ErrNotFound) {
 				return false, err
 			}
 		}

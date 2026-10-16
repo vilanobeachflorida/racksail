@@ -202,7 +202,7 @@ func (u *Updater) Check(ctx context.Context) (CheckOutput, error) {
 		if avail != nil && (st.Available == nil || st.Available.Tag != avail.Tag) && u.opts.Events != nil {
 			data, _ := json.Marshal(avail)
 			u.opts.Events.Publish(ctx, events.Event{
-				Type: EventAvailable.Name, Severity: EventAvailable.Severity, Scope: store.ServerScope(), Kind: Kind.Name(), Subject: s.ID,
+				Type: EventFound.Name, Severity: EventFound.Severity, Scope: store.ServerScope(), Kind: Kind.Name(), Subject: s.ID,
 				Actor: systemActor, Message: "Racksail " + avail.Version + " is available.", Data: data,
 			})
 		}
@@ -279,8 +279,8 @@ func (u *Updater) installInput(spec SettingsSpec, a *Available, binary, backup s
 		Tag: a.Tag, Asset: a.Asset.Name, Size: a.Asset.Size, SHA256: a.Asset.SHA256, URLs: files, BundleURLs: bundles,
 		TrustedRootURLs: c.TrustedRootURLs(), Binary: binary, Snapshot: snapshotLabelFor("update", a.Version),
 	}
-	// The agent only puts back a backup in the panel's usual place.
-	if strings.HasPrefix(backup, PanelBackups+"/") {
+	// The agent only keeps a backup in the panel's usual place.
+	if backup == PanelBackupPath(a.Tag) {
 		in.PanelBackup = backup
 	}
 	return in
@@ -334,6 +334,11 @@ func (u *Updater) Install(ctx context.Context, want string) (UpdateOutput, error
 		u.opts.Hooks.Notify(ctx, hooks.CoreUpdateBefore, actorOf(ctx), UpdateHookData{From: u.opts.Build.Version, To: a.Version, Tag: a.Tag})
 	}
 	res, err := InstallRelease.Call(ctx, u.opts.Agent, in, agent.CallOptions{Owner: s.ID})
+	// The agent keeps its own copy of the backup for a rollback, and an
+	// update that didn't happen needs none.
+	if backup != "" {
+		os.RemoveAll(filepath.Dir(backup))
+	}
 	if err != nil {
 		return UpdateOutput{}, ErrUpdateFailed.Wrap(err, "reason", i18n.From(err).Message)
 	}

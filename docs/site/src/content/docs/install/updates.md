@@ -46,15 +46,16 @@ No release is published until it has passed an upgrade test: CI installs the pre
 
 ## Updating
 
-The panel looks for releases on its channel every day, and **Check now** looks at once. When there is a newer one, **Settings → Updates** shows it with its release notes, and the panel publishes `core.update.available`, which reaches admins through their [notifications](../../notifications/).
+The panel looks for releases on its channel every day, and **Check now** looks at once. When there is a newer one, **Settings → Updates** shows it with its release notes, and the panel publishes `core.update.found`, which reaches admins through their [notifications](../../notifications/).
 
 The panel only offers a release whose `release.json` is signed by the release workflow for that release's tag, checked against Sigstore's trusted root as Racksail pins it, the same one the install script pins. **Preview installing it** shows what the update does: the download, the copy of the panel's database, the snapshots, the new binary and the services that restart. Applying it:
 
 1. tells the modules, through the `core.update.before` hook point, so they can get ready;
 2. copies the panel's database aside;
 3. has the agent download the binary and check its checksum and signature again itself, against the trusted root built into it, so a panel that was taken over can't make it install anything else;
-4. snapshots `/usr` and `/var/lib`;
-5. keeps the running binary, puts the new one in its place and restarts Racksail's services onto it.
+4. has the agent take the copy of the panel's database into its own state, which only root can read, so what a rollback puts back is the database from before the update and nothing else;
+5. snapshots `/usr` and `/var/lib`;
+6. keeps the running binary, puts the new one in its place and restarts Racksail's services onto it.
 
 Mail, DNS, databases and the rest keep running. The edge that serves sites restarts with Racksail's other services, which takes a few seconds.
 
@@ -66,7 +67,7 @@ A server where Racksail came from its Debian package updates it with apt, like i
 
 ## Rolling back
 
-**Roll back** goes back to the release before the last update, with the binary and the panel's database as they were, and restarts Racksail. Changes made in the panel since the update are lost. The snapshots the update took of `/usr` and `/var/lib` are kept, and the update's record in the API names them, for anything else you want back.
+**Roll back** goes back to the release before the last update, with the binary and the panel's database as they were, and restarts Racksail. Only the last update can be rolled back: installing a release deletes what the agent kept for the one before. Changes made in the panel since the update are lost. The snapshots the update took of `/usr` and `/var/lib` are kept, and the update's record in the API names them, for anything else you want back.
 
 ## Debian's updates
 

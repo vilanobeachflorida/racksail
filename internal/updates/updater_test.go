@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -181,6 +182,8 @@ type server struct {
 	updater *Updater
 	admin   *auth.Actor
 	state   string
+	// backups are where the panel backed up its database.
+	backups []string
 }
 
 const binaryPath = "/usr/local/bin/racksail"
@@ -245,7 +248,10 @@ func newServer(t *testing.T, g *github, version string, configure func(*Options)
 		Submit: func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error) {
 			return s.engine.Submit(ctx, req)
 		},
-		Backup: func(ctx context.Context, dest string) error { return os.WriteFile(dest, []byte("database"), 0o600) },
+		Backup: func(ctx context.Context, dest string) error {
+			s.backups = append(s.backups, dest)
+			return os.WriteFile(dest, []byte("database"), 0o600)
+		},
 		Health: func(ctx context.Context) error { return nil },
 		Build:  BuildInfo{Version: version, Channel: "stable"}, Arch: "amd64", Logger: log, ConfirmWithin: 200 * time.Millisecond,
 		NewClient: g.client,
@@ -344,7 +350,7 @@ func TestUpdateConfirmAndRollBack(t *testing.T) {
 	if err := json.Unmarshal(cs.Changes[0].Output, &found); err != nil || found.Available == nil || found.Available.Tag != "v1.3.0" {
 		t.Fatalf("check = %s, %v: a stable server is offered the newest stable release", cs.Changes[0].Output, err)
 	}
-	if !strings.Contains(strings.Join(s.eventTypes(), ","), EventAvailable.Name) {
+	if !strings.Contains(strings.Join(s.eventTypes(), ","), EventFound.Name) {
 		t.Error("an available release is announced")
 	}
 
@@ -375,8 +381,11 @@ func TestUpdateConfirmAndRollBack(t *testing.T) {
 	if st.State != StateInstalled || st.Tag != "v1.3.0" || st.Binary != binaryPath {
 		t.Errorf("state = %+v", st)
 	}
-	if _, err := os.Stat(filepath.Join(s.state, "updates", "v1.3.0", "state.db")); err != nil {
-		t.Error("the panel's database is backed up first")
+	if len(s.backups) != 1 || s.backups[0] != filepath.Join(s.state, "updates", "v1.3.0", "state.db") {
+		t.Errorf("the panel's database is backed up first: %v", s.backups)
+	}
+	if _, err := os.Stat(s.backups[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the panel's own backup is gone once the agent was asked: %v", err)
 	}
 	journal := s.journal(t)
 	if !strings.Contains(journal, "--unit="+GuardUnit) || !strings.Contains(journal, "try-restart racksail-agent.service") {
@@ -559,6 +568,119 @@ func TestInstallRefusals(t *testing.T) {
 	}
 }
 
+// The panel's backup of its database lives in the panel's own state, which
+// its user can change, so the agent takes a copy into its own state, and
+// only from a regular file of the panel's reached without following links.
+// A rollback puts back that copy, whatever the panel's state holds by then.
+func TestThePanelsBackupIsKeptByTheAgent(t *testing.T) {
+	ctx := context.Background()
+	g := newGitHub(t, release{"v1.3.0", []byte("racksail 1.3.0")})
+	s := newServer(t, g, "1.2.0", nil)
+	if _, err := s.action(t, "check", nil); err != nil {
+		t.Fatal(err)
+	}
+	set, _ := s.updater.Settings(ctx)
+	backup := PanelBackupPath("v1.3.0")
+	in := s.updater.installInput(set.Spec, set.Status.Available, binaryPath, backup)
+	if in.PanelBackup != backup {
+		t.Fatalf("the panel's backup isn't passed on: %+v", in)
+	}
+	files := s.machine.Backend().Files
+	panel := system.Owner{User: PanelUser, Group: PanelUser}
+	dir := path.Dir(backup)
+	for _, d := range []string{PanelBackups, dir} {
+		if err := files.Mkdir(ctx, d, 0o750, panel); err != nil && !errors.Is(err, system.ErrExists) {
+			t.Fatal(err)
+		}
+	}
+	if err := files.WriteFile(ctx, "/etc/shadow", []byte("root:secret"), 0o600, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	refused := func(what string, in InstallReleaseInput) {
+		t.Helper()
+		if _, err := InstallRelease.Call(ctx, s.agent, in, agent.CallOptions{}); err == nil || !strings.Contains(err.Error(), "panel") {
+			t.Errorf("%s is taken: %v", what, err)
+		}
+		if got := s.read(t, binaryPath); got != "racksail 1.2.0" {
+			t.Fatalf("%s installed the release: %q", what, got)
+		}
+	}
+
+	// Only the backup of the release, in its usual place.
+	other := in
+	other.PanelBackup = PanelBackups + "/x/shadow"
+	refused("a backup somewhere else", other)
+	// Not through a link, at the end or on the way.
+	if err := files.Symlink(ctx, "/etc/shadow", backup); err != nil {
+		t.Fatal(err)
+	}
+	refused("a link to another file", in)
+	files.Remove(ctx, backup)
+	files.Remove(ctx, dir)
+	if err := files.WriteFile(ctx, "/etc/state.db", []byte("root's"), 0o600, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Symlink(ctx, "/etc", dir); err != nil {
+		t.Fatal(err)
+	}
+	refused("a backup through a link to another directory", in)
+	files.Remove(ctx, dir)
+	if err := files.Mkdir(ctx, dir, 0o750, panel); err != nil {
+		t.Fatal(err)
+	}
+	// Not a file the panel's user doesn't own, as a hard link would be.
+	if err := files.WriteFile(ctx, backup, []byte("root:secret"), 0o600, system.Owner{}); err != nil {
+		t.Fatal(err)
+	}
+	refused("someone else's file", in)
+
+	if err := files.WriteFile(ctx, backup, []byte("the panel's database"), 0o640, panel); err != nil {
+		t.Fatal(err)
+	}
+	res, err := InstallRelease.Call(ctx, s.agent, in, agent.CallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := UpdateDir + "/v1.3.0/state.db"
+	if res.State == nil || res.State.PanelBackup != kept || s.read(t, kept) != "the panel's database" {
+		t.Fatalf("the agent keeps its own copy: %+v", res.State)
+	}
+	if info, err := files.Stat(ctx, kept); err != nil || info.Owner != "root" || info.Perm() != 0o600 {
+		t.Errorf("the copy is root's alone: %+v, %v", info, err)
+	}
+
+	// Whatever the panel's state holds by the time of the rollback, what
+	// goes back is the copy, into the panel's state and as the panel's.
+	files.Remove(ctx, backup)
+	if err := files.Symlink(ctx, "/etc/shadow", backup); err != nil {
+		t.Fatal(err)
+	}
+	if rolled, err := Guard(ctx, s.machine.Backend(), true); err != nil || !rolled {
+		t.Fatalf("guard: %v, %v", rolled, err)
+	}
+	db := system.StateDir + "/state.db"
+	if got := s.read(t, db); got != "the panel's database" {
+		t.Errorf("the panel's database after the rollback = %q", got)
+	}
+	if info, _ := files.Stat(ctx, db); info.Owner != PanelUser {
+		t.Errorf("the database belongs to the panel again: %+v", info)
+	}
+
+	// A record that names anything else puts nothing back.
+	var st UpdateState
+	json.Unmarshal([]byte(s.read(t, StateFile)), &st)
+	st.State, st.PanelBackup = StateInstalled, "/etc/shadow"
+	if err := writeState(ctx, files, &st); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Guard(ctx, s.machine.Backend(), true); err == nil {
+		t.Error("the guard puts back a file the agent didn't keep")
+	}
+	if got := s.read(t, db); got != "the panel's database" {
+		t.Errorf("the panel's database = %q", got)
+	}
+}
+
 func TestMirrorsComeFirst(t *testing.T) {
 	ctx := context.Background()
 	g := newGitHub(t, release{"v1.3.0", []byte("racksail 1.3.0")})
@@ -654,15 +776,11 @@ func TestUpgradeDebian(t *testing.T) {
 		t.Error("a refused upgrade changes nothing")
 	}
 	s.hooks.Unregister("module:databases")
-	var before, after []OSUpgradeData
-	for _, p := range []hooks.Point{hooks.OSUpgradeBefore, hooks.OSUpgradeAfter} {
-		p := p
+	// Observe hooks run in the background, so they report through channels.
+	told := map[hooks.Point]chan OSUpgradeData{hooks.OSUpgradeBefore: make(chan OSUpgradeData, 4), hooks.OSUpgradeAfter: make(chan OSUpgradeData, 4)}
+	for p, ch := range told {
 		err := s.hooks.Register(hooks.Registration{Point: p, Kind: hooks.Observe, Owner: "module:mail", OnObserve: func(ctx context.Context, c *hooks.Context) {
-			if p == hooks.OSUpgradeBefore {
-				before = append(before, c.Data.(OSUpgradeData))
-			} else {
-				after = append(after, c.Data.(OSUpgradeData))
-			}
+			ch <- c.Data.(OSUpgradeData)
 		}})
 		if err != nil {
 			t.Fatal(err)
@@ -690,8 +808,22 @@ func TestUpgradeDebian(t *testing.T) {
 	if !out.RebootRequired || out.From != "trixie" || out.To != "forky" {
 		t.Errorf("output = %+v", out)
 	}
-	if len(before) != 1 || len(after) != 1 || after[0].Outcome != "upgraded" {
-		t.Errorf("modules are told before and after: %+v %+v", before, after)
+	for _, p := range []hooks.Point{hooks.OSUpgradeBefore, hooks.OSUpgradeAfter} {
+		select {
+		case d := <-told[p]:
+			if d.From != "trixie" || d.To != "forky" || (p == hooks.OSUpgradeAfter && d.Outcome != "upgraded") {
+				t.Errorf("%s = %+v", p, d)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("modules aren't told at %s", p)
+		}
+	}
+	select {
+	case d := <-told[hooks.OSUpgradeBefore]:
+		t.Errorf("modules are told once before: %+v", d)
+	case d := <-told[hooks.OSUpgradeAfter]:
+		t.Errorf("modules are told once after: %+v", d)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

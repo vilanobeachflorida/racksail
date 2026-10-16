@@ -316,7 +316,7 @@ func validate(ctx context.Context, obj, old *store.Object[SettingsSpec, Settings
 
 // Events the updater publishes.
 var (
-	EventAvailable  = events.Type{Name: "core.update.available", Description: "A newer Racksail release is available on the server's channel.", Severity: events.SeverityNotice, Data: Available{}}
+	EventFound      = events.Type{Name: "core.update.found", Description: "A check found a newer Racksail release on the server's channel.", Severity: events.SeverityNotice, Data: Available{}}
 	EventInstalled  = events.Type{Name: "core.update.installed", Description: "Racksail was updated, and the new release confirmed it works.", Severity: events.SeverityNotice, Data: UpdateState{}}
 	EventRolledBack = events.Type{Name: "core.update.rolled_back", Description: "A Racksail update was rolled back to the release before it.", Severity: events.SeverityError, Data: UpdateState{}}
 	EventOSUpgraded = events.Type{Name: "core.os_upgrade.finished", Description: "Debian was upgraded to its next major release; the server needs a reboot.", Severity: events.SeverityWarning, Data: UpgradeOSOutput{}}
@@ -329,7 +329,7 @@ var (
 
 func init() {
 	store.RegisterKind(Kind)
-	for _, t := range []events.Type{EventAvailable, EventInstalled, EventRolledBack, EventOSUpgraded, EventOSFailed, EventPackagesUpgraded, EventPackagesFailed, EventRebootScheduled} {
+	for _, t := range []events.Type{EventFound, EventInstalled, EventRolledBack, EventOSUpgraded, EventOSFailed, EventPackagesUpgraded, EventPackagesFailed, EventRebootScheduled} {
 		events.RegisterType(t)
 	}
 }
