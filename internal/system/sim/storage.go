@@ -31,9 +31,10 @@ func (m *Machine) seedStorage(now time.Time) {
 			Name: "nvme0n1", Path: "/dev/nvme0n1", ByID: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001",
 			Model: "SIM SSD 512GB", Serial: "S0001", SizeBytes: 512 * 1000 * 1000 * 1000, Transport: "nvme", System: true,
 			Partitions: []system.Partition{
-				{Name: "nvme0n1p1", Path: "/dev/nvme0n1p1", Number: 1, SizeBytes: gib, FSType: "vfat", Label: "EFI", UUID: "1A2B-3C4D", MountPoints: []string{"/boot/efi"}},
+				{Name: "nvme0n1p1", Path: "/dev/nvme0n1p1", Number: 1, SizeBytes: gib, FSType: "vfat", Label: "EFI", UUID: "1A2B-3C4D",
+					PartUUID: "9e2b7c41-0000-4000-8000-000000000001", MountPoints: []string{"/boot/efi"}},
 				{Name: "nvme0n1p2", Path: "/dev/nvme0n1p2", Number: 2, SizeBytes: 512*1000*1000*1000 - gib, FSType: "btrfs", Label: "racksail", UUID: "6f1c2d3e-0000-4000-8000-000000000001",
-					MountPoints: []string{"/", "/.snapshots", "/srv/racksail", "/var/lib/racksail", "/var/lib/racksail-db", "/var/log"}},
+					PartUUID: "9e2b7c41-0000-4000-8000-000000000002", MountPoints: []string{"/", "/.snapshots", "/srv/racksail", "/var/lib/racksail", "/var/lib/racksail-db", "/var/log"}},
 			},
 		},
 		{Name: "nvme1n1", Path: "/dev/nvme1n1", ByID: "/dev/disk/by-id/nvme-SIM_SSD_1TB_S0002", Model: "SIM SSD 1TB", Serial: "S0002", SizeBytes: 1000 * 1000 * 1000 * 1000, Transport: "nvme"},

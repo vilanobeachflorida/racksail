@@ -197,20 +197,32 @@ func TestCheckUnitFileRefusesWhatCouldTakeTheServer(t *testing.T) {
 		{"mount without a type", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/mnt/racksail/data\nOptions=nosuid,nodev\n"},
 		{"subvolume of ext4", "mnt-racksail-data.mount", "[Mount]\nWhat=/dev/disk/by-id/ata-HDD_1\nWhere=/mnt/racksail/data\nType=ext4\nOptions=subvolid=5,nosuid,nodev\n"},
 		{"swap", "racksail-x.swap", "[Swap]\nWhat=/dev/sdb\n"},
-		{"account service without a sandbox", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n")},
-		{"account service missing one setting", "racksail-x.service",
-			service("User=blog\nExecStart=/bin/true\n" + strings.Replace(accountSandboxLines, "LockPersonality=yes\n", "", 1))},
-		{"sandbox turned off again", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "NoNewPrivileges=no\n")},
-		{"system calls only denied", "racksail-x.service",
-			service("User=blog\nExecStart=/bin/true\n" + strings.Replace(accountSandboxLines, "SystemCallFilter=@system-service", "SystemCallFilter=~@mount @system-service", 1))},
-		{"system call filter reset", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "SystemCallFilter=\n")},
-		{"system service calls taken away", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "SystemCallFilter=~@system-service\n")},
-		{"agent socket reachable again", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "InaccessiblePaths=\n")},
-		{"any socket bound", "racksail-x.service", service("User=blog\nExecStart=/bin/true\n" + accountSandboxLines + "SocketBindDeny=\n")},
 	} {
 		if _, err := CheckUnitFile(tc.unit, []byte(tc.content), testUnitRules()); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: should be refused: %v", tc.name, err)
 		}
+	}
+	// An account's service keeps its sandbox, as systemd reads the last of
+	// each setting.
+	account := "[Service]\nUser=blog\nExecStart=/bin/true\n"
+	for name, content := range map[string]string{
+		"no sandbox":                      account,
+		"one setting missing":             account + strings.Replace(accountSandboxLines, "LockPersonality=yes\n", "", 1),
+		"a setting turned off again":      account + accountSandboxLines + "NoNewPrivileges=no\n",
+		"a weaker setting":                account + accountSandboxLines + "ProtectSystem=full\n",
+		"system calls only denied":        account + strings.Replace(accountSandboxLines, "SystemCallFilter=@system-service", "SystemCallFilter=~@mount @system-service", 1),
+		"the system call filter reset":    account + accountSandboxLines + "SystemCallFilter=\n",
+		"system service calls taken away": account + accountSandboxLines + "SystemCallFilter=~@system-service\n",
+		"the agent's socket shown again":  account + accountSandboxLines + "InaccessiblePaths=\n",
+		"any socket bound":                account + accountSandboxLines + "SocketBindDeny=\n",
+	} {
+		_, err := CheckUnitFile("racksail-x.service", []byte(content), testUnitRules())
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "runs as an account") {
+			t.Errorf("%s: should be refused for its sandbox: %v", name, err)
+		}
+	}
+	if _, err := CheckUnitFile("racksail-x.service", []byte(account+accountSandboxLines+"SystemCallFilter=~@privileged\n"), testUnitRules()); err != nil {
+		t.Errorf("a filter that takes more away: %v", err)
 	}
 }
 

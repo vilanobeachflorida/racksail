@@ -533,19 +533,25 @@ func TestMountsTakeOnlyDataDisks(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mount system.Mount
 		code  error
+		// onSystem says the refusal is for the system disk.
+		onSystem bool
 	}{
-		"the system disk":              {system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001-part2", Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput},
-		"the root filesystem":          {system.Mount{Source: "/dev/disk/by-uuid/" + root.UUID(), Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput},
-		"its top level":                {system.Mount{Source: "/dev/disk/by-uuid/" + root.UUID(), Target: "/mnt/racksail/b", FSType: "btrfs", Options: []string{"subvolid=5"}}, ErrInvalidInput},
-		"its snapshots":                {system.Mount{Source: "/dev/disk/by-partuuid/" + root.Partition.PartUUID, Target: "/mnt/racksail/b", FSType: "btrfs", Options: []string{"subvol=/@snapshots"}}, ErrInvalidInput},
-		"the boot partition":           {system.Mount{Source: "/dev/disk/by-uuid/" + efi.UUID(), Target: "/mnt/racksail/b", FSType: "vfat"}, ErrInvalidInput},
-		"the whole system disk":        {system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001", Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput},
-		"a disk mounted elsewhere":     {system.Mount{Source: data, Target: "/mnt/racksail/b", FSType: "ext4"}, ErrConflict},
-		"a disk that isn't there":      {system.Mount{Source: "/dev/disk/by-id/ata-NOTHING", Target: "/mnt/racksail/b", FSType: "ext4"}, ErrNotFound},
-		"a filesystem it doesn't hold": {system.Mount{Source: "/dev/disk/by-id/ata-SIM_HDD_4TB_H0002", Target: "/mnt/racksail/b", FSType: "ext4"}, ErrInvalidInput},
+		"the system disk":              {system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001-part2", Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput, true},
+		"the root filesystem":          {system.Mount{Source: "/dev/disk/by-uuid/" + root.UUID(), Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput, true},
+		"its top level":                {system.Mount{Source: "/dev/disk/by-uuid/" + root.UUID(), Target: "/mnt/racksail/b", FSType: "btrfs", Options: []string{"subvolid=5"}}, ErrInvalidInput, true},
+		"its snapshots":                {system.Mount{Source: "/dev/disk/by-partuuid/" + root.Partition.PartUUID, Target: "/mnt/racksail/b", FSType: "btrfs", Options: []string{"subvol=/@snapshots"}}, ErrInvalidInput, true},
+		"the boot partition":           {system.Mount{Source: "/dev/disk/by-uuid/" + efi.UUID(), Target: "/mnt/racksail/b", FSType: "vfat"}, ErrInvalidInput, true},
+		"the whole system disk":        {system.Mount{Source: "/dev/disk/by-id/nvme-SIM_SSD_512GB_S0001", Target: "/mnt/racksail/b", FSType: "btrfs"}, ErrInvalidInput, true},
+		"a disk mounted elsewhere":     {system.Mount{Source: data, Target: "/mnt/racksail/b", FSType: "ext4"}, ErrConflict, false},
+		"a disk that isn't there":      {system.Mount{Source: "/dev/disk/by-id/ata-NOTHING", Target: "/mnt/racksail/b", FSType: "ext4"}, ErrNotFound, false},
+		"a filesystem it doesn't hold": {system.Mount{Source: "/dev/disk/by-id/ata-SIM_HDD_4TB_H0002", Target: "/mnt/racksail/b", FSType: "ext4"}, ErrInvalidInput, false},
 	} {
-		if _, err := EnsureMounted.Call(ctx, c, MountInput{Mount: tc.mount}, CallOptions{}); !errors.Is(err, tc.code) {
+		_, err := EnsureMounted.Call(ctx, c, MountInput{Mount: tc.mount}, CallOptions{})
+		if !errors.Is(err, tc.code) {
 			t.Errorf("%s: %v, want %v", name, err, tc.code)
+		}
+		if tc.onSystem && (err == nil || !strings.Contains(err.Error(), "the disk the system runs from")) {
+			t.Errorf("%s isn't refused for being on the system disk: %v", name, err)
 		}
 		// A unit mounting the same at boot is refused alike.
 		unit := "[Mount]\nWhat=" + tc.mount.Source + "\nWhere=/mnt/racksail/b\nType=" + tc.mount.FSType + "\nOptions=" +
