@@ -840,6 +840,65 @@ describe("the notifications page, live", () => {
     expect(reads).toBeGreaterThan(before);
     expect(screen.getByRole("textbox", { name: "Server" })).toHaveValue("relay.example.net");
   });
+
+  it("reads the delivery log again as events arrive and waiting deliveries come due", async () => {
+    const { live, sources } = fakeLive();
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const delivery = (id: string, title: string, state: string, extra = {}) => ({
+      id,
+      title,
+      state,
+      severity: "warning",
+      attemptCount: 0,
+      person: "usr_1",
+      createdAt: ago(60_000),
+      ...extra,
+    });
+    // Held for quiet hours, which have just ended.
+    let log = [delivery("ntf_1", "Backup failed", "held", { nextAttempt: ago(500) })];
+    let reads = 0;
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/notifications/preferences": () => json({ email: true }),
+      "GET /api/v1/core/notification-channels": () => json({ items: [] }),
+      "GET /api/v1/core/mail-relays": () => json({ items: [] }),
+      "GET /api/v1/notifications": () => {
+        reads++;
+        return json({ notifications: log });
+      },
+    });
+    renderShell({
+      modules: [],
+      messages: shellMessages,
+      api,
+      path: "/settings/notifications",
+      live,
+    });
+    expect(await screen.findByText("Held for quiet hours")).toBeInTheDocument();
+    log = [delivery("ntf_1", "Backup failed", "merged", { finishedAt: ago(0) })];
+    expect(await screen.findByText("In a summary", {}, { timeout: 3000 })).toBeInTheDocument();
+
+    // Events turn into deliveries; however many arrive at once, the log
+    // reads again once.
+    const events = sources.find((s) => s.url.includes("/api/v1/events/stream"));
+    expect(events).toBeDefined();
+    const before = reads;
+    log = [delivery("ntf_2", "The disk is almost full", "sent"), ...log];
+    for (const id of ["evt_1", "evt_2", "evt_3"]) {
+      events?.emit("event", {
+        id,
+        type: "storage.disk.filling",
+        time: ago(0),
+        severity: "warning",
+        scope: { level: "server" },
+        message: "The disk is almost full.",
+      });
+    }
+    expect(
+      await screen.findByText("The disk is almost full", {}, { timeout: 4000 }),
+    ).toBeInTheDocument();
+    expect(reads).toBe(before + 1);
+  });
 });
 
 describe("the settings index", () => {

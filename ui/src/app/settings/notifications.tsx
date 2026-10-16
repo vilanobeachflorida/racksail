@@ -40,7 +40,7 @@ import type { UIHints } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import { messages as m } from "../messages";
 import { ChangeDialog, useChangeFlow } from "./change-flow";
-import { useResourceUpdates } from "./live";
+import { useRefreshAt, useResourceUpdates, useTimelineUpdates } from "./live";
 
 type Severity = "info" | "notice" | "warning" | "error" | "critical";
 const severities: Severity[] = ["info", "notice", "warning", "error", "critical"];
@@ -708,6 +708,39 @@ function Relay() {
   );
 }
 
+/** How long a delivery may take to send before the log stops checking on it. */
+const sendingFor = 60_000;
+
+/**
+ * When the log should be read again for the deliveries that wait, which no
+ * stream reports on: when the first is due to be sent again or to leave
+ * quiet hours, and, for one being sent as the log was read, a few seconds
+ * later.
+ */
+function firstDue(
+  deliveries: readonly { state: string; createdAt: string; nextAttempt?: string }[],
+  readAt: number,
+): number | null {
+  let first: number | null = null;
+  for (const d of deliveries) {
+    if (d.state !== "pending" && d.state !== "held") {
+      continue;
+    }
+    let at: number;
+    if (d.nextAttempt) {
+      at = Date.parse(d.nextAttempt);
+    } else if (readAt - Date.parse(d.createdAt) < sendingFor) {
+      at = readAt + 5000;
+    } else {
+      continue;
+    }
+    if (!Number.isNaN(at) && (first === null || at < first)) {
+      first = at;
+    }
+  }
+  return first;
+}
+
 function Log() {
   const intl = useIntl();
   const api = useApi();
@@ -718,7 +751,11 @@ function Log() {
     retry: false,
   });
   useResourceUpdates(watchedKinds, [["notifications", "log"]]);
+  // Events turn into notifications, some held for quiet hours, which no
+  // status says; the log reads again a moment after the timeline moves.
+  useTimelineUpdates(null, [["notifications", "log"]], 2000);
   const sent = log.data?.notifications ?? [];
+  useRefreshAt(firstDue(sent, log.dataUpdatedAt), [["notifications", "log"]]);
   if (log.isError || sent.length === 0) {
     return null;
   }
