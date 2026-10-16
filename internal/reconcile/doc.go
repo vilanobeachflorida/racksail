@@ -15,15 +15,16 @@
 // types. The Runner loads a resource, plans, applies, verifies the result
 // with the plan's health checks (through a Checker), writes the status and,
 // for deleted resources, purges them once their system state is gone. It
-// reconciles one resource at a time, and no more resources at once than its
-// limits allow, in all and for each kind (Limiter).
+// runs one reconcile per resource at a time, and reconciles no more
+// resources at once than its limits allow, in all and for each kind
+// (Limiter).
 //
 // Runner.Run works a queue: resources whose latest generation was never
 // carried out go first, reconciles of the queue's own that failed are
 // retried with a growing wait, resources reported as drifted (ReportDrift)
 // are put back, and everything is reconciled again at every resync. A
-// change set's job reports the failures of the reconciles it runs itself. Stats and Check are the queue's
-// metrics and health check. A reconcile of a resource
-// that was ready which still changes something has found drift: the Drifted
-// condition and a <kind>.drifted event say what was put back.
+// change set's job reports the failures of the reconciles it runs itself.
+// Stats and Check are the queue's metrics and health check. A reconcile of
+// a resource that was ready which still changes something has found drift:
+// the Drifted condition and a <kind>.drifted event say what was put back.
 package reconcile

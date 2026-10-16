@@ -1095,11 +1095,11 @@ func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Repor
 	rec, hasReconciler := e.reconciler(c.Kind)
 	switch {
 	case hasReconciler:
-		if err := runner.Reconcile(ctx, c.ID, progress); err != nil {
+		if err := runner.Reconcile(ctx, c.ID, progress); err != nil && !e.purgedAlready(ctx, c) {
 			return nil, err
 		}
 	case c.Op == OpDelete:
-		if err := e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) }); err != nil {
+		if err := e.opts.Store.Write(ctx, store.WriteMeta{Actor: "system:changeset"}, func(tx store.Tx) error { return tx.Purge(ctx, c.ID) }); err != nil && !e.purgedAlready(ctx, c) {
 			return nil, err
 		}
 	default:
@@ -1134,6 +1134,18 @@ func (e *Engine) applyChange(ctx context.Context, c ResourceChange, r jobs.Repor
 		}
 	}
 	return output, nil
+}
+
+// purgedAlready reports whether a delete is done although carrying it out
+// failed: its resource is gone from the store, which only happens once what
+// it set up is removed, as when the resync got to the resource before this
+// job did and purged it.
+func (e *Engine) purgedAlready(ctx context.Context, c ResourceChange) bool {
+	if c.Op != OpDelete {
+		return false
+	}
+	_, err := e.opts.Store.Get(context.WithoutCancel(ctx), c.ID)
+	return store.ErrNotFound.Is(err)
 }
 
 // markStored records that a resource of a kind without a reconciler is in
