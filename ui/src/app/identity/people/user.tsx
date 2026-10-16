@@ -47,7 +47,7 @@ import {
   userView,
 } from "../api";
 import { ListSkeleton, PageHeader, PasswordInput, Section, TimeText } from "../components";
-import { GrantEditor, GrantSummary } from "../grants";
+import { GrantEditor, GrantSummary, useAccountNames } from "../grants";
 import { IdentityMessages } from "../i18n";
 import { t } from "../messages";
 import { page } from "../page";
@@ -86,6 +86,7 @@ function useSave(user: UserResource) {
 function Details({ user, editable }: { user: UserResource; editable: boolean }) {
   const intl = useIntl();
   const save = useSave(user);
+  const names = useAccountNames();
   const spec = user.spec;
   const [name, setName] = useState(spec.name ?? "");
   const [email, setEmail] = useState(spec.email ?? "");
@@ -150,7 +151,7 @@ function Details({ user, editable }: { user: UserResource; editable: boolean }) 
           label={intl.formatMessage(t.fieldHome)}
           description={intl.formatMessage(t.userHomeFixed)}
         >
-          <Input value={ownerLabel(intl, user.scope)} readOnly />
+          <Input value={ownerLabel(intl, user.scope, names)} readOnly />
         </Field>
       </div>
       <Field

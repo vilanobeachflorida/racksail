@@ -153,6 +153,40 @@ describe("users", () => {
     });
   });
 
+  it("names the account a user belongs to, as the list of users does", async () => {
+    const owen: UserResource = {
+      ...adaResource,
+      id: "user_3",
+      scope: { level: "account", id: "acct_1" },
+      spec: { username: "owen", name: "Owen", grants: [], sshKeys: null },
+    };
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/session": () => json(ada),
+      "GET /api/v1/core/users": () => json({ items: [owen], next: "" }),
+      "GET /api/v1/core/users/user_3": () => json(owen),
+      "GET /api/v1/core/accounts": () =>
+        json({
+          items: [
+            {
+              id: "acct_1",
+              kind: "core.account",
+              scope: { level: "account", id: "acct_1" },
+              revision: 1,
+              generation: 1,
+              createdAt: "2026-10-01T10:00:00Z",
+              updatedAt: "2026-10-01T10:00:00Z",
+              spec: { name: "Review Account", slug: "reviewacct" },
+            },
+          ],
+          next: "",
+        }),
+    });
+    renderApp(api, "/users/user_3");
+    const home = await screen.findByRole("textbox", { name: /^Belongs to/ });
+    await waitFor(() => expect(home).toHaveValue("Account Review Account (reviewacct)"));
+  });
+
   it("names users in previews that ask for a typed confirmation", () => {
     expect(resourceName({ id: "user_9", before: { username: "bea" } })).toBe("bea");
     expect(resourceName({ id: "acct_1", after: { slug: "acme" } })).toBe("acme");
