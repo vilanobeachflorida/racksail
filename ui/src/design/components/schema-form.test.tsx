@@ -91,7 +91,7 @@ describe("the form model", () => {
     expect(humanize("alwaysOn")).toBe("Always on");
   });
 
-  it("leaves out optional objects nobody filled in, and keeps required ones", () => {
+  it("leaves out optional objects nobody filled in that can't be empty, and keeps the rest", () => {
     const owner: JSONSchema = {
       type: "object",
       properties: {
@@ -101,13 +101,18 @@ describe("the form model", () => {
           required: ["level"],
         },
         limits: { $ref: "#/$defs/limits" },
+        // Empty, it still means something: turned on with the defaults.
+        cache: { type: "object", properties: { size: { type: "integer" } } },
         name: { type: "string" },
       },
       required: ["limits"],
       $defs: { limits: { type: "object", properties: { memory: { type: "integer" } } } },
     };
-    expect(withoutEmptyObjects(owner, { owner: {}, limits: {}, name: "a" }, owner)).toEqual({
+    expect(
+      withoutEmptyObjects(owner, { owner: {}, limits: {}, cache: {}, name: "a" }, owner),
+    ).toEqual({
       limits: {},
+      cache: {},
       name: "a",
     });
     expect(withoutEmptyObjects(owner, { owner: { level: "account" } }, owner)).toEqual({
@@ -140,13 +145,13 @@ describe("the schema form", () => {
     await userEvent.click(screen.getByRole("button", { name: "Add to Aliases" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Aliases 1" }), "www.example.com");
     await userEvent.click(screen.getByRole("button", { name: "Create site" }));
-    // Limits nobody filled in stay out of the spec.
     expect(onSubmit).toHaveBeenCalledWith({
       spec: {
         domain: "example.com",
         runtime: "php",
         alwaysOn: true,
         workers: 2,
+        limits: {},
         aliases: ["www.example.com"],
       },
       secrets: { password: "s3cret-pass" },
@@ -339,5 +344,48 @@ describe("the schema form", () => {
     await userEvent.type(screen.getByRole("textbox", { name: /Domain/ }), "abc");
     expect(onChange).toHaveBeenCalledTimes(3);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ domain: "abc" }));
+  });
+
+  it("offers the resources a field refers to, and takes an ID when it has none to offer", async () => {
+    const onSubmit = vi.fn();
+    const site: JSONSchema = {
+      type: "object",
+      properties: {
+        database: { type: "string", title: "Database" },
+        reseller: { type: "string", title: "Reseller" },
+      },
+    };
+    renderWithProviders(
+      <SchemaForm
+        schema={site}
+        hints={{
+          fields: {
+            database: { widget: "resource", kind: "databases.database" },
+            reseller: { widget: "resource" },
+          },
+        }}
+        resourceOptions={(field) =>
+          field.hint.kind === "databases.database"
+            ? [{ value: "db_01jq0000000000000000000001", label: "shop" }]
+            : undefined
+        }
+        submitLabel="Save"
+        onSubmit={onSubmit}
+      />,
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Database" }));
+    await userEvent.click(await screen.findByRole("option", { name: "shop" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Reseller" }),
+      "rsl_01jq0000000000000000000002",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      spec: {
+        database: "db_01jq0000000000000000000001",
+        reseller: "rsl_01jq0000000000000000000002",
+      },
+      secrets: {},
+    });
   });
 });

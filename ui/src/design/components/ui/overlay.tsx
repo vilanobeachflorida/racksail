@@ -1,11 +1,38 @@
 import { Check, ChevronRight, Circle } from "lucide-react";
-import { DropdownMenu as MenuPrimitive, Tooltip as TooltipPrimitive } from "radix-ui";
+import {
+  DropdownMenu as MenuPrimitive,
+  Popover as PopoverPrimitive,
+  Tooltip as TooltipPrimitive,
+} from "radix-ui";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** The look menus, tooltips and popovers share. */
-export const floatingClasses =
+const floatingClasses =
   "z-50 rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 duration-(--rs-motion-fast)";
+
+export const Popover = PopoverPrimitive.Root;
+export const PopoverTrigger = PopoverPrimitive.Trigger;
+export const PopoverAnchor = PopoverPrimitive.Anchor;
+export const PopoverClose = PopoverPrimitive.Close;
+
+export function PopoverContent({
+  className,
+  align = "center",
+  sideOffset = 6,
+  ...props
+}: ComponentProps<typeof PopoverPrimitive.Content>) {
+  return (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Content
+        data-slot="popover-content"
+        align={align}
+        sideOffset={sideOffset}
+        className={cn(floatingClasses, "w-72 p-4 outline-none", className)}
+        {...props}
+      />
+    </PopoverPrimitive.Portal>
+  );
+}
 
 export const TooltipProvider = TooltipPrimitive.Provider;
 

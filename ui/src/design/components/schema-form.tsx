@@ -66,8 +66,11 @@ export interface SchemaFormProps {
   groupLabel?: (name: string) => string;
   /** A translated name for one of a field's choices, when there is one; the value itself otherwise. */
   optionLabel?: (field: FieldNode, value: string) => string | undefined;
-  /** Choices for fields that refer to other resources. */
-  resourceOptions?: (field: FieldNode) => readonly { value: string; label: string }[];
+  /**
+   * Choices for fields that refer to other resources. A field it has no
+   * choices for, by answering undefined, takes the resource's ID as text.
+   */
+  resourceOptions?: (field: FieldNode) => readonly { value: string; label: string }[] | undefined;
   submitLabel: ReactNode;
   busy?: boolean;
   onSubmit: (result: FormResult) => void;
@@ -443,18 +446,15 @@ function FieldView({ field, ctx }: { field: FieldNode; ctx: Context }) {
             />
           );
         }
-        if (
-          field.kind === "enum" ||
-          field.hint.widget === "select" ||
-          field.hint.widget === "resource"
-        ) {
+        const resources =
+          field.hint.widget === "resource" ? ctx.props.resourceOptions?.(field) : undefined;
+        if (field.kind === "enum" || field.hint.widget === "select" || resources) {
           const options =
-            field.hint.widget === "resource"
-              ? (ctx.props.resourceOptions?.(field) ?? [])
-              : (field.schema.enum ?? []).map((o) => ({
-                  value: String(o),
-                  label: ctx.props.optionLabel?.(field, String(o)) ?? String(o),
-                }));
+            resources ??
+            (field.schema.enum ?? []).map((o) => ({
+              value: String(o),
+              label: ctx.props.optionLabel?.(field, String(o)) ?? String(o),
+            }));
           return (
             <Select
               value={value === undefined || value === null ? "" : String(value)}
