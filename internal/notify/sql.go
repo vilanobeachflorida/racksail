@@ -271,4 +271,3 @@ func (s *sqlStorage) prune(ctx context.Context, before time.Time) error {
 		return err
 	})
 }
-

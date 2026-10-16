@@ -24,13 +24,13 @@ import (
 // operation of a kind, whose hook points exist, or takes dryRun and goes
 // through the change pipeline, whose changes reach their hook points.
 var outsidePipeline = map[string]string{
-	"applyChangeSet":             "applies a preview by planning its request again, which runs the hooks of every change",
-	"cancelJob":                  "stops a job; what the job was doing ends where it stopped",
-	"retryJob":                   "carries on a job that failed, whose changes went through their hooks when they were planned",
-	"enableHook":                 "switches a hook back on in the hook pipeline itself; the audit log records it",
-	"enterSafeMode":              "takes add-ons out of the hook pipeline, which can't wait for their hooks; the audit log records it",
-	"leaveSafeMode":              "lets add-ons back into the hook pipeline; the audit log records it",
-	"sendTestNotification":       "sends the signed-in person a message and changes nothing",
+	"applyChangeSet":       "applies a preview by planning its request again, which runs the hooks of every change",
+	"cancelJob":            "stops a job; what the job was doing ends where it stopped",
+	"retryJob":             "carries on a job that failed, whose changes went through their hooks when they were planned",
+	"enableHook":           "switches a hook back on in the hook pipeline itself; the audit log records it",
+	"enterSafeMode":        "takes add-ons out of the hook pipeline, which can't wait for their hooks; the audit log records it",
+	"leaveSafeMode":        "lets add-ons back into the hook pipeline; the audit log records it",
+	"sendTestNotification": "sends the signed-in person a message and changes nothing",
 }
 
 // Every operation of every kind has its hook points, at every stage, and

@@ -806,5 +806,3 @@ func (s *Service) Deliveries(ctx context.Context, f DeliveryFilter) ([]*Notifica
 func (s *Service) Notification(ctx context.Context, id store.ID) (*Notification, error) {
 	return s.db.get(ctx, id)
 }
-
-

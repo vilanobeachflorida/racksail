@@ -151,18 +151,23 @@ func register(a huma.API, svc *modules.Services) {
 		if err != nil {
 			return nil, err
 		}
-		n, err := s.Notification(ctx, in.ID)
-		if err != nil {
-			return nil, err
-		}
-		// People see their own; the rest is for those who see channels.
 		actor, err := api.Actor(ctx)
 		if err != nil {
 			return nil, err
 		}
+		// One that doesn't exist answers as one of someone else's does.
+		hidden := i18n.ErrNotFound.New("what", "Notification "+string(in.ID))
+		n, err := s.Notification(ctx, in.ID)
+		if notify.ErrDeliveryNotFound.Is(err) {
+			return nil, hidden
+		}
+		if err != nil {
+			return nil, err
+		}
+		// People see their own; the rest is for those who see channels.
 		if person, ok := notify.PersonOf(actor); !ok || n.Person != person {
 			if err := api.Authorize(ctx, svc.Authorizer, PermChannelRead, auth.Target{Scope: store.ServerScope()}); err != nil {
-				return nil, i18n.ErrNotFound.New("what", "Notification "+string(in.ID))
+				return nil, hidden
 			}
 		}
 		return &deliveryOutput{Body: n}, nil
