@@ -216,11 +216,46 @@ func TestActor(t *testing.T) {
 
 func TestAuthenticators(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/health", nil)
+	req.RemoteAddr = "127.0.0.1:63049"
 	a, err := DevAuthenticator{}.Authenticate(context.Background(), req)
 	if err != nil || a == nil || a.Grants[0].Role != RoleAdmin {
 		t.Errorf("dev = %+v, %v", a, err)
 	}
+	// Records of what the developer does say where from without the port,
+	// and through what.
+	if a.IP != "127.0.0.1" || a.Source != SourceAPI {
+		t.Errorf("dev without the API's client = %s via %s", a.IP, a.Source)
+	}
+	req.Header.Set("User-Agent", "racksail/1.4.0 (darwin/arm64)")
+	if a, _ := (DevAuthenticator{}).Authenticate(WithClient(context.Background(), Client{IP: "::1"}), req); a.IP != "::1" || a.Source != SourceCLI {
+		t.Errorf("dev behind the API = %s via %s", a.IP, a.Source)
+	}
 	if a, err := (NoAuthenticator{}).Authenticate(context.Background(), req); a != nil || err != nil {
 		t.Error("NoAuthenticator finds nobody")
+	}
+}
+
+func TestSourceOf(t *testing.T) {
+	for _, tc := range []struct {
+		header map[string]string
+		want   Source
+	}{
+		{map[string]string{"User-Agent": "racksail/0.0.0-dev (linux/amd64)"}, SourceCLI},
+		{map[string]string{"User-Agent": "Mozilla/5.0", "Sec-Fetch-Site": "same-origin"}, SourceUI},
+		{map[string]string{"User-Agent": "Mozilla/5.0", "Sec-Fetch-Site": "none"}, SourceUI},
+		{map[string]string{"User-Agent": "curl/8.14.1"}, SourceAPI},
+		{map[string]string{"User-Agent": "Mozilla/5.0"}, SourceAPI},
+		{nil, SourceAPI},
+	} {
+		req := httptest.NewRequest("GET", "/api/v1/sites", nil)
+		for k, v := range tc.header {
+			req.Header.Set(k, v)
+		}
+		if got := SourceOf(req); got != tc.want {
+			t.Errorf("%v = %s, want %s", tc.header, got, tc.want)
+		}
+	}
+	if HostOf("[::1]:7407") != "::1" || HostOf("203.0.113.7") != "203.0.113.7" {
+		t.Error("HostOf keeps the port or loses the address")
 	}
 }

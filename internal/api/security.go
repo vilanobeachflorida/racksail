@@ -52,7 +52,7 @@ func retryAfterHeader(ctx huma.Context, status string, v any) (any, error) {
 // X-Forwarded-Proto; those are believed only from loopback, where account
 // workloads can't connect from (they're denied the panel's address).
 func clientOf(r *http.Request) auth.Client {
-	c := auth.Client{IP: hostOf(r.RemoteAddr), UserAgent: r.UserAgent(), Secure: r.TLS != nil}
+	c := auth.Client{IP: auth.HostOf(r.RemoteAddr), UserAgent: r.UserAgent(), Secure: r.TLS != nil}
 	if peer, err := netip.ParseAddr(c.IP); err == nil && peer.Unmap().IsLoopback() {
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 			parts := strings.Split(fwd, ",")
@@ -65,13 +65,6 @@ func clientOf(r *http.Request) auth.Client {
 		}
 	}
 	return c
-}
-
-func hostOf(addr string) string {
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return host
-	}
-	return addr
 }
 
 // addrPort turns a client's address into the host:port form the rate

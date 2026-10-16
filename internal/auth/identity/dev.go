@@ -15,7 +15,9 @@ const DeveloperName = "developer"
 // session or token of its own, as racksail dev does with its developer, so
 // the panel's own screens work with a real user while signing in, tokens
 // and impersonation can still be tried. A token that isn't valid is still
-// refused.
+// refused. What the developer does is recorded with the address the
+// request came from and the surface it came through: the panel's pages,
+// the racksail command or another program.
 type DevAuthenticator struct {
 	Service *Service
 	User    store.ID
@@ -32,7 +34,12 @@ func (d DevAuthenticator) Authenticate(ctx context.Context, r *http.Request) (*a
 	case err != nil && r.Header.Get("Authorization") != "":
 		return nil, err
 	}
-	return d.Service.Actor(ctx, d.User, d.Service.clientOf(ctx, r))
+	a, err = d.Service.Actor(ctx, d.User, d.Service.clientOf(ctx, r))
+	if err != nil {
+		return nil, err
+	}
+	a.Source = auth.SourceOf(r)
+	return a, nil
 }
 
 // Developer makes sure racksail dev's developer exists, an admin who may

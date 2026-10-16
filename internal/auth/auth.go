@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"path"
 	"slices"
@@ -854,15 +855,47 @@ func Patterns(actor *Actor) []string {
 
 // DevAuthenticator treats every request as the server admin. It exists for
 // `racksail dev`, which only listens on the loopback address of a
-// developer's machine; the panel role never uses it.
+// developer's machine; the panel role never uses it. The actor's address
+// and source are the request's, as records of what it does show them.
 type DevAuthenticator struct{}
 
 // Authenticate implements Authenticator.
 func (DevAuthenticator) Authenticate(ctx context.Context, r *http.Request) (*Actor, error) {
+	ip := ClientFrom(ctx).IP
+	if ip == "" {
+		ip = HostOf(r.RemoteAddr)
+	}
 	return &Actor{
-		Type: ActorUser, Name: "developer", Source: SourceUI, IP: r.RemoteAddr,
+		Type: ActorUser, Name: "developer", Source: SourceOf(r), IP: ip,
 		Grants: []Grant{{Role: RoleAdmin, Scope: store.ServerScope()}},
 	}, nil
+}
+
+// CLIAgent starts the User-Agent the racksail command sends, such as
+// racksail/1.2.0 (linux/amd64).
+const CLIAgent = "racksail/"
+
+// SourceOf says which surface a request came through, from what it says of
+// itself: the racksail command names itself in its User-Agent, and browsers
+// say where each of their requests comes from in Sec-Fetch-Site, which a
+// page can't leave out. Anything else is a program calling the API.
+func SourceOf(r *http.Request) Source {
+	switch {
+	case strings.HasPrefix(r.UserAgent(), CLIAgent):
+		return SourceCLI
+	case r.Header.Get("Sec-Fetch-Site") != "":
+		return SourceUI
+	}
+	return SourceAPI
+}
+
+// HostOf is the address of a host:port pair without its port, or addr as
+// it is when it has none.
+func HostOf(addr string) string {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }
 
 // NoAuthenticator finds no credentials in any request, so every protected
