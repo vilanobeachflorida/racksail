@@ -63,6 +63,7 @@ export const messages = {
 
   jobsOpen: m("app.jobs.open"),
   jobsRunning: m("app.jobs.running"),
+  jobsOpenRunning: m("app.jobs.openRunning"),
 
   assistantOpen: m("app.assistant.open"),
   assistantClose: m("app.assistant.close"),
@@ -135,6 +136,7 @@ export const messages = {
   themeImportUnreadable: m("app.theme.importUnreadable"),
   themeImportProtected: m("app.theme.importProtected"),
   themeImportDocument: m("app.theme.importDocument"),
+  themeIssue: m("app.theme.issue"),
   themeExportYAML: m("app.theme.exportYAML"),
   themeExportJSON: m("app.theme.exportJSON"),
   themeTry: m("app.theme.try"),

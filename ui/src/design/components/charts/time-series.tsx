@@ -228,7 +228,13 @@ export function TimeSeries({
             return null;
           }
           return (
-            <Tooltip key={eventKeys[i]} content={`${f.dateTime(e.time)}: ${e.label}`}>
+            <Tooltip
+              key={eventKeys[i]}
+              content={intl.formatMessage(m.chartEvent, {
+                time: f.dateTime(e.time),
+                event: e.label,
+              })}
+            >
               <button
                 type="button"
                 className={cn(

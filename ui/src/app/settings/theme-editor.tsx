@@ -45,6 +45,7 @@ import {
   themeToJSON,
   themeToYAML,
 } from "@/design/theme/validate";
+import type { SchemaIssue } from "@/lib/schema";
 import { messages } from "../messages";
 import { ThemePreview } from "./theme-preview";
 
@@ -508,14 +509,19 @@ function readingErrors(intl: IntlShape, reading: ThemeReading): string[] {
   if (reading.error === "protected") {
     return [
       intl.formatMessage(messages.themeImportProtected, {
-        tokens: reading.protectedKeys.join(", "),
+        tokens: intl.formatList(reading.protectedKeys, { type: "conjunction" }),
       }),
     ];
   }
-  return reading.issues.map(
-    (i) =>
-      `${i.path || intl.formatMessage(messages.themeImportDocument)}: ${issueMessage(intl, i)}`,
-  );
+  return reading.issues.map((i) => issueLine(intl, i));
+}
+
+/** Where the theme doesn't match the schema, and how. */
+function issueLine(intl: IntlShape, issue: SchemaIssue): string {
+  return intl.formatMessage(messages.themeIssue, {
+    path: issue.path || intl.formatMessage(messages.themeImportDocument),
+    problem: issueMessage(intl, issue),
+  });
 }
 
 /**
@@ -687,7 +693,7 @@ export default function ThemeEditor() {
           </p>
           <ul className="list-disc ps-5">
             {schemaIssues.map((i) => (
-              <li key={`${i.path}-${i.keyword}`}>{`${i.path}: ${issueMessage(intl, i)}`}</li>
+              <li key={`${i.path}-${i.keyword}`}>{issueLine(intl, i)}</li>
             ))}
             {problems.map((p) => (
               <li key={`${p.mode}-${p.kind}-${p.foreground}-${p.background ?? ""}`}>

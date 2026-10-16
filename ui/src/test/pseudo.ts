@@ -2,7 +2,8 @@
  * Finds text that didn't come from the message catalogs. Under the en-XA
  * pseudo-locale every message is bracketed and its letters accented, so
  * with test data written in another script (these tests use Greek), Latin
- * letters or separators outside brackets were written into the code.
+ * letters or separators outside brackets, or punctuation that joins two
+ * messages, were written into the code.
  */
 
 // What data and formatting may put outside a message: Greek test data,
@@ -32,19 +33,54 @@ const textAttributes = [
 // a text area's text is the value being edited.
 const skipped = "style, script, noscript, template, time, textarea";
 
-function outsideBrackets(text: string, depth: number): { outside: string; depth: number } {
+// Punctuation that joins two messages, as in "[Jobs], [2 running]". The
+// punctuation of numbers is allowed outside messages, so a separator
+// written into the code shows only as what stands between two of them.
+const separator = /[,:;·|–—]/;
+const onlySeparators = /^[\s,:;·|–—]*$/;
+
+interface Reading {
+  depth: number;
+  // What's outside messages since the last one ended, while it may still
+  // be joining it to the next, and where it is.
+  gap: string | null;
+  where: string;
+}
+
+interface Join {
+  text: string;
+  where: string;
+}
+
+function outsideBrackets(
+  text: string,
+  reading: Reading,
+  where: string,
+): { outside: string; joins: Join[]; reading: Reading } {
   let outside = "";
-  let d = depth;
+  const joins: Join[] = [];
+  let { depth, gap, where: gapWhere } = reading;
   for (const ch of text) {
     if (ch === "[") {
-      d++;
+      if (depth === 0 && gap !== null && separator.test(gap)) {
+        joins.push({ text: gap.trim(), where: gapWhere });
+      }
+      depth++;
+      gap = null;
     } else if (ch === "]") {
-      d = Math.max(0, d - 1);
-    } else if (d === 0) {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) {
+        gap = "";
+      }
+    } else if (depth === 0) {
       outside += ch;
+      if (gap === "") {
+        gapWhere = where;
+      }
+      gap = gap !== null && onlySeparators.test(gap + ch) ? gap + ch : null;
     }
   }
-  return { outside, depth: d };
+  return { outside, joins, reading: { depth, gap, where: gapWhere } };
 }
 
 /**
@@ -61,15 +97,21 @@ export function untranslatedText(
     acceptNode: (node) =>
       node.parentElement?.closest(skipped) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
   });
-  let depth = 0;
+  let reading: Reading = { depth: 0, gap: null, where: "" };
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node.textContent ?? "";
-    const { outside, depth: next } = outsideBrackets(text, depth);
-    depth = next;
-    if (!allowedOutside.test(outside) && !keyCap.test(text) && !formatted.includes(text.trim())) {
-      problems.push(
-        `text ${JSON.stringify(outside.trim())} in <${node.parentElement?.tagName.toLowerCase()}>`,
-      );
+    const where = `<${node.parentElement?.tagName.toLowerCase()}>`;
+    const result = outsideBrackets(text, reading, where);
+    reading = result.reading;
+    for (const join of result.joins) {
+      problems.push(`${JSON.stringify(join.text)} joins two messages in ${join.where}`);
+    }
+    if (
+      !allowedOutside.test(result.outside) &&
+      !keyCap.test(text) &&
+      !formatted.includes(text.trim())
+    ) {
+      problems.push(`text ${JSON.stringify(result.outside.trim())} in ${where}`);
     }
   }
   for (const element of root.querySelectorAll("*")) {
@@ -81,8 +123,8 @@ export function untranslatedText(
       if (value === null || dataAttribute.test(value)) {
         continue;
       }
-      const { outside } = outsideBrackets(value, 0);
-      if (!allowedOutside.test(outside)) {
+      const { outside, joins } = outsideBrackets(value, { depth: 0, gap: null, where: "" }, "");
+      if (!allowedOutside.test(outside) || joins.length > 0) {
         problems.push(`${name}=${JSON.stringify(value)} on <${element.tagName.toLowerCase()}>`);
       }
     }

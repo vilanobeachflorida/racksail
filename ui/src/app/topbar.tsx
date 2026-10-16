@@ -191,7 +191,7 @@ export function TopBar({ runningJobs }: { runningJobs: number }) {
           className="relative"
           aria-label={
             runningJobs > 0
-              ? `${intl.formatMessage(messages.jobsOpen)}, ${intl.formatMessage(messages.jobsRunning, { count: runningJobs })}`
+              ? intl.formatMessage(messages.jobsOpenRunning, { count: runningJobs })
               : intl.formatMessage(messages.jobsOpen)
           }
           onClick={() => shell.setJobsOpen(true)}
