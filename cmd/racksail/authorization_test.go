@@ -63,6 +63,8 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every operation is called twice in a row from one address.
+	cfg.API.RateLimit, cfg.API.AnonymousRateLimit = 0, 0
 	d, err := newDevServer(ctx, cfg, dir, false, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +74,6 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		"admin":  {Type: auth.ActorUser, ID: store.NewID("user"), Name: "admin", Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}},
 		"nobody": {Type: auth.ActorUser, ID: store.NewID("user"), Name: "nobody", Source: auth.SourceUI},
 	}
-	// Every operation is called twice in a row from one address.
-	d.core.services.Config.API.RateLimit, d.core.services.Config.API.AnonymousRateLimit = 0, 0
 	srv, err := d.core.apiServer(actors, false)
 	if err != nil {
 		t.Fatal(err)

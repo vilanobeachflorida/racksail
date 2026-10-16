@@ -704,8 +704,8 @@ func TestAccountAddonsOnlyTakePartInTheirChanges(t *testing.T) {
 		changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: mine, Spec: spec(t, siteSpec{Domains: []string{"mine.example"}})},
 		changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: theirs, Spec: spec(t, siteSpec{Domains: []string{"secret.example"}, Notes: "theirs"})},
 	)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || cs.State != changeset.StateApplied {
+		t.Fatalf("a change set of two accounts: %v %+v", err, cs)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for !slices.ContainsFunc(calls(), func(c hooks.HookCall) bool { return c.Kind == hooks.Observe }) && time.Now().Before(deadline) {
