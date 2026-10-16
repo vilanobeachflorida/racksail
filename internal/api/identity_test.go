@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -352,7 +353,7 @@ func TestNarrowedTokensKeepToTheirNarrowing(t *testing.T) {
 func TestPendingStepsOverTheAPI(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	b := s.setUp()
-	s.identity.SetPolicy(identity.PolicySpec{RequireTwoFactor: []auth.Role{auth.RoleAdmin}})
+	s.identity.SetPolicy(identity.SignInPolicySpec{RequireTwoFactor: []auth.Role{auth.RoleAdmin}})
 	fresh := s.browser()
 	fresh.do("POST", "/api/v1/auth/sign-in", map[string]any{"username": "ada", "password": testPassword}, nil)
 	if resp := fresh.do("GET", "/api/v1/core/users", nil, nil); resp.StatusCode != http.StatusForbidden || s.problem(resp) != auth.ErrTwoFactorRequired.Code {
@@ -1020,5 +1021,43 @@ func TestLinkingProvidersOverTheAPI(t *testing.T) {
 	resp = b.do("GET", "/api/v1/auth/providers/"+string(sso)+"/callback?code=bad", nil, nil)
 	if !strings.HasPrefix(resp.Header.Get("Location"), "/settings/security#error=") {
 		t.Errorf("a link that failed = %s", resp.Header.Get("Location"))
+	}
+}
+
+// Alerts can go to the notification channel types the core has, whose
+// secret settings a person's alert settings keep with the rest.
+func TestAlertChannelTypesOverTheAPI(t *testing.T) {
+	s := newStack(t, RateLimit{})
+	b := s.setUp()
+	var alerts struct {
+		Types []AlertChannelTypeView `json:"types"`
+	}
+	if resp := b.do("GET", "/api/v1/me/alerts", nil, &alerts); resp.StatusCode != http.StatusOK {
+		t.Fatalf("alerts = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	var ntfy *AlertChannelTypeView
+	for i, ty := range alerts.Types {
+		if ty.ID == "ntfy" {
+			ntfy = &alerts.Types[i]
+		}
+	}
+	if ntfy == nil || !slices.Equal(ntfy.Secrets, []string{"token", "password"}) {
+		t.Fatalf("types = %+v", alerts.Types)
+	}
+	var settings struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(ntfy.Settings, &settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range ntfy.Secrets {
+		if d := settings.Properties[name].Description; strings.Contains(d, "change's secrets") || !strings.Contains(d, "encrypted") {
+			t.Errorf("%s is described as %q", name, d)
+		}
+	}
+	if d := settings.Properties["topic"].Description; !strings.Contains(d, "topic") {
+		t.Errorf("topic is described as %q", d)
 	}
 }

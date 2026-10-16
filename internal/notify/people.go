@@ -83,6 +83,33 @@ type DirectoryFunc func(ctx context.Context, id store.ID) (*Person, error)
 // Person implements Directory.
 func (f DirectoryFunc) Person(ctx context.Context, id store.ID) (*Person, error) { return f(ctx, id) }
 
+// Users finds people among the panel's users, which users returns once the
+// panel has them: their email address, and their grants, so they only hear
+// about what they may see. Users who are gone or turned off hear nothing.
+func Users(users func() auth.Directory) Directory {
+	return DirectoryFunc(func(ctx context.Context, id store.ID) (*Person, error) {
+		dir := users()
+		if dir == nil {
+			return nil, nil
+		}
+		u, err := dir.User(ctx, id)
+		switch {
+		case store.ErrNotFound.Is(err):
+			return nil, nil
+		case err != nil:
+			return nil, err
+		case u.Disabled:
+			return nil, nil
+		}
+		name := u.Name
+		if name == "" {
+			name = u.Username
+		}
+		actor := &auth.Actor{Type: auth.ActorUser, ID: u.ID, Name: u.Username, User: u.ID, Grants: u.Grants}
+		return &Person{ID: u.ID, Name: name, Email: u.Email, Actor: actor}, nil
+	})
+}
+
 // Check returns what is wrong with preferences.
 func (p *NotificationPreferences) Check() error {
 	if fields := p.check(""); len(fields) > 0 {

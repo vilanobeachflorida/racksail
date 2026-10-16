@@ -55,7 +55,8 @@ The token is never a flag, so it stays out of your shell's history.
 Commands are named after what they act on, then what they do:
 
 - **Resources** are `racksail <kind> <operation>` for the core's kinds and `racksail <module> <kind> <operation>` for a module's: `racksail account list`, `racksail webhook create`, `racksail dns zone get`. Each kind has `list`, `get`, `create`, `update`, `delete` and `history`, and a command per action, such as `racksail webhook test`.
-- **The rest of the panel** has commands of its own: `racksail user password`, `racksail user link`, `racksail role list`, `racksail changeset undo`, `racksail job logs`, `racksail event watch`, `racksail audit export`, `racksail me show`, `racksail health`. Users are a kind like any other, `core.user`, so `racksail user list`, `create`, `update` and `delete` are resource commands, with previews and undo.
+- **The rest of the panel** has commands of its own: `racksail user password`, `racksail user link`, `racksail role list`, `racksail changeset undo`, `racksail job logs`, `racksail event watch`, `racksail audit export`, `racksail me show`, `racksail resource search`, `racksail inbox list`, `racksail hook list`, `racksail notification preferences`, `racksail health`. Users are a kind like any other, `core.user`, so `racksail user list`, `create`, `update` and `delete` are resource commands, with previews and undo.
+- **What acts on a kind beside its own operations** is named for what it does: `racksail module on` turns a module on with the modules it needs, where `racksail module turn-on` changes one `core.module`; `racksail module status` lists every module with what it needs and costs; `racksail catalog install` installs an item from a catalog, and `racksail installation upgrade` and `racksail installation uninstall` change what it installed.
 
 `racksail --help` lists them, and `racksail <command> --help` says what one does, what it needs and its flags, with an example. Operations only people in the panel may use, such as signing in or changing how someone signs in, have no command.
 
@@ -113,7 +114,7 @@ racksail user delete user_01j9… --yes
 
 ## Live streams
 
-`racksail event watch`, `racksail resource watch` and `racksail job watch` print what happens as it happens, until you press Ctrl-C. They pick up where they left off when the connection drops. With `-o json` each event is a line of JSON.
+`racksail event watch`, `racksail resource watch`, `racksail inbox watch` and `racksail job watch` print what happens as it happens, until you press Ctrl-C. They pick up where they left off when the connection drops. With `-o json` each event is a line of JSON.
 
 ## Shell completion
 

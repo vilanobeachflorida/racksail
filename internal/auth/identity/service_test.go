@@ -211,7 +211,7 @@ func TestSignInLimits(t *testing.T) {
 
 	// The policy's allowlist keeps everyone else out, but never the server
 	// itself.
-	h.svc.SetPolicy(PolicySpec{AllowFrom: []string{"192.0.2.0/24"}})
+	h.svc.SetPolicy(SignInPolicySpec{AllowFrom: []string{"192.0.2.0/24"}})
 	if _, err := h.svc.SignIn(ctx, SignInInput{Username: "ada", Password: password}, "", auth.Client{IP: "203.0.113.9"}); !auth.ErrAddressNotAllowed.Is(err) {
 		t.Errorf("outside the allowlist = %v", err)
 	}
@@ -459,7 +459,7 @@ func TestPendingSteps(t *testing.T) {
 	h := newHarness(t)
 	acct := store.NewID("acct")
 	h.user("bob", store.AccountScope(acct), auth.Grant{Role: auth.RoleOwner, Scope: store.AccountScope(acct)})
-	h.svc.SetPolicy(PolicySpec{RequireTwoFactor: []auth.Role{auth.RoleOwner}})
+	h.svc.SetPolicy(SignInPolicySpec{RequireTwoFactor: []auth.Role{auth.RoleOwner}})
 	actor, secret := h.signIn("bob")
 	if actor.Pending != PendingTwoFactor {
 		t.Fatalf("pending = %q", actor.Pending)

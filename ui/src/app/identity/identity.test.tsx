@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
 import type { PanelSession } from "@/lib/api/session";
 import { fakeApi, json, renderApp, renderWithProviders } from "@/test/render";
+import { secretHints } from "./account/security";
 import { auditExportURL } from "./api";
 import { ImpersonationBanner } from "./banner";
 import { page } from "./page";
@@ -488,6 +489,19 @@ describe("the command bar", () => {
 });
 
 describe("helpers", () => {
+  it("hide what people type into an alert channel's secret settings", () => {
+    const secrets = ["token", "password"];
+    const hints = secretHints(secrets);
+    expect(hints.fields).toEqual({
+      token: { widget: "password" },
+      password: { widget: "password" },
+    });
+    // The same channel type's form keeps its hints from one render to the next.
+    expect(secretHints(secrets)).toBe(hints);
+    expect(secretHints(undefined)).toEqual({});
+    expect(secretHints([])).toEqual({});
+  });
+
   it("read owners, sizes and initials as people write them", () => {
     expect(parseScope("server")).toEqual({ level: "server" });
     expect(parseScope("acct_1")).toEqual({ level: "account", id: "acct_1" });

@@ -8,9 +8,11 @@ import (
 )
 
 // coreCommands names the commands of the core's operations that aren't
-// about a kind. Operations on kinds are named after the kind and the
-// operation, such as "account list" or "web site create"; operations a
-// module adds otherwise are named after the module and the operation's ID.
+// those of a kind, including the ones that act on a kind beside its own
+// operations, such as installing from a catalog. Operations on kinds are
+// named after the kind and the operation, such as "account list" or "web
+// site create"; operations a module adds otherwise are named after the
+// module and the operation's ID.
 var coreCommands = map[string]string{
 	"listChangeSets":  "changeset list",
 	"getChangeSet":    "changeset get",
@@ -39,6 +41,12 @@ var coreCommands = map[string]string{
 	"getKind":         "kind get",
 	"getResource":     "resource get",
 	"streamResources": "resource watch",
+	"searchResources": "resource search",
+
+	"listInbox":        "inbox list",
+	"streamInbox":      "inbox watch",
+	"dismissInboxItem": "inbox dismiss",
+	"restoreInboxItem": "inbox restore",
 
 	"resetUser":        "user reset",
 	"setUserPassword":  "user password",
@@ -61,6 +69,39 @@ var coreCommands = map[string]string{
 	"getMyAlerts":    "me alerts",
 
 	"openCoreAccount": "account open",
+
+	"listHooks":        "hook list",
+	"listHookPoints":   "hook points",
+	"enableHook":       "hook enable",
+	"testRule":         "policy test",
+	"listAddonEntries": "addon entries",
+	"getSafeMode":      "addon safe-mode",
+	"enterSafeMode":    "addon safe-mode-on",
+	"leaveSafeMode":    "addon safe-mode-off",
+
+	"listModules":        "module status",
+	"getModule":          "module describe",
+	"turnOnModule":       "module on",
+	"turnOffModule":      "module off",
+	"removeModule":       "module uninstall",
+	"exportModule":       "module export",
+	"listModuleSoftware": "module software",
+	"listProfiles":       "module profiles",
+	"applyProfile":       "module apply-profile",
+
+	"listCatalogItems":      "catalog items",
+	"getCatalogItem":        "catalog item",
+	"getCatalogItemIcon":    "catalog icon",
+	"installCatalogItem":    "catalog install",
+	"upgradeInstallation":   "installation upgrade",
+	"uninstallInstallation": "installation uninstall",
+
+	"listNotifications":          "notification list",
+	"getNotification":            "notification get",
+	"listChannelTypes":           "notification channel-types",
+	"getNotificationPreferences": "notification preferences",
+	"setNotificationPreferences": "notification set-preferences",
+	"sendTestNotification":       "notification test",
 }
 
 // handWritten are operations commands of this package cover by hand.
@@ -70,22 +111,28 @@ var handWritten = map[string]string{
 
 // groupTitles are the one-line help of the core's command groups.
 var groupTitles = map[string]string{
-	"changeset": "Preview, apply and undo change sets",
-	"job":       "Follow, cancel and retry background jobs",
-	"event":     "Read and follow the event timeline",
-	"audit":     "Read and export the audit log",
-	"operation": "List what the API can do",
-	"kind":      "Describe the kinds of resources",
-	"resource":  "Get any resource by its ID, and follow changes",
-	"user":      "Manage users, their grants and their access",
-	"role":      "List roles and the permission matrix",
-	"me":        "See your own user and how you sign in",
+	"changeset":    "Preview, apply and undo change sets",
+	"job":          "Follow, cancel and retry background jobs",
+	"event":        "Read and follow the event timeline",
+	"audit":        "Read and export the audit log",
+	"operation":    "List what the API can do",
+	"kind":         "Describe the kinds of resources",
+	"resource":     "Get any resource by its ID, and follow changes",
+	"user":         "Manage users, their grants and their access",
+	"role":         "List roles and the permission matrix",
+	"me":           "See your own user and how you sign in",
+	"inbox":        "See what needs your attention, and dismiss it",
+	"hook":         "List hooks and hook points, and switch hooks back on",
+	"notification": "Read the notifications sent, and set your own preferences",
 }
 
 // CommandPath is the words of the command for an operation, after
 // racksail: "account list", "web site create" or "job watch".
 func CommandPath(op *Operation) []string {
-	if op.Kind != "" && op.Operation != "" {
+	if name, ok := coreCommands[op.ID]; ok {
+		return strings.Fields(name)
+	}
+	if namedForKind(op) {
 		module, name, _ := strings.Cut(op.Kind, ".")
 		words := []string{kebab(name)}
 		if module != "core" {
@@ -93,15 +140,19 @@ func CommandPath(op *Operation) []string {
 		}
 		return append(words, kebab(op.Operation))
 	}
-	if name, ok := coreCommands[op.ID]; ok {
-		return strings.Fields(name)
-	}
 	if name, ok := handWritten[op.ID]; ok {
 		return strings.Fields(name)
 	}
 	rest := strings.TrimPrefix(op.Path, api.Prefix+"/")
 	first, _, _ := strings.Cut(rest, "/")
 	return []string{kebab(first), kebab(op.ID)}
+}
+
+// namedForKind reports whether an operation's command is named after its
+// kind and operation, as every operation of a kind is unless coreCommands
+// names it.
+func namedForKind(op *Operation) bool {
+	return op.Kind != "" && op.Operation != "" && coreCommands[op.ID] == ""
 }
 
 // kebab turns camelCase and snake_case names into kebab-case:

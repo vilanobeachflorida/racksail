@@ -27,7 +27,7 @@ import { ErrorState } from "@/design/components/ui/states";
 import { toast } from "@/design/components/ui/toaster";
 import { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/context";
-import { setAt } from "@/lib/forms/model";
+import { setAt, type UIHints } from "@/lib/forms/model";
 import type { JSONSchema } from "@/lib/schema";
 import {
   disableMfa,
@@ -768,6 +768,26 @@ function Devices() {
   );
 }
 
+const noHints: UIHints = {};
+const hintsOf = new WeakMap<readonly string[], UIHints>();
+
+/**
+ * Hides what people type into a channel's secret settings. The values stay
+ * in the settings, which are kept encrypted whole. The same channel type
+ * gets the same hints, so its form isn't built again on every render.
+ */
+export function secretHints(names: readonly string[] | null | undefined): UIHints {
+  if (!names?.length) {
+    return noHints;
+  }
+  let hints = hintsOf.get(names);
+  if (!hints) {
+    hints = { fields: Object.fromEntries(names.map((name) => [name, { widget: "password" }])) };
+    hintsOf.set(names, hints);
+  }
+  return hints;
+}
+
 function Alerts() {
   const intl = useIntl();
   const api = useApi();
@@ -865,6 +885,7 @@ function Alerts() {
           {type?.settings && (selected !== current || editing) ? (
             <SchemaForm
               schema={type.settings as JSONSchema}
+              hints={secretHints(type.secrets)}
               submitLabel={intl.formatMessage(t.save)}
               onSubmit={submit}
               onCancel={() => {

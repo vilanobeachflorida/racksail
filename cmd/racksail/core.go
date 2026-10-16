@@ -193,9 +193,11 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 		}
 	}
 	// Notifications follow the timeline like webhooks, and reach the same
-	// networks they may.
+	// networks they may. People's own reach the users the identity service
+	// keeps, once it exists.
+	users := notify.Users(func() auth.Directory { return svc.Identity })
 	notifier, err := notify.NewSQL(ctx, db, notify.Options{
-		Store: st, Log: timeline, Secrets: vault, Registry: hookReg, Authorizer: authorizer, BrandName: "Racksail",
+		Store: st, Log: timeline, Secrets: vault, Registry: hookReg, Directory: users, Authorizer: authorizer, BrandName: "Racksail",
 		Link: panelLink(cfg), AllowNetworks: hooksAllowed, Retention: time.Duration(keep.Deliveries), Logger: log,
 	})
 	if err != nil {
@@ -289,8 +291,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	owners = ownership
 	authorizer.SetOwnership(ownership)
 	ids := identity.New(identity.Options{
-		Store: people, Resources: st, Pipeline: pipeline, Refresh: runner.Enqueue, Secrets: vault, Events: timeline, Audit: timeline,
-		Hooks: hookRunner, Authorizer: authorizer, Hostname: cfg.Panel.Hostname, SetupFile: filepath.Join(cfg.Paths.State, setupCodeFile), Log: log,
+		Store: people, Resources: st, Pipeline: pipeline, Refresh: runner.Enqueue, Secrets: vault, Channels: notifier.Env,
+		Events: timeline, Audit: timeline, Hooks: hookRunner, Authorizer: authorizer, Hostname: cfg.Panel.Hostname,
+		SetupFile: filepath.Join(cfg.Paths.State, setupCodeFile), Log: log,
 	})
 	// Users are reconciled by the service that signs them in, which only
 	// exists once the pipeline that changes them does.

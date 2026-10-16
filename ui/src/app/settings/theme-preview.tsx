@@ -14,6 +14,7 @@ import { renderScopedCSS } from "@/design/theme/css";
 import type { Theme } from "@/design/theme/types";
 import { withKeys } from "@/lib/utils";
 import { messages } from "../messages";
+import { themeMessages as tm } from "../screens/messages";
 
 const series = [3, 5, 4, 6, 8, 7, 9, 12, 10, 13, 12, 15];
 
@@ -50,16 +51,14 @@ export function ThemePreview({
       : "[--mark-ink:var(--rs-brand)] [--mark-sea:var(--rs-focus)]";
   return (
     <section
-      aria-label={t(messages.themePreviewLabel, { mode })}
+      aria-label={t(tm.themePreviewLabel, { mode })}
       className={`${scope} ${mark} overflow-hidden rounded-lg border border-border bg-background font-sans text-foreground`}
       style={{ colorScheme: mode }}
     >
       <div className="flex h-12 items-center gap-2 border-border border-b bg-card px-3">
         <Mark className="h-6" />
         <span className="font-semibold">{t(messages.name)}</span>
-        <span className="ms-auto text-muted-foreground text-xs">
-          {t(messages.themePreviewSample)}
-        </span>
+        <span className="ms-auto text-muted-foreground text-xs">{t(tm.themePreviewSample)}</span>
       </div>
       <div className="flex">
         <div className="flex w-14 flex-col items-center gap-2 border-border border-e bg-card py-3 text-muted-foreground">
@@ -70,64 +69,61 @@ export function ThemePreview({
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="flex flex-col gap-1">
-            <p className="font-semibold text-xl">{t(messages.themePreviewHeading)}</p>
-            <p className="text-muted-foreground text-sm">{t(messages.themePreviewBody)}</p>
+            <p className="font-semibold text-xl">{t(tm.themePreviewHeading)}</p>
+            <p className="text-muted-foreground text-sm">{t(tm.themePreviewBody)}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <StatTile
-              label={t(messages.themePreviewRequests)}
+              label={t(tm.themePreviewRequests)}
               value={intl.formatNumber(12480)}
               delta={intl.formatNumber(0.12, { style: "percent", signDisplay: "always" })}
               trend="up-good"
-              chart={<Sparkline values={series} label={t(messages.themePreviewRequests)} />}
+              chart={<Sparkline values={series} label={t(tm.themePreviewRequests)} />}
             />
             <Card className="gap-2">
               <CardHeader>
-                <CardTitle className="text-sm">{t(messages.themePreviewServices)}</CardTitle>
+                <CardTitle className="text-sm">{t(tm.themePreviewServices)}</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-1.5">
-                <StatusDot status="ok" label={t(messages.themePreviewServiceWeb)} />
-                <StatusDot status="warning" label={t(messages.themePreviewServiceMail)} />
-                <StatusDot status="error" label={t(messages.themePreviewServiceBackups)} />
+                <StatusDot status="ok" label={t(tm.themePreviewServiceWeb)} />
+                <StatusDot status="warning" label={t(tm.themePreviewServiceMail)} />
+                <StatusDot status="error" label={t(tm.themePreviewServiceBackups)} />
               </CardContent>
             </Card>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button>{t(messages.themePreviewPrimary)}</Button>
-            <Button variant="outline">{t(messages.themePreviewSecondary)}</Button>
-            <Button variant="destructive">{t(messages.themePreviewDanger)}</Button>
-            <Button variant="link">{t(messages.themePreviewLink)}</Button>
+            <Button>{t(tm.themePreviewPrimary)}</Button>
+            <Button variant="outline">{t(tm.themePreviewSecondary)}</Button>
+            <Button variant="destructive">{t(tm.themePreviewDanger)}</Button>
+            <Button variant="link">{t(tm.themePreviewLink)}</Button>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge variant="success">{t(messages.themePreviewBadge, { tone: "success" })}</Badge>
-            <Badge variant="warning">{t(messages.themePreviewBadge, { tone: "warning" })}</Badge>
-            <Badge variant="danger">{t(messages.themePreviewBadge, { tone: "danger" })}</Badge>
-            <Badge variant="info">{t(messages.themePreviewBadge, { tone: "info" })}</Badge>
+            <Badge variant="success">{t(tm.themePreviewBadge, { tone: "success" })}</Badge>
+            <Badge variant="warning">{t(tm.themePreviewBadge, { tone: "warning" })}</Badge>
+            <Badge variant="danger">{t(tm.themePreviewBadge, { tone: "danger" })}</Badge>
+            <Badge variant="info">{t(tm.themePreviewBadge, { tone: "info" })}</Badge>
             <Badge variant="brand">{t(messages.name)}</Badge>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field
-              label={t(messages.themePreviewField)}
-              description={t(messages.themePreviewFieldHelp)}
-            >
+            <Field label={t(tm.themePreviewField)} description={t(tm.themePreviewFieldHelp)}>
               <Input defaultValue="example.com" />
             </Field>
             <div className="flex flex-col justify-end gap-3">
               <div className="flex items-center gap-2 text-sm">
-                <Checkbox defaultChecked aria-label={t(messages.themePreviewOption)} />
-                {t(messages.themePreviewOption)}
+                <Checkbox defaultChecked aria-label={t(tm.themePreviewOption)} />
+                {t(tm.themePreviewOption)}
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Switch defaultChecked aria-label={t(messages.themePreviewToggle)} />
-                {t(messages.themePreviewToggle)}
+                <Switch defaultChecked aria-label={t(tm.themePreviewToggle)} />
+                {t(tm.themePreviewToggle)}
               </div>
             </div>
           </div>
-          <Progress value={64} aria-label={t(messages.themePreviewProgress)} />
-          <Alert tone="warning" title={t(messages.themePreviewAlertTitle)}>
-            {t(messages.themePreviewAlertBody)}
+          <Progress value={64} aria-label={t(tm.themePreviewProgress)} />
+          <Alert tone="warning" title={t(tm.themePreviewAlertTitle)}>
+            {t(tm.themePreviewAlertBody)}
           </Alert>
-          <ul className="flex flex-wrap gap-1.5" aria-label={t(messages.themeChart)}>
+          <ul className="flex flex-wrap gap-1.5" aria-label={t(tm.themeChart)}>
             {withKeys(theme.tokens[mode].chart, (color) => color).map(([key, color], i) => (
               <li
                 key={key}
@@ -141,10 +137,8 @@ export function ThemePreview({
             data-critical=""
             className="critical-area rounded-md border-2 border-critical-danger p-3 text-sm"
           >
-            <p className="font-semibold text-critical-danger">
-              {t(messages.themePreviewProtected)}
-            </p>
-            <p>{t(messages.themePreviewProtectedBody)}</p>
+            <p className="font-semibold text-critical-danger">{t(tm.themePreviewProtected)}</p>
+            <p>{t(tm.themePreviewProtectedBody)}</p>
           </div>
         </div>
       </div>

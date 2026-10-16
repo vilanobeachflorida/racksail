@@ -612,7 +612,7 @@ func TestTokens(t *testing.T) {
 	}
 
 	// Tokens expire, and the policy can cap how long they last.
-	h.svc.SetPolicy(PolicySpec{TokenMaxDays: 30})
+	h.svc.SetPolicy(SignInPolicySpec{TokenMaxDays: 30})
 	if _, err := h.svc.CreateToken(ctx, rex, TokenInput{Name: "forever"}); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("a token without an end = %v", err)
 	}
@@ -826,7 +826,7 @@ func TestOrphanCredentialsAreRemoved(t *testing.T) {
 func TestPolicyKind(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
-	spec, _ := json.Marshal(PolicySpec{SessionIdleMinutes: 20, SessionLifetimeHours: 4, LockoutAttempts: 5, RequireTwoFactor: []auth.Role{auth.RoleAdmin}})
+	spec, _ := json.Marshal(SignInPolicySpec{SessionIdleMinutes: 20, SessionLifetimeHours: 4, LockoutAttempts: 5, RequireTwoFactor: []auth.Role{auth.RoleAdmin}})
 	r := &store.Resource{Meta: store.Meta{ID: store.NewID("signin"), Kind: PolicyKind.Name(), Scope: store.ServerScope()}, Spec: spec}
 	if err := h.resources.Write(ctx, store.WriteMeta{}, func(tx store.Tx) error { return tx.Create(ctx, r) }); err != nil {
 		t.Fatal(err)
@@ -841,7 +841,7 @@ func TestPolicyKind(t *testing.T) {
 
 	// The policy refuses an allowlist that would lock out whoever sets it.
 	actor := &auth.Actor{Type: auth.ActorUser, IP: "203.0.113.4"}
-	obj := &store.Object[PolicySpec, PolicyStatus]{Spec: PolicySpec{AllowFrom: []string{"192.0.2.0/24"}}}
+	obj := &store.Object[SignInPolicySpec, SignInPolicyStatus]{Spec: SignInPolicySpec{AllowFrom: []string{"192.0.2.0/24"}}}
 	if err := validatePolicy(auth.WithActor(ctx, actor), obj, nil); !i18n.ErrInvalid.Is(err) {
 		t.Errorf("locking yourself out = %v", err)
 	}

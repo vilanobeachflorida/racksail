@@ -96,6 +96,21 @@ var SignedInOperations = map[string]string{
 	"getMyAlerts":               "the caller's own security alerts",
 	"setMyAlerts":               "the caller's own security alerts",
 	"testMyAlerts":              "the caller's own security alerts",
+
+	"searchResources":            "shows only resources the caller may read",
+	"listInbox":                  "shows only what the caller may see",
+	"streamInbox":                "shows only what the caller may see",
+	"dismissInboxItem":           "the caller's own dismissals",
+	"restoreInboxItem":           "the caller's own dismissals",
+	"listAddonEntries":           "shows only the entries of add-ons the caller may use",
+	"listCatalogItems":           "what catalogs offer is for everyone signed in",
+	"getCatalogItem":             "what catalogs offer is for everyone signed in",
+	"getCatalogItemIcon":         "what catalogs offer is for everyone signed in",
+	"installCatalogItem":         "authorizes creating the installation where it goes before reading the recipe, and the change pipeline every change",
+	"upgradeInstallation":        "authorizes updating the installation before reading anything, and the change pipeline every change",
+	"uninstallInstallation":      "authorizes deleting the installation before reading anything, and the change pipeline every change",
+	"getNotificationPreferences": "the caller's own notification preferences",
+	"sendTestNotification":       "emails the caller's own address",
 }
 
 func init() {

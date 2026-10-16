@@ -3,16 +3,22 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
+	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
 	"github.com/vilanobeachflorida/racksail/internal/modules/modulestest"
+	"github.com/vilanobeachflorida/racksail/internal/notify"
+	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
 // knot stands in for a module that runs a service and checks on it.
@@ -137,5 +143,53 @@ func TestStoppingWithStreamsOpen(t *testing.T) {
 	}
 	if _, err := io.ReadAll(resp.Body); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("the stream ended badly: %v", err)
+	}
+}
+
+// A person's own notifications reach their user's email address: the
+// panel's users are who notifications find people among.
+func TestNotificationsReachThePanelsUsers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := shortTemp(t)
+	t.Setenv("XDG_DATA_HOME", dir)
+	cfg, err := config.Dev(dir, config.DevAddresses{Panel: "127.0.0.1:0", EdgeHTTP: "127.0.0.1:0", EdgeHTTPS: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := newDevServer(ctx, cfg, dir, false, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close(context.Background())
+	id := store.NewID(identity.PrefixUser)
+	spec, _ := json.Marshal(identity.UserSpec{Username: "ada", Name: "Ada", Email: "ada@example.com"})
+	if err := d.core.services.Store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: id, Kind: identity.UserKind.Name(), Scope: store.ServerScope()}, Spec: spec})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sent, err := d.core.services.Notify.Send(ctx, notify.Recipient{Person: id}, notify.Message{Title: "Hello", Body: "Hello, Ada."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The panel has no mail relay, so the email can't go out yet; what
+	// matters is that it was for Ada's address.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		n, err := d.core.services.Notify.Notification(ctx, sent.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n.AttemptCount > 0 {
+			if !strings.Contains(n.LastError, "mail relay") {
+				t.Errorf("the notification failed with %q, not for want of a mail relay", n.LastError)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the notification was never attempted")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

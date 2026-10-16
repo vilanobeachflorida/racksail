@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import screenMessages from "@/app/screens/messages/en.json";
 import { builtinTheme, themeSpec } from "@/design/theme/spec";
 import { themeToJSON } from "@/design/theme/validate";
 import { shellMessages } from "@/lib/i18n";
@@ -234,12 +235,12 @@ describe("the theme editor", () => {
 
   it("names every checked pair and status hue in the user's language", () => {
     for (const pair of [...themeSpec.pairs, ...themeSpec.consolePairs]) {
-      expect(shellMessages).toHaveProperty([
+      expect(screenMessages).toHaveProperty([
         `app.theme.purpose.${pair.foreground}.${pair.background}`,
       ]);
     }
     for (const meaning of themeSpec.meanings) {
-      expect(shellMessages).toHaveProperty([`app.theme.hue.${meaning.token}`]);
+      expect(screenMessages).toHaveProperty([`app.theme.hue.${meaning.token}`]);
     }
   });
 

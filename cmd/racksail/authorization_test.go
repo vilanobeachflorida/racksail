@@ -12,9 +12,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/api"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/auth/identity"
 	"github.com/vilanobeachflorida/racksail/internal/config"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -38,6 +40,9 @@ func (a testActors) Authenticate(ctx context.Context, r *http.Request) (*auth.Ac
 	return actor.Clone(), nil
 }
 
+// sshKey is a public key the table's calls add and find.
+const sshKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFw7LvwMxHf0FpGF5oxM8D5Gd+wMx3sVQyBO9g0R4e7 laptop"
+
 // call is how the test calls one operation: what fills its path, the
 // query parameters it needs, and its body, which must be one the operation
 // takes, so that its handler runs.
@@ -48,6 +53,10 @@ type call struct {
 	// open operations need nothing more than a sign-in: they answer with
 	// what the caller may see, or about the caller's own things.
 	open bool
+	// refusals are what an open operation may still answer about the
+	// caller's own state or the test's request, such as a ceremony that was
+	// never started; none of them is about what the caller may do.
+	refusals []string
 }
 
 // Every operation the panel serves, the core's, the extension system's,
@@ -73,9 +82,15 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.close(context.Background())
+	// Both are in a session of the panel's, where they confirmed it's them
+	// just now, so the operations for people in the panel, and those that
+	// ask them to confirm, answer as the authorizer does.
+	now := time.Now()
 	actors := testActors{
-		"admin":  {Type: auth.ActorUser, ID: store.NewID("user"), Name: "admin", Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}},
-		"nobody": {Type: auth.ActorUser, ID: store.NewID("user"), Name: "nobody", Source: auth.SourceUI},
+		"admin": {Type: auth.ActorUser, ID: store.NewID(identity.PrefixUser), Name: "admin", Source: auth.SourceUI,
+			SessionID: string(store.NewID(identity.PrefixSession)), SteppedUpAt: now, Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}},
+		"nobody": {Type: auth.ActorUser, ID: store.NewID(identity.PrefixUser), Name: "nobody", Source: auth.SourceUI,
+			SessionID: string(store.NewID(identity.PrefixSession)), SteppedUpAt: now},
 	}
 	srv, err := d.core.apiServer(actors, false)
 	if err != nil {
@@ -97,6 +112,19 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalog := string(store.NewID(recipes.CatalogKind.Info().Prefix))
+	user := store.NewID(identity.PrefixUser)
+	userSpec, _ := json.Marshal(identity.UserSpec{
+		Username: "carol", Name: "Carol", Email: "carol@example.com",
+		Grants:  []auth.Grant{{Role: auth.RoleOwner, Scope: account}},
+		SSHKeys: []identity.UserSSHKey{{ID: "sshkey_carol", Name: "laptop", PublicKey: sshKey}},
+	})
+	if err := d.core.services.Store.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
+		return tx.Create(ctx, &store.Resource{Meta: store.Meta{ID: user, Kind: identity.UserKind.Name(), Scope: account}, Spec: userSpec})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	someone := map[string]string{"id": string(user)}
+	provider := map[string]string{"provider": string(store.NewID(identity.ProviderKind.Info().Prefix))}
 
 	ids := map[string]string{"id": string(store.NewID("res"))}
 	server := map[string]any{"level": "server"}
@@ -129,6 +157,63 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		"streamJob":                 {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}},
 		"cancelJob":                 {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}},
 		"retryJob":                  {path: map[string]string{"id": string(store.NewID(store.PrefixJob))}, body: map[string]any{}},
+		"listRoles":                 {open: true},
+
+		// People and access: helping someone back in and viewing the panel
+		// as them are for who may manage them, and an account with an owner
+		// for who may open accounts.
+		"listUserSSHKeys":  {path: someone},
+		"listUserSessions": {path: someone},
+		"listUserTokens":   {path: someone},
+		"revokeUserToken":  {path: map[string]string{"id": string(user), "token": string(store.NewID(identity.PrefixToken))}},
+		"issueSignInLink":  {path: someone},
+		"setUserPassword":  {path: someone, body: map[string]any{"mustChange": true}},
+		"resetUser":        {path: someone, body: map[string]any{"endSessions": true}},
+		"impersonateUser":  {path: someone},
+		"openCoreAccount":  {body: map[string]any{"slug": "acme", "name": "Acme"}},
+
+		// The caller's own session, user and ways of signing in.
+		"getSession":                {open: true},
+		"saveSessionPreferences":    {open: true, body: map[string]any{"mode": "dark"}},
+		"stepUp":                    {open: true, body: map[string]any{"password": "not their password"}},
+		"beginStepUpPasskey":        {open: true},
+		"stopImpersonating":         {open: true, refusals: []string{"auth.not_impersonating"}},
+		"getMe":                     {open: true},
+		"updateMe":                  {open: true, body: map[string]any{"name": "Nobody"}},
+		"changeMyPassword":          {open: true, body: map[string]any{"new": "a kettle of tangerines"}},
+		"beginTotp":                 {open: true},
+		"confirmTotp":               {open: true, body: map[string]any{"code": "123456"}},
+		"removeTotp":                {open: true},
+		"newRecoveryCodes":          {open: true},
+		"listMyPasskeys":            {open: true},
+		"beginPasskeyRegistration":  {open: true, refusals: []string{"auth.passkeys_unavailable"}},
+		"finishPasskeyRegistration": {open: true, body: map[string]any{"ceremony": "none", "credential": map[string]any{}}, refusals: []string{"auth.challenge_expired"}},
+		"renamePasskey":             {open: true, path: map[string]string{"id": string(store.NewID(identity.PrefixPasskey))}, body: map[string]any{"name": "Laptop"}},
+		"removePasskey":             {open: true, path: map[string]string{"id": string(store.NewID(identity.PrefixPasskey))}},
+		"listMyMfa":                 {open: true},
+		"beginMfa":                  {open: true, path: map[string]string{"id": string(store.NewID(identity.ProviderKind.Info().Prefix))}},
+		"finishMfa": {open: true, path: map[string]string{"id": string(store.NewID(identity.ProviderKind.Info().Prefix))}, body: map[string]any{"ceremony": "none"},
+			refusals: []string{"auth.challenge_expired"}},
+		"disableMfa":             {open: true, path: map[string]string{"id": string(store.NewID(identity.ProviderKind.Info().Prefix))}},
+		"listMySessions":         {open: true},
+		"endMySession":           {open: true, path: map[string]string{"id": string(store.NewID(identity.PrefixSession))}},
+		"endMyOtherSessions":     {open: true},
+		"listMyDevices":          {open: true},
+		"forgetMyDevice":         {open: true, path: map[string]string{"id": string(store.NewID(identity.PrefixDevice))}},
+		"forgetMyDevices":        {open: true},
+		"listMyTokens":           {open: true},
+		"createMyToken":          {open: true, body: map[string]any{"name": "laptop"}},
+		"revokeMyToken":          {open: true, path: map[string]string{"id": string(store.NewID(identity.PrefixToken))}},
+		"listMySSHKeys":          {open: true},
+		"addMySSHKey":            {open: true, body: map[string]any{"name": "laptop", "publicKey": sshKey}},
+		"removeMySSHKey":         {open: true, path: map[string]string{"id": "sshkey_carol"}},
+		"listMyLinks":            {open: true},
+		"linkMyIdentity":         {open: true, path: provider, body: map[string]any{"username": "nobody", "password": "not their password"}},
+		"startLinkingMyIdentity": {open: true, path: provider},
+		"unlinkMyIdentity":       {open: true, path: provider},
+		"getMyAlerts":            {open: true},
+		"setMyAlerts":            {open: true, body: map[string]any{}},
+		"testMyAlerts":           {open: true},
 
 		// The attention inbox shows what the caller may see, and dismissals
 		// are the caller's own.
@@ -264,7 +349,7 @@ func TestEveryPanelOperationIsAuthorized(t *testing.T) {
 		code, body := problem(resp)
 		switch {
 		case c.open:
-			if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
+			if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound && !slices.Contains(c.refusals, code) {
 				t.Errorf("%s needs only a sign-in, but answered %d %s", op.ID, resp.StatusCode, body)
 			}
 		case resp.StatusCode < 400:

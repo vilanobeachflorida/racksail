@@ -26,6 +26,9 @@ type AlertChannelType struct {
 	// ID is the channel type, or provider:<name> for one an add-on adds.
 	ID    string `json:"id"`
 	Title string `json:"title"`
+	// Secrets are the settings that hold secrets, which forms hide as
+	// people type them.
+	Secrets []string `json:"secrets,omitempty"`
 	// Settings is a zero value of the channel's settings, for its form.
 	Settings any `json:"-"`
 }
@@ -35,7 +38,7 @@ type AlertChannelType struct {
 func (s *Service) AlertChannelTypes() []AlertChannelType {
 	var out []AlertChannelType
 	for _, t := range notify.Types() {
-		out = append(out, AlertChannelType{ID: t.Name, Title: t.Title, Settings: t.Settings})
+		out = append(out, AlertChannelType{ID: t.Name, Title: t.Title, Secrets: t.Secrets, Settings: t.Settings})
 	}
 	if s.opts.Hooks != nil && s.opts.Hooks.Registry != nil {
 		for _, reg := range s.opts.Hooks.Registry.Providers(hooks.ProvideNotifier) {
@@ -129,7 +132,21 @@ func (s *Service) openChannel(ctx context.Context, typ string, settings json.Raw
 		}
 		return hooks.Open[notify.Channel](ctx, s.opts.Hooks.Registry, hooks.ProvideNotifier, name, settings)
 	}
-	return notify.New(typ, settings, secretResolver{s.opts.Secrets})
+	return notify.New(typ, settings, s.channelEnv())
+}
+
+// channelEnv is what alert channels are built with: the notification
+// service's client and mail relay when the panel has them. A person's
+// channel settings are kept encrypted whole, so their secret settings hold
+// the values themselves, never references to secrets of the panel's that
+// the person mustn't reach.
+func (s *Service) channelEnv() notify.Env {
+	var env notify.Env
+	if s.opts.Channels != nil {
+		env = s.opts.Channels()
+	}
+	env.Secrets = inlineSecrets{}
+	return env
 }
 
 func (s *Service) userChannel(ctx context.Context, u *User) (notify.Channel, error) {
@@ -140,12 +157,12 @@ func (s *Service) userChannel(ctx context.Context, u *User) (notify.Channel, err
 	return s.openChannel(ctx, u.AlertChannel, settings)
 }
 
-// secretResolver lets channel settings refer to secrets the panel keeps.
-type secretResolver struct{ store secrets.Store }
+// inlineSecrets reads a secret setting of a person's alert channel as the
+// value it holds.
+type inlineSecrets struct{}
 
-func (r secretResolver) Resolve(ctx context.Context, ref string) (string, error) {
-	v, err := r.store.Get(ctx, secrets.Ref(ref))
-	return string(v), err
+func (inlineSecrets) Get(_ context.Context, value secrets.Ref) ([]byte, error) {
+	return []byte(value), nil
 }
 
 // securityPage is where people change how they sign in, which alerts link

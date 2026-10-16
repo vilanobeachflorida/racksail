@@ -105,6 +105,11 @@ func (b *builder) group(parent *cobra.Command, name string, words []string, op *
 		if c.Annotations[groupAnnotation] != "true" {
 			return nil, fmt.Errorf("racksail %s is a command already, so %s can't have commands under it", strings.Join(words, " "), op.ID)
 		}
+		// A kind's group is named after the kind, whichever of the
+		// operations in it came first.
+		if title, ok := b.kindTitle(words, op); ok {
+			c.Short = title
+		}
 		return c, nil
 	}
 	g := &cobra.Command{
@@ -132,18 +137,37 @@ func pluralAlias(name string) string {
 	switch {
 	case strings.HasSuffix(name, "s"), name == "me", name == "health", name == "metrics":
 		return ""
-	case strings.HasSuffix(name, "y"):
+	case strings.HasSuffix(name, "y") && !strings.ContainsRune("aeiou", rune(name[len(name)-2])):
 		return name[:len(name)-1] + "ies"
+	case strings.HasSuffix(name, "x"), strings.HasSuffix(name, "z"), strings.HasSuffix(name, "ch"), strings.HasSuffix(name, "sh"):
+		return name + "es"
 	}
 	return name + "s"
 }
 
+// kindTitle is the one-line help of a kind's group, for an operation of
+// the kind that goes in it.
+func (b *builder) kindTitle(words []string, op *Operation) (string, bool) {
+	if !namedForKind(op) || len(words) != len(CommandPath(op))-1 {
+		return "", false
+	}
+	info, ok := b.kind(op.Kind)
+	if !ok {
+		return "", false
+	}
+	// Some kinds' titles are plural already, such as Update settings: the
+	// kind is named the way its plural is.
+	title := info.Title
+	if _, name, _ := strings.Cut(info.Name, "."); kebab(name) != info.Plural {
+		title = pluralTitle(title)
+	}
+	return "Manage " + lowerFirst(title), true
+}
+
 func (b *builder) groupTitle(words []string, op *Operation) string {
 	name := words[len(words)-1]
-	if op.Kind != "" && len(words) == len(CommandPath(op))-1 {
-		if info, ok := b.kind(op.Kind); ok {
-			return "Manage " + lowerFirst(pluralTitle(info.Title))
-		}
+	if title, ok := b.kindTitle(words, op); ok {
+		return title
 	}
 	if len(words) == 1 {
 		if title, ok := groupTitles[name]; ok {

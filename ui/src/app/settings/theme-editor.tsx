@@ -47,6 +47,7 @@ import {
 } from "@/design/theme/validate";
 import type { SchemaIssue } from "@/lib/schema";
 import { messages } from "../messages";
+import { themeMessages as tm } from "../screens/messages";
 import { ThemePreview } from "./theme-preview";
 
 type Mode = "light" | "dark";
@@ -55,27 +56,27 @@ type Mode = "light" | "dark";
 export function problemMessage(intl: IntlShape, p: ThemeProblem): string {
   const token = (name: string) =>
     p.mode === "console" ? consoleLabel(intl, name) : tokenLabel(intl, name);
-  const mode = intl.formatMessage(messages.themeModeName, { mode: p.mode });
+  const mode = intl.formatMessage(tm.themeModeName, { mode: p.mode });
   if (p.kind === "font") {
-    return intl.formatMessage(messages.themeProblemFont, {
+    return intl.formatMessage(tm.themeProblemFont, {
       font: p.purpose ?? "",
       which: p.foreground,
     });
   }
   if (p.kind === "alpha") {
-    return intl.formatMessage(messages.themeProblemAlpha, { mode, token: token(p.foreground) });
+    return intl.formatMessage(tm.themeProblemAlpha, { mode, token: token(p.foreground) });
   }
   if (p.kind === "meaning") {
-    return intl.formatMessage(messages.themeProblemMeaning, {
+    return intl.formatMessage(tm.themeProblemMeaning, {
       mode,
       token: token(p.foreground),
       hue: hueName(intl, p.foreground, p.purpose ?? ""),
     });
   }
   if (p.kind === "color") {
-    return intl.formatMessage(messages.themeProblemColor, { mode, token: token(p.foreground) });
+    return intl.formatMessage(tm.themeProblemColor, { mode, token: token(p.foreground) });
   }
-  return intl.formatMessage(messages.themeProblemContrast, {
+  return intl.formatMessage(tm.themeProblemContrast, {
     mode,
     foreground: token(p.foreground),
     background: token(p.background ?? ""),
@@ -84,7 +85,7 @@ export function problemMessage(intl: IntlShape, p: ThemeProblem): string {
   });
 }
 
-const tokenMessages: Record<string, keyof typeof messages> = {
+const tokenMessages: Record<string, keyof typeof tm> = {
   surface: "tokenSurface",
   surfaceRaised: "tokenSurfaceRaised",
   surfaceSunken: "tokenSurfaceSunken",
@@ -113,7 +114,7 @@ const tokenMessages: Record<string, keyof typeof messages> = {
   infoSubtle: "tokenInfoSubtle",
 };
 
-const consoleMessages: Record<ConsoleKey, keyof typeof messages> = {
+const consoleMessages: Record<ConsoleKey, keyof typeof tm> = {
   background: "consoleBackground",
   foreground: "consoleForeground",
   accent: "consoleAccent",
@@ -125,10 +126,10 @@ const consoleMessages: Record<ConsoleKey, keyof typeof messages> = {
 /** A console color's name for people: "Text" for foreground. */
 export function consoleLabel(intl: IntlShape, name: string): string {
   const key = consoleMessages[name as ConsoleKey];
-  return key ? intl.formatMessage(messages[key]) : name;
+  return key ? intl.formatMessage(tm[key]) : name;
 }
 
-const builtinMessages: Record<string, keyof typeof messages> = {
+const builtinMessages: Record<string, keyof typeof tm> = {
   racksail: "themeBuiltinRacksail",
   "high-contrast": "themeBuiltinHighContrast",
   compact: "themeBuiltinCompact",
@@ -137,17 +138,17 @@ const builtinMessages: Record<string, keyof typeof messages> = {
 /** A built-in theme's name in the person's language; other themes keep their own. */
 export function builtinName(intl: IntlShape, theme: Pick<Theme, "id" | "name">): string {
   const key = builtinMessages[theme.id];
-  return key ? intl.formatMessage(messages[key]) : theme.name;
+  return key ? intl.formatMessage(tm[key]) : theme.name;
 }
 
 /** A token's name for people: "Raised surface" for surfaceRaised, "Chart color 3" for chart3. */
 export function tokenLabel(intl: IntlShape, name: string): string {
   const chart = /^chart(\d+)$/.exec(name);
   if (chart) {
-    return intl.formatMessage(messages.tokenChart, { n: Number(chart[1]) });
+    return intl.formatMessage(tm.tokenChart, { n: Number(chart[1]) });
   }
   const key = tokenMessages[name];
-  return key ? intl.formatMessage(messages[key]) : name;
+  return key ? intl.formatMessage(tm[key]) : name;
 }
 
 // The spec's pairs and meanings describe themselves in English for the
@@ -164,7 +165,7 @@ export function pairPurpose(
 ): string {
   const chart = /^chart(\d+)$/.exec(pair.foreground);
   if (chart) {
-    return intl.formatMessage(messages.themePurposeChart, { n: Number(chart[1]) });
+    return intl.formatMessage(tm.themePurposeChart, { n: Number(chart[1]) });
   }
   return specMessage(intl, `app.theme.purpose.${pair.foreground}.${pair.background}`, pair.purpose);
 }
@@ -202,16 +203,14 @@ function ColorField({
     <Field
       label={label}
       error={
-        valid
-          ? undefined
-          : intl.formatMessage(messages.themeBadColor, { alpha: alpha ? "yes" : "no" })
+        valid ? undefined : intl.formatMessage(tm.themeBadColor, { alpha: alpha ? "yes" : "no" })
       }
     >
       {(control) => (
         <div className="flex items-center gap-2">
           <input
             type="color"
-            aria-label={intl.formatMessage(messages.themePickColor, { token: label })}
+            aria-label={intl.formatMessage(tm.themePickColor, { token: label })}
             value={isColor(value) ? value.slice(0, 7) : ""}
             onChange={(e) =>
               onChange(
@@ -253,13 +252,11 @@ function ContrastChecker({ theme }: { theme: Theme }) {
   return (
     <Card aria-labelledby={`${switchId}-title`}>
       <CardHeader>
-        <CardTitle id={`${switchId}-title`}>
-          {intl.formatMessage(messages.themeContrastTitle)}
-        </CardTitle>
+        <CardTitle id={`${switchId}-title`}>{intl.formatMessage(tm.themeContrastTitle)}</CardTitle>
         <CardDescription>
           {failing === 0
-            ? intl.formatMessage(messages.themeContrastAllPass, { count: rows.length })
-            : intl.formatMessage(messages.themeContrastFailing, { count: failing })}
+            ? intl.formatMessage(tm.themeContrastAllPass, { count: rows.length })
+            : intl.formatMessage(tm.themeContrastFailing, { count: failing })}
         </CardDescription>
       </CardHeader>
       <Tabs
@@ -271,14 +268,14 @@ function ContrastChecker({ theme }: { theme: Theme }) {
           <TabsList>
             {(["light", "dark", "console"] as const).map((place) => (
               <TabsTrigger key={place} value={place}>
-                {intl.formatMessage(messages.themeModeName, { mode: place })}
+                {intl.formatMessage(tm.themeModeName, { mode: place })}
               </TabsTrigger>
             ))}
           </TabsList>
           <div className="flex items-center gap-2">
             <Switch id={switchId} checked={onlyFailing} onCheckedChange={setOnlyFailing} />
             <Label htmlFor={switchId} className="font-normal">
-              {intl.formatMessage(messages.themeContrastOnlyFailing)}
+              {intl.formatMessage(tm.themeContrastOnlyFailing)}
             </Label>
           </div>
         </div>
@@ -298,14 +295,10 @@ function ContrastTable({ rows }: { rows: ContrastRow[] }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{intl.formatMessage(messages.themeContrastPair)}</TableHead>
-          <TableHead className="text-end">
-            {intl.formatMessage(messages.themeContrastRatio)}
-          </TableHead>
-          <TableHead className="text-end">
-            {intl.formatMessage(messages.themeContrastNeeds)}
-          </TableHead>
-          <TableHead>{intl.formatMessage(messages.themeContrastResult)}</TableHead>
+          <TableHead>{intl.formatMessage(tm.themeContrastPair)}</TableHead>
+          <TableHead className="text-end">{intl.formatMessage(tm.themeContrastRatio)}</TableHead>
+          <TableHead className="text-end">{intl.formatMessage(tm.themeContrastNeeds)}</TableHead>
+          <TableHead>{intl.formatMessage(tm.themeContrastResult)}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -313,7 +306,7 @@ function ContrastTable({ rows }: { rows: ContrastRow[] }) {
           <TableRow key={`${r.mode}-${r.foreground}-${r.background}`}>
             <TableCell>
               <p className="font-medium">
-                {intl.formatMessage(messages.themeContrastOn, {
+                {intl.formatMessage(tm.themeContrastOn, {
                   foreground: (r.mode === "console" ? consoleLabel : tokenLabel)(
                     intl,
                     r.foreground,
@@ -328,13 +321,13 @@ function ContrastTable({ rows }: { rows: ContrastRow[] }) {
             </TableCell>
             <TableCell className="text-end tabular-nums">
               {r.ratio === null
-                ? intl.formatMessage(messages.themeContrastNoRatio)
-                : intl.formatMessage(messages.themeRatio, {
+                ? intl.formatMessage(tm.themeContrastNoRatio)
+                : intl.formatMessage(tm.themeRatio, {
                     ratio: intl.formatNumber(r.ratio, { maximumFractionDigits: 2 }),
                   })}
             </TableCell>
             <TableCell className="text-end tabular-nums">
-              {intl.formatMessage(messages.themeRatio, {
+              {intl.formatMessage(tm.themeRatio, {
                 ratio: intl.formatNumber(r.minimum, { maximumFractionDigits: 1 }),
               })}
             </TableCell>
@@ -342,12 +335,12 @@ function ContrastTable({ rows }: { rows: ContrastRow[] }) {
               {r.pass ? (
                 <Badge variant="success">
                   <Check aria-hidden="true" />
-                  {intl.formatMessage(messages.themeContrastPass)}
+                  {intl.formatMessage(tm.themeContrastPass)}
                 </Badge>
               ) : (
                 <Badge variant="danger">
                   <X aria-hidden="true" />
-                  {intl.formatMessage(messages.themeContrastFail)}
+                  {intl.formatMessage(tm.themeContrastFail)}
                 </Badge>
               )}
             </TableCell>
@@ -377,13 +370,13 @@ function ConsoleColorField({
   return (
     <Field
       label={label}
-      error={valid ? undefined : intl.formatMessage(messages.themeBadColor, { alpha: "no" })}
+      error={valid ? undefined : intl.formatMessage(tm.themeBadColor, { alpha: "no" })}
     >
       {(control) => (
         <div className="flex items-center gap-2">
           <input
             type="color"
-            aria-label={intl.formatMessage(messages.themePickColor, { token: label })}
+            aria-label={intl.formatMessage(tm.themePickColor, { token: label })}
             value={(value ?? fallback).slice(0, 7)}
             onChange={(e) => onChange(e.target.value.toUpperCase())}
             className="h-control-md w-12 shrink-0 cursor-pointer rounded-md border border-input bg-card p-1"
@@ -392,7 +385,7 @@ function ConsoleColorField({
             {...control}
             value={text}
             spellCheck={false}
-            placeholder={intl.formatMessage(messages.consoleEmpty, { color: fallback })}
+            placeholder={intl.formatMessage(tm.consoleEmpty, { color: fallback })}
             className="font-mono uppercase placeholder:normal-case"
             onChange={(e) => {
               const next = e.target.value.trim();
@@ -429,9 +422,7 @@ function ConsoleEditor({
   );
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground text-sm">
-        {intl.formatMessage(messages.consoleDescription)}
-      </p>
+      <p className="text-muted-foreground text-sm">{intl.formatMessage(tm.consoleDescription)}</p>
       <div className="grid gap-4 sm:grid-cols-2">
         {consoleKeys.map((key) => (
           <ConsoleColorField
@@ -444,18 +435,18 @@ function ConsoleEditor({
         ))}
       </div>
       <section
-        aria-label={intl.formatMessage(messages.consolePreview)}
+        aria-label={intl.formatMessage(tm.consolePreview)}
         className="rounded-md p-4 font-mono text-sm"
         style={{ backgroundColor: colors.background, color: colors.foreground }}
       >
         <p style={{ color: colors.accent }}>
           <span aria-hidden="true">$ </span>
-          {intl.formatMessage(messages.consoleSampleCommand)}
+          {intl.formatMessage(tm.consoleSampleCommand)}
         </p>
-        {line("foreground", " ", intl.formatMessage(messages.consoleSampleAddress))}
-        {line("success", "✓", intl.formatMessage(messages.consoleSampleOk))}
-        {line("warning", "!", intl.formatMessage(messages.consoleSampleWarning))}
-        {line("danger", "✗", intl.formatMessage(messages.consoleSampleDanger))}
+        {line("foreground", " ", intl.formatMessage(tm.consoleSampleAddress))}
+        {line("success", "✓", intl.formatMessage(tm.consoleSampleOk))}
+        {line("warning", "!", intl.formatMessage(tm.consoleSampleWarning))}
+        {line("danger", "✗", intl.formatMessage(tm.consoleSampleDanger))}
       </section>
     </div>
   );
@@ -477,8 +468,8 @@ function FontFilesField({
   useEffect(() => setText(joined), [joined]);
   return (
     <Field
-      label={intl.formatMessage(messages.themeFontFiles, { which })}
-      description={intl.formatMessage(messages.themeFontFilesHelp)}
+      label={intl.formatMessage(tm.themeFontFiles, { which })}
+      description={intl.formatMessage(tm.themeFontFilesHelp)}
     >
       <Textarea
         value={text}
@@ -501,14 +492,14 @@ function FontFilesField({
 
 function readingErrors(intl: IntlShape, reading: ThemeReading): string[] {
   if (reading.error === "too-large") {
-    return [intl.formatMessage(messages.themeImportTooLarge)];
+    return [intl.formatMessage(tm.themeImportTooLarge)];
   }
   if (reading.error === "unreadable") {
-    return [intl.formatMessage(messages.themeImportUnreadable)];
+    return [intl.formatMessage(tm.themeImportUnreadable)];
   }
   if (reading.error === "protected") {
     return [
-      intl.formatMessage(messages.themeImportProtected, {
+      intl.formatMessage(tm.themeImportProtected, {
         tokens: intl.formatList(reading.protectedKeys, { type: "conjunction" }),
       }),
     ];
@@ -518,8 +509,8 @@ function readingErrors(intl: IntlShape, reading: ThemeReading): string[] {
 
 /** Where the theme doesn't match the schema, and how. */
 function issueLine(intl: IntlShape, issue: SchemaIssue): string {
-  return intl.formatMessage(messages.themeIssue, {
-    path: issue.path || intl.formatMessage(messages.themeImportDocument),
+  return intl.formatMessage(tm.themeIssue, {
+    path: issue.path || intl.formatMessage(tm.themeImportDocument),
     problem: issueMessage(intl, issue),
   });
 }
@@ -595,7 +586,7 @@ export default function ThemeEditor() {
     if (reading.theme) {
       setTheme(reading.theme);
       setImportErrors([]);
-      toast.success(t(messages.themeImported, { name: reading.theme.name }));
+      toast.success(t(tm.themeImported, { name: reading.theme.name }));
     } else {
       setImportErrors(readingErrors(intl, reading));
     }
@@ -607,7 +598,7 @@ export default function ThemeEditor() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="font-semibold text-2xl">{t(messages.themeEditorTitle)}</h1>
-          <p className="max-w-2xl text-muted-foreground">{t(messages.themeEditorDescription)}</p>
+          <p className="max-w-2xl text-muted-foreground">{t(tm.themeEditorDescription)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select
@@ -616,11 +607,11 @@ export default function ThemeEditor() {
               setImportErrors([]);
             }}
           >
-            <SelectTrigger className="w-56" aria-label={t(messages.themeStartFrom)}>
-              <SelectValue placeholder={t(messages.themeStartFrom)} />
+            <SelectTrigger className="w-56" aria-label={t(tm.themeStartFrom)}>
+              <SelectValue placeholder={t(tm.themeStartFrom)} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="current">{t(messages.themeCurrent)}</SelectItem>
+              <SelectItem value="current">{t(tm.themeCurrent)}</SelectItem>
               {builtinThemes().map((b) => (
                 <SelectItem key={b.id} value={b.id}>
                   {builtinName(intl, b)}
@@ -634,12 +625,12 @@ export default function ThemeEditor() {
             accept=".yaml,.yml,.json,application/json"
             className="hidden"
             tabIndex={-1}
-            aria-label={t(messages.themeImport)}
+            aria-label={t(tm.themeImport)}
             onChange={(e) => void onImport(e)}
           />
           <Button variant="outline" onClick={() => fileInput.current?.click()}>
             <Upload aria-hidden="true" />
-            {t(messages.themeImport)}
+            {t(tm.themeImport)}
           </Button>
           <Button
             variant="outline"
@@ -649,7 +640,7 @@ export default function ThemeEditor() {
             }
           >
             <Download aria-hidden="true" />
-            {t(messages.themeExportYAML)}
+            {t(tm.themeExportYAML)}
           </Button>
           <Button
             variant="outline"
@@ -657,7 +648,7 @@ export default function ThemeEditor() {
             onClick={() => download(`${fileName}.json`, themeToJSON(theme), "application/json")}
           >
             <Download aria-hidden="true" />
-            {t(messages.themeExportJSON)}
+            {t(tm.themeExportJSON)}
           </Button>
           <Button
             variant={trying ? "secondary" : "default"}
@@ -669,13 +660,13 @@ export default function ThemeEditor() {
             }}
           >
             {trying ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-            {t(trying ? messages.themeStopTrying : messages.themeTry)}
+            {t(trying ? tm.themeStopTrying : tm.themeTry)}
           </Button>
         </div>
       </div>
 
       {importErrors.length > 0 ? (
-        <Alert tone="danger" title={t(messages.themeImportFailed)}>
+        <Alert tone="danger" title={t(tm.themeImportFailed)}>
           <ul className="list-disc ps-5">
             {importErrors.map((e) => (
               <li key={e}>{e}</li>
@@ -686,10 +677,10 @@ export default function ThemeEditor() {
       {blocked ? (
         <Alert
           tone="warning"
-          title={t(messages.themeProblems, { count: problems.length + schemaIssues.length })}
+          title={t(tm.themeProblems, { count: problems.length + schemaIssues.length })}
         >
           <p id="theme-try-blocked" className="mb-2">
-            {t(stoppedTrying ? messages.themeTryStopped : messages.themeTryBlocked)}
+            {t(stoppedTrying ? tm.themeTryStopped : tm.themeTryBlocked)}
           </p>
           <ul className="list-disc ps-5">
             {schemaIssues.map((i) => (
@@ -705,18 +696,18 @@ export default function ThemeEditor() {
       ) : (
         <p className="flex items-center gap-2 text-sm text-success">
           <Check className="size-4" aria-hidden="true" />
-          {t(messages.themeAllGood)}
+          {t(tm.themeAllGood)}
         </p>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <Tabs defaultValue="colors" className="min-w-0">
           <TabsList>
-            <TabsTrigger value="colors">{t(messages.themeTabColors)}</TabsTrigger>
-            <TabsTrigger value="type">{t(messages.themeTabType)}</TabsTrigger>
-            <TabsTrigger value="shape">{t(messages.themeTabShape)}</TabsTrigger>
-            <TabsTrigger value="console">{t(messages.themeTabConsole)}</TabsTrigger>
-            <TabsTrigger value="details">{t(messages.themeTabDetails)}</TabsTrigger>
+            <TabsTrigger value="colors">{t(tm.themeTabColors)}</TabsTrigger>
+            <TabsTrigger value="type">{t(tm.themeTabType)}</TabsTrigger>
+            <TabsTrigger value="shape">{t(tm.themeTabShape)}</TabsTrigger>
+            <TabsTrigger value="console">{t(tm.themeTabConsole)}</TabsTrigger>
+            <TabsTrigger value="details">{t(tm.themeTabDetails)}</TabsTrigger>
           </TabsList>
           <TabsContent value="colors">
             <Tabs
@@ -725,12 +716,8 @@ export default function ThemeEditor() {
               className="flex flex-col gap-4"
             >
               <TabsList>
-                <TabsTrigger value="light">
-                  {t(messages.themeModeName, { mode: "light" })}
-                </TabsTrigger>
-                <TabsTrigger value="dark">
-                  {t(messages.themeModeName, { mode: "dark" })}
-                </TabsTrigger>
+                <TabsTrigger value="light">{t(tm.themeModeName, { mode: "light" })}</TabsTrigger>
+                <TabsTrigger value="dark">{t(tm.themeModeName, { mode: "dark" })}</TabsTrigger>
               </TabsList>
               {(["light", "dark"] as const).map((m) => (
                 <TabsContent key={m} value={m} className="flex flex-col gap-4">
@@ -746,7 +733,7 @@ export default function ThemeEditor() {
                     ))}
                   </div>
                   <fieldset className="flex flex-col gap-3">
-                    <legend className="mb-2 font-semibold text-sm">{t(messages.themeChart)}</legend>
+                    <legend className="mb-2 font-semibold text-sm">{t(tm.themeChart)}</legend>
                     <div className="grid gap-4 sm:grid-cols-2">
                       {theme.tokens[m].chart.map((c, i) => (
                         <div
@@ -769,7 +756,7 @@ export default function ThemeEditor() {
                             variant="ghost"
                             size="icon"
                             disabled={theme.tokens[m].chart.length <= 6}
-                            aria-label={t(messages.themeRemoveChart, { n: i + 1 })}
+                            aria-label={t(tm.themeRemoveChart, { n: i + 1 })}
                             onClick={() =>
                               update((d) => {
                                 d.tokens[m].chart.splice(i, 1);
@@ -793,7 +780,7 @@ export default function ThemeEditor() {
                       }
                     >
                       <Plus aria-hidden="true" />
-                      {t(messages.themeAddChart)}
+                      {t(tm.themeAddChart)}
                     </Button>
                   </fieldset>
                 </TabsContent>
@@ -801,7 +788,7 @@ export default function ThemeEditor() {
             </Tabs>
           </TabsContent>
           <TabsContent value="type" className="grid gap-4 sm:grid-cols-2">
-            <Field label={t(messages.themeFontSans)} description={t(messages.themeFontHelp)}>
+            <Field label={t(tm.themeFontSans)} description={t(tm.themeFontHelp)}>
               <Input
                 value={theme.tokens.typography?.sans?.family ?? ""}
                 onChange={(e) =>
@@ -814,7 +801,7 @@ export default function ThemeEditor() {
                 }
               />
             </Field>
-            <Field label={t(messages.themeFontMono)}>
+            <Field label={t(tm.themeFontMono)}>
               <Input
                 value={theme.tokens.typography?.mono?.family ?? ""}
                 onChange={(e) =>
@@ -845,7 +832,7 @@ export default function ThemeEditor() {
                 }
               />
             ))}
-            <Field label={t(messages.themeBaseSize)}>
+            <Field label={t(tm.themeBaseSize)}>
               <Input
                 value={theme.tokens.typography?.baseSize ?? ""}
                 onChange={(e) =>
@@ -855,7 +842,7 @@ export default function ThemeEditor() {
                 }
               />
             </Field>
-            <Field label={t(messages.themeScale)} description={t(messages.themeScaleHelp)}>
+            <Field label={t(tm.themeScale)} description={t(tm.themeScaleHelp)}>
               <Input
                 type="number"
                 step={0.025}
@@ -874,7 +861,7 @@ export default function ThemeEditor() {
               />
             </Field>
             {(["regular", "medium", "semibold", "bold"] as const).map((w) => (
-              <Field key={w} label={t(messages.themeWeight, { weight: w })}>
+              <Field key={w} label={t(tm.themeWeight, { weight: w })}>
                 <Input
                   type="number"
                   step={100}
@@ -898,7 +885,7 @@ export default function ThemeEditor() {
             ))}
           </TabsContent>
           <TabsContent value="shape" className="grid gap-4 sm:grid-cols-2">
-            <Field label={t(messages.themeDensity)}>
+            <Field label={t(tm.themeDensity)}>
               {(control) => (
                 <Select
                   value={theme.tokens.density ?? "comfortable"}
@@ -919,7 +906,7 @@ export default function ThemeEditor() {
               )}
             </Field>
             {(["sm", "md", "lg", "xl"] as const).map((size) => (
-              <Field key={`radius-${size}`} label={t(messages.themeRadius, { size })}>
+              <Field key={`radius-${size}`} label={t(tm.themeRadius, { size })}>
                 <Input
                   value={theme.tokens.radius?.[size] ?? ""}
                   onChange={(e) =>
@@ -933,8 +920,8 @@ export default function ThemeEditor() {
             {(["sm", "md", "lg"] as const).map((size) => (
               <Field
                 key={`shadow-${size}`}
-                label={t(messages.themeShadow, { size })}
-                description={t(messages.themeShadowHelp)}
+                label={t(tm.themeShadow, { size })}
+                description={t(tm.themeShadowHelp)}
                 className="sm:col-span-2"
               >
                 <Input
@@ -948,7 +935,7 @@ export default function ThemeEditor() {
               </Field>
             ))}
             {(["fast", "normal", "slow"] as const).map((speed) => (
-              <Field key={speed} label={t(messages.themeMotion, { speed })}>
+              <Field key={speed} label={t(tm.themeMotion, { speed })}>
                 <Input
                   value={theme.tokens.motion?.[speed] ?? ""}
                   onChange={(e) =>
@@ -959,7 +946,7 @@ export default function ThemeEditor() {
                 />
               </Field>
             ))}
-            <Field label={t(messages.themeFocusWidth)}>
+            <Field label={t(tm.themeFocusWidth)}>
               <Input
                 value={theme.tokens.focusRing?.width ?? ""}
                 onChange={(e) =>
@@ -969,7 +956,7 @@ export default function ThemeEditor() {
                 }
               />
             </Field>
-            <Field label={t(messages.themeFocusOffset)}>
+            <Field label={t(tm.themeFocusOffset)}>
               <Input
                 value={theme.tokens.focusRing?.offset ?? ""}
                 onChange={(e) =>
@@ -997,29 +984,29 @@ export default function ThemeEditor() {
             />
           </TabsContent>
           <TabsContent value="details" className="grid gap-4 sm:grid-cols-2">
-            <Field label={t(messages.themeName)}>
+            <Field label={t(tm.themeName)}>
               <Input value={theme.name} onChange={(e) => setField("name", e.target.value)} />
             </Field>
-            <Field label={t(messages.themeId)} description={t(messages.themeIdHelp)}>
+            <Field label={t(tm.themeId)} description={t(tm.themeIdHelp)}>
               <Input
                 value={theme.id}
                 onChange={(e) => setField("id", e.target.value)}
                 spellCheck={false}
               />
             </Field>
-            <Field label={t(messages.themeVersion)}>
+            <Field label={t(tm.themeVersion)}>
               <Input value={theme.version} onChange={(e) => setField("version", e.target.value)} />
             </Field>
-            <Field label={t(messages.themeLicense)} description={t(messages.themeLicenseHelp)}>
+            <Field label={t(tm.themeLicense)} description={t(tm.themeLicenseHelp)}>
               <Input value={theme.license} onChange={(e) => setField("license", e.target.value)} />
             </Field>
-            <Field label={t(messages.themeAuthor)}>
+            <Field label={t(tm.themeAuthor)}>
               <Input
                 value={theme.author ?? ""}
                 onChange={(e) => setField("author", e.target.value || undefined)}
               />
             </Field>
-            <Field label={t(messages.themeDescriptionField)} className="sm:col-span-2">
+            <Field label={t(tm.themeDescriptionField)} className="sm:col-span-2">
               <Textarea
                 value={theme.description ?? ""}
                 onChange={(e) => setField("description", e.target.value || undefined)}
@@ -1029,10 +1016,10 @@ export default function ThemeEditor() {
         </Tabs>
         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold text-lg">{t(messages.themePreview)}</h2>
+            <h2 className="font-semibold text-lg">{t(tm.themePreview)}</h2>
             <Button variant="ghost" size="sm" onClick={() => setTheme(structuredClone(current))}>
               <RotateCcw aria-hidden="true" />
-              {t(messages.themeReset)}
+              {t(tm.themeReset)}
             </Button>
           </div>
           <ThemePreview theme={theme} mode="light" />

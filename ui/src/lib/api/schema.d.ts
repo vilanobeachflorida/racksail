@@ -64,6 +64,270 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/links/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * See whose a sign-in link is
+         * @description Says whose a sign-in link is and when it expires, for the page where the person chooses their password. The code is sent in the body, so it stays out of logs.
+         */
+        post: operations["lookUpSignInLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/links/use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose a password with a sign-in link
+         * @description Sets the password of the sign-in link's user, once. Someone without a second step is signed in at once; anyone else signs in as usual afterwards. A link to get back in also ends the user's other sessions and lifts a lockout.
+         */
+        post: operations["useSignInLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See how to sign in
+         * @description Says what the sign-in screen offers: whether the panel still waits for its first admin, whether passkeys work at the address it was opened at, and which outside providers people can sign in with. It needs no sign-in.
+         */
+        get: operations["getSignInOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start signing in with a passkey
+         * @description Returns the options for navigator.credentials.get() to sign in with a passkey alone: the browser offers the passkeys it holds for the panel, and the one chosen says whose it is.
+         */
+        post: operations["beginPasskeySignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a passkey
+         * @description Signs in with the passkey's answer. A passkey that checked the person's fingerprint, face or PIN is both sign-in steps at once, and works while failed passwords keep the user locked out.
+         */
+        post: operations["finishPasskeySignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/providers/{id}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Come back from an outside provider
+         * @description Where an outside provider sends the browser back to. It finishes the sign-in and goes on to the panel, or to the sign-in screen when a second step is needed or something went wrong, with what to show there after the #.
+         */
+        get: operations["finishProviderSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/providers/{id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sign in through an outside provider
+         * @description Sends the browser to an outside provider's own sign-in page, such as an OpenID Connect provider's, which sends it back to the callback.
+         */
+        get: operations["startProviderSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check whether the panel needs its first admin
+         * @description Says whether the panel still waits for its first admin. Until then, the setup code that `racksail panel` printed when it started creates one. It needs no sign-in.
+         */
+        get: operations["getSetupStatus"];
+        put?: never;
+        /**
+         * Create the first admin
+         * @description Creates the panel's first admin with the one-time setup code, which `racksail panel` prints when it starts and the server's console shows, and signs them in. It works once, while the panel has no users.
+         */
+        post: operations["setUpFirstAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a password
+         * @description Signs in with a username and password, checked here or by an outside directory the admin connected. When the user takes a second step, and the browser isn't trusted to skip it, the answer has a challenge and the methods to choose from instead of the session cookie. Failed sign-ins lock a user out for a while, and each address may only try so often.
+         */
+        post: operations["signIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sign-in/second-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take the second step of signing in
+         * @description Finishes a sign-in with a code from an authenticator app, a recovery code, a passkey's answer or a method from an add-on. Each challenge takes five wrong answers at most, and wrong answers count towards the user's lockout. With trust set, the browser skips the second step for the days the sign-in policy says.
+         */
+        post: operations["signInSecondStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sign-in/second-step/mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a second step from an add-on
+         * @description Starts a second step an add-on provides, such as a push to a phone, and says what to ask the person. Finish it with the second step operation.
+         */
+        post: operations["beginSecondStepMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sign-in/second-step/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a passkey as the second step
+         * @description Returns the options for navigator.credentials.get() to use one of the user's passkeys as the second step of a sign-in.
+         */
+        post: operations["beginSecondStepPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sign-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out
+         * @description Ends the session the request belongs to and clears its cookie. Signed out already, it only clears the cookie.
+         */
+        post: operations["signOut"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/catalog/install": {
         parameters: {
             query?: never;
@@ -279,7 +543,7 @@ export interface paths {
         get: operations["listCoreAccountAddons"];
         put?: never;
         /**
-         * Create a account add-on
+         * Create an account add-on
          * @description An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreAccountAddon"];
@@ -297,18 +561,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a account add-on
+         * Get an account add-on
          * @description Returns one account add-on: its settings (spec), and what Racksail last saw of it (status). An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override.
          */
         get: operations["getCoreAccountAddon"];
         /**
-         * Change a account add-on
+         * Change an account add-on
          * @description Replaces the account add-on's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreAccountAddon"];
         post?: never;
         /**
-         * Delete a account add-on
+         * Delete an account add-on
          * @description Deletes the account add-on and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreAccountAddon"];
@@ -325,7 +589,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a account add-on's history
+         * Show an account add-on's history
          * @description Returns every recorded version of the account add-on's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreAccountAddonHistory"];
@@ -351,7 +615,7 @@ export interface paths {
         get: operations["listCoreAccountPolicies"];
         put?: never;
         /**
-         * Create a account rule
+         * Create an account rule
          * @description A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreAccountPolicy"];
@@ -369,18 +633,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a account rule
+         * Get an account rule
          * @description Returns one account rule: its settings (spec), and what Racksail last saw of it (status). A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account.
          */
         get: operations["getCoreAccountPolicy"];
         /**
-         * Change a account rule
+         * Change an account rule
          * @description Replaces the account rule's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreAccountPolicy"];
         post?: never;
         /**
-         * Delete a account rule
+         * Delete an account rule
          * @description Deletes the account rule and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreAccountPolicy"];
@@ -397,10 +661,102 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a account rule's history
+         * Show an account rule's history
          * @description Returns every recorded version of the account rule's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreAccountPolicyHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List accounts
+         * @description A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts. Lists the accounts you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreAccounts"];
+        put?: never;
+        /**
+         * Create an account
+         * @description A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/accounts/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open an account
+         * @description Opens an account, which becomes a Linux user, a home under /srv/racksail/accounts and a systemd slice with its limits, and gives it an owner who gets a sign-in link. The account and its owner are one change set, so both are added or neither is. Admins open accounts for anyone; resellers for themselves. An owner is a new user, so in the panel it takes having confirmed it's you, as adding a user does. With dryRun=true the answer is the preview and nothing is added.
+         */
+        post: operations["openCoreAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/accounts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an account
+         * @description Returns one account: its settings (spec), and what Racksail last saw of it (status). A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts.
+         */
+        get: operations["getCoreAccount"];
+        /**
+         * Change an account
+         * @description Replaces the account's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreAccount"];
+        post?: never;
+        /**
+         * Delete an account
+         * @description Deletes the account and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/accounts/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show an account's history
+         * @description Returns every recorded version of the account's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreAccountHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -423,7 +779,7 @@ export interface paths {
         get: operations["listCoreAddons"];
         put?: never;
         /**
-         * Create a add-on
+         * Create an add-on
          * @description An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreAddon"];
@@ -441,18 +797,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a add-on
+         * Get an add-on
          * @description Returns one add-on: its settings (spec), and what Racksail last saw of it (status). An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it.
          */
         get: operations["getCoreAddon"];
         /**
-         * Change a add-on
+         * Change an add-on
          * @description Replaces the add-on's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreAddon"];
         post?: never;
         /**
-         * Delete a add-on
+         * Delete an add-on
          * @description Deletes the add-on and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreAddon"];
@@ -469,7 +825,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a add-on's history
+         * Show an add-on's history
          * @description Returns every recorded version of the add-on's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreAddonHistory"];
@@ -587,7 +943,7 @@ export interface paths {
         get: operations["listCoreInstallations"];
         put?: never;
         /**
-         * Create a installed app
+         * Create an installed app
          * @description Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreInstallation"];
@@ -605,18 +961,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a installed app
+         * Get an installed app
          * @description Returns one installed app: its settings (spec), and what Racksail last saw of it (status). Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created.
          */
         get: operations["getCoreInstallation"];
         /**
-         * Change a installed app
+         * Change an installed app
          * @description Replaces the installed app's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreInstallation"];
         post?: never;
         /**
-         * Delete a installed app
+         * Delete an installed app
          * @description Deletes the installed app and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreInstallation"];
@@ -653,7 +1009,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a installed app's history
+         * Show an installed app's history
          * @description Returns every recorded version of the installed app's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreInstallationHistory"];
@@ -1211,7 +1567,7 @@ export interface paths {
         get: operations["listCoreServerInstallations"];
         put?: never;
         /**
-         * Create a installed item
+         * Create an installed item
          * @description Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreServerInstallation"];
@@ -1229,18 +1585,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a installed item
+         * Get an installed item
          * @description Returns one installed item: its settings (spec), and what Racksail last saw of it (status). Something installed from a recipe: what it is, where the recipe came from and which resources it created. Install, upgrade and uninstall it through the catalog; deleting it only forgets it and leaves what it created.
          */
         get: operations["getCoreServerInstallation"];
         /**
-         * Change a installed item
+         * Change an installed item
          * @description Replaces the installed item's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreServerInstallation"];
         post?: never;
         /**
-         * Delete a installed item
+         * Delete an installed item
          * @description Deletes the installed item and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreServerInstallation"];
@@ -1277,10 +1633,154 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a installed item's history
+         * Show an installed item's history
          * @description Returns every recorded version of the installed item's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreServerInstallationHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/signin-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List signin policies
+         * @description How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes. Lists the signin policies you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreSigninPolicies"];
+        put?: never;
+        /**
+         * Create a sign-in policy
+         * @description How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreSigninPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/signin-policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a sign-in policy
+         * @description Returns one sign-in policy: its settings (spec), and what Racksail last saw of it (status). How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes.
+         */
+        get: operations["getCoreSigninPolicy"];
+        /**
+         * Change a sign-in policy
+         * @description Replaces the sign-in policy's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreSigninPolicy"];
+        post?: never;
+        /**
+         * Delete a sign-in policy
+         * @description Deletes the sign-in policy and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreSigninPolicy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/signin-policies/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a sign-in policy's history
+         * @description Returns every recorded version of the sign-in policy's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreSigninPolicyHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/signin-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List signin providers
+         * @description An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings. Lists the signin providers you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreSigninProviders"];
+        put?: never;
+        /**
+         * Create a sign-in provider
+         * @description An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreSigninProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/signin-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a sign-in provider
+         * @description Returns one sign-in provider: its settings (spec), and what Racksail last saw of it (status). An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings.
+         */
+        get: operations["getCoreSigninProvider"];
+        /**
+         * Change a sign-in provider
+         * @description Replaces the sign-in provider's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreSigninProvider"];
+        post?: never;
+        /**
+         * Delete a sign-in provider
+         * @description Deletes the sign-in provider and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreSigninProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/signin-providers/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a sign-in provider's history
+         * @description Returns every recorded version of the sign-in provider's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreSigninProviderHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1303,7 +1803,7 @@ export interface paths {
         get: operations["listCoreUpdateSettings"];
         put?: never;
         /**
-         * Create a update settings
+         * Create an update settings
          * @description How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
          */
         post: operations["createCoreUpdateSettings"];
@@ -1321,18 +1821,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a update settings
+         * Get an update settings
          * @description Returns one update settings: its settings (spec), and what Racksail last saw of it (status). How the server updates Racksail and its own packages: the release channel, whether new releases install themselves and when, mirrors, and how Debian's updates are installed. Releases are signed by Racksail's release workflow and checked before anything is installed; the system is snapshotted first, and a release that doesn't come up healthy is rolled back by itself.
          */
         get: operations["getCoreUpdateSettings"];
         /**
-         * Change a update settings
+         * Change an update settings
          * @description Replaces the update settings's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
          */
         put: operations["updateCoreUpdateSettings"];
         post?: never;
         /**
-         * Delete a update settings
+         * Delete an update settings
          * @description Deletes the update settings and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
          */
         delete: operations["deleteCoreUpdateSettings"];
@@ -1449,13 +1949,305 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show a update settings's history
+         * Show an update settings's history
          * @description Returns every recorded version of the update settings's settings, oldest first, with the change set that wrote it and who made the change.
          */
         get: operations["getCoreUpdateSettingsHistory"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List users
+         * @description Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. Lists the users you can see, oldest first unless sort says otherwise, a page at a time: follow next for the following page. Filter by owner, labels, phase, search text and the indexed fields.
+         */
+        get: operations["listCoreUsers"];
+        put?: never;
+        /**
+         * Create a user
+         * @description Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. Creating one is a change like any other: with dryRun=true the answer is the change set, what it would change on the server, without applying it; otherwise the change set is applied and its job carries out the rest.
+         */
+        post: operations["createCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a user
+         * @description Returns one user: its settings (spec), and what Racksail last saw of it (status). Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set.
+         */
+        get: operations["getCoreUser"];
+        /**
+         * Change a user
+         * @description Replaces the user's settings with new ones, previewed and applied like any change. Send the revision you read to make sure nobody changed it in between; leave labels out to keep them.
+         */
+        put: operations["updateCoreUser"];
+        post?: never;
+        /**
+         * Delete a user
+         * @description Deletes the user and removes what it set up on the server, previewed and applied like any change. Data it removes is kept in a snapshot first where the storage allows it, and the change can be undone.
+         */
+        delete: operations["deleteCoreUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/actions/add_ssh_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an SSH public key to a user
+         * @description Adds an SSH public key, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. The person gets an alert. Everyone may add keys to their own user. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["addSshKeyCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/actions/remove_ssh_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove one of a user's SSH keys
+         * @description Removes an SSH key, as when the laptop it was on is lost. Everyone may remove keys from their own user. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["removeSshKeyCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/actions/update_profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change a user's name, email address and language
+         * @description Changes the name the panel shows, where notifications go and the panel's language. Everyone may change their own. The answer comes when it is done, with what it returned in the change set's output; after 30s it is 202 and the job carries on.
+         */
+        post: operations["updateProfileCoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a user's history
+         * @description Returns every recorded version of the user's settings, oldest first, with the change set that wrote it and who made the change.
+         */
+        get: operations["getCoreUserHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/impersonate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * View the panel as a user
+         * @description Starts viewing the panel as one of your customers' users, to see what they see and help them. Everything you do meanwhile is recorded with both your names, the panel shows a banner the whole time, and it ends after an hour at most. It needs core.impersonate, granted by name; admins of the whole server can't be impersonated.
+         */
+        post: operations["impersonateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a sign-in link
+         * @description Makes a sign-in link for a user to choose their password: a week to start using a new user, a day to get back in. It's shown once and replaces any earlier link.
+         */
+        post: operations["issueSignInLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a user's password
+         * @description Sets a user's password, which signs them out everywhere, or, without a password, only says whether they choose a new one when they next sign in. Passwords are never kept as they are, only as Argon2id hashes. You need every role they have.
+         */
+        put: operations["setUserPassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Help a user back in
+         * @description Helps a user who lost their way in: makes a sign-in link to choose a new password, removes their second steps, signs them out everywhere, revokes their API tokens or lifts a lockout, as you choose. You need every role they have.
+         */
+        post: operations["resetUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List where a user is signed in
+         * @description Lists a user's sessions, for helping them or looking into a problem.
+         */
+        get: operations["listUserSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/ssh-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a user's SSH keys
+         * @description Lists a user's SSH public keys as the panel reads them: each key's type, size and fingerprint. They are part of the user's settings, which add_ssh_key and remove_ssh_key change.
+         */
+        get: operations["listUserSSHKeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a user's API tokens
+         * @description Lists a user's API tokens, without their secrets.
+         */
+        get: operations["listUserTokens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/core/users/{id}/tokens/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a user's API token
+         * @description Stops one of a user's API tokens working, at once.
+         */
+        delete: operations["revokeUserToken"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1977,6 +2769,546 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See your user
+         * @description Returns your user: your details, your roles, and how you sign in.
+         */
+        get: operations["getMe"];
+        /**
+         * Change your details
+         * @description Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.
+         */
+        put: operations["updateMe"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See where your security alerts go
+         * @description Says where your security alerts go, sign-ins from new devices, lockouts and changes to how you sign in, and the channels they can go to.
+         */
+        get: operations["getMyAlerts"];
+        /**
+         * Choose where your security alerts go
+         * @description Sends your security alerts to a notification channel, after opening it once to check its settings, or turns them off. The settings are kept encrypted and never shown again.
+         */
+        put: operations["setMyAlerts"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/alerts/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test alert
+         * @description Sends a test alert to your channel and says how it went.
+         */
+        post: operations["testMyAlerts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your trusted browsers
+         * @description Lists the browsers you trusted to skip the second sign-in step, until when.
+         */
+        get: operations["listMyDevices"];
+        put?: never;
+        post?: never;
+        /**
+         * Stop trusting every browser
+         * @description Stops every browser you trusted skipping the second sign-in step.
+         */
+        delete: operations["forgetMyDevices"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/devices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop trusting a browser
+         * @description Stops one browser skipping the second sign-in step.
+         */
+        delete: operations["forgetMyDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your outside sign-ins
+         * @description Lists the outside providers, such as a company directory, you sign in with.
+         */
+        get: operations["listMyLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/links/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a provider from now on
+         * @description Links your account at a provider that checks passwords, such as a company directory, to your user: the panel checks your username and password there, and doesn't keep them. From then on you can sign in with them.
+         */
+        post: operations["linkMyIdentity"];
+        /**
+         * Stop signing in with a provider
+         * @description Stops an outside provider signing you in. The last way you have to sign in can't be removed.
+         */
+        delete: operations["unlinkMyIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/links/{provider}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start linking a provider
+         * @description Starts linking your account at a provider with its own sign-in page, such as an OpenID Connect provider, to your user. Send the browser to the location in the answer; the provider sends it back to the panel, which links the account and shows your security settings.
+         */
+        post: operations["startLinkingMyIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List second steps from add-ons
+         * @description Lists the second sign-in steps add-ons provide, and whether you have each on.
+         */
+        get: operations["listMyMfa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/mfa/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn on a second step from an add-on
+         * @description Starts a check with a second step an add-on provides; it is on once the check passes.
+         */
+        post: operations["beginMfa"];
+        /**
+         * Turn off a second step from an add-on
+         * @description Turns off a second sign-in step an add-on provides.
+         */
+        delete: operations["disableMfa"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/mfa/{id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish turning on a second step
+         * @description Checks the response to the method's check, and turns it on when it passes. A method without input answers auth.pending until the person approves.
+         */
+        post: operations["finishMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/passkeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your passkeys
+         * @description Lists the passkeys that sign you in, with when each was last used.
+         */
+        get: operations["listMyPasskeys"];
+        put?: never;
+        /**
+         * Add a passkey
+         * @description Returns the options for navigator.credentials.create() to make a passkey for the panel; send the new passkey to the finish operation.
+         */
+        post: operations["beginPasskeyRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/passkeys/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep a new passkey
+         * @description Keeps the passkey the browser made. It then signs you in on its own, and works as a second step after your password.
+         */
+        post: operations["finishPasskeyRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/passkeys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a passkey
+         * @description Stops one of your passkeys signing you in. The last way you have to sign in can't be removed.
+         */
+        delete: operations["removePasskey"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a passkey
+         * @description Gives one of your passkeys a new name.
+         */
+        patch: operations["renamePasskey"];
+        trace?: never;
+    };
+    "/api/v1/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change your password
+         * @description Sets a new password, after checking the current one. It can also sign you out everywhere else.
+         */
+        put: operations["changeMyPassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make new recovery codes
+         * @description Replaces your recovery codes with ten new ones, shown this once. Each works once, in place of a second step, when you can't use yours.
+         */
+        post: operations["newRecoveryCodes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List where you're signed in
+         * @description Lists your sessions, the browsers you're signed in from, with their address and when each was last used. The one asking is marked.
+         */
+        get: operations["listMySessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/end-others": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out everywhere else
+         * @description Ends every session of yours but the one asking.
+         */
+        post: operations["endMyOtherSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Sign out one session
+         * @description Ends one of your sessions, signing that browser out.
+         */
+        delete: operations["endMySession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ssh-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your SSH keys
+         * @description Lists your SSH public keys, which let you reach the files and shells your roles allow over SSH and SFTP.
+         */
+        get: operations["listMySSHKeys"];
+        put?: never;
+        /**
+         * Add an SSH key
+         * @description Adds an SSH public key to your user, as in a .pub file: Ed25519, ECDSA or RSA of 2048 bits or more, without options. It's a change to your user like any other: with dryRun=true the answer is its preview.
+         */
+        post: operations["addMySSHKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ssh-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an SSH key
+         * @description Removes one of your SSH keys, as a change to your user like any other: with dryRun=true the answer is its preview.
+         */
+        delete: operations["removeMySSHKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your API tokens
+         * @description Lists your API tokens with what each may do, where, until when, and when each was last used. Their secrets are never shown again.
+         */
+        get: operations["listMyTokens"];
+        put?: never;
+        /**
+         * Create an API token
+         * @description Makes an API token for scripts and the racksail command. It acts as you, with at most your own permissions, narrowed to those and the accounts you name, from the addresses you name, until it expires or you revoke it. The token is shown this once.
+         */
+        post: operations["createMyToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an API token
+         * @description Stops one of your API tokens working, at once. In the panel you can revoke any of yours; with an API token, only that token itself, as racksail logout --revoke does.
+         */
+        delete: operations["revokeMyToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/totp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up an authenticator app
+         * @description Makes a secret for an authenticator app, as a QR code to scan and as text to type in. It counts once a code from the app checks out.
+         */
+        post: operations["beginTotp"];
+        /**
+         * Remove the authenticator app
+         * @description Turns the authenticator app off. Without any second step left, your recovery codes and trusted browsers go too.
+         */
+        delete: operations["removeTotp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/totp/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the authenticator app on
+         * @description Turns the authenticator app on with a code from it. When you have no recovery codes yet, the answer has your first ones, shown this once.
+         */
+        post: operations["confirmTotp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics": {
         parameters: {
             query?: never;
@@ -2335,6 +3667,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List roles and permissions
+         * @description Lists the roles, what each carries and where it can be given, and every permission with how far each role reaches with it: the permission matrix. Collaborators get the permissions their grant names instead of read-only access, and everyone may see their own user and change their profile and SSH keys.
+         */
+        get: operations["listRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rules/test": {
         parameters: {
             query?: never;
@@ -2400,6 +3752,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See who is signed in
+         * @description Says who is signed in and what they may do, which modules are on, their display preferences, who is viewing the panel as them, what they must do first and how long confirming it's them lasts. The web UI reads it before anything else; `racksail whoami` shows it.
+         */
+        get: operations["getSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/impersonation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop viewing the panel as someone else
+         * @description Ends viewing the panel as another user and goes back to your own session.
+         */
+        delete: operations["stopImpersonating"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Keep display preferences
+         * @description Keeps the person's display preferences with their user, so they follow them to other browsers: light or dark, contrast, density, text size and motion.
+         */
+        put: operations["saveSessionPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm it's you
+         * @description Confirms it's the person, with their password, a code from their authenticator app or a passkey, so sensitive actions go ahead for the minutes the sign-in policy says. The session cookie changes. While viewing the panel as someone, it's the admin who confirms.
+         */
+        post: operations["stepUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/step-up/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm it's you with a passkey
+         * @description Returns the options for navigator.credentials.get() to confirm it's the person with one of their passkeys; send the answer to the step-up operation.
+         */
+        post: operations["beginStepUpPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/version": {
         parameters: {
             query?: never;
@@ -2424,6 +3876,88 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccountLimits: {
+            /**
+             * Format: int64
+             * @description CPU time, as a percentage of one CPU: 200 is two whole CPUs
+             */
+            cpu?: number;
+            /**
+             * Format: int64
+             * @description The account's share of CPU time when the CPUs are busy, from 1 to 10000, where 100 is the default
+             */
+            cpuWeight?: number;
+            /**
+             * Format: int64
+             * @description The account's share of disk time when disks are busy, from 1 to 10000, where 100 is the default
+             */
+            ioWeight?: number;
+            /**
+             * Format: int64
+             * @description Memory in bytes above which the account's processes are slowed down and their memory reclaimed
+             */
+            memoryHigh?: number;
+            /**
+             * Format: int64
+             * @description Memory in bytes the account's processes can never use more of
+             */
+            memoryMax?: number;
+            /**
+             * Format: int64
+             * @description How many processes and threads the account may run at once
+             */
+            tasks?: number;
+        };
+        AccountOwner: {
+            /** @description Where the owner gets notifications */
+            email?: string;
+            /** @description The owner's name, as the panel shows it */
+            name?: string;
+            /** @description What the owner signs in with */
+            username: string;
+        };
+        AccountSpec: {
+            /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
+            limits?: components["schemas"]["AccountLimits"];
+            /**
+             * @description What the account is called, such as the customer's name
+             * @example Acme Inc.
+             */
+            name: string;
+            /** @description Notes for the people who run the server */
+            note?: string;
+            /** @description The reseller whose customer the account is; empty for the server's own customers. It can't be changed. */
+            reseller?: string;
+            /**
+             * @description The account's short name, which is also the name of its Linux user: lowercase letters and digits, 3 to 16 characters, starting with a letter. It can't be changed.
+             * @example acme
+             */
+            slug: string;
+        };
+        AccountStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description Where the account's files live */
+            home?: string;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The systemd slice the account's services run in */
+            slice?: string;
+            /**
+             * Format: int64
+             * @description The account's Linux user and group ID
+             */
+            uid?: number;
+            /** @description The account's Linux user */
+            user?: string;
+        };
         ActionInfo: {
             description?: string;
             destructive?: boolean;
@@ -2441,11 +3975,13 @@ export interface components {
         Actor: {
             id?: string;
             impersonator?: string;
+            impersonatorName?: string;
             ip?: string;
             name: string;
             source: string;
             type: string;
             user?: string;
+            userName?: string;
         };
         AddonSpec: {
             /** @description The permissions the person installing the add-on approved */
@@ -2510,6 +4046,26 @@ export interface components {
             state?: "running" | "stopped" | "safe_mode" | "failed";
             /** @description The version whose program runs */
             version?: string;
+        };
+        AlertChannelInput: {
+            /** @description The channel's settings, as its form asks for them. They're kept encrypted and never shown again */
+            settings?: unknown;
+            /** @description The channel type, or provider:<name>; leave it out to turn alerts off */
+            type?: string;
+        };
+        AlertChannelTypeView: {
+            id: string;
+            /** @description The settings that hold secrets, which are kept encrypted with the rest and never shown again */
+            secrets?: string[] | null;
+            /** @description The JSON Schema of the channel's settings */
+            settings?: unknown;
+            title: string;
+        };
+        AlertsOutputBody: {
+            /** @description Where security alerts go; empty when they're off */
+            channel?: string;
+            /** @description Where they can go */
+            types: components["schemas"]["AlertChannelTypeView"][] | null;
         };
         AuditListBody: {
             /** @description The cursor of the next page; empty on the last one */
@@ -2633,6 +4189,10 @@ export interface components {
              * @description When the index was last fetched
              */
             syncedAt?: string;
+        };
+        ChallengeInputBody: {
+            /** @description The challenge the first step answered with */
+            challenge: string;
         };
         Change: {
             /** @description The action to run, for action changes */
@@ -2787,6 +4347,10 @@ export interface components {
             available?: components["schemas"]["Available"];
             running: string;
         };
+        CodeInputBody: {
+            /** @description A code from the authenticator app */
+            code: string;
+        };
         Column: {
             field: string;
             format?: string;
@@ -2817,6 +4381,41 @@ export interface components {
             effects?: number[] | null;
             source: components["schemas"]["Source"];
             summary: string;
+        };
+        /** @description Account: A customer or tenant: the sites, mail, databases and files that belong together, and the people who manage them. On the server an account is a Linux user with a home under /srv/racksail/accounts and a systemd slice, so the kernel enforces its limits and its services can't see other accounts. */
+        CoreAccount: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["AccountSpec"];
+            status?: components["schemas"]["AccountStatus"];
+            /** Format: date-time */
+            updatedAt: string;
         };
         /** @description Account add-on: An add-on an account owner installed for their account. It only sees and changes what belongs to the account, and can never patch services' configuration or hold core.override. */
         CoreAccountAddon: {
@@ -2894,6 +4493,30 @@ export interface components {
             };
             spec: components["schemas"]["AddonSpec"];
         };
+        /** @description A new account. */
+        CoreAccountCreateRequest: {
+            /** @description An ID chosen up front, starting with acct_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description The account it belongs to */
+            scope: components["schemas"]["Scope"];
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["AccountSpec"];
+        };
+        /** @description One page of accounts. */
+        CoreAccountList: {
+            items: components["schemas"]["CoreAccount"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
         /** @description Account rule: A rule written in CEL that refuses changes or fills in fields of new resources. Validate rules refuse a change when their expression is true, with their message; default rules fill in fields, or override them, when a resource is created. Expressions see request, resource, oldResource, account, plan, user and server. An account's rules apply to changes in that account. */
         CoreAccountPolicy: {
             /** Format: date-time */
@@ -2969,6 +4592,23 @@ export interface components {
                 [key: string]: string;
             };
             spec: components["schemas"]["PolicySpec"];
+        };
+        /** @description New settings for a account. */
+        CoreAccountUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["AccountSpec"];
         };
         /** @description Add-on: An add-on a server admin installed: a program from a catalog that runs in a sandboxed service of its own and takes part in the panel through hooks, providers, API routes and screens, with the permissions that were approved for it. */
         CoreAddon: {
@@ -3640,6 +5280,154 @@ export interface components {
             };
             spec: components["schemas"]["InstallationSpec"];
         };
+        /** @description Sign-in policy: How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, and which networks the panel may be used from. Without one, sessions last 12 hours or an hour idle and ten failures lock a user out for 15 minutes. */
+        CoreSigninPolicy: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["SignInPolicySpec"];
+            status?: components["schemas"]["SignInPolicyStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new sign-in policy. */
+        CoreSigninPolicyCreateRequest: {
+            /** @description An ID chosen up front, starting with signin_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["SignInPolicySpec"];
+        };
+        /** @description One page of signin policies. */
+        CoreSigninPolicyList: {
+            items: components["schemas"]["CoreSigninPolicy"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a sign-in policy. */
+        CoreSigninPolicyUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["SignInPolicySpec"];
+        };
+        /** @description Sign-in provider: An outside service people sign in with, such as an LDAP directory or an OpenID Connect provider, or a second sign-in step an add-on provides. Its provider comes from an add-on or a module; this connects it with its settings. */
+        CoreSigninProvider: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["ProviderSpec"];
+            status?: components["schemas"]["ProviderStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new sign-in provider. */
+        CoreSigninProviderCreateRequest: {
+            /** @description An ID chosen up front, starting with signprov_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: secret */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["ProviderSpec"];
+        };
+        /** @description One page of signin providers. */
+        CoreSigninProviderList: {
+            items: components["schemas"]["CoreSigninProvider"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a sign-in provider. */
+        CoreSigninProviderUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again. Secret fields: secret */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["ProviderSpec"];
+        };
         /** @description Mail relay: The mail server the panel sends email through: email notifications, sign-in alerts and messages to customers. Use your provider's submission server, or this server's own when the mail module is on. */
         CoreSmtpRelay: {
             /** Format: date-time */
@@ -3788,6 +5576,82 @@ export interface components {
             };
             spec: components["schemas"]["SettingsSpec"];
         };
+        /** @description User: Someone who signs in to the panel: their username, name and email address, what they may do and where, and their SSH keys. A user belongs to the server, a reseller or an account, which decides who manages them, and their roles never reach outside it. How they sign in, their password, passkeys, second steps, sessions and API tokens, is kept apart from their settings and never part of a change set. */
+        CoreUser: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Set when the resource has been deleted and its system state is being removed
+             */
+            deletedAt?: string;
+            /**
+             * Format: int64
+             * @description Increases whenever the desired state changes
+             */
+            generation: number;
+            /** @description Immutable TypeID */
+            id: string;
+            /** @description Kind name, <module>.<name> */
+            kind: string;
+            /** @description Free-form labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Increases on every write except status updates; send it back to detect conflicting edits
+             */
+            revision: number;
+            scope: components["schemas"]["Scope"];
+            /** @description Cluster server the resource is placed on; empty for the panel's own server */
+            server?: string;
+            spec: components["schemas"]["UserSpec"];
+            status?: components["schemas"]["UserStatus"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description A new user. */
+        CoreUserCreateRequest: {
+            /** @description An ID chosen up front, starting with user_; one is made when left out */
+            id?: string;
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Where it belongs: the server, the reseller or the account; the server when left out */
+            scope?: components["schemas"]["Scope"];
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            /** @description The cluster server to place it on; the panel's own server when left out */
+            server?: string;
+            spec: components["schemas"]["UserSpec"];
+        };
+        /** @description One page of users. */
+        CoreUserList: {
+            items: components["schemas"]["CoreUser"][];
+            /** @description The cursor of the next page; empty on the last one */
+            next?: string;
+        };
+        /** @description New settings for a user. */
+        CoreUserUpdateRequest: {
+            /** @description Labels for grouping and filtering */
+            labels?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description The revision the settings were read at; when someone changed them since, the update fails with a conflict
+             */
+            revision?: number;
+            /** @description Values for the secret fields, by field path; they are stored apart from the settings and never shown again */
+            secrets?: {
+                [key: string]: string;
+            };
+            spec: components["schemas"]["UserSpec"];
+        };
         /** @description Webhook: Sends events to a URL of your choice as they happen, signed so the receiver can check they came from this server. Deliveries that fail are tried again for most of a day, and every attempt is kept in the webhook's delivery log. */
         CoreWebhook: {
             /** Format: date-time */
@@ -3871,6 +5735,28 @@ export interface components {
             idleMemoryMB: number;
             notes?: string;
         };
+        CreatedToken: {
+            /** @description The accounts the token may act on; empty means wherever its user may */
+            accounts: string[] | null;
+            /** @description Where the token may be used from; empty means anywhere the sign-in policy allows */
+            allowFrom: string[] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @description How the token starts, to tell tokens apart */
+            hint: string;
+            id: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+            lastUsedIp?: string;
+            name: string;
+            /** @description What the token may do, as permission patterns; empty means whatever its user may do */
+            permissions: string[] | null;
+            /** @description The token itself, for the Authorization header as Bearer <token>. It is shown this once */
+            token: string;
+            user: string;
+        };
         DataScope: {
             fields?: string[] | null;
             kind: string;
@@ -3948,6 +5834,22 @@ export interface components {
             requiresAny?: string[] | null;
             uses?: string[] | null;
         };
+        DeviceView: {
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Whether it's the browser asking */
+            current: boolean;
+            /** Format: date-time */
+            expiresAt: string;
+            id: string;
+            ip?: string;
+            /** Format: date-time */
+            lastUsedAt: string;
+            name: string;
+        };
+        DevicesOutputBody: {
+            devices: components["schemas"]["DeviceView"][] | null;
+        };
         DismissBody: {
             /**
              * Format: date-time
@@ -3990,6 +5892,13 @@ export interface components {
             owner: string;
             /** @description The point it is attached to */
             point: string;
+        };
+        EndedOutputBody: {
+            /**
+             * Format: int64
+             * @description How many sessions were ended
+             */
+            ended: number;
         };
         EnterSafeModeInputBody: {
             /**
@@ -4132,6 +6041,21 @@ export interface components {
             installed: boolean;
             packages?: components["schemas"]["SoftwarePackage"][] | null;
         };
+        Grant: {
+            /** @description Patterns the grant's permissions are narrowed to */
+            limit?: string[] | null;
+            /** @description A single resource the grant is limited to, for collaborators */
+            object?: string;
+            /** @description For collaborators, the permissions they get instead of read-only access; for other roles, special permissions added by name */
+            permissions?: string[] | null;
+            /**
+             * @description What the grant lets its holder do
+             * @enum {string}
+             */
+            role: "admin" | "reseller" | "owner" | "collaborator" | "readonly";
+            /** @description Where the grant applies: the whole server, a reseller and their customers, or one account */
+            scope: components["schemas"]["Scope"];
+        };
         Hardware: {
             arch: string[] | null;
             features?: string[] | null;
@@ -4224,6 +6148,16 @@ export interface components {
             addresses: string[] | null;
             /** @description The host's name, as the add-on's manifest declares it */
             name?: string;
+        };
+        Impersonation: {
+            /** @description The admin or reseller viewing the panel */
+            by: string;
+            /** Format: date-time */
+            endsAt: string;
+            /** @description Their name */
+            name: string;
+            /** Format: date-time */
+            startedAt: string;
         };
         InboxAction: {
             /** @description What the action works on: a resource, job or change set ID, an event type pattern, or a page of the documentation */
@@ -4413,6 +6347,18 @@ export interface components {
             kind: string;
             name: string;
         };
+        IssuedLink: {
+            /** @description What the link carries; anyone who has it can choose the user's password until it expires */
+            code: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description Where the link goes on the panel */
+            path: string;
+            /** @enum {string} */
+            purpose: "activate" | "reset";
+            /** @description The whole link, when the panel knows its own name */
+            url?: string;
+        };
         ItemDetail: {
             broken?: boolean;
             catalog: string;
@@ -4481,6 +6427,8 @@ export interface components {
         KindDescription: {
             actions: components["schemas"]["ActionInfo"][] | null;
             backup: components["schemas"]["BackupInfo"];
+            /** @description Whether changing one asks people in the panel to confirm it's them */
+            confirm?: boolean;
             description: string;
             /** @description The event types the kind emits */
             events: string[] | null;
@@ -4489,6 +6437,8 @@ export interface components {
             inputs?: {
                 [key: string]: unknown;
             };
+            /** @description Further levels its resources may belong to, as users belong to the server, a reseller or an account */
+            levels?: string[] | null;
             module: string;
             /** @description <module>.<name> */
             name: string;
@@ -4524,6 +6474,41 @@ export interface components {
         KindsOutputBody: {
             kinds: components["schemas"]["KindDescription"][] | null;
         };
+        LinkInfo: {
+            /** Format: date-time */
+            expiresAt: string;
+            name?: string;
+            /** @enum {string} */
+            purpose: "activate" | "reset";
+            username: string;
+        };
+        LinkInput: {
+            /**
+             * Format: password
+             * @description Your password at the provider, which the panel checks with it and doesn't keep
+             */
+            password: string;
+            /** @description Your username at the provider */
+            username: string;
+        };
+        LinkLookupInputBody: {
+            /** @description What the sign-in link carries, after the # */
+            code: string;
+        };
+        LinkStart: {
+            /** @description The provider's page, which sends the browser back to the panel */
+            location: string;
+        };
+        LinkView: {
+            /** Format: date-time */
+            linkedAt: string;
+            provider: string;
+            title: string;
+            username?: string;
+        };
+        LinksOutputBody: {
+            links: components["schemas"]["LinkView"][] | null;
+        };
         ListedItem: {
             broken?: boolean;
             catalog: string;
@@ -4557,6 +6542,12 @@ export interface components {
             /** Format: date-time */
             time: string;
         };
+        MFAOption: {
+            /** @description Whether the person asking has it on */
+            enabled: boolean;
+            id: string;
+            title: string;
+        };
         Manifest: {
             capabilities?: components["schemas"]["Capabilities"];
             /** @enum {string} */
@@ -4581,6 +6572,50 @@ export interface components {
             upstream: components["schemas"]["Upstream"][] | null;
             version: string;
         };
+        MatrixEntry: {
+            description: string;
+            permission: string;
+            /** @description For each role: everywhere, scope (where the grant applies), named (only when a grant names it) or none */
+            roles: {
+                [key: string]: string;
+            };
+        };
+        Me: {
+            allowFrom: string[] | null;
+            /** Format: date-time */
+            createdAt: string;
+            disabled?: boolean;
+            email?: string;
+            grants: components["schemas"]["Grant"][] | null;
+            /** @description Where the user belongs, and so who manages them */
+            home: components["schemas"]["Scope"];
+            id: string;
+            /** Format: date-time */
+            lastSignInAt?: string;
+            lastSignInIp?: string;
+            locale?: string;
+            /**
+             * Format: date-time
+             * @description Until when failed sign-ins keep the user out
+             */
+            lockedUntil?: string;
+            /** @description Whether the user has to choose a new password when they next sign in */
+            mustChangePassword?: boolean;
+            name: string;
+            /** @description Whether the user has a password */
+            passwordSet: boolean;
+            /**
+             * Format: int64
+             * @description The revision of the user's settings
+             */
+            revision: number;
+            security: components["schemas"]["Security"];
+            /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
+            twoFactor: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+            username: string;
+        };
         Message: {
             actionLabel?: string;
             /** @description What happened and what to do, in plain text */
@@ -4595,6 +6630,28 @@ export interface components {
             title: string;
             /** @description Where in the panel to look */
             url?: string;
+        };
+        MfaFinishInputBody: {
+            ceremony: string;
+            /** @description What the method asked the person for; empty for methods without input */
+            response?: string;
+        };
+        MfaOptionsOutputBody: {
+            methods: components["schemas"]["MFAOption"][] | null;
+        };
+        MfaOutputBody: {
+            /** @description Send it back to finish turning the method on */
+            ceremony?: string;
+            /** @description Whether the person types a response; otherwise ask again until it says yes or no */
+            input: boolean;
+            /** @description What to tell the person */
+            prompt: string;
+        };
+        MfaStartInputBody: {
+            /** @description The challenge the first step answered with */
+            challenge: string;
+            /** @description The second step to start, from the methods the first step listed, without its mfa: prefix */
+            method: string;
         };
         ModuleInfo: {
             /** @description Modules that are on and need it */
@@ -4776,6 +6833,31 @@ export interface components {
             rebootRequired?: boolean;
             version: string;
         };
+        OpenAccountInput: {
+            /** @description What the account's processes may use together, enforced by the kernel; empty means no limit */
+            limits?: components["schemas"]["AccountLimits"];
+            /**
+             * @description What the account is called
+             * @example Acme Inc.
+             */
+            name: string;
+            /** @description Notes for the people who run the server */
+            note?: string;
+            /** @description A user to own the account, who gets a sign-in link to choose their password */
+            owner?: components["schemas"]["AccountOwner"];
+            /** @description The reseller whose customer the account is; leave it out for the server's own */
+            reseller?: string;
+            /**
+             * @description The account's short name, which is also its Linux user
+             * @example acme
+             */
+            slug: string;
+        };
+        OpenedAccount: {
+            changeSet: components["schemas"]["ChangeSet"];
+            link?: components["schemas"]["IssuedLink"];
+            owner?: components["schemas"]["UserView"];
+        };
         Operation: {
             description?: string;
             /** @description Whether it removes data, and so needs a typed confirmation */
@@ -4808,6 +6890,10 @@ export interface components {
              * @enum {string}
              */
             risk: "read" | "low" | "medium" | "high" | "critical";
+            /** @description Whether only a person in the panel may use it, not an API token */
+            session?: boolean;
+            /** @description Whether it needs you to have confirmed it's you recently, when you use it in the panel */
+            stepUp?: boolean;
             /** @description Whether it answers with Server-Sent Events */
             stream?: boolean;
             summary: string;
@@ -4866,6 +6952,56 @@ export interface components {
              */
             upgraded: number;
         };
+        PasskeyFinishInputBody: {
+            ceremony: string;
+            /** @description The passkey's answer, as PublicKeyCredential.toJSON() gives it */
+            credential: unknown;
+            /** @description Stay signed in when the browser closes */
+            remember?: boolean;
+        };
+        PasskeyOptions: {
+            /** @description Send it back with the passkey's answer */
+            ceremony?: string;
+            /** @description The options for navigator.credentials, with publicKey inside */
+            options: unknown;
+        };
+        PasskeyRegisterInputBody: {
+            ceremony: string;
+            /** @description The new passkey, as PublicKeyCredential.toJSON() gives it */
+            credential: unknown;
+            /** @description What to call the passkey, such as the device it's on */
+            name?: string;
+        };
+        PasskeyView: {
+            /** Format: date-time */
+            createdAt: string;
+            id: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+            name: string;
+            /** @description Whether the passkey is kept in a password manager or synced between devices */
+            synced: boolean;
+        };
+        PasskeysOutputBody: {
+            passkeys: components["schemas"]["PasskeyView"][] | null;
+        };
+        PasswordInput: {
+            /** @description Your current password; not needed when you have none, or when a sign-in link let you in to choose one */
+            current?: string;
+            /** @description Sign out everywhere else too */
+            endOtherSessions?: boolean;
+            /** @description The new password */
+            new: string;
+        };
+        PasswordSetting: {
+            /** @description Ask the user to choose a new password when they next sign in */
+            mustChange?: boolean;
+            /**
+             * Format: password
+             * @description The user's new password; leave it out to only say whether they choose a new one when they next sign in
+             */
+            password?: string;
+        };
         Permission: {
             description: string;
             name: string;
@@ -4923,6 +7059,21 @@ export interface components {
             port: number;
             /** @enum {string} */
             protocol: "tcp" | "udp";
+        };
+        Preferences: {
+            /** @enum {string} */
+            contrast?: "system" | "standard" | "high";
+            /** @enum {string} */
+            density?: "theme" | "comfortable" | "compact";
+            /**
+             * @description Light, dark or the system's
+             * @enum {string}
+             */
+            mode?: "system" | "light" | "dark";
+            /** @enum {string} */
+            motion?: "system" | "reduce" | "full";
+            /** @enum {string} */
+            textSize?: "default" | "small" | "large" | "larger" | "largest";
         };
         PreferencesSpec: {
             /** @description Send notifications to my email address */
@@ -5007,6 +7158,14 @@ export interface components {
             /** @description Modules of the profile that can't run on this server, with why */
             skipped?: components["schemas"]["Skipped"][] | null;
         };
+        ProfileInput: {
+            /** @description Where notifications go */
+            email?: string;
+            /** @description The panel's language, such as en or pt-BR; empty follows the browser */
+            locale?: string;
+            /** @description The name the panel shows */
+            name: string;
+        };
         ProfileListBody: {
             profiles: components["schemas"]["Profile"][] | null;
         };
@@ -5023,6 +7182,53 @@ export interface components {
              * @description Units of work in all; zero when unknown
              */
             total: number;
+        };
+        ProviderSpec: {
+            /**
+             * @description What it does: signs people in (identity), or adds a second sign-in step (mfa)
+             * @enum {string}
+             */
+            capability: "identity" | "mfa";
+            /** @description Turn it off without removing it */
+            disabled?: boolean;
+            /**
+             * @description How someone signing in for the first time is matched to an existing user: not at all, so people link it themselves in their security settings, by username, or by email. Users with a grant on the whole server are never matched
+             * @enum {string}
+             */
+            match?: "none" | "username" | "email";
+            /** @description What users added this way may do */
+            newUserGrants?: components["schemas"]["Grant"][] | null;
+            /** @description Add a user for someone who signs in for the first time and matches nobody */
+            newUsers?: boolean;
+            /**
+             * @description The provider's name, as the add-on or module that provides it registers it
+             * @example ldap
+             */
+            provider: string;
+            /** @description A secret the provider needs, such as an LDAP bind password or an OpenID Connect client secret */
+            secret?: string;
+            /** @description The provider's settings, as its form asks for them */
+            settings?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description What the sign-in screen calls it
+             * @example Company directory
+             */
+            title: string;
+        };
+        ProviderStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
         };
         QuietHours: {
             /** @description The days quiet hours start on, as mon to sun; every day when empty */
@@ -5046,6 +7252,10 @@ export interface components {
              * @enum {string}
              */
             urgent?: "info" | "notice" | "warning" | "error" | "critical";
+        };
+        RecoveryCodesOutputBody: {
+            /** @description The recovery codes, shown this once; each works once in place of a second step */
+            codes: string[] | null;
         };
         RedeliverInput: {
             /** @description The delivery to send again */
@@ -5127,6 +7337,9 @@ export interface components {
             /** @description Uninstall the software but keep the module's resources and their data */
             keepData?: boolean;
         };
+        RenameInputBody: {
+            name: string;
+        };
         Requirements: {
             arch?: string[] | null;
             /** Format: int64 */
@@ -5135,6 +7348,25 @@ export interface components {
             /** Format: int64 */
             memoryMB?: number;
             modules?: string[] | null;
+        };
+        ResetInput: {
+            /** @description Sign them out everywhere */
+            endSessions?: boolean;
+            /** @description Make a sign-in link for choosing a new password; it is shown once */
+            link?: boolean;
+            /** @description Remove their authenticator app, passkeys, recovery codes, trusted browsers and methods from add-ons */
+            removeTwoFactor?: boolean;
+            /** @description Revoke all their API tokens */
+            revokeTokens?: boolean;
+            /** @description Lift a lockout after failed sign-ins */
+            unlock?: boolean;
+        };
+        ResetResult: {
+            link?: components["schemas"]["IssuedLink"];
+            /** Format: int64 */
+            sessionsEnded: number;
+            /** Format: int64 */
+            tokensRevoked: number;
         };
         Resource: {
             /** Format: date-time */
@@ -5213,8 +7445,51 @@ export interface components {
              */
             reason: "lagging";
         };
+        RoleInfo: {
+            description: string;
+            /** @description Where the role can be given: on the server, a reseller or an account */
+            levels: string[] | null;
+            /** @description The permissions the role carries, as patterns such as * or *.read */
+            patterns: string[] | null;
+            /** @enum {string} */
+            role: "admin" | "reseller" | "owner" | "collaborator" | "readonly";
+            title: string;
+        };
+        RolesOutputBody: {
+            /** @description Every permission, and how far each role reaches with it */
+            matrix: components["schemas"]["MatrixEntry"][] | null;
+            roles: components["schemas"]["RoleInfo"][] | null;
+            /** @description What everyone may do to their own user, whatever their roles */
+            self: string[] | null;
+        };
         RollbackInput: {
             reason?: string;
+        };
+        SSHKey: {
+            /**
+             * Format: int64
+             * @description The key's size, for RSA and ECDSA keys
+             */
+            bits?: number;
+            /** @description The SHA256 fingerprint ssh-keygen -l shows */
+            fingerprint: string;
+            id: string;
+            name: string;
+            /** @description The key as an authorized_keys line, without options */
+            publicKey: string;
+            /** @description The key's algorithm, such as ssh-ed25519 */
+            type: string;
+            user: string;
+        };
+        SSHKeyInput: {
+            /** @description What the key is for; the key's comment when left out */
+            name?: string;
+            /** @description The public key, as in a .pub file or an authorized_keys line, without options */
+            publicKey: string;
+        };
+        SSHKeyRef: {
+            /** @description The key's ID, which starts with sshkey_ */
+            id: string;
         };
         SafeModeSource: {
             /**
@@ -5264,9 +7539,119 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        SecondStepInput: {
+            /** @description The challenge the first step answered with */
+            challenge: string;
+            /** @description The code from the authenticator app, a recovery code, or what an add-on's method asked for */
+            code?: string;
+            /** @description The passkey's answer, as the browser's PublicKeyCredential.toJSON() gives it */
+            credential?: unknown;
+            /** @description The second step: totp, recovery, passkey or mfa:<name> */
+            method: string;
+            /** @description Trust this browser, so it skips the second step for the days the sign-in policy says */
+            trust?: boolean;
+        };
+        Security: {
+            /** @description Where sign-in alerts go */
+            alertChannel?: string;
+            /**
+             * Format: int64
+             * @description How many browsers are trusted to skip the second step
+             */
+            devices: number;
+            /** @description The outside providers the person can sign in with */
+            links: string[] | null;
+            /** @description Second steps from add-ons that are on */
+            methods: string[] | null;
+            /**
+             * Format: int64
+             * @description How many passkeys can sign in
+             */
+            passkeys: number;
+            /**
+             * Format: int64
+             * @description How many unused recovery codes are left
+             */
+            recoveryCodes: number;
+            /** @description Whether the sign-in policy requires a second step for the person's role */
+            required: boolean;
+            /** @description Whether an authenticator app is set up */
+            totp: boolean;
+        };
         Service: {
             description: string;
             unit: string;
+        };
+        Session: {
+            accounts: components["schemas"]["SessionAccount"][] | null;
+            /** @description Whether this is racksail dev, which signs everyone in as its developer */
+            dev?: boolean;
+            /**
+             * Format: date-time
+             * @description When the session ends at the latest
+             */
+            expiresAt?: string;
+            impersonation?: components["schemas"]["Impersonation"];
+            modules: {
+                [key: string]: "off" | "on" | "active" | "stopping" | "removing";
+            };
+            /**
+             * @description What the person must do before anything else: set up a second step, or choose a new password
+             * @enum {string}
+             */
+            pending?: "two-factor" | "password";
+            /** @description What the person may do somewhere, as permission names and patterns; the panel checks each request against where it applies */
+            permissions: string[] | null;
+            preferences?: components["schemas"]["Preferences"];
+            /** @description How the person can confirm it's them: password, totp or passkey */
+            stepUpMethods: string[] | null;
+            /**
+             * Format: date-time
+             * @description Until when sensitive actions go ahead without confirming it's them again
+             */
+            steppedUpUntil?: string;
+            token?: components["schemas"]["SessionToken"];
+            user: components["schemas"]["SessionUser"];
+        };
+        SessionAccount: {
+            id: string;
+            name: string;
+            slug: string;
+        };
+        SessionToken: {
+            id: string;
+            name: string;
+        };
+        SessionUser: {
+            email?: string;
+            /** @description Where the person belongs */
+            home: components["schemas"]["Scope"];
+            id: string;
+            /** @description The person's name, or their username */
+            name: string;
+            username?: string;
+        };
+        SessionView: {
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Whether this is the session asking */
+            current: boolean;
+            /** @description The browser and system, as the browser describes itself */
+            device: string;
+            /** Format: date-time */
+            expiresAt: string;
+            id: string;
+            /** @description Who is viewing the panel as the user in this session */
+            impersonator?: string;
+            ip?: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+            /** @description How the person signed in */
+            method: string;
+            secondFactor?: string;
+        };
+        SessionsOutputBody: {
+            sessions: components["schemas"]["SessionView"][] | null;
         };
         SettingsSpec: {
             /** @description Install new releases on the channel by themselves, during the window */
@@ -5315,6 +7700,127 @@ export interface components {
             /** @description The version running now */
             running: string;
         };
+        SetupInput: {
+            /** @description The setup code from the panel's log or the server's console */
+            code: string;
+            email?: string;
+            name?: string;
+            /** Format: password */
+            password: string;
+            /** @description The admin's username */
+            username: string;
+        };
+        SetupStatusOutputBody: {
+            /** @description Whether the panel still waits for its first admin */
+            required: boolean;
+        };
+        SignInAnswer: {
+            /** @description Send it back with the second step */
+            challenge?: string;
+            /** @description The second steps the person can take: totp, passkey, recovery and mfa:<id> */
+            methods?: string[] | null;
+            /** @description Who is signing in, to greet them */
+            name?: string;
+            /**
+             * @description What the person must do before anything else
+             * @enum {string}
+             */
+            pending?: "two-factor" | "password";
+            /** @description Whether the person is signed in now */
+            signedIn: boolean;
+            /** @description What to call each second step an add-on provides, by method */
+            titles?: {
+                [key: string]: string;
+            };
+        };
+        SignInInput: {
+            /** @description The password */
+            password: string;
+            /** @description Stay signed in when the browser closes, until the session's time is up */
+            remember?: boolean;
+            /** @description The username */
+            username: string;
+        };
+        SignInOption: {
+            id: string;
+            /** @enum {string} */
+            method: "password" | "redirect";
+            title: string;
+        };
+        SignInOptions: {
+            /** @description Whether passkeys work at the address the panel was opened at */
+            passkeys: boolean;
+            /** @description Outside providers people can sign in with */
+            providers: components["schemas"]["SignInOption"][] | null;
+            /** @description Whether the panel still waits for its first admin */
+            setupRequired: boolean;
+        };
+        SignInPolicySpec: {
+            /** @description Addresses and networks people may sign in and use API tokens from; empty allows anywhere. The server itself is always allowed */
+            allowFrom?: string[] | null;
+            /**
+             * Format: int64
+             * @description Failed sign-ins in a row that lock a user out
+             * @default 10
+             */
+            lockoutAttempts: number;
+            /**
+             * Format: int64
+             * @description How long a lockout lasts; passkeys still sign the user in
+             * @default 15
+             */
+            lockoutMinutes: number;
+            /**
+             * Format: int64
+             * @description How long a browser someone trusts skips the second sign-in step; 0 turns trusting browsers off
+             * @default 30
+             */
+            rememberDeviceDays: number;
+            /** @description Roles whose users must set up an authenticator app or a passkey before they can do anything else */
+            requireTwoFactor?: string[] | null;
+            /**
+             * Format: int64
+             * @description Sign people out after this many minutes without activity
+             * @default 60
+             */
+            sessionIdleMinutes: number;
+            /**
+             * Format: int64
+             * @description Sign people out this many hours after they signed in, however active they are
+             * @default 12
+             */
+            sessionLifetimeHours: number;
+            /**
+             * @description When people get an alert about signing in: from a new device, every time, or never
+             * @default new-device
+             * @enum {string}
+             */
+            signInAlerts: "new-device" | "every" | "off";
+            /**
+             * Format: int64
+             * @description How long confirming it's you lasts before sensitive actions ask again
+             * @default 10
+             */
+            stepUpMinutes: number;
+            /**
+             * Format: int64
+             * @description The longest an API token may last, in days; 0 lets tokens last until they're revoked
+             */
+            tokenMaxDays?: number;
+        };
+        SignInPolicyStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /** @description English summary of the current state */
+            message?: string;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+        };
         Skipped: {
             module: string;
             reason: string;
@@ -5362,6 +7868,9 @@ export interface components {
             /** @enum {string} */
             type: "request" | "hook" | "rule" | "addon" | "module";
         };
+        SshKeysOutputBody: {
+            keys: components["schemas"]["SSHKey"][] | null;
+        };
         Status: {
             code?: string;
             conditions?: components["schemas"]["Condition"][] | null;
@@ -5386,6 +7895,22 @@ export interface components {
             op: string;
             /** @description What the step does, for progress logs */
             title?: string;
+        };
+        StepUpInput: {
+            /** @description The ceremony the passkey request started */
+            ceremony?: string;
+            /** @description A code from the authenticator app */
+            code?: string;
+            /** @description The passkey's answer, as PublicKeyCredential.toJSON() gives it */
+            credential?: unknown;
+            password?: string;
+        };
+        StepUpOutputBody: {
+            /**
+             * Format: date-time
+             * @description Until when sensitive actions go ahead
+             */
+            steppedUpUntil: string;
         };
         SubmitInputBody: {
             /** @description The changes, planned in order: each sees what the ones before it create, change or delete */
@@ -5448,6 +7973,55 @@ export interface components {
             refused?: boolean;
             /** @description The resource's settings after a default rule filled them in */
             spec?: unknown;
+        };
+        TokenInput: {
+            /** @description The accounts the token may act on; leave it out for wherever you may */
+            accounts?: string[] | null;
+            /** @description Addresses and networks the token may be used from; leave it out for anywhere */
+            allowFrom?: string[] | null;
+            /**
+             * Format: date-time
+             * @description When the token stops working; leave it out to keep it until it's revoked, unless the sign-in policy limits how long tokens last
+             */
+            expiresAt?: string;
+            /**
+             * @description What the token is for, such as deploys from CI
+             * @example Deploys from CI
+             */
+            name: string;
+            /** @description What the token may do, as permission names or patterns such as web.* or *.read; leave it out for whatever you may do */
+            permissions?: string[] | null;
+        };
+        TokenView: {
+            /** @description The accounts the token may act on; empty means wherever its user may */
+            accounts: string[] | null;
+            /** @description Where the token may be used from; empty means anywhere the sign-in policy allows */
+            allowFrom: string[] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @description How the token starts, to tell tokens apart */
+            hint: string;
+            id: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+            lastUsedIp?: string;
+            name: string;
+            /** @description What the token may do, as permission patterns; empty means whatever its user may do */
+            permissions: string[] | null;
+            user: string;
+        };
+        TokensOutputBody: {
+            tokens: components["schemas"]["TokenView"][] | null;
+        };
+        TotpOutputBody: {
+            /** @description The QR code, as a data: URL of a PNG image */
+            qr: string;
+            /** @description The secret, for typing into the app by hand */
+            secret: string;
+            /** @description The otpauth:// link the QR code holds */
+            uri: string;
         };
         TypeListBody: {
             types: components["schemas"]["ChannelType"][] | null;
@@ -5564,6 +8138,113 @@ export interface components {
              * @description How many resources of the module's kinds exist
              */
             resources: number;
+        };
+        UseLinkInput: {
+            /** @description What the sign-in link carries */
+            code: string;
+            /** @description The new password */
+            password: string;
+        };
+        UserSSHKey: {
+            /** @description The key's ID, which starts with sshkey_ and comes from its fingerprint */
+            id: string;
+            /** @description What the key is for, such as the laptop it's on */
+            name: string;
+            /** @description The public key as an authorized_keys line, without options */
+            publicKey: string;
+        };
+        UserSpec: {
+            /** @description Addresses and networks the user may sign in from; empty allows anywhere the sign-in policy does */
+            allowFrom?: string[] | null;
+            /** @description Turn the user off: they can't sign in, their sessions end and their API tokens stop working */
+            disabled?: boolean;
+            /**
+             * @description Where the person gets notifications
+             * @example ada@example.com
+             */
+            email?: string;
+            /** @description What the user may do, and where. Grants never reach outside where the user belongs, and nobody gives a grant they couldn't use themselves */
+            grants?: components["schemas"]["Grant"][] | null;
+            /** @description The panel's language for the person, such as en or pt-BR; empty follows their browser */
+            locale?: string;
+            /**
+             * @description The person's name, as the panel shows it
+             * @example Ada Lovelace
+             */
+            name?: string;
+            /** @description SSH public keys that let the person reach the files and shells their roles allow */
+            sshKeys?: components["schemas"]["UserSSHKey"][] | null;
+            /**
+             * @description What the person signs in with: lowercase letters, digits, dots, dashes, underscores and @
+             * @example ada
+             */
+            username: string;
+        };
+        UserStatus: {
+            code?: string;
+            conditions?: components["schemas"]["Condition"][] | null;
+            /**
+             * Format: date-time
+             * @description When they last signed in
+             */
+            lastSignInAt?: string;
+            /** @description Where they last signed in from */
+            lastSignInIp?: string;
+            /**
+             * Format: date-time
+             * @description Until when failed sign-ins keep the user out
+             */
+            lockedUntil?: string;
+            /** @description English summary of the current state */
+            message?: string;
+            /** @description Whether they choose a new password when they next sign in */
+            mustChangePassword?: boolean;
+            /**
+             * Format: int64
+             * @description The generation the reconciler last acted on
+             */
+            observedGeneration?: number;
+            /** @description Whether the user has a password */
+            passwordSet: boolean;
+            /** @enum {string} */
+            phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
+            twoFactor: boolean;
+        };
+        UserView: {
+            allowFrom: string[] | null;
+            /** Format: date-time */
+            createdAt: string;
+            disabled?: boolean;
+            email?: string;
+            grants: components["schemas"]["Grant"][] | null;
+            /** @description Where the user belongs, and so who manages them */
+            home: components["schemas"]["Scope"];
+            id: string;
+            /** Format: date-time */
+            lastSignInAt?: string;
+            lastSignInIp?: string;
+            locale?: string;
+            /**
+             * Format: date-time
+             * @description Until when failed sign-ins keep the user out
+             */
+            lockedUntil?: string;
+            /** @description Whether the user has to choose a new password when they next sign in */
+            mustChangePassword?: boolean;
+            name: string;
+            /** @description Whether the user has a password */
+            passwordSet: boolean;
+            /**
+             * Format: int64
+             * @description The revision of the user's settings
+             */
+            revision: number;
+            /** @description Whether signing in takes a second step: an authenticator app, a passkey or a method from an add-on */
+            twoFactor: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+            username: string;
         };
         VerifiedDownload: {
             sha256: string;
@@ -5806,6 +8487,463 @@ export interface operations {
                     "application/x-ndjson": string;
                     "text/csv": string;
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    lookUpSignInLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkLookupInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkInfo"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    useSignInLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UseLinkInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSignInOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOptions"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginPasskeySignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyOptions"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishPasskeySignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyFinishInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishProviderSignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                id: string;
+            };
+            cookie?: {
+                racksail_signin_state?: string;
+                racksail_device?: string;
+                racksail_linking?: boolean;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    Location?: string;
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description On to the panel */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    startProviderSignIn: {
+        parameters: {
+            query?: {
+                /** @description Stay signed in when the browser closes */
+                remember?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                id: string;
+            };
+            cookie?: {
+                /** @description A trusted browser's cookie */
+                racksail_device?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    Location?: string;
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Off to the provider's page */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getSetupStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupStatusOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setUpFirstAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    signIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description A trusted browser's cookie */
+                racksail_device?: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    signInSecondStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondStepInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginSecondStepMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaStartInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginSecondStepPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChallengeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyOptions"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    signOut: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -6760,6 +9898,323 @@ export interface operations {
             header?: never;
             path: {
                 /** @description The account rule's ID, which starts with apol_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreAccounts: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, slug, reseller, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose slug is this value, in any case */
+                slug?: string;
+                /** @description Only those whose reseller is this value */
+                reseller?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of accounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAccountList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreAccount: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAccountCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    openCoreAccount: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenAccountInput"];
+            };
+        };
+        responses: {
+            /** @description The preview, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenedAccount"];
+                };
+            };
+            /** @description The account's change set, applied to the settings, with its owner */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenedAccount"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAccount: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The account's ID, which starts with acct_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreAccount"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreAccount: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The account's ID, which starts with acct_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreAccountUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreAccount: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the account since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The account's ID, which starts with acct_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the account from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreAccountHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The account's ID, which starts with acct_ */
                 id: string;
             };
             cookie?: never;
@@ -9846,6 +13301,536 @@ export interface operations {
             };
         };
     };
+    listCoreSigninPolicies: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of signin policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreSigninPolicyList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreSigninPolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreSigninPolicyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreSigninPolicy: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The sign-in policy's ID, which starts with signin_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sign-in policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreSigninPolicy"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreSigninPolicy: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The sign-in policy's ID, which starts with signin_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreSigninPolicyUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreSigninPolicy: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the sign-in policy since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The sign-in policy's ID, which starts with signin_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the sign-in policy from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreSigninPolicyHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in policy's ID, which starts with signin_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreSigninProviders: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of signin providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreSigninProviderList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreSigninProvider: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreSigninProviderCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreSigninProvider: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID, which starts with signprov_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sign-in provider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreSigninProvider"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreSigninProvider: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The sign-in provider's ID, which starts with signprov_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreSigninProviderUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreSigninProvider: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the sign-in provider since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The sign-in provider's ID, which starts with signprov_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the sign-in provider from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreSigninProviderHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID, which starts with signprov_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listCoreUpdateSettings: {
         parameters: {
             query?: {
@@ -10348,6 +14333,693 @@ export interface operations {
                 };
             };
             /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCoreUsers: {
+        parameters: {
+            query?: {
+                /** @description Only those of one owner: server, reseller:<id> or account:<id> */
+                scope?: string;
+                /** @description Only those placed on this cluster server */
+                server?: string;
+                /** @description Only those with this label, as key=value; repeat it to require several */
+                label?: string[];
+                /** @description Only those in one of these phases: pending, applying, ready, degraded, failed or deleting */
+                phase?: string[];
+                /** @description Only those whose ID or indexed fields, title or subtitle contain this text */
+                q?: string;
+                /** @description The order: id, createdAt, updatedAt, generation, phase, username, email, role, grantOn, with - in front for the reverse */
+                sort?: string;
+                /** @description Also list those being removed */
+                includeDeleted?: boolean;
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+                /** @description Only those whose username is this value, in any case */
+                username?: string;
+                /** @description Only those whose email is this value, in any case */
+                email?: string;
+                /** @description Only those whose grants.role is this value */
+                role?: string;
+                /** @description Only those whose grants.scope.id is this value */
+                grantOn?: string;
+                /** @description Continues a list where the page before it ended: the next of that page */
+                cursor?: string;
+                /** @description How many to return, from 1 to 1000; 50 when left out */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreUserList"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreUserCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Answer with only these fields, as dotted paths separated by commas, such as spec.domains,status.phase; id and kind are always included */
+                fields?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoreUser"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoreUserUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to the settings; its job carries out the change on the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCoreUser: {
+        parameters: {
+            query?: {
+                /** @description The revision you read; when someone changed the user since, the delete fails with a conflict */
+                revision?: number;
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job removes the user from the server */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addSshKeyCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SSHKeyInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeSshKeyCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SSHKeyRef"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateProfileCoreUser: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileInput"];
+            };
+        };
+        responses: {
+            /** @description The change set: of a dry run, or once the action is done, with its output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set; its job carries out the action */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCoreUserHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryBody"];
+                };
+            };
+            /** @description A problem; its code says what went wrong */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    impersonateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    issueSignInLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedLink"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordSetting"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resetUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUserSSHKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SshKeysOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUserTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID, which starts with user_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeUserToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's ID */
+                id: string;
+                /** @description The token's ID, which starts with tok_ */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -11491,6 +16163,1086 @@ export interface operations {
             };
         };
     };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateMe: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileInput"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to your user */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+        };
+    };
+    getMyAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setMyAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertChannelInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    testMyAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMyDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                racksail_device?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    forgetMyDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    forgetMyDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMyLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinksOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    linkMyIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unlinkMyIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startLinkingMyIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sign-in provider's ID */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkStart"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMyMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaOptionsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    disableMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaFinishInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMyPasskeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeysOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginPasskeyRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyOptions"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    finishPasskeyRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyRegisterInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    renamePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    changeMyPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    newRecoveryCodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMySessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    endMyOtherSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndedOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    endMySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMySSHKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SshKeysOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addMySSHKey: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SSHKeyInput"];
+            };
+        };
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to your user */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+        };
+    };
+    removeMySSHKey: {
+        parameters: {
+            query?: {
+                /** @description Plan the change and return its change set without applying it */
+                dryRun?: boolean;
+            };
+            header?: {
+                /** @description Any unique string; a retry with the same key returns the first change set instead of applying the change again */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The key's ID, which starts with sshkey_ */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change set without applying it, for a dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+            /** @description The change set, applied to your user */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+        };
+    };
+    listMyTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createMyToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedToken"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeMyToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    confirmTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMetrics: {
         parameters: {
             query?: never;
@@ -12144,6 +17896,35 @@ export interface operations {
             };
         };
     };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolesOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     testRule: {
         parameters: {
             query?: never;
@@ -12291,6 +18072,157 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stopImpersonating: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    saveSessionPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stepUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepUpInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepUpOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    beginStepUpPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyOptions"];
                 };
             };
             /** @description Error */

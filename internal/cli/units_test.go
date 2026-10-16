@@ -26,6 +26,13 @@ func TestNames(t *testing.T) {
 	if lowerFirst("Sign-in policies") != "sign-in policies" || lowerFirst("DNS zones") != "DNS zones" {
 		t.Error("lowerFirst")
 	}
+	for in, want := range map[string]string{
+		"user": "users", "policy": "policies", "inbox": "inboxes", "key": "keys", "match": "matches", "me": "", "users": "",
+	} {
+		if got := pluralAlias(in); got != want {
+			t.Errorf("pluralAlias(%q) = %q, want %q", in, got, want)
+		}
+	}
 	for _, tc := range []struct {
 		op   Operation
 		want string
@@ -34,6 +41,9 @@ func TestNames(t *testing.T) {
 		{Operation{ID: "restartWebSite", Kind: "web.site", Operation: "restart_php", Path: "/api/v1/web/sites/{id}/actions/restart_php"}, "web site restart-php"},
 		{Operation{ID: "streamJob", Path: "/api/v1/jobs/{id}/stream"}, "job watch"},
 		{Operation{ID: "purgeMailQueue", Path: "/api/v1/mail/queue/purge"}, "mail purge-mail-queue"},
+		// An operation that acts on a kind beside the kind's own takes the
+		// name it's given, not the one of the kind's operation it stands for.
+		{Operation{ID: "installCatalogItem", Kind: "core.installation", Operation: "create", Path: "/api/v1/catalog/install"}, "catalog install"},
 	} {
 		if got := strings.Join(CommandPath(&tc.op), " "); got != tc.want {
 			t.Errorf("%s = %q, want %q", tc.op.ID, got, tc.want)

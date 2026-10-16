@@ -13,10 +13,11 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
-// PolicySpec is how people sign in to the panel: how long sessions last,
-// what locks a user out, who needs a second step and where the panel may be
-// used from. A server has at most one; without it the defaults apply.
-type PolicySpec struct {
+// SignInPolicySpec is how people sign in to the panel: how long sessions
+// last, what locks a user out, who needs a second step and where the panel
+// may be used from. A server has at most one; without it the defaults
+// apply.
+type SignInPolicySpec struct {
 	SessionIdleMinutes   int         `json:"sessionIdleMinutes" minimum:"5" maximum:"1440" default:"60" doc:"Sign people out after this many minutes without activity"`
 	SessionLifetimeHours int         `json:"sessionLifetimeHours" minimum:"1" maximum:"720" default:"12" doc:"Sign people out this many hours after they signed in, however active they are"`
 	RememberDeviceDays   int         `json:"rememberDeviceDays" minimum:"0" maximum:"365" default:"30" doc:"How long a browser someone trusts skips the second sign-in step; 0 turns trusting browsers off"`
@@ -29,13 +30,13 @@ type PolicySpec struct {
 	TokenMaxDays         int         `json:"tokenMaxDays,omitempty" minimum:"0" maximum:"3650" doc:"The longest an API token may last, in days; 0 lets tokens last until they're revoked"`
 }
 
-// PolicyStatus is what the reconciler last saw of the policy.
-type PolicyStatus struct {
+// SignInPolicyStatus is what the reconciler last saw of the policy.
+type SignInPolicyStatus struct {
 	store.Status
 }
 
 // PolicyKind is core.signin_policy.
-var PolicyKind = store.Define[PolicySpec, PolicyStatus](store.KindInfo{
+var PolicyKind = store.Define[SignInPolicySpec, SignInPolicyStatus](store.KindInfo{
 	Name: "core.signin_policy", Prefix: "signin", Scope: store.ScopeServer, Singleton: true,
 	Title: "Sign-in policy", Plural: "signin-policies",
 	Description: "How people sign in to the panel: how long sessions last, how many failed sign-ins lock a user out, which roles need a second step, " +
@@ -60,8 +61,8 @@ func init() {
 }
 
 // DefaultPolicy is the policy of a server that hasn't set one.
-func DefaultPolicy() PolicySpec {
-	return PolicySpec{
+func DefaultPolicy() SignInPolicySpec {
+	return SignInPolicySpec{
 		SessionIdleMinutes: 60, SessionLifetimeHours: 12, RememberDeviceDays: 30, StepUpMinutes: 10,
 		LockoutAttempts: 10, LockoutMinutes: 15, SignInAlerts: "new-device",
 	}
@@ -69,7 +70,7 @@ func DefaultPolicy() PolicySpec {
 
 // effective fills what a stored policy leaves at zero with the defaults,
 // except remembering devices, where zero means off.
-func (p PolicySpec) effective() PolicySpec {
+func (p SignInPolicySpec) effective() SignInPolicySpec {
 	d := DefaultPolicy()
 	fill := func(v *int, def int) {
 		if *v <= 0 {
@@ -89,18 +90,24 @@ func (p PolicySpec) effective() PolicySpec {
 
 // Idle, Lifetime, RememberDevice, StepUp and Lockout are the policy's
 // durations.
-func (p PolicySpec) Idle() time.Duration { return time.Duration(p.SessionIdleMinutes) * time.Minute }
-func (p PolicySpec) Lifetime() time.Duration {
+func (p SignInPolicySpec) Idle() time.Duration {
+	return time.Duration(p.SessionIdleMinutes) * time.Minute
+}
+func (p SignInPolicySpec) Lifetime() time.Duration {
 	return time.Duration(p.SessionLifetimeHours) * time.Hour
 }
-func (p PolicySpec) RememberDevice() time.Duration {
+func (p SignInPolicySpec) RememberDevice() time.Duration {
 	return time.Duration(p.RememberDeviceDays) * 24 * time.Hour
 }
-func (p PolicySpec) StepUp() time.Duration  { return time.Duration(p.StepUpMinutes) * time.Minute }
-func (p PolicySpec) Lockout() time.Duration { return time.Duration(p.LockoutMinutes) * time.Minute }
+func (p SignInPolicySpec) StepUp() time.Duration {
+	return time.Duration(p.StepUpMinutes) * time.Minute
+}
+func (p SignInPolicySpec) Lockout() time.Duration {
+	return time.Duration(p.LockoutMinutes) * time.Minute
+}
 
 // Networks returns AllowFrom as networks.
-func (p PolicySpec) Networks() []netip.Prefix {
+func (p SignInPolicySpec) Networks() []netip.Prefix {
 	nets, _ := ParseNetworks(p.AllowFrom)
 	return nets
 }
@@ -148,7 +155,7 @@ func loopback(ip string) bool {
 	return err == nil && a.Unmap().IsLoopback()
 }
 
-func validatePolicy(ctx context.Context, obj, old *store.Object[PolicySpec, PolicyStatus]) error {
+func validatePolicy(ctx context.Context, obj, old *store.Object[SignInPolicySpec, SignInPolicyStatus]) error {
 	var fields []i18n.FieldError
 	nets, err := ParseNetworks(obj.Spec.AllowFrom)
 	if err != nil {
@@ -177,11 +184,11 @@ func validatePolicy(ctx context.Context, obj, old *store.Object[PolicySpec, Poli
 // machine, the panel applies it as soon as it is saved.
 type policyReconciler struct{}
 
-func (policyReconciler) Plan(ctx context.Context, obj *store.Object[PolicySpec, PolicyStatus], req reconcile.Request) (reconcile.Plan, error) {
+func (policyReconciler) Plan(ctx context.Context, obj *store.Object[SignInPolicySpec, SignInPolicyStatus], req reconcile.Request) (reconcile.Plan, error) {
 	return reconcile.Plan{}, nil
 }
 
-func (policyReconciler) Apply(ctx context.Context, obj *store.Object[PolicySpec, PolicyStatus], plan reconcile.Plan, ex reconcile.Executor) (PolicyStatus, error) {
+func (policyReconciler) Apply(ctx context.Context, obj *store.Object[SignInPolicySpec, SignInPolicyStatus], plan reconcile.Plan, ex reconcile.Executor) (SignInPolicyStatus, error) {
 	st := obj.Status
 	err := reconcile.ApplySteps(ctx, obj.Generation, plan, ex, &st.Status, time.Now())
 	return st, err

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,6 +52,32 @@ func TestEveryOperationHasACommand(t *testing.T) {
 	}
 }
 
+// A group says what it holds, whichever of its commands made it first:
+// a kind's group is named after the kind, as it reads in a sentence.
+func TestCommandGroupsSayWhatTheyHold(t *testing.T) {
+	root := newRootCommand()
+	for name, want := range map[string]string{
+		"addon":                    "Manage add-ons",
+		"catalog":                  "Manage catalogs",
+		"installation":             "Manage installed apps",
+		"update-settings":          "Manage update settings",
+		"notification-preferences": "Manage notification preferences",
+		"inbox":                    "See what needs your attention, and dismiss it",
+	} {
+		c, _, err := root.Find([]string{name})
+		if err != nil || c.Name() != name {
+			t.Errorf("racksail %s isn't a command: %v", name, err)
+			continue
+		}
+		if c.Short != want {
+			t.Errorf("racksail %s says %q, want %q", name, c.Short, want)
+		}
+	}
+	if c, _, err := root.Find([]string{"inboxes"}); err != nil || c.Name() != "inbox" {
+		t.Error("racksail inboxes isn't racksail inbox")
+	}
+}
+
 // The roles that run Racksail skip building the commands from the API.
 func TestRolesSkipTheAPICommands(t *testing.T) {
 	has := func(root *cobra.Command, name string) bool {
@@ -65,6 +92,18 @@ func TestRolesSkipTheAPICommands(t *testing.T) {
 	}
 	if root := newRootCommandFor(nil); !has(root, "account") || !has(root, "login") {
 		t.Error("racksail on its own lists no client commands")
+	}
+	// Every command that runs Racksail is one of the roles.
+	root := newRootCommand()
+	for _, cmd := range root.Commands() {
+		if cmd.GroupID == groupServer && !slices.Contains(roles, cmd.Name()) {
+			t.Errorf("racksail %s runs Racksail but isn't in roles", cmd.Name())
+		}
+	}
+	for _, name := range roles {
+		if c, _, err := root.Find([]string{name}); err != nil || c.Name() != name || c.GroupID != groupServer {
+			t.Errorf("%s is in roles but isn't a command that runs Racksail", name)
+		}
 	}
 }
 

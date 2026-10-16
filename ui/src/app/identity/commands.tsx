@@ -25,6 +25,7 @@ import { useApi } from "@/lib/api/context";
 import { errorMessage } from "@/lib/errors";
 import { messages } from "../messages";
 import { usePermission } from "../modules";
+import { peopleMessages as pm } from "../screens/messages";
 import { page } from "./page";
 import { useSession } from "./session";
 
@@ -40,6 +41,17 @@ interface Entry {
   /** What the person needs to see it; nothing for what everyone has. */
   permission?: string;
 }
+
+/**
+ * The kinds the screens about people and access are for. The command bar
+ * offers them only here, so their generic screens aren't offered as well.
+ */
+export const peopleKinds: ReadonlySet<string> = new Set([
+  "core.user",
+  "core.account",
+  "core.signin_policy",
+  "core.signin_provider",
+]);
 
 /** The screens about people and access, with what each needs. */
 const people: Entry[] = [
@@ -77,7 +89,7 @@ const people: Entry[] = [
   },
   {
     id: "sign-in",
-    label: messages.commandSignInSettings,
+    label: pm.commandSignInSettings,
     icon: LogIn,
     keywords: [
       "sign-in policy",
@@ -136,7 +148,7 @@ const yours: Entry[] = [
 const additions: (Entry & { mine?: boolean })[] = [
   {
     id: "add-user",
-    label: messages.commandAddUser,
+    label: pm.commandAddUser,
     icon: UserPlus,
     keywords: ["new user", "invite", "people"],
     to: "/users",
@@ -145,7 +157,7 @@ const additions: (Entry & { mine?: boolean })[] = [
   },
   {
     id: "open-account",
-    label: messages.commandOpenAccount,
+    label: pm.commandOpenAccount,
     icon: Plus,
     keywords: ["new account", "customer", "tenant"],
     to: "/accounts",
@@ -154,7 +166,7 @@ const additions: (Entry & { mine?: boolean })[] = [
   },
   {
     id: "make-token",
-    label: messages.commandMakeToken,
+    label: pm.commandMakeToken,
     icon: KeyRound,
     keywords: ["new token", "api", "racksail command"],
     to: "/settings/tokens",
@@ -163,7 +175,7 @@ const additions: (Entry & { mine?: boolean })[] = [
   },
   {
     id: "add-ssh-key",
-    label: messages.commandAddSSHKey,
+    label: pm.commandAddSSHKey,
     icon: Terminal,
     keywords: ["new key", "ssh", "sftp"],
     to: "/settings/ssh-keys",
@@ -223,7 +235,7 @@ export function IdentityCommands({ close }: { close: () => void }) {
   return (
     <>
       {shownPeople.length > 0 ? (
-        <CommandGroup heading={intl.formatMessage(messages.settingsPeople)}>
+        <CommandGroup heading={intl.formatMessage(pm.settingsPeople)}>
           {shownPeople.map((e) => item(e, `people ${e.id}`))}
         </CommandGroup>
       ) : null}

@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { shellMessages } from "@/lib/i18n";
 import { fakeApi, json, renderShell } from "@/test/render";
-import { changeSet, webhook, webhookKind } from "@/test/resources";
+import { accountKind, changeSet, webhook, webhookKind } from "@/test/resources";
 import { recentKey } from "./screens/recent";
+import type { Kind } from "./screens/resources/kinds";
 
 afterEach(() => {
   window.localStorage.clear();
@@ -152,6 +153,64 @@ describe("the command bar", () => {
     const bar = await openBar(user);
     await user.click(await within(bar).findByRole("option", { name: "New webhook" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/core/webhooks/new"));
+  });
+
+  it("offers people and accounts once, through the screens made for them", async () => {
+    const user = userEvent.setup();
+    const userKind = {
+      ...webhookKind,
+      name: "core.user",
+      title: "User",
+      plural: "users",
+      prefix: "user",
+      path: "/api/v1/core/users",
+      actions: [],
+    } as Kind;
+    const operations = [webhookKind, userKind, accountKind].flatMap((k) => [
+      {
+        id: `list ${k.name}`,
+        method: "GET",
+        path: k.path,
+        kind: k.name,
+        operation: "list",
+        permission: `${k.name}.read`,
+        risk: "read",
+        mutating: false,
+        summary: "List",
+      },
+      {
+        id: `create ${k.name}`,
+        method: "POST",
+        path: k.path,
+        kind: k.name,
+        operation: "create",
+        permission: `${k.name}.create`,
+        risk: "low",
+        mutating: true,
+        summary: "Create",
+      },
+    ]);
+    const { api } = panel({
+      "GET /api/v1/kinds": () => json({ kinds: [webhookKind, userKind, accountKind] }),
+      "GET /api/v1/operations": () => json({ operations }),
+    });
+    renderShell({ modules: [], messages: shellMessages, api });
+    await screen.findByRole("navigation", { name: "Main" });
+    const bar = await openBar(user);
+    const input = within(bar).getByRole("combobox");
+    // The other kinds' lists still come from their generic screens.
+    expect(await within(bar).findByRole("option", { name: /^Webhooks/ })).toBeInTheDocument();
+    for (const [typed, list, add, generic] of [
+      ["user", "Users", "Add a user", "New user"],
+      ["account", "Accounts", "Open an account", "New account"],
+    ] as const) {
+      await user.clear(input);
+      await user.type(input, typed);
+      expect(within(bar).getAllByRole("option", { name: new RegExp(`^${list}`) })).toHaveLength(1);
+      expect(within(bar).getByRole("option", { name: list })).toBeInTheDocument();
+      expect(within(bar).getByRole("option", { name: add })).toBeInTheDocument();
+      expect(within(bar).queryByRole("option", { name: generic })).not.toBeInTheDocument();
+    }
   });
 
   it("offers what was opened recently", async () => {

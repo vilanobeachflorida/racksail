@@ -42,8 +42,10 @@ func newRootCommandFor(args []string) *cobra.Command {
 	return buildRootCommand(len(args) == 0 || !slices.Contains(roles, args[0]))
 }
 
-// roles are the commands that run Racksail rather than call it.
-var roles = []string{"panel", "agent", "edge", "wake-proxy", "dev", "install"}
+// roles are the commands that run Racksail rather than call it. Safe mode
+// and finishing an update are for when the panel can't help, so they must
+// not depend on building the commands from the API either.
+var roles = []string{"panel", "agent", "edge", "wake-proxy", "dev", "install", "safe-mode", "update"}
 
 func buildRootCommand(withAPICommands bool) *cobra.Command {
 	root := &cobra.Command{

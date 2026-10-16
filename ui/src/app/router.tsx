@@ -98,7 +98,7 @@ export function createAppRouter(
       createRoute({
         getParentRoute: () => appearance,
         path: "theme",
-        component: lazyRouteComponent(() => import("./settings/theme-editor")),
+        component: screen(() => import("./settings/theme-editor")),
         staticData: { title: messages.themeEditorTitle },
       }),
     ]),

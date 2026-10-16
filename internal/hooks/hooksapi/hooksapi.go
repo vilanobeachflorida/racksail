@@ -38,11 +38,11 @@ func init() {
 
 // Permissions of the extension system. Hooks belong to the server, so only
 // server-wide grants carry them.
-const (
-	PermHookRead     auth.Permission = "core.hook.read"
-	PermHookEnable   auth.Permission = "core.hook.enable"
-	PermSafeModeRead auth.Permission = "core.safe_mode.read"
-	PermSafeMode     auth.Permission = "core.safe_mode.update"
+var (
+	PermHookRead     = auth.RegisterPermission("core.hook.read", "See the hooks and the hook points they attach to.", store.ScopeServer)
+	PermHookEnable   = auth.RegisterPermission("core.hook.enable", "Switch a hook back on after its circuit breaker switched it off.", store.ScopeServer)
+	PermSafeModeRead = auth.RegisterPermission("core.safe_mode.read", "See whether safe mode is on, and why.", store.ScopeServer)
+	PermSafeMode     = auth.RegisterPermission("core.safe_mode.update", "Turn safe mode on, which stops every add-on, or off again.", store.ScopeServer)
 )
 
 var tags = []string{"Extensions"}

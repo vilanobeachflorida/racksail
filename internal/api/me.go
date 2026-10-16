@@ -180,7 +180,25 @@ type mfaFinishInput struct {
 type AlertChannelTypeView struct {
 	ID       string          `json:"id"`
 	Title    string          `json:"title"`
+	Secrets  []string        `json:"secrets,omitempty" doc:"The settings that hold secrets, which are kept encrypted with the rest and never shown again"`
 	Settings json.RawMessage `json:"settings,omitempty" doc:"The JSON Schema of the channel's settings"`
+}
+
+// describeAlertSecrets says of a channel's secret settings how a person's
+// alert settings keep them: encrypted with the rest, not apart in a
+// change's secrets as the panel's own channels do.
+func describeAlertSecrets(reg huma.Registry, schema *huma.Schema, names []string) {
+	if schema.Ref != "" {
+		schema = reg.SchemaFromRef(schema.Ref)
+	}
+	if schema == nil {
+		return
+	}
+	for _, name := range names {
+		if p := schema.Properties[name]; p != nil {
+			p.Description = "Kept encrypted with the rest of the settings, and never shown again"
+		}
+	}
 }
 
 type alertsOutput struct {
@@ -699,10 +717,12 @@ func (s *Server) registerMe() {
 		out := &alertsOutput{}
 		out.Body.Channel, out.Body.Types = me.Security.AlertChannel, []AlertChannelTypeView{}
 		for _, t := range id.AlertChannelTypes() {
-			v := AlertChannelTypeView{ID: t.ID, Title: t.Title}
+			v := AlertChannelTypeView{ID: t.ID, Title: t.Title, Secrets: t.Secrets}
 			if t.Settings != nil {
 				reg := huma.NewMapRegistry("#/$defs/", httpapi.SchemaNamer)
-				if schema, err := standaloneIn(reg, reg.Schema(reflect.TypeOf(t.Settings), true, "Settings")); err == nil {
+				settings := reg.Schema(reflect.TypeOf(t.Settings), true, "Settings")
+				describeAlertSecrets(reg, settings, t.Secrets)
+				if schema, err := standaloneIn(reg, settings); err == nil {
 					v.Settings = schema
 				}
 			}

@@ -17,6 +17,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
+	"github.com/vilanobeachflorida/racksail/internal/notify"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
@@ -35,7 +36,12 @@ type Options struct {
 	// status says how they sign in now; the reconcile queue's Enqueue.
 	Refresh func(id store.ID, reason string)
 	// Secrets keeps authenticator app secrets and alert channel settings.
-	Secrets    secrets.Store
+	Secrets secrets.Store
+	// Channels returns what security alert channels are built with: the
+	// notification service's Env, whose client reaches only where
+	// notifications may go and whose relay sends email. Without it, alerts
+	// reach public addresses only and can't go by email.
+	Channels   func() notify.Env
 	Events     events.Bus
 	Audit      events.AuditLog
 	Hooks      *hooks.Runner
@@ -60,7 +66,7 @@ type Service struct {
 	limiter *attempts
 
 	mu     sync.RWMutex
-	policy PolicySpec
+	policy SignInPolicySpec
 
 	challenges *challenges
 	// setupMu keeps two first admins from being created at once.
@@ -95,7 +101,7 @@ func (s *Service) now() time.Time { return s.opts.Now().UTC() }
 func (s *Service) Store() Store { return s.opts.Store }
 
 // Policy returns the sign-in policy in force.
-func (s *Service) Policy() PolicySpec {
+func (s *Service) Policy() SignInPolicySpec {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.policy
@@ -103,7 +109,7 @@ func (s *Service) Policy() PolicySpec {
 
 // SetPolicy puts a policy in force, as Run does when the stored one
 // changes.
-func (s *Service) SetPolicy(p PolicySpec) {
+func (s *Service) SetPolicy(p SignInPolicySpec) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.policy = p.effective()

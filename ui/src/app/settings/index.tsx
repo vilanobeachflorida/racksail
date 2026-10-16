@@ -20,7 +20,7 @@ import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 import { messages } from "../messages";
 import { useActiveModules, usePermission } from "../modules";
-import { generalMessages } from "../screens/messages";
+import { generalMessages, peopleMessages as pm } from "../screens/messages";
 
 function Entry({
   to,
@@ -70,14 +70,14 @@ export default function SettingsIndex() {
       to: "/roles",
       icon: <UsersRound aria-hidden="true" />,
       title: messages.routeRoles,
-      description: messages.settingsRolesDescription,
+      description: pm.settingsRolesDescription,
       permission: "core.user.read",
     },
     {
       to: "/settings/sign-in",
       icon: <LogIn aria-hidden="true" />,
       title: messages.routeSignIn,
-      description: messages.settingsSignInDescription,
+      description: pm.settingsSignInDescription,
       permission: "core.signin_policy.read",
     },
   ].filter((e) => allowed(e.permission));
@@ -89,45 +89,45 @@ export default function SettingsIndex() {
       </div>
       <section className="flex flex-col gap-3" aria-labelledby="settings-you">
         <h2 id="settings-you" className="font-semibold text-lg">
-          {intl.formatMessage(messages.settingsYou)}
+          {intl.formatMessage(pm.settingsYou)}
         </h2>
         <ul className="flex flex-col gap-2">
           <Entry
             to="/settings/profile"
             icon={<UserRound aria-hidden="true" />}
             title={intl.formatMessage(messages.routeProfile)}
-            description={intl.formatMessage(messages.settingsProfileDescription)}
+            description={intl.formatMessage(pm.settingsProfileDescription)}
           />
           <Entry
             to="/settings/security"
             icon={<ShieldCheck aria-hidden="true" />}
             title={intl.formatMessage(messages.routeSecurity)}
-            description={intl.formatMessage(messages.settingsSecurityDescription)}
+            description={intl.formatMessage(pm.settingsSecurityDescription)}
           />
           <Entry
             to="/settings/sessions"
             icon={<Laptop aria-hidden="true" />}
             title={intl.formatMessage(messages.routeSessions)}
-            description={intl.formatMessage(messages.settingsSessionsDescription)}
+            description={intl.formatMessage(pm.settingsSessionsDescription)}
           />
           <Entry
             to="/settings/tokens"
             icon={<KeyRound aria-hidden="true" />}
             title={intl.formatMessage(messages.routeTokens)}
-            description={intl.formatMessage(messages.settingsTokensDescription)}
+            description={intl.formatMessage(pm.settingsTokensDescription)}
           />
           <Entry
             to="/settings/ssh-keys"
             icon={<Terminal aria-hidden="true" />}
             title={intl.formatMessage(messages.routeSSHKeys)}
-            description={intl.formatMessage(messages.settingsSSHKeysDescription)}
+            description={intl.formatMessage(pm.settingsSSHKeysDescription)}
           />
         </ul>
       </section>
       {people.length > 0 ? (
         <section className="flex flex-col gap-3" aria-labelledby="settings-people">
           <h2 id="settings-people" className="font-semibold text-lg">
-            {intl.formatMessage(messages.settingsPeople)}
+            {intl.formatMessage(pm.settingsPeople)}
           </h2>
           <ul className="flex flex-col gap-2">
             {people.map((e) => (

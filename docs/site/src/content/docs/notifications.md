@@ -58,7 +58,7 @@ Under **Your notifications**, everyone with a sign-in chooses:
 - events never to send, whatever the patterns say;
 - quiet hours of their own.
 
-People only hear about what they may see: a customer gets the events of their own account, never the server's. **Email me a test** checks that email reaches them.
+People only hear about what they may see: a customer gets the events of their own account, never the server's. Email goes to the address on their user, which they change under **Settings → Profile**; a user without one, or turned off, gets none. **Email me a test** checks that email reaches them.
 
 Each person's choices are a resource of their own, `core.notification_preferences`, that only they change. **Save** previews the change before it is made, like every change, and the audit log records it.
 
