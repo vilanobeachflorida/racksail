@@ -44,5 +44,5 @@ The image carries no installer logic of its own. It runs `racksail install` from
 ## Requirements
 
 - Under 2 GiB, with nothing fetched at boot that Debian's mirrors don't provide.
-- Branding comes from the default theme's console palette and the files in [brand/](../brand/), so the installer looks like the rest of Racksail. `go test ./iso` checks that the console colors match the theme, that the boot menu survives live-build's substitutions, and every image's `lb config`.
+- Branding comes from the default theme's console palette and the files in [brand/](../brand/), so the installer looks like the rest of Racksail. `go test ./iso` checks that the console colors match the theme, that the splash and the boot menu draw the mark as `brand/logo/racksail-mark-dark.svg` does, that the boot menu survives live-build's substitutions, and every image's `lb config`.
 - Every image is tested by the end-to-end harness in [test/](../test/): it boots in QEMU, with Secure Boot among the firmware it tries, installs unattended, reboots and runs the API and UI suites.

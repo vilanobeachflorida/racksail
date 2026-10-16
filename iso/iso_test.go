@@ -235,6 +235,38 @@ func TestConsolePalette(t *testing.T) {
 	}
 }
 
+// The splash and the boot menu show the mark for dark backgrounds as brand/
+// draws it.
+func TestBrandMark(t *testing.T) {
+	mark, err := os.ReadFile("../brand/logo/racksail-mark-dark.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logo, err := os.ReadFile("branding/plymouth/logo.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(logo)) != strings.TrimSpace(string(mark)) {
+		t.Error("branding/plymouth/logo.svg differs from brand/logo/racksail-mark-dark.svg; copy it again")
+	}
+	background, err := os.ReadFile("branding/grub/background.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := regexp.MustCompile(`<path [^>]*/>`).FindAllString(string(mark), -1)
+	if len(paths) == 0 {
+		t.Fatal("brand/logo/racksail-mark-dark.svg has no paths")
+	}
+	if n := strings.Count(string(background), "<path "); n != len(paths) {
+		t.Errorf("branding/grub/background.svg has %d paths, the mark %d", n, len(paths))
+	}
+	for _, p := range paths {
+		if !strings.Contains(string(background), p) {
+			t.Errorf("branding/grub/background.svg doesn't draw the mark as brand/logo/racksail-mark-dark.svg does: %.60s", p)
+		}
+	}
+}
+
 func TestLiveSystemFiles(t *testing.T) {
 	root := "config/includes.chroot_after_packages"
 	for _, unit := range []string{"etc/systemd/system/getty@tty1.service.d/racksail-installer.conf", "etc/systemd/system/serial-getty@.service.d/racksail-installer.conf"} {
