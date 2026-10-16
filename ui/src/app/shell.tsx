@@ -1,5 +1,5 @@
 import { Outlet, useMatches, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useIntl } from "react-intl";
 import { Sheet, SheetContent, SheetTitle } from "@/design/components/ui/dialog";
 import { Skeleton } from "@/design/components/ui/skeleton";
@@ -8,9 +8,8 @@ import { jobDone } from "@/lib/changes";
 import { useMediaQuery } from "@/lib/media";
 import { AssistantDock } from "./assistant-dock";
 import { BrandMark, useBrandName } from "./brand";
-import { CommandBar } from "./command-bar";
 import { RouteAnnouncer, useRouteFocus } from "./focus";
-import { Jobs, useJobs } from "./jobs";
+import { useJobs } from "./jobs";
 import { messages } from "./messages";
 import { moduleCommands, useActiveModules, usePermission } from "./modules";
 import { NavLinks, Rail } from "./rail";
@@ -18,6 +17,20 @@ import { useShell } from "./shell-state";
 import { type Binding, useShortcuts } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { TopBar } from "./topbar";
+
+// The command bar and the jobs drawer load the first time they open, which
+// keeps them out of what the browser loads before it can show the panel.
+const CommandBar = lazy(() => import("./command-bar"));
+const Jobs = lazy(() => import("./jobs-panel"));
+
+/** Whether something has been open, so it stays mounted to close smoothly. */
+function useOpenedOnce(open: boolean): boolean {
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) {
+    setOpened(true);
+  }
+  return opened || open;
+}
 
 /** Keeps the browser tab's title on the deepest route that names its page. */
 function useDocumentTitle() {
@@ -93,6 +106,8 @@ export function Shell() {
   useDocumentTitle();
 
   const running = (jobs.data ?? []).filter((j) => !jobDone(j.state)).length;
+  const commandShown = useOpenedOnce(shell.commandOpen);
+  const jobsShown = useOpenedOnce(shell.jobsOpen);
   const bindings = useMemo<Binding[]>(
     () => [
       { keys: "mod+k", run: () => shell.setCommandOpen(!shell.commandOpen), global: true },
@@ -136,8 +151,16 @@ export function Shell() {
         <AssistantDock />
       </div>
       <MobileNav />
-      <CommandBar />
-      <Jobs open={shell.jobsOpen} onOpenChange={shell.setJobsOpen} />
+      {commandShown ? (
+        <Suspense fallback={null}>
+          <CommandBar />
+        </Suspense>
+      ) : null}
+      {jobsShown ? (
+        <Suspense fallback={null}>
+          <Jobs open={shell.jobsOpen} onOpenChange={shell.setJobsOpen} />
+        </Suspense>
+      ) : null}
       <ShortcutsHelp />
       <RouteAnnouncer text={announcement} />
       <Toaster />

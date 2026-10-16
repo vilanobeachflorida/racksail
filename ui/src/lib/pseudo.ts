@@ -1,19 +1,12 @@
 import { type MessageFormatElement, parse, TYPE } from "@formatjs/icu-messageformat-parser";
 import { printAST } from "@formatjs/icu-messageformat-parser/printer.js";
 import type { Messages } from "./messages";
+import type { PseudoLocale } from "./pseudo-locales";
 
-/**
- * Pseudo-locales make translation problems visible without a translation:
- * en-XA accents every letter and makes text about 40% longer, so strings
- * that skip the catalogs or layouts that can't grow stand out, and ar-XB
- * mirrors the layout right to left with text marked to read that way.
- */
-export const pseudoLocales = ["en-XA", "ar-XB"] as const;
-export type PseudoLocale = (typeof pseudoLocales)[number];
+// Making pseudo-locale messages takes the message printer, so this module
+// loads only when a pseudo-locale is chosen.
 
-export function isPseudoLocale(locale: string): locale is PseudoLocale {
-  return (pseudoLocales as readonly string[]).includes(locale);
-}
+export { isPseudoLocale, type PseudoLocale, pseudoLocales } from "./pseudo-locales";
 
 const accents: Record<string, string> = {
   a: "á",

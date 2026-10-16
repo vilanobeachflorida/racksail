@@ -36,7 +36,7 @@ import { ariaKeyShortcuts, ShortcutKeys } from "./shortcuts";
  * the appearance, and, with the assistant on, ask a question or run one of
  * its / commands from the same input.
  */
-export function CommandBar() {
+export default function CommandBar() {
   const intl = useIntl();
   const shell = useShell();
   const navigate = useNavigate();

@@ -3,7 +3,7 @@ import { createContext, type ReactNode, useContext } from "react";
 import { type IntlConfig, IntlProvider } from "react-intl";
 import appEnglish from "@/app/messages/en.json";
 import type { Messages } from "./messages";
-import { isPseudoLocale, type PseudoLocale, pseudoLocales, pseudoMessages } from "./pseudo";
+import { isPseudoLocale, type PseudoLocale, pseudoLocales } from "./pseudo-locales";
 
 type Loader = () => Promise<Messages>;
 
@@ -74,7 +74,11 @@ export async function loadMessages(
   moduleIds: readonly string[],
 ): Promise<Messages> {
   if (isPseudoLocale(locale)) {
-    return pseudoMessages(await loadMessages(defaultLocale, moduleIds), locale);
+    const [{ pseudoMessages }, english] = await Promise.all([
+      import("./pseudo"),
+      loadMessages(defaultLocale, moduleIds),
+    ]);
+    return pseudoMessages(english, locale);
   }
   const layers = locale === defaultLocale ? [defaultLocale] : [defaultLocale, locale];
   const loads: Promise<Messages>[] = [];
