@@ -138,6 +138,8 @@ func register(a huma.API, svc *modules.Services) {
 	op = huma.Operation{
 		OperationID: "getModule", Method: http.MethodGet, Path: api.Prefix + "/modules/{id}", Tags: tags, Security: api.Protected,
 		Summary: "Describe a module",
+		Description: "One module with its manifest and state: whether it is on, what it needs and costs, the hardware it can't run without, " +
+			"what uses it, and the ID of the core.module resource whose actions turn it on, off and remove it.",
 	}
 	api.Describe(&op, api.Info{Kind: modules.Kind.Name(), Operation: "get", Permission: string(api.ReadPermission(modules.Kind.Name())), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *moduleInput) (*moduleOutput, error) {

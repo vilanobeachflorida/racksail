@@ -127,23 +127,23 @@ type PackagesStatus struct {
 
 // Available is a release the server could update to.
 type Available struct {
-	Tag       string    `json:"tag"`
-	Version   string    `json:"version"`
-	Channel   Channel   `json:"channel" enum:"stable,beta,nightly"`
-	Published time.Time `json:"published"`
+	Tag       string    `json:"tag" doc:"The release's tag on GitHub, such as v1.3.0"`
+	Version   string    `json:"version" doc:"The release's version"`
+	Channel   Channel   `json:"channel" enum:"stable,beta,nightly" doc:"The channel the release is on"`
+	Published time.Time `json:"published" doc:"When the release was published"`
 	NotesURL  string    `json:"notesUrl,omitempty" doc:"The release notes"`
 	// Asset is the binary for this server's architecture, as the signed
 	// manifest lists it.
-	Asset Asset `json:"asset"`
+	Asset Asset `json:"asset" doc:"The binary for this server's architecture, as the release's signed manifest lists it"`
 }
 
 // OSStatus is the server's Debian release and the next one.
 type OSStatus struct {
-	Codename string `json:"codename"`
-	Version  string `json:"version"`
+	Codename string `json:"codename" doc:"The Debian release's codename, such as trixie"`
+	Version  string `json:"version" doc:"The Debian release's number, such as 13"`
 	// Next is the release an upgrade would move to, when there is one.
 	Next           string     `json:"next,omitempty" doc:"The Debian release an upgrade would move to"`
-	RebootRequired bool       `json:"rebootRequired,omitempty"`
+	RebootRequired bool       `json:"rebootRequired,omitempty" doc:"Whether the server needs a reboot to finish installing updates"`
 	RebootReasons  []string   `json:"rebootReasons,omitempty" doc:"Why the server needs a reboot"`
 	RebootAt       *time.Time `json:"rebootAt,omitempty" doc:"When the server reboots by itself to finish an update"`
 }
@@ -153,17 +153,17 @@ type SettingsStatus struct {
 	store.Status
 	Running   string     `json:"running" doc:"The version running now"`
 	Available *Available `json:"available,omitempty" doc:"The newest release on the channel, when it is newer"`
-	CheckedAt *time.Time `json:"checkedAt,omitempty"`
+	CheckedAt *time.Time `json:"checkedAt,omitempty" doc:"When releases were last looked for"`
 	// CheckError says why the last check failed.
-	CheckError  string       `json:"checkError,omitempty"`
+	CheckError  string       `json:"checkError,omitempty" doc:"Why the last look for releases failed"`
 	Last        *UpdateState `json:"last,omitempty" doc:"The last update the agent installed"`
-	CanRollBack bool         `json:"canRollBack,omitempty"`
-	OS          *OSStatus    `json:"os,omitempty"`
+	CanRollBack bool         `json:"canRollBack,omitempty" doc:"Whether the release before the running one is kept to roll back to"`
+	OS          *OSStatus    `json:"os,omitempty" doc:"The server's Debian release and whether it needs a reboot"`
 	// Packages is the last upgrade of the server's packages.
 	Packages *PackagesStatus `json:"packages,omitempty" doc:"The last upgrade of the server's packages"`
 	// Reported is the last update whose outcome was published, so a
 	// restart doesn't publish it again.
-	Reported string `json:"reported,omitempty"`
+	Reported string `json:"reported,omitempty" doc:"The last update whose outcome was published"`
 }
 
 // CheckOutput is what a check found.
@@ -199,7 +199,7 @@ type UpdateOutput struct {
 
 // RollbackInput says why.
 type RollbackInput struct {
-	Reason string `json:"reason,omitempty" maxLength:"500"`
+	Reason string `json:"reason,omitempty" maxLength:"500" doc:"Why the release is rolled back, for the timeline and the audit log"`
 }
 
 // Validate implements the check every action input gets.

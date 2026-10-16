@@ -106,11 +106,11 @@ type CatalogStatus struct {
 	store.Status
 	// Official says the catalog is Racksail's own, signed by a key built
 	// into the panel.
-	Official    bool       `json:"official,omitempty"`
+	Official    bool       `json:"official,omitempty" doc:"Whether the catalog is Racksail's own, signed by a key built into the panel"`
 	SyncedAt    *time.Time `json:"syncedAt,omitempty" doc:"When the index was last fetched"`
 	Built       *time.Time `json:"built,omitempty" doc:"When the index was built"`
-	Items       int        `json:"items,omitempty"`
-	IndexSHA256 string     `json:"indexSha256,omitempty"`
+	Items       int        `json:"items,omitempty" doc:"How many items the index lists"`
+	IndexSHA256 string     `json:"indexSha256,omitempty" doc:"The SHA-256 of the index the panel keeps"`
 	SyncError   string     `json:"syncError,omitempty" doc:"Why the last fetch failed"`
 }
 

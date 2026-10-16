@@ -144,6 +144,8 @@ func register(a huma.API, svc *modules.Services) {
 	op = huma.Operation{
 		OperationID: "getNotification", Method: http.MethodGet, Path: api.Prefix + "/notifications/{id}", Tags: tags, Security: api.Protected,
 		Summary: "Show a notification and its message",
+		Description: "One notification with the message it carries, where it went, how its attempts went and why the last one failed. " +
+			"You see your own; those sent through channels, and to other people, are for those who may see the channels.",
 	}
 	api.Describe(&op, api.Info{Permission: string(PermChannelRead), Risk: store.RiskRead})
 	huma.Register(a, op, func(ctx context.Context, in *deliveryInput) (*deliveryOutput, error) {

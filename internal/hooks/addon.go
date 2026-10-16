@@ -206,25 +206,25 @@ const (
 // PolicySpec is the spec of a core.policy resource: a CEL rule evaluated
 // inside the panel with a cost limit.
 type PolicySpec struct {
-	Name        string     `json:"name" yaml:"name"`
-	Description string     `json:"description,omitempty" yaml:"description,omitempty"`
-	Type        PolicyType `json:"type" yaml:"type" enum:"validate,default"`
+	Name        string     `json:"name" yaml:"name" doc:"A short name for the rule, shown when it refuses a change"`
+	Description string     `json:"description,omitempty" yaml:"description,omitempty" doc:"What the rule is for, in a sentence or two"`
+	Type        PolicyType `json:"type" yaml:"type" enum:"validate,default" doc:"validate rules refuse changes; default rules fill in or override fields of new resources"`
 	// Kinds and Operations narrow the rule; empty means all.
-	Kinds      []string `json:"kinds,omitempty" yaml:"kinds,omitempty"`
-	Operations []string `json:"operations,omitempty" yaml:"operations,omitempty"`
+	Kinds      []string `json:"kinds,omitempty" yaml:"kinds,omitempty" doc:"The kinds the rule applies to, such as web.site; every kind when empty"`
+	Operations []string `json:"operations,omitempty" yaml:"operations,omitempty" doc:"The operations it applies to, such as create, update, delete or an action; every one when empty"`
 	// Expression is true when a validate rule must refuse the change.
-	Expression string         `json:"expression,omitempty" yaml:"expression,omitempty"`
-	Message    string         `json:"message,omitempty" yaml:"message,omitempty"`
-	Defaults   []FieldDefault `json:"defaults,omitempty" yaml:"defaults,omitempty"`
-	Enabled    bool           `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Priority   int            `json:"priority,omitempty" yaml:"priority,omitempty"`
+	Expression string         `json:"expression,omitempty" yaml:"expression,omitempty" doc:"For validate rules: a CEL expression that is true when the change must be refused"`
+	Message    string         `json:"message,omitempty" yaml:"message,omitempty" doc:"For validate rules: what the person making a refused change is told"`
+	Defaults   []FieldDefault `json:"defaults,omitempty" yaml:"defaults,omitempty" doc:"For default rules: the fields filled in, each from a CEL expression"`
+	Enabled    bool           `json:"enabled,omitempty" yaml:"enabled,omitempty" doc:"Whether the rule takes part in changes"`
+	Priority   int            `json:"priority,omitempty" yaml:"priority,omitempty" doc:"Where the rule runs among hooks, lower first"`
 }
 
 // FieldDefault fills a field on create from a CEL expression.
 type FieldDefault struct {
-	Field      string `json:"field" yaml:"field"`
-	Expression string `json:"expression" yaml:"expression"`
-	Override   bool   `json:"override,omitempty" yaml:"override,omitempty"`
+	Field      string `json:"field" yaml:"field" doc:"The spec field filled in, as a dotted path such as headers.security"`
+	Expression string `json:"expression" yaml:"expression" doc:"A CEL expression whose value the field gets"`
+	Override   bool   `json:"override,omitempty" yaml:"override,omitempty" doc:"Replace a value the new resource already has, rather than only fill in an empty field"`
 }
 
 // Validate checks a rule's structure against the policy schema. Compiling

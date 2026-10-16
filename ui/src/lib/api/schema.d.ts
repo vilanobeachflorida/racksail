@@ -435,7 +435,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch an item's icon */
+        /**
+         * Fetch an item's icon
+         * @description The item's icon, an SVG or PNG file checked against the catalog's signed index, served so that it can't run or load anything. It is fetched from the catalog the first time, while the marketplace module is on, and kept after that.
+         */
         get: operations["getCatalogItemIcon"];
         put?: never;
         post?: never;
@@ -3396,7 +3399,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Describe a module */
+        /**
+         * Describe a module
+         * @description One module with its manifest and state: whether it is on, what it needs and costs, the hardware it can't run without, what uses it, and the ID of the core.module resource whose actions turn it on, off and remove it.
+         */
         get: operations["getModule"];
         put?: never;
         post?: never;
@@ -3597,7 +3603,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Show a notification and its message */
+        /**
+         * Show a notification and its message
+         * @description One notification with the message it carries, where it went, how its attempts went and why the last one failed. You see your own; those sent through channels, and to other people, are for those who may see the channels.
+         */
         get: operations["getNotification"];
         put?: never;
         post?: never;
@@ -3714,7 +3723,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Say whether safe mode is on */
+        /**
+         * Say whether safe mode is on
+         * @description Whether safe mode keeps every add-on out of the pipeline, and what turned it on: the boot option, the console, the panel, or an add-on that crashed as it started, with when and why.
+         */
         get: operations["getSafeMode"];
         put?: never;
         /**
@@ -3996,6 +4008,7 @@ export interface components {
             item?: string;
             /** @description The add-on's addon.yaml */
             manifest: string;
+            /** @description The add-on's program: an archive and the checksum it must match */
             package: components["schemas"]["Package"];
         };
         AddonStatus: {
@@ -4092,14 +4105,23 @@ export interface components {
             time: string;
         };
         Available: {
+            /** @description The binary for this server's architecture, as the release's signed manifest lists it */
             asset: components["schemas"]["ReleaseAsset"];
-            /** @enum {string} */
+            /**
+             * @description The channel the release is on
+             * @enum {string}
+             */
             channel: "stable" | "beta" | "nightly";
             /** @description The release notes */
             notesUrl?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the release was published
+             */
             published: string;
+            /** @description The release's tag on GitHub, such as v1.3.0 */
             tag: string;
+            /** @description The release's version */
             version: string;
         };
         BackupInfo: {
@@ -4169,8 +4191,12 @@ export interface components {
             built?: string;
             code?: string;
             conditions?: components["schemas"]["Condition"][] | null;
+            /** @description The SHA-256 of the index the panel keeps */
             indexSha256?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description How many items the index lists
+             */
             items?: number;
             /** @description English summary of the current state */
             message?: string;
@@ -4179,6 +4205,7 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
+            /** @description Whether the catalog is Racksail's own, signed by a key built into the panel */
             official?: boolean;
             /** @enum {string} */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
@@ -5991,8 +6018,11 @@ export interface components {
             message: string;
         };
         FieldDefault: {
+            /** @description A CEL expression whose value the field gets */
             expression: string;
+            /** @description The spec field filled in, as a dotted path such as headers.security */
             field: string;
+            /** @description Replace a value the new resource already has, rather than only fill in an empty field */
             override?: boolean;
         };
         FieldDiff: {
@@ -6101,11 +6131,18 @@ export interface components {
             status: "ok" | "degraded";
         };
         HealthResult: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When it ran
+             */
             checkedAt: string;
+            /** @description Why it didn't pass */
             message?: string;
+            /** @description Whether it passed */
             ok: boolean;
+            /** @description What it checks: a URL, host and port, name, unit or resource */
             target: string;
+            /** @description How the check works: http, tcp, tls, dns, unit or resource */
             type: string;
         };
         HistoryBody: {
@@ -6300,43 +6337,68 @@ export interface components {
             healthy: boolean;
         };
         InstallationSpec: {
+            /** @description The ID of the catalog that offered the recipe */
             catalog?: string;
+            /** @description That catalog's name, such as official */
             catalogName?: string;
+            /** @description The SHA-256 of the catalog index that listed it */
             indexSha256?: string;
+            /** @description The values given for the recipe's inputs, without passwords and secrets */
             inputs?: {
                 [key: string]: unknown;
             };
             /** @description The item's id */
             item: string;
-            /** @enum {string} */
+            /**
+             * @description What sort of item it is
+             * @enum {string}
+             */
             itemKind: "app" | "runtime" | "service" | "stack" | "dns-template" | "automation" | "tuning-preset" | "model" | "theme" | "addon";
+            /** @description The software's license, as an SPDX expression */
             license: string;
-            /** @enum {string} */
+            /**
+             * @description Whether the software is open source, free to use or proprietary
+             * @enum {string}
+             */
             licenseClass: "open-source" | "free-to-use" | "proprietary";
+            /** @description The module that ships the recipe, when it didn't come from a catalog */
             module?: string;
+            /** @description The item's name */
             name: string;
             /** @description Whether it came from Racksail's own catalog */
             official?: boolean;
+            /** @description The recipe as installed, so upgrading and uninstalling need nothing from the catalog */
             recipe: string;
+            /** @description The SHA-256 of the recipe installed */
             recipeSha256: string;
+            /** @description The resources the installation created */
             resources: components["schemas"]["InstalledResource"][] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The revision of the recipe itself, which goes up when the recipe changes without a new version of the software
+             */
             revision?: number;
             /**
              * @description Where the recipe came from
              * @enum {string}
              */
             source: "catalog" | "module";
+            /** @description The version installed */
             version: string;
         };
         InstallationStatus: {
+            /** @description The version the installation was last applied at */
             applied?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the health checks last ran
+             */
             checkedAt?: string;
             code?: string;
             conditions?: components["schemas"]["Condition"][] | null;
             /** @description Upstream files checked against the recipe */
             downloads?: components["schemas"]["VerifiedDownload"][] | null;
+            /** @description How the recipe's health checks went the last time they ran */
             health?: components["schemas"]["HealthResult"][] | null;
             /** @description English summary of the current state */
             message?: string;
@@ -6351,8 +6413,11 @@ export interface components {
             upgrade?: string;
         };
         InstalledResource: {
+            /** @description The resource's ID */
             id: string;
+            /** @description The resource's kind, such as databases.database */
             kind: string;
+            /** @description The resource's name in the recipe, such as db */
             name: string;
         };
         IssuedLink: {
@@ -6828,6 +6893,7 @@ export interface components {
             quietHours?: components["schemas"]["QuietHours"];
         };
         OSStatus: {
+            /** @description The Debian release's codename, such as trixie */
             codename: string;
             /** @description The Debian release an upgrade would move to */
             next?: string;
@@ -6838,7 +6904,9 @@ export interface components {
             rebootAt?: string;
             /** @description Why the server needs a reboot */
             rebootReasons?: string[] | null;
+            /** @description Whether the server needs a reboot to finish installing updates */
             rebootRequired?: boolean;
+            /** @description The Debian release's number, such as 13 */
             version: string;
         };
         OpenAccountInput: {
@@ -7055,17 +7123,31 @@ export interface components {
             points: components["schemas"]["PointInfo"][] | null;
         };
         PolicySpec: {
+            /** @description For default rules: the fields filled in, each from a CEL expression */
             defaults?: components["schemas"]["FieldDefault"][] | null;
+            /** @description What the rule is for, in a sentence or two */
             description?: string;
+            /** @description Whether the rule takes part in changes */
             enabled?: boolean;
+            /** @description For validate rules: a CEL expression that is true when the change must be refused */
             expression?: string;
+            /** @description The kinds the rule applies to, such as web.site; every kind when empty */
             kinds?: string[] | null;
+            /** @description For validate rules: what the person making a refused change is told */
             message?: string;
+            /** @description A short name for the rule, shown when it refuses a change */
             name: string;
+            /** @description The operations it applies to, such as create, update, delete or an action; every one when empty */
             operations?: string[] | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Where the rule runs among hooks, lower first
+             */
             priority?: number;
-            /** @enum {string} */
+            /**
+             * @description validate rules refuse changes; default rules fill in or override fields of new resources
+             * @enum {string}
+             */
             type: "validate" | "default";
         };
         Port: {
@@ -7482,6 +7564,7 @@ export interface components {
             self: string[] | null;
         };
         RollbackInput: {
+            /** @description Why the release is rolled back, for the timeline and the audit log */
             reason?: string;
         };
         SSHKey: {
@@ -7695,9 +7778,14 @@ export interface components {
         SettingsStatus: {
             /** @description The newest release on the channel, when it is newer */
             available?: components["schemas"]["Available"];
+            /** @description Whether the release before the running one is kept to roll back to */
             canRollBack?: boolean;
+            /** @description Why the last look for releases failed */
             checkError?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When releases were last looked for
+             */
             checkedAt?: string;
             code?: string;
             conditions?: components["schemas"]["Condition"][] | null;
@@ -7710,11 +7798,13 @@ export interface components {
              * @description The generation the reconciler last acted on
              */
             observedGeneration?: number;
+            /** @description The server's Debian release and whether it needs a reboot */
             os?: components["schemas"]["OSStatus"];
             /** @description The last upgrade of the server's packages */
             packages?: components["schemas"]["PackagesStatus"];
             /** @enum {string} */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The last update whose outcome was published */
             reported?: string;
             /** @description The version running now */
             running: string;
@@ -8121,6 +8211,8 @@ export interface components {
         };
         UpgradeOSOutput: {
             from: string;
+            /** @description Why the server needs a reboot: the new release, and whatever else wants one, such as its kernel */
+            rebootReasons?: string[] | null;
             /** @description Whether the server needs a reboot to finish */
             rebootRequired: boolean;
             /** @description The snapshots taken first */
@@ -8266,13 +8358,21 @@ export interface components {
             username: string;
         };
         VerifiedDownload: {
+            /** @description The SHA-256 the file matched, as the recipe pins it */
             sha256: string;
             /** @description The kind of signature that was checked too, if any */
             signature?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The file's size in bytes
+             */
             size: number;
+            /** @description Where the file was downloaded from */
             url: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the file was checked
+             */
             verifiedAt: string;
         };
         Version: {

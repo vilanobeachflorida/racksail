@@ -288,7 +288,8 @@
             "type": "string"
           },
           "package": {
-            "$ref": "#/components/schemas/Package"
+            "$ref": "#/components/schemas/Package",
+            "description": "The add-on's program: an archive and the checksum it must match"
           }
         },
         "required": [
@@ -546,9 +547,11 @@
         "additionalProperties": false,
         "properties": {
           "asset": {
-            "$ref": "#/components/schemas/ReleaseAsset"
+            "$ref": "#/components/schemas/ReleaseAsset",
+            "description": "The binary for this server's architecture, as the release's signed manifest lists it"
           },
           "channel": {
+            "description": "The channel the release is on",
             "enum": [
               "stable",
               "beta",
@@ -561,13 +564,16 @@
             "type": "string"
           },
           "published": {
+            "description": "When the release was published",
             "format": "date-time",
             "type": "string"
           },
           "tag": {
+            "description": "The release's tag on GitHub, such as v1.3.0",
             "type": "string"
           },
           "version": {
+            "description": "The release's version",
             "type": "string"
           }
         },
@@ -773,9 +779,11 @@
             ]
           },
           "indexSha256": {
+            "description": "The SHA-256 of the index the panel keeps",
             "type": "string"
           },
           "items": {
+            "description": "How many items the index lists",
             "format": "int64",
             "type": "integer"
           },
@@ -789,6 +797,7 @@
             "type": "integer"
           },
           "official": {
+            "description": "Whether the catalog is Racksail's own, signed by a key built into the panel",
             "type": "boolean"
           },
           "phase": {
@@ -5021,12 +5030,15 @@
         "additionalProperties": false,
         "properties": {
           "expression": {
+            "description": "A CEL expression whose value the field gets",
             "type": "string"
           },
           "field": {
+            "description": "The spec field filled in, as a dotted path such as headers.security",
             "type": "string"
           },
           "override": {
+            "description": "Replace a value the new resource already has, rather than only fill in an empty field",
             "type": "boolean"
           }
         },
@@ -5358,19 +5370,24 @@
         "additionalProperties": false,
         "properties": {
           "checkedAt": {
+            "description": "When it ran",
             "format": "date-time",
             "type": "string"
           },
           "message": {
+            "description": "Why it didn't pass",
             "type": "string"
           },
           "ok": {
+            "description": "Whether it passed",
             "type": "boolean"
           },
           "target": {
+            "description": "What it checks: a URL, host and port, name, unit or resource",
             "type": "string"
           },
           "type": {
+            "description": "How the check works: http, tcp, tls, dns, unit or resource",
             "type": "string"
           }
         },
@@ -5924,16 +5941,20 @@
         "additionalProperties": false,
         "properties": {
           "catalog": {
+            "description": "The ID of the catalog that offered the recipe",
             "type": "string"
           },
           "catalogName": {
+            "description": "That catalog's name, such as official",
             "type": "string"
           },
           "indexSha256": {
+            "description": "The SHA-256 of the catalog index that listed it",
             "type": "string"
           },
           "inputs": {
             "additionalProperties": {},
+            "description": "The values given for the recipe's inputs, without passwords and secrets",
             "type": "object"
           },
           "item": {
@@ -5941,6 +5962,7 @@
             "type": "string"
           },
           "itemKind": {
+            "description": "What sort of item it is",
             "enum": [
               "app",
               "runtime",
@@ -5956,9 +5978,11 @@
             "type": "string"
           },
           "license": {
+            "description": "The software's license, as an SPDX expression",
             "type": "string"
           },
           "licenseClass": {
+            "description": "Whether the software is open source, free to use or proprietary",
             "enum": [
               "open-source",
               "free-to-use",
@@ -5967,9 +5991,11 @@
             "type": "string"
           },
           "module": {
+            "description": "The module that ships the recipe, when it didn't come from a catalog",
             "type": "string"
           },
           "name": {
+            "description": "The item's name",
             "type": "string"
           },
           "official": {
@@ -5977,13 +6003,16 @@
             "type": "boolean"
           },
           "recipe": {
+            "description": "The recipe as installed, so upgrading and uninstalling need nothing from the catalog",
             "maxLength": 262144,
             "type": "string"
           },
           "recipeSha256": {
+            "description": "The SHA-256 of the recipe installed",
             "type": "string"
           },
           "resources": {
+            "description": "The resources the installation created",
             "items": {
               "$ref": "#/components/schemas/InstalledResource"
             },
@@ -5993,6 +6022,7 @@
             ]
           },
           "revision": {
+            "description": "The revision of the recipe itself, which goes up when the recipe changes without a new version of the software",
             "format": "int64",
             "type": "integer"
           },
@@ -6005,6 +6035,7 @@
             "type": "string"
           },
           "version": {
+            "description": "The version installed",
             "type": "string"
           }
         },
@@ -6026,9 +6057,11 @@
         "additionalProperties": false,
         "properties": {
           "applied": {
+            "description": "The version the installation was last applied at",
             "type": "string"
           },
           "checkedAt": {
+            "description": "When the health checks last ran",
             "format": "date-time",
             "type": "string"
           },
@@ -6055,6 +6088,7 @@
             ]
           },
           "health": {
+            "description": "How the recipe's health checks went the last time they ran",
             "items": {
               "$ref": "#/components/schemas/HealthResult"
             },
@@ -6094,12 +6128,15 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The resource's ID",
             "type": "string"
           },
           "kind": {
+            "description": "The resource's kind, such as databases.database",
             "type": "string"
           },
           "name": {
+            "description": "The resource's name in the recipe, such as db",
             "type": "string"
           }
         },
@@ -7697,6 +7734,7 @@
         "additionalProperties": false,
         "properties": {
           "codename": {
+            "description": "The Debian release's codename, such as trixie",
             "type": "string"
           },
           "next": {
@@ -7719,9 +7757,11 @@
             ]
           },
           "rebootRequired": {
+            "description": "Whether the server needs a reboot to finish installing updates",
             "type": "boolean"
           },
           "version": {
+            "description": "The Debian release's number, such as 13",
             "type": "string"
           }
         },
@@ -8312,6 +8352,7 @@
         "additionalProperties": false,
         "properties": {
           "defaults": {
+            "description": "For default rules: the fields filled in, each from a CEL expression",
             "items": {
               "$ref": "#/components/schemas/FieldDefault"
             },
@@ -8321,15 +8362,19 @@
             ]
           },
           "description": {
+            "description": "What the rule is for, in a sentence or two",
             "type": "string"
           },
           "enabled": {
+            "description": "Whether the rule takes part in changes",
             "type": "boolean"
           },
           "expression": {
+            "description": "For validate rules: a CEL expression that is true when the change must be refused",
             "type": "string"
           },
           "kinds": {
+            "description": "The kinds the rule applies to, such as web.site; every kind when empty",
             "items": {
               "type": "string"
             },
@@ -8339,12 +8384,15 @@
             ]
           },
           "message": {
+            "description": "For validate rules: what the person making a refused change is told",
             "type": "string"
           },
           "name": {
+            "description": "A short name for the rule, shown when it refuses a change",
             "type": "string"
           },
           "operations": {
+            "description": "The operations it applies to, such as create, update, delete or an action; every one when empty",
             "items": {
               "type": "string"
             },
@@ -8354,10 +8402,12 @@
             ]
           },
           "priority": {
+            "description": "Where the rule runs among hooks, lower first",
             "format": "int64",
             "type": "integer"
           },
           "type": {
+            "description": "validate rules refuse changes; default rules fill in or override fields of new resources",
             "enum": [
               "validate",
               "default"
@@ -9507,6 +9557,7 @@
         "additionalProperties": false,
         "properties": {
           "reason": {
+            "description": "Why the release is rolled back, for the timeline and the audit log",
             "maxLength": 500,
             "type": "string"
           }
@@ -10119,12 +10170,15 @@
             "description": "The newest release on the channel, when it is newer"
           },
           "canRollBack": {
+            "description": "Whether the release before the running one is kept to roll back to",
             "type": "boolean"
           },
           "checkError": {
+            "description": "Why the last look for releases failed",
             "type": "string"
           },
           "checkedAt": {
+            "description": "When releases were last looked for",
             "format": "date-time",
             "type": "string"
           },
@@ -10154,7 +10208,8 @@
             "type": "integer"
           },
           "os": {
-            "$ref": "#/components/schemas/OSStatus"
+            "$ref": "#/components/schemas/OSStatus",
+            "description": "The server's Debian release and whether it needs a reboot"
           },
           "packages": {
             "$ref": "#/components/schemas/PackagesStatus",
@@ -10172,6 +10227,7 @@
             "type": "string"
           },
           "reported": {
+            "description": "The last update whose outcome was published",
             "type": "string"
           },
           "running": {
@@ -11383,6 +11439,16 @@
           "from": {
             "type": "string"
           },
+          "rebootReasons": {
+            "description": "Why the server needs a reboot: the new release, and whatever else wants one, such as its kernel",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "rebootRequired": {
             "description": "Whether the server needs a reboot to finish",
             "type": "boolean"
@@ -11793,6 +11859,7 @@
         "additionalProperties": false,
         "properties": {
           "sha256": {
+            "description": "The SHA-256 the file matched, as the recipe pins it",
             "type": "string"
           },
           "signature": {
@@ -11800,13 +11867,16 @@
             "type": "string"
           },
           "size": {
+            "description": "The file's size in bytes",
             "format": "int64",
             "type": "integer"
           },
           "url": {
+            "description": "Where the file was downloaded from",
             "type": "string"
           },
           "verifiedAt": {
+            "description": "When the file was checked",
             "format": "date-time",
             "type": "string"
           }
@@ -13546,6 +13616,7 @@
     },
     "/api/v1/catalog/items/{catalog}/{item}/icon": {
       "get": {
+        "description": "The item's icon, an SVG or PNG file checked against the catalog's signed index, served so that it can't run or load anything. It is fetched from the catalog the first time, while the marketplace module is on, and kept after that.",
         "operationId": "getCatalogItemIcon",
         "parameters": [
           {
@@ -29158,6 +29229,7 @@
     },
     "/api/v1/modules/{id}": {
       "get": {
+        "description": "One module with its manifest and state: whether it is on, what it needs and costs, the hardware it can't run without, what uses it, and the ID of the core.module resource whose actions turn it on, off and remove it.",
         "operationId": "getModule",
         "parameters": [
           {
@@ -29871,6 +29943,7 @@
     },
     "/api/v1/notifications/{id}": {
       "get": {
+        "description": "One notification with the message it carries, where it went, how its attempts went and why the last one failed. You see your own; those sent through channels, and to other people, are for those who may see the channels.",
         "operationId": "getNotification",
         "parameters": [
           {
@@ -30297,6 +30370,7 @@
         "x-racksail-risk": "high"
       },
       "get": {
+        "description": "Whether safe mode keeps every add-on out of the pipeline, and what turned it on: the boot option, the console, the panel, or an add-on that crashed as it started, with when and why.",
         "operationId": "getSafeMode",
         "responses": {
           "200": {
