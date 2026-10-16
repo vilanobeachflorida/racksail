@@ -224,6 +224,7 @@ type UpgradeOSOutput struct {
 	To             string   `json:"to"`
 	Snapshots      []string `json:"snapshots,omitempty" doc:"The snapshots taken first"`
 	RebootRequired bool     `json:"rebootRequired" doc:"Whether the server needs a reboot to finish"`
+	RebootReasons  []string `json:"rebootReasons,omitempty" doc:"Why the server needs a reboot: the new release, and whatever else wants one, such as its kernel"`
 }
 
 // Errors.
