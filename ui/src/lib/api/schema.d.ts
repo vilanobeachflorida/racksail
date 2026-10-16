@@ -2783,7 +2783,7 @@ export interface paths {
         get: operations["getMe"];
         /**
          * Change your details
-         * @description Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.
+         * @description Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview. A new email address takes confirming it's you first, since outside sign-in may match people by it; a new name or language doesn't.
          */
         put: operations["updateMe"];
         post?: never;
@@ -7471,7 +7471,7 @@ export interface components {
             risk: "read" | "low" | "medium" | "high" | "critical";
             /** @description Whether only a person in the panel may use it, not an API token */
             session?: boolean;
-            /** @description Whether it needs you to have confirmed it's you recently, when you use it in the panel */
+            /** @description Whether it needs you to have confirmed it's you recently, when you use it in the panel, whatever its risk. Critical operations always do, and those that do only for some changes, such as a new email address, say so in their descriptions */
             stepUp?: boolean;
             /** @description Whether it answers with Server-Sent Events */
             stream?: boolean;

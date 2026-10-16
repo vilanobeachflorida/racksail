@@ -32,8 +32,10 @@ type Options struct {
 	// Pipeline makes the changes to users the service makes itself, such
 	// as adding the first admin or someone's own SSH key.
 	Pipeline changeset.Pipeline
-	// Refresh asks for a user's resource to be reconciled again, so its
-	// status says how they sign in now; the reconcile queue's Enqueue.
+	// Refresh asks for a resource to be reconciled again: a user's, so its
+	// status says how they sign in now, or a sign-in provider's, so it says
+	// whether what it names is still provided. The reconcile queue's
+	// Enqueue.
 	Refresh func(id store.ID, reason string)
 	// Secrets keeps authenticator app secrets and alert channel settings.
 	Secrets secrets.Store

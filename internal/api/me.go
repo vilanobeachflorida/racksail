@@ -272,8 +272,9 @@ func (s *Server) registerMe() {
 
 	updateMe := reg(huma.Operation{
 		OperationID: "updateMe", Method: http.MethodPut, Path: base, Summary: "Change your details",
-		Description: "Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview.",
-		Responses:   changeSetResponses(s, "The change set, applied to your user"),
+		Description: "Changes your name, email address and language, as a change to your user like any other: with dryRun=true the answer is its preview. " +
+			"A new email address takes confirming it's you first, since outside sign-in may match people by it; a new name or language doesn't.",
+		Responses: changeSetResponses(s, "The change set, applied to your user"),
 	}, store.RiskLow, inPanel)
 	Describe(&updateMe, Info{Risk: store.RiskLow, DryRun: true, Reversible: true, Session: true})
 	huma.Register(s.api, updateMe, func(ctx context.Context, in *profileInput) (*ChangeSetOutput, error) {

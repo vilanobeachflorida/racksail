@@ -47,7 +47,10 @@ type Info struct {
 	// Stream says the operation answers with Server-Sent Events.
 	Stream bool
 	// StepUp says a person in the panel must have confirmed it's them
-	// recently, as for changing someone's roles.
+	// recently, whatever the operation's risk, as for changing someone's
+	// roles. Critical operations always need it; an operation that needs it
+	// only for some changes, as a profile change does for a new email
+	// address, says so in its description instead.
 	StepUp bool
 	// Session says only a person in the panel may use the operation, not
 	// an API token: signing in, and changing how one signs in. The
@@ -105,7 +108,7 @@ type Operation struct {
 	Destructive bool       `json:"destructive,omitempty" doc:"Whether it removes data, and so needs a typed confirmation"`
 	Reversible  bool       `json:"reversible,omitempty" doc:"Whether it can be undone"`
 	Stream      bool       `json:"stream,omitempty" doc:"Whether it answers with Server-Sent Events"`
-	StepUp      bool       `json:"stepUp,omitempty" doc:"Whether it needs you to have confirmed it's you recently, when you use it in the panel"`
+	StepUp      bool       `json:"stepUp,omitempty" doc:"Whether it needs you to have confirmed it's you recently, when you use it in the panel, whatever its risk. Critical operations always do, and those that do only for some changes, such as a new email address, say so in their descriptions"`
 	Session     bool       `json:"session,omitempty" doc:"Whether only a person in the panel may use it, not an API token"`
 	Public      bool       `json:"public,omitempty" doc:"Whether it works without signing in"`
 	// Request and Response name the schemas of the body and of the answer
