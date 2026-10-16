@@ -229,7 +229,7 @@ upstream:
 	if steps, err := InstallSteps(ctx, nil, man, "caddy", Install{}); err != nil || len(steps) != 0 {
 		t.Errorf("embedded software installs nothing: %+v, %v", steps, err)
 	}
-	plan := UninstallPlan(man)
+	plan := UninstallPlan(man, Shared{})
 	var ops []string
 	for _, s := range plan.Steps {
 		ops = append(ops, s.Op)

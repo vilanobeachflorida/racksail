@@ -213,6 +213,59 @@ describe("the modules page", () => {
     expect(sent).toEqual({ confirm: "Notes", keepData: false });
   });
 
+  it("removes a module that can't keep its resources while it is off, with them", async () => {
+    const user = userEvent.setup();
+    let sent: Record<string, unknown> | undefined;
+    const api = fakeApi({
+      ...shell,
+      "GET /api/v1/modules": () =>
+        json({
+          modules: [
+            {
+              manifest: manifest("notes"),
+              enabled: true,
+              state: "active",
+              usage: { resources: 2 },
+              resource: "mod_notes",
+              exportable: true,
+            },
+          ],
+        }),
+      "GET /api/v1/modules/profiles": () => json({ profiles: [] }),
+      "POST /api/v1/modules/notes/actions/remove": async (request) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return json(preview("Remove Notes", { risk: "high" }));
+      },
+    });
+    renderShell({ modules: [], messages: shellMessages, api, path: "/settings/modules" });
+    // Its category's heading is translated, not its id.
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Operations" }),
+    ).toBeInTheDocument();
+    const notes = screen.getByRole("region", { name: "Notes" });
+    const off = within(notes).getByRole("button", { name: "Turn off" });
+    expect(off).toBeDisabled();
+    expect(off).toHaveAccessibleDescription(
+      "Notes can't keep its 2 resources while it is off. Delete them first, or remove it with its data.",
+    );
+
+    await user.click(within(notes).getByRole("button", { name: "Remove" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const keep = within(dialog).getByRole("checkbox", { name: "Keep its data" });
+    expect(keep).toBeDisabled();
+    expect(keep).not.toBeChecked();
+    expect(keep).toHaveAccessibleDescription(
+      "Notes can't keep its 2 resources while it is off, so removing it deletes them.",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Download its resources" }),
+    ).toBeInTheDocument();
+    await user.type(within(dialog).getByRole("textbox"), "Notes");
+    await user.click(within(dialog).getByRole("button", { name: "Preview removing it" }));
+    expect(await screen.findByText("Remove Notes")).toBeInTheDocument();
+    expect(sent).toEqual({ confirm: "Notes", keepData: false });
+  });
+
   it("follows modules as their states change", async () => {
     const { live, sources } = fakeLive();
     let state = "on";

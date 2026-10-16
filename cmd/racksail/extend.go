@@ -30,9 +30,11 @@ import (
 
 // newAddonRuntime builds what runs installed add-ons: their tokens, kept in
 // the panel database, and safe mode, read from the kernel's command line
-// and the flags in the panel's state.
+// and the flags in the panel's state. Add-ons from catalogs are checked
+// against them, and accounts' add-ons run where accounts returns, once the
+// module that keeps accounts says.
 func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st store.Store, reg *hooks.Registry, agentClient agent.Client,
-	timeline *events.Log, runner *reconcile.Runner, log *slog.Logger) (*addons.Runtime, error) {
+	timeline *events.Log, runner *reconcile.Runner, catalogs *recipes.Catalogs, accounts func() addons.Accounts, log *slog.Logger) (*addons.Runtime, error) {
 	tokens, err := addons.NewSQLTokens(ctx, db)
 	if err != nil {
 		return nil, err
@@ -41,7 +43,7 @@ func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st st
 		Registry: reg, Store: st, Agent: agentClient, Events: timeline, Audit: timeline, Tokens: tokens,
 		SafeMode: addons.OpenSafeMode(cfg.Paths.State, addons.ReadCmdline()),
 		TokenDir: filepath.Join(cfg.Paths.State, "addons"), SocketDir: filepath.Join(cfg.Paths.Run, "addons"),
-		Enqueue: runner.Enqueue, Log: log,
+		Enqueue: runner.Enqueue, Catalogs: catalogs, Accounts: accounts, Log: log,
 	}), nil
 }
 

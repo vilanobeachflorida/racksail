@@ -147,6 +147,14 @@ type OwnershipProvider interface {
 	Ownership(svc *Services) auth.Ownership
 }
 
+// AccountProvider says where each account's add-ons run: in the account's
+// slice, within what its plan allows. The module that keeps accounts
+// implements it, and no other module may; until one does, accounts'
+// add-ons don't run.
+type AccountProvider interface {
+	Accounts(svc *Services) addons.Accounts
+}
+
 // Hint helps the assistant use a module's tools: a short description and
 // examples of requests, for a kind or one of its actions.
 type Hint struct {

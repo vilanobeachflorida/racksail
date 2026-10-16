@@ -3544,6 +3544,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "slice": {
+            "description": "The account's slice, racksail-accounts-\u003cslug\u003e.slice, for an account's add-on; racksail.slice otherwise",
+            "type": "string"
+          },
           "version": {
             "description": "The version whose program runs",
             "type": "string"
@@ -7160,7 +7164,7 @@
     },
     "/v1/ops/EnsureAddonService": {
       "post": {
-        "description": "Writes racksail-addon@.service and racksail-addon@.socket, the sandbox every add-on runs in, and the add-on's own drop-in with its program, memory and CPU limits and the addresses it may reach, then reloads systemd when anything changed.",
+        "description": "Writes racksail-addon@.service and racksail-addon@.socket, the sandbox every add-on runs in, and the add-on's own drop-in with its program, memory and CPU limits, the addresses it may reach and, for an account's add-on, the account's slice, then reloads systemd when anything changed.",
         "operationId": "EnsureAddonService",
         "parameters": [
           {

@@ -52,6 +52,8 @@ func TestRenderUnits(t *testing.T) {
 	for _, spec := range []ServiceSpec{
 		{ID: "site-guard", Version: "0.3.0", MemoryMB: 64, CPUPercent: 20},
 		{ID: "cloudflare-dns", Version: "1.2.0-beta.1", MemoryMB: 128, CPUPercent: 50, Hosts: []Host{{Addresses: []string{"2606:4700::/32", "104.16.0.0/13"}}, {Name: "api.cloudflare.com", Addresses: []string{"104.16.132.229"}}}},
+		// An account's add-on runs in the account's slice.
+		{ID: "site-guard-r9s0t1u2v3", Version: "0.3.0", MemoryMB: 48, CPUPercent: 10, Slice: "racksail-accounts-blog.slice"},
 	} {
 		dropIn, err := spec.RenderDropIn()
 		if err != nil {
@@ -75,6 +77,8 @@ func TestRenderUnits(t *testing.T) {
 		{ID: "ok", Version: "1.0.0", MemoryMB: 64, CPUPercent: 10, Hosts: []Host{{Name: "example.com", Addresses: []string{"10.0.0.0/8"}}}},
 		{ID: "ok", Version: "1.0.0", MemoryMB: 64, CPUPercent: 10, Hosts: []Host{{Name: "bad name", Addresses: []string{"10.0.0.1"}}}},
 		{ID: "../etc", Version: "1.0.0", MemoryMB: 64, CPUPercent: 10},
+		{ID: "ok", Version: "1.0.0", MemoryMB: 64, CPUPercent: 10, Slice: "racksail.slice"},
+		{ID: "ok", Version: "1.0.0", MemoryMB: 64, CPUPercent: 10, Slice: "racksail-accounts-../x.slice"},
 	} {
 		if err := bad.Validate(); err == nil {
 			t.Errorf("%+v should be refused", bad)

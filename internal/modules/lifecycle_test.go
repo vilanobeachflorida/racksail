@@ -90,9 +90,25 @@ func (w *webModule) PlanTransition(ctx context.Context, req modules.TransitionRe
 	case req.Remove:
 		return reconcile.Plan{Steps: []agent.Step{agent.RemovePath.Step(agent.RemovePathInput{Path: pagesDir, Recursive: true})}}, nil
 	case req.To == modules.StateOff:
+		// Another module serving with webd keeps it running.
+		if _, shared := req.Shared.Unit(unit.Name); shared {
+			return reconcile.Plan{}, nil
+		}
 		return reconcile.Plan{Steps: []agent.Step{agent.StopUnit.Step(unit)}}, nil
 	}
 	return reconcile.Plan{Steps: []agent.Step{agent.StartUnit.Step(unit)}}, nil
+}
+
+// blogModule serves a blog with webd too, as two real modules share Valkey.
+type blogModule struct{ modules.Base }
+
+func newBlog() *blogModule {
+	return &blogModule{modules.NewBase(manifest("blog", `dependencies: {requires: [net]}
+upstream:
+  - {id: webd, name: Webd, license: MIT, source: {type: debian, packages: [webd]}, install: With the blog.}
+ports: [{port: 443, protocol: tcp, description: HTTPS}]
+services: [{unit: webd.service, description: Serves the blog.}]
+`))}
 }
 
 type pageReconciler struct{ man *modules.Manifest }
@@ -445,6 +461,88 @@ func TestRemoving(t *testing.T) {
 	e.RequireUnit(t, "webd.service", "active")
 }
 
+// Two modules naming the same software, services and ports: removing one
+// leaves alone what the other still uses, and says so in the preview, and
+// removing the last one uninstalls it.
+func TestRemovingKeepsWhatOtherModulesUse(t *testing.T) {
+	ctx := context.Background()
+	e := modulestest.New(t, modulestest.Options{}, newNet(), newWeb(), newBlog())
+	e.TurnOn(t, "web")
+	e.TurnOn(t, "blog")
+	e.MustApply(t, changeset.Request{Changes: []changeset.Change{page(t, "index.html", "Hi")}})
+	e.RequireState(t, "web", modules.StateActive)
+	installed := func() bool {
+		pkgs, err := e.Machine.Backend().Packages.Installed(ctx, "webd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(pkgs) > 0
+	}
+	effects := func(id, confirm string) map[string]string {
+		t.Helper()
+		req, err := e.Manager.RemoveRequest(ctx, id, confirm, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.DryRun = true
+		preview, err := e.Submit(t, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, eff := range preview.Effects {
+			out[string(eff.Type)+" "+eff.Action+" "+eff.Target] = eff.Detail
+		}
+		return out
+	}
+
+	// Web still serves with webd, so removing the blog keeps it.
+	got := effects("blog", "Blog")
+	if got["package keep webd"] != "Web still uses it" || got["package remove webd"] != "" {
+		t.Errorf("removing the blog = %v", got)
+	}
+	e.Remove(t, "blog", false)
+	if !installed() {
+		t.Fatal("removing the blog uninstalled what web uses")
+	}
+	e.RequireUnit(t, "webd.service", "active")
+
+	// Turned off, web keeps its page and the software it needs for it.
+	e.TurnOn(t, "blog")
+	e.TurnOff(t, "web")
+	if got := effects("blog", "Blog"); got["package keep webd"] != "Web still uses it" {
+		t.Errorf("removing the blog while web keeps its page = %v", got)
+	}
+	e.TurnOn(t, "web")
+	e.Settle(t)
+
+	// The blog still serves with webd, so removing web keeps it running,
+	// with its port open, and installed.
+	got = effects("web", "Web")
+	for _, want := range []string{"package keep webd", "service keep webd.service", "port keep tcp/443"} {
+		if got[want] != "Blog still uses it" {
+			t.Errorf("removing web doesn't keep %s: %v", want, got)
+		}
+	}
+	if _, ok := got["service stop webd.service"]; ok {
+		t.Errorf("removing web stops what the blog runs: %v", got)
+	}
+	e.Remove(t, "web", false)
+	if !installed() {
+		t.Fatal("removing web uninstalled what the blog uses")
+	}
+	e.RequireUnit(t, "webd.service", "active")
+
+	// The last module that uses it takes it with it.
+	if got := effects("blog", "Blog"); got["package keep webd"] != "" {
+		t.Errorf("removing the last module that uses webd keeps it: %v", got)
+	}
+	e.Remove(t, "blog", false)
+	if installed() {
+		t.Error("webd is left behind once nothing uses it")
+	}
+}
+
 // executor runs steps through the agent, and tells first what the module
 // manager says of a module.
 type executor struct {
@@ -512,6 +610,60 @@ func TestStatesOnTheWay(t *testing.T) {
 			t.Errorf("removing uninstalls: %s", mustJSON(t, plan.Steps))
 		}
 	}
+}
+
+// What the server said a module would install is kept in the module's
+// status, which its plans read: a preview of turning it on and the apply
+// that follows it plan the same however long apart, a restart of the
+// panel between them included.
+func TestTurnOnPreviewsPlanFromTheModule(t *testing.T) {
+	ctx := context.Background()
+	e := modulestest.New(t, modulestest.Options{}, newNet(), newWeb())
+	req, err := e.Manager.TurnOnRequest(ctx, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.DryRun = true
+	preview, err := e.Submit(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := e.Manager.Resource("web")
+	obj, _ := modules.Kind.Get(ctx, e.Store, id)
+	if len(obj.Status.Software) != 1 || obj.Status.Software[0].ID != "webd" || obj.Status.Software[0].DownloadBytes != 1<<20 || obj.Status.Software[0].Installed {
+		t.Fatalf("software = %+v", obj.Status.Software)
+	}
+
+	// A manager that knows nothing of what the server said, as after a
+	// restart, a day later, plans what the preview showed.
+	later := modules.NewManager(e.Registry, modules.ManagerOptions{Services: e.Services, Now: func() time.Time { return time.Now().Add(24 * time.Hour) }})
+	if err := later.Boot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := agent.GetFacts.Call(ctx, e.Agent, agent.Empty{}, agent.CallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj.Spec.Enabled = true
+	planned, _ := modules.Kind.Encode(obj)
+	plan, err := later.Reconciler().Plan(ctx, reconcile.Request{Resource: planned, Read: e.Store, Facts: facts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mustJSON(t, plan.Effects)) != string(mustJSON(t, preview.Effects)) {
+		t.Errorf("planned later = %s\npreviewed = %s", mustJSON(t, plan.Effects), mustJSON(t, preview.Effects))
+	}
+
+	// Applying the preview finds it as it was.
+	cs, err := e.Pipeline.Apply(ctx, changeset.ApplyRequest{Actor: e.Admin, ChangeSet: preview.ID})
+	if err != nil {
+		t.Fatalf("applying the preview: %v", err)
+	}
+	if cs.ID != preview.ID {
+		t.Errorf("the preview became %s", cs.ID)
+	}
+	e.Settle(t)
+	e.RequireState(t, "web", modules.StateOn)
 }
 
 // Turning a module on through the manager turns on what it needs with it,

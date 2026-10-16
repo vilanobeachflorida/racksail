@@ -111,3 +111,22 @@ BindReadOnlyPaths=/opt/racksail/modules/addons/cloudflare-dns/hosts:/etc/hosts
 ::1 localhost
 104.16.132.229 api.cloudflare.com
 
+# racksail-addon@site-guard-r9s0t1u2v3.service.d/racksail.conf
+# Managed by Racksail. Changes made here are overwritten.
+
+[Service]
+Slice=racksail-accounts-blog.slice
+ExecStart=/opt/racksail/modules/addons/site-guard-r9s0t1u2v3/0.3.0/addon
+WorkingDirectory=/opt/racksail/modules/addons/site-guard-r9s0t1u2v3/0.3.0
+MemoryMax=48M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=64
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# /opt/racksail/modules/addons/site-guard-r9s0t1u2v3/hosts
+# Managed by Racksail. Changes made here are overwritten.
+127.0.0.1 localhost
+::1 localhost
+

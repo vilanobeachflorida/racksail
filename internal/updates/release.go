@@ -8,16 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/vilanobeachflorida/racksail/internal/system"
 	"github.com/vilanobeachflorida/racksail/internal/updates/sigstore"
 )
 
@@ -38,8 +38,30 @@ const (
 // under this name.
 const SigstoreRootSHA256 = "6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66"
 
-// pinnedRoot is the pin in force; tests pin a trusted root of their own.
-var pinnedRoot = SigstoreRootSHA256
+// trustedRoots are the Sigstore trusted roots releases may be checked
+// against, by their checksum: the one this build pins, and those added from
+// init functions. Nothing can add to them once Racksail runs, so neither a
+// panel nor a mirror can make the agent trust another root.
+var trustedRoots = struct {
+	sync.RWMutex
+	pins map[string]bool
+}{pins: map[string]bool{SigstoreRootSHA256: true}}
+
+// TrustRoot adds a Sigstore trusted root, by the SHA-256 of its JSON, that
+// releases may be checked against besides the one this build pins, as for
+// a private Sigstore that signs builds of one's own, or a test's. Call it
+// from an init function.
+func TrustRoot(sha256Hex string) {
+	trustedRoots.Lock()
+	defer trustedRoots.Unlock()
+	trustedRoots.pins[strings.ToLower(sha256Hex)] = true
+}
+
+func trusted(sha256Hex string) bool {
+	trustedRoots.RLock()
+	defer trustedRoots.RUnlock()
+	return trustedRoots.pins[sha256Hex]
+}
 
 // SigstoreTUF is Sigstore's TUF repository.
 const SigstoreTUF = "https://tuf-repo-cdn.sigstore.dev"
@@ -109,6 +131,10 @@ type Client struct {
 	// trusted roots under sigstore/, as install.sh expects, and a copy of
 	// GitHub's list of releases as releases.json.
 	Mirrors []string
+	// Root is the checksum of the trusted root releases are checked
+	// against, which must be one TrustRoot added; SigstoreRootSHA256 when
+	// empty.
+	Root string
 }
 
 // NewClient returns a client of GitHub and Sigstore, through mirrors.
@@ -119,20 +145,16 @@ func NewClient(mirrors []string) *Client {
 	}
 }
 
-// CheckURL accepts https URLs, and http ones on the server itself.
-func CheckURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return fmt.Errorf("%q isn't a URL", raw)
+func (c *Client) root() string {
+	if c.Root != "" {
+		return c.Root
 	}
-	if u.Scheme == "https" {
-		return nil
-	}
-	if ip := net.ParseIP(u.Hostname()); u.Scheme == "http" && (u.Hostname() == "localhost" || (ip != nil && ip.IsLoopback())) {
-		return nil
-	}
-	return fmt.Errorf("%s isn't an https URL", raw)
+	return SigstoreRootSHA256
 }
+
+// CheckURL accepts https URLs, and http ones on the server itself, as the
+// agent downloads from.
+func CheckURL(raw string) error { return system.CheckFetchURL(raw) }
 
 // get fetches one URL, refusing anything larger than max.
 func (c *Client) get(ctx context.Context, target string, max int64, w io.Writer) error {
@@ -192,9 +214,9 @@ func (c *Client) releaseURLs(tag, name string) []string {
 func (c *Client) TrustedRootURLs() []string {
 	var out []string
 	for _, m := range c.Mirrors {
-		out = append(out, strings.TrimSuffix(m, "/")+"/sigstore/"+pinnedRoot+".trusted_root.json")
+		out = append(out, strings.TrimSuffix(m, "/")+"/sigstore/"+c.root()+".trusted_root.json")
 	}
-	return append(out, strings.TrimSuffix(c.TUF, "/")+"/targets/"+pinnedRoot+".trusted_root.json")
+	return append(out, strings.TrimSuffix(c.TUF, "/")+"/targets/"+c.root()+".trusted_root.json")
 }
 
 // TrustedRoot returns the pinned trusted root: from cache when it was
@@ -203,9 +225,9 @@ func (c *Client) TrustedRootURLs() []string {
 func (c *Client) TrustedRoot(ctx context.Context, cache string) (*sigstore.TrustedRoot, []byte, error) {
 	path := ""
 	if cache != "" {
-		path = filepath.Join(cache, pinnedRoot+".trusted_root.json")
+		path = filepath.Join(cache, c.root()+".trusted_root.json")
 		if data, err := os.ReadFile(path); err == nil {
-			if root, err := PinnedRoot(data); err == nil {
+			if root, err := c.pinned(data); err == nil {
 				return root, data, nil
 			}
 		}
@@ -214,7 +236,7 @@ func (c *Client) TrustedRoot(ctx context.Context, cache string) (*sigstore.Trust
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching Sigstore's trusted root: %w", err)
 	}
-	root, err := PinnedRoot(data)
+	root, err := c.pinned(data)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,10 +248,20 @@ func (c *Client) TrustedRoot(ctx context.Context, cache string) (*sigstore.Trust
 	return root, data, nil
 }
 
-// PinnedRoot parses a trusted root after checking it is the pinned one.
+// pinned parses a trusted root after checking it is the client's.
+func (c *Client) pinned(data []byte) (*sigstore.TrustedRoot, error) {
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != c.root() {
+		return nil, errors.New("the Sigstore trusted root isn't the one this version of Racksail pins")
+	}
+	return PinnedRoot(data)
+}
+
+// PinnedRoot parses a trusted root after checking it is one releases may
+// be checked against: the one this build pins, or one TrustRoot added.
 func PinnedRoot(data []byte) (*sigstore.TrustedRoot, error) {
 	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != pinnedRoot {
+	if !trusted(hex.EncodeToString(sum[:])) {
 		return nil, errors.New("the Sigstore trusted root isn't the one this version of Racksail pins")
 	}
 	return sigstore.ParseTrustedRoot(data)

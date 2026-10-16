@@ -2387,6 +2387,11 @@ export interface components {
             code?: string;
             conditions?: components["schemas"]["Condition"][] | null;
             /**
+             * Format: int64
+             * @description The most CPU time its service may use, in percent of one CPU
+             */
+            cpuPercent?: number;
+            /**
              * @description What the add-on last answered when asked how it is
              * @enum {string}
              */
@@ -2398,6 +2403,11 @@ export interface components {
             hooks?: number;
             /** @description The hosts the add-on may reach and the addresses they resolved to */
             hosts?: components["schemas"]["Host"][] | null;
+            /**
+             * Format: int64
+             * @description The most memory its service may use, in MB
+             */
+            memoryMB?: number;
             /** @description English summary of the current state */
             message?: string;
             /**
@@ -2407,6 +2417,8 @@ export interface components {
             observedGeneration?: number;
             /** @enum {string} */
             phase?: "pending" | "applying" | "ready" | "degraded" | "failed" | "deleting";
+            /** @description The slice its service runs in: the account's for an account's add-on, racksail.slice otherwise */
+            slice?: string;
             /**
              * @description Whether the add-on runs
              * @enum {string}
@@ -4018,6 +4030,16 @@ export interface components {
             set: boolean;
             value?: unknown;
         };
+        FoundSoftware: {
+            /** Format: int64 */
+            diskBytes?: number;
+            /** Format: int64 */
+            downloadBytes?: number;
+            /** @description The software's id in the module's manifest */
+            id: string;
+            installed: boolean;
+            packages?: components["schemas"]["SoftwarePackage"][] | null;
+        };
         Hardware: {
             arch: string[] | null;
             features?: string[] | null;
@@ -4344,7 +4366,8 @@ export interface components {
         };
         Manifest: {
             capabilities?: components["schemas"]["Capabilities"];
-            category: string;
+            /** @enum {string} */
+            category: "core" | "hosting" | "apps" | "storage" | "operations" | "home" | "assistant";
             cost: components["schemas"]["Cost"];
             dependencies: components["schemas"]["Dependencies"];
             description: string;
@@ -4446,6 +4469,8 @@ export interface components {
              * @description When the module last changed state
              */
             since?: string;
+            /** @description What the server last said of the module's software: whether it is there, and what installing it downloads and takes */
+            software?: components["schemas"]["FoundSoftware"][] | null;
             /** @description Whether the module's work in the panel is running */
             started?: boolean;
             /**

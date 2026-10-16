@@ -137,6 +137,12 @@ upstream: []
 			return append(svc.Recipes.Reconcilers(), svc.Catalogs.Reconciler())
 		},
 	}, mod)
+	// Installs through the API are held to their catalog, as the panel holds them.
+	for _, h := range e.Services.Recipes.Hooks() {
+		if err := e.Hooks.Registry.Register(h); err != nil {
+			t.Fatal(err)
+		}
+	}
 	spec, _ := json.Marshal(recipes.CatalogSpec{Name: "test", Title: "Test", URL: srv.URL, Keys: []string{key}})
 	cs, err := e.Submit(t, changeset.Request{Changes: []changeset.Change{{Op: changeset.OpCreate, Kind: recipes.CatalogKind.Name(), Scope: store.ServerScope(), Spec: spec}}})
 	if err != nil || cs.State != changeset.StateApplied {

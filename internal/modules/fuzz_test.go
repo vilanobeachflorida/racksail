@@ -27,7 +27,7 @@ services: [{unit: webd.service, description: Serves the sites.}]
 			return
 		}
 		_ = m.ValidateSettings(nil)
-		_ = UninstallPlan(m)
+		_ = UninstallPlan(m, Shared{})
 		for _, u := range m.Upstream {
 			_ = exactPackages(u)
 			_ = sourceOf(u)

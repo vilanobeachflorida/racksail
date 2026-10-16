@@ -24,6 +24,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
+	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/reconcile"
 	"github.com/vilanobeachflorida/racksail/internal/secrets"
@@ -186,9 +187,21 @@ func newPanel(t *testing.T, configure func(*EngineOptions)) *panel {
 		}
 	}
 	runner := &reconcile.Runner{Store: st, Registry: recs, Secrets: vault, Events: bus, Log: log, Checker: reconcile.AgentChecker{Interval: 10 * time.Millisecond}}
+	// The engine's own hooks hold every installation to its source, the
+	// engine's requests included.
+	reg := hooks.NewRegistry()
+	for _, k := range kinds.All() {
+		reg.DeclareKind(k)
+	}
+	for _, h := range p.recipes.Hooks() {
+		if err := reg.Register(h); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var err error
 	p.engine, err = changeset.NewEngine(changeset.Options{
-		Store: st, Kinds: kinds, Runner: runner, Jobs: q, Events: bus, Audit: bus, Secrets: vault, Authorizer: auth.NewRoleAuthorizer(nil), Log: log,
+		Store: st, Kinds: kinds, Runner: runner, Jobs: q, Events: bus, Audit: bus, Secrets: vault, Authorizer: auth.NewRoleAuthorizer(nil),
+		Hooks: &hooks.Runner{Registry: reg, Events: bus, Audit: bus, Log: log}, Log: log,
 	})
 	if err != nil {
 		t.Fatal(err)

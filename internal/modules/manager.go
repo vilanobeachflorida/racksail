@@ -116,8 +116,6 @@ type Manager struct {
 	kinds map[string]string
 	// refresh asks the usage watcher to count a module's resources again.
 	refresh chan string
-	// software is what FirstUse last found of each module's software.
-	software map[string]found
 }
 
 // NewManager returns a manager. Until Boot loads the states kept in the
@@ -135,7 +133,6 @@ func NewManager(reg *Registry, opts ManagerOptions) *Manager {
 	m := &Manager{
 		reg: reg, opts: opts, ids: map[string]store.ID{}, enabled: map[string]bool{}, states: map[string]State{},
 		started: map[string]bool{}, failed: map[string]error{}, kinds: map[string]string{}, refresh: make(chan string, 64),
-		software: map[string]found{},
 	}
 	for _, mod := range reg.All() {
 		man := mod.Manifest()

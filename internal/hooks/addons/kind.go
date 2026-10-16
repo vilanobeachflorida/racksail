@@ -82,6 +82,13 @@ type AddonStatus struct {
 	// Health is what the add-on last answered when asked how it is.
 	Health    string     `json:"health,omitempty" enum:"ok,degraded,unreachable" doc:"What the add-on last answered when asked how it is"`
 	CheckedAt *time.Time `json:"checkedAt,omitempty" doc:"When it was last asked"`
+	// Slice, MemoryMB and CPUPercent are where its service runs and what
+	// it may use, as last set up: an account's add-on runs in the account's
+	// slice, within what its plan allows. Its service starts again when
+	// they change.
+	Slice      string `json:"slice,omitempty" doc:"The slice its service runs in: the account's for an account's add-on, racksail.slice otherwise"`
+	MemoryMB   int    `json:"memoryMB,omitempty" doc:"The most memory its service may use, in MB"`
+	CPUPercent int    `json:"cpuPercent,omitempty" doc:"The most CPU time its service may use, in percent of one CPU"`
 }
 
 // Error codes.
@@ -93,6 +100,15 @@ var (
 	ErrRefused     = i18n.Define("addons.refused", http.StatusForbidden, "{reason}")
 	ErrFieldDenied = i18n.Define("addons.field_denied", http.StatusForbidden, "{addon} may not change {field} of a {kind}.")
 	ErrUnknown     = i18n.Define("addons.unknown", http.StatusNotFound, "There is no add-on called {addon}.")
+	// ErrAdminApproval refuses approving what only a server admin may
+	// approve to someone who isn't one.
+	ErrAdminApproval = i18n.Define("addons.admin_approval", http.StatusForbidden, "Only a server admin can approve {permission} for {addon}.")
+	// ErrNotInCatalog refuses an add-on that isn't what the catalog it
+	// names offers.
+	ErrNotInCatalog = i18n.Define("addons.not_in_catalog", http.StatusForbidden, "{addon} isn't what the {catalog} catalog offers: {reason}.")
+	// ErrNoAccount keeps an account's add-on from running where it would
+	// escape its account.
+	ErrNoAccount = i18n.Define("addons.no_account", http.StatusConflict, "{addon} can't run: {reason}.")
 )
 
 var addonUI = store.UIHints{
@@ -161,7 +177,7 @@ func validateAddon[T any](account bool) func(ctx context.Context, obj, old *stor
 // Check parses an add-on's manifest and checks it against the rest of its
 // spec: the same id, a program that can be downloaded, permissions that
 // cover what it asks for and, for account add-ons, nothing only a server
-// admin can grant.
+// admin can grant and a catalog item it comes from.
 func Check(spec AddonSpec, account bool) (*hooks.AddonManifest, error) {
 	man, err := hooks.ParseAddonManifest([]byte(spec.Manifest))
 	if err != nil {
@@ -181,6 +197,11 @@ func Check(spec AddonSpec, account bool) (*hooks.AddonManifest, error) {
 		}
 		if spec.Approved.Override || slices.Contains(spec.Approved.Hooks, hooks.System) {
 			return nil, ErrTenancy.New("addon", man.Name, "reason", "system hooks and core.override are only for add-ons a server admin installs")
+		}
+		// The catalog's signed index says what the add-on is; the runtime's
+		// hooks check it against the catalog when it is installed.
+		if spec.Catalog == "" || spec.Item == "" {
+			return nil, ErrTenancy.New("addon", man.Name, "reason", "an account's add-ons are installed from a catalog, which names them by catalog and item")
 		}
 	}
 	if missing := Missing(man.Permissions, spec.Approved); missing != "" {

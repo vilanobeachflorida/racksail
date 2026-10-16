@@ -90,25 +90,52 @@ type release struct {
 	binary []byte
 }
 
-// github serves releases, their manifests and Sigstore's trusted root.
+// The tests' own Sigstore signs the releases they publish, and the agent
+// trusts its root as it trusts Sigstore's.
+var (
+	testSigstore = sigstoretest.New()
+	testRootJSON = testSigstore.TrustedRoot()
+	testRoot     = func() string { sum := sha256.Sum256(testRootJSON); return hex.EncodeToString(sum[:]) }()
+)
+
+func init() { TrustRoot(testRoot) }
+
+// github serves releases, their manifests and Sigstore's trusted root, to
+// the panel over HTTP and to the agents of the servers attached to it as
+// their simulated downloads.
 type github struct {
-	t       *testing.T
-	srv     *httptest.Server
-	sig     *sigstoretest.Sigstore
-	root    []byte
-	mu      sync.Mutex
-	files   map[string][]byte
-	tags    []string
-	fetched []string
+	t        *testing.T
+	srv      *httptest.Server
+	sig      *sigstoretest.Sigstore
+	root     []byte
+	mu       sync.Mutex
+	files    map[string][]byte
+	tags     []string
+	fetched  []string
+	machines []*sim.Machine
+}
+
+// attach lets a simulated server's agent download what GitHub serves.
+func (g *github) attach(m *sim.Machine) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.machines = append(g.machines, m)
+	m.SetDownload(g.srv.URL+"/tuf/targets/"+testRoot+".trusted_root.json", g.root)
+	for p, data := range g.files {
+		m.SetDownload(g.srv.URL+p, data)
+	}
+}
+
+// put serves data at a path. The caller holds g.mu.
+func (g *github) put(p string, data []byte) {
+	g.files[p] = data
+	for _, m := range g.machines {
+		m.SetDownload(g.srv.URL+p, data)
+	}
 }
 
 func newGitHub(t *testing.T, releases ...release) *github {
-	g := &github{t: t, sig: sigstoretest.New(), files: map[string][]byte{}}
-	g.root = g.sig.TrustedRoot()
-	sum := sha256.Sum256(g.root)
-	old := pinnedRoot
-	pinnedRoot = hex.EncodeToString(sum[:])
-	t.Cleanup(func() { pinnedRoot = old })
+	g := &github{t: t, sig: testSigstore, root: testRootJSON, files: map[string][]byte{}}
 	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
 		defer g.mu.Unlock()
@@ -121,7 +148,7 @@ func newGitHub(t *testing.T, releases ...release) *github {
 			}
 			list = append(list, map[string]any{"tag_name": "v9.9.9", "draft": true})
 			json.NewEncoder(w).Encode(list)
-		case r.URL.Path == "/tuf/targets/"+pinnedRoot+".trusted_root.json":
+		case r.URL.Path == "/tuf/targets/"+testRoot+".trusted_root.json":
 			w.Write(g.root)
 		default:
 			data, ok := g.files[r.URL.Path]
@@ -133,9 +160,6 @@ func newGitHub(t *testing.T, releases ...release) *github {
 		}
 	}))
 	t.Cleanup(g.srv.Close)
-	old2 := releaseClient
-	releaseClient = g.srv.Client()
-	t.Cleanup(func() { releaseClient = old2 })
 	for _, r := range releases {
 		g.publish(r.tag, r.binary)
 	}
@@ -156,18 +180,18 @@ func (g *github) publish(tag string, binary []byte) {
 	for _, arch := range []string{"amd64", "arm64"} {
 		name := "racksail-linux-" + arch
 		sum := sha256.Sum256(binary)
-		g.files[base+name] = binary
-		g.files[base+name+BundleSuffix] = g.sig.Sign(binary, id.Subject, id.Issuer, sigstoretest.Options{})
+		g.put(base+name, binary)
+		g.put(base+name+BundleSuffix, g.sig.Sign(binary, id.Subject, id.Issuer, sigstoretest.Options{}))
 		rel.Assets = append(rel.Assets, Asset{Name: name, URL: g.srv.URL + base + name, Size: int64(len(binary)), SHA256: hex.EncodeToString(sum[:]), Bundle: g.srv.URL + base + name + BundleSuffix})
 	}
 	manifest, _ := json.Marshal(rel)
-	g.files[base+ManifestFile] = manifest
-	g.files[base+ManifestFile+BundleSuffix] = g.sig.Sign(manifest, id.Subject, id.Issuer, sigstoretest.Options{})
+	g.put(base+ManifestFile, manifest)
+	g.put(base+ManifestFile+BundleSuffix, g.sig.Sign(manifest, id.Subject, id.Issuer, sigstoretest.Options{}))
 	g.tags = append(g.tags, tag)
 }
 
 func (g *github) client(mirrors []string) *Client {
-	return &Client{HTTP: g.srv.Client(), API: g.srv.URL + "/api", Downloads: g.srv.URL + "/dl", TUF: g.srv.URL + "/tuf", Mirrors: mirrors}
+	return &Client{HTTP: g.srv.Client(), API: g.srv.URL + "/api", Downloads: g.srv.URL + "/dl", TUF: g.srv.URL + "/tuf", Mirrors: mirrors, Root: testRoot}
 }
 
 // server is a panel and the simulated server it updates.
@@ -195,6 +219,7 @@ func newServer(t *testing.T, g *github, version string, configure func(*Options)
 	log := slog.New(slog.DiscardHandler)
 	s := &server{machine: sim.New(sim.Options{}), state: t.TempDir(), hooks: hooks.NewRegistry(),
 		admin: &auth.Actor{Type: auth.ActorUser, ID: store.NewID("user"), Source: auth.SourceUI, Grants: []auth.Grant{{Role: auth.RoleAdmin, Scope: store.ServerScope()}}}}
+	g.attach(s.machine)
 	files := s.machine.Backend().Files
 	for _, dir := range []string{"/usr/local/bin", "/etc/apt/sources.list.d", "/etc/apt/preferences.d"} {
 		if err := mkdirAll(ctx, files, dir); err != nil {
@@ -516,7 +541,7 @@ func TestInstallRefusals(t *testing.T) {
 	// What a mirror or a man in the middle serves must be what was signed.
 	g.mu.Lock()
 	good := g.files["/dl/v1.3.0/racksail-linux-amd64"]
-	g.files["/dl/v1.3.0/racksail-linux-amd64"] = []byte("racksail evil")
+	g.put("/dl/v1.3.0/racksail-linux-amd64", []byte("racksail evil"))
 	g.mu.Unlock()
 	if _, err := InstallRelease.Call(ctx, s.agent, in, agent.CallOptions{}); err == nil || !strings.Contains(err.Error(), "isn't the file the release lists") {
 		t.Errorf("a tampered binary is refused: %v", err)
@@ -531,8 +556,8 @@ func TestInstallRefusals(t *testing.T) {
 	other := sigstoretest.New()
 	id, _ := Identity("v1.3.0")
 	g.mu.Lock()
-	g.files["/dl/v1.3.0/racksail-linux-amd64"] = evil
-	g.files["/dl/v1.3.0/racksail-linux-amd64"+BundleSuffix] = other.Sign(evil, id.Subject, id.Issuer, sigstoretest.Options{})
+	g.put("/dl/v1.3.0/racksail-linux-amd64", evil)
+	g.put("/dl/v1.3.0/racksail-linux-amd64"+BundleSuffix, other.Sign(evil, id.Subject, id.Issuer, sigstoretest.Options{}))
 	g.mu.Unlock()
 	forged := in
 	forged.SHA256, forged.Size = hex.EncodeToString(sum[:]), int64(len(evil))
@@ -540,7 +565,7 @@ func TestInstallRefusals(t *testing.T) {
 		t.Errorf("a binary signed elsewhere is refused: %v", err)
 	}
 	g.mu.Lock()
-	g.files["/dl/v1.3.0/racksail-linux-amd64"] = good
+	g.put("/dl/v1.3.0/racksail-linux-amd64", good)
 	g.mu.Unlock()
 	// Signed by the workflow, but for another tag.
 	wrongTag := in
@@ -689,7 +714,7 @@ func TestMirrorsComeFirst(t *testing.T) {
 		// The mirror serves what GitHub serves, under the same names.
 		g.mu.Lock()
 		defer g.mu.Unlock()
-		if p, ok := strings.CutPrefix(r.URL.Path, "/m/sigstore/"); ok && p == pinnedRoot+".trusted_root.json" {
+		if p, ok := strings.CutPrefix(r.URL.Path, "/m/sigstore/"); ok && p == testRoot+".trusted_root.json" {
 			w.Write(g.root)
 			return
 		}

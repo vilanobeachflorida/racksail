@@ -30,7 +30,7 @@ type Manifest struct {
 	Description  string       `yaml:"description" json:"description"`
 	Version      string       `yaml:"version" json:"version"`
 	License      string       `yaml:"license" json:"license"`
-	Category     Category     `yaml:"category" json:"category"`
+	Category     Category     `yaml:"category" json:"category" enum:"core,hosting,apps,storage,operations,home,assistant"`
 	Required     bool         `yaml:"required,omitempty" json:"required,omitempty"`
 	Dependencies Dependencies `yaml:"dependencies" json:"dependencies"`
 	Profiles     []Profile    `yaml:"profiles" json:"profiles"`

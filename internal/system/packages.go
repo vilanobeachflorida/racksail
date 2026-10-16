@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"path"
 	"regexp"
@@ -45,6 +46,26 @@ type Packages interface {
 	// checksum and unpacks it into a new versioned directory. An existing
 	// directory is left alone, since versioned directories never change.
 	InstallArchive(ctx context.Context, a Archive) error
+	// Fetch downloads a file for an operation that checks what it gets
+	// itself, such as a Racksail release against its signature. The URL
+	// passes CheckFetchURL. The caller closes what it returns.
+	Fetch(ctx context.Context, url string) (io.ReadCloser, error)
+}
+
+// CheckFetchURL accepts what Fetch downloads from: https URLs, and plain
+// http ones on the server itself, as a mirror there serves.
+func CheckFetchURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("%q isn't a URL: %w", raw, ErrInvalid)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if ip := net.ParseIP(u.Hostname()); u.Scheme == "http" && (u.Hostname() == "localhost" || (ip != nil && ip.IsLoopback())) {
+		return nil
+	}
+	return fmt.Errorf("%s isn't an https URL: %w", raw, ErrInvalid)
 }
 
 // Package is a Debian package version.

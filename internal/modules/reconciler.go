@@ -23,7 +23,8 @@ import (
 // their ports, keeping their data, and turning the module on again starts
 // them. Removing a module uninstalls what its manifest names exactly; a
 // planner also uninstalls what the manifest names with patterns, such as
-// the PHP versions the web module installed.
+// the PHP versions the web module installed. Either way, what another
+// module still uses, which the request's Shared says, stays.
 type TransitionPlanner interface {
 	PlanTransition(ctx context.Context, req TransitionRequest) (reconcile.Plan, error)
 }
@@ -39,6 +40,9 @@ type TransitionRequest struct {
 	KeepData bool
 	// Usage counts the resources that use the module.
 	Usage Usage
+	// Shared is what other modules still use of what this one names,
+	// which turning it off or removing it leaves alone.
+	Shared Shared
 	// Read gives the planned state of other resources, as for reconcilers.
 	Read  store.Reader
 	Facts system.MachineFacts
@@ -107,7 +111,7 @@ func (r moduleReconciler) Plan(ctx context.Context, obj *store.Object[ModuleSpec
 		if current.IsOn() {
 			return reconcile.Plan{}, nil
 		}
-		plan := reconcile.Plan{Effects: m.turnOnEffects(ctx, man)}
+		plan := reconcile.Plan{Effects: turnOnEffects(man, obj.Status)}
 		usage, err := m.usage(ctx, req.Read, man.ID)
 		if err != nil {
 			return reconcile.Plan{}, err
@@ -139,15 +143,21 @@ func (r moduleReconciler) Plan(ctx context.Context, obj *store.Object[ModuleSpec
 	if err != nil {
 		return reconcile.Plan{}, err
 	}
+	// What other modules still use stays: it isn't stopped, closed or
+	// uninstalled with this one.
+	shared, err := m.shared(ctx, req.Read, man.ID)
+	if err != nil {
+		return reconcile.Plan{}, err
+	}
 	var plan reconcile.Plan
 	tp, planner := mod.(TransitionPlanner)
 	if current.IsOn() {
-		plan.Effects = m.turnOffEffects(man, current)
+		plan.Effects = m.turnOffEffects(man, current, shared)
 		if usage.Resources > 0 {
 			if !planner {
 				return reconcile.Plan{}, ErrHasResources.New("module", man.Name, "count", usage.Resources)
 			}
-			extra, err := tp.PlanTransition(ctx, TransitionRequest{Module: man, From: current, To: StateOff, Usage: usage, Read: req.Read, Facts: req.Facts})
+			extra, err := tp.PlanTransition(ctx, TransitionRequest{Module: man, From: current, To: StateOff, Usage: usage, Shared: shared, Read: req.Read, Facts: req.Facts})
 			if err != nil {
 				return reconcile.Plan{}, err
 			}
@@ -155,10 +165,10 @@ func (r moduleReconciler) Plan(ctx context.Context, obj *store.Object[ModuleSpec
 		}
 	}
 	if removing {
-		plan = merge(plan, UninstallPlan(man))
+		plan = merge(plan, UninstallPlan(man, shared))
 		if planner {
 			extra, err := tp.PlanTransition(ctx, TransitionRequest{
-				Module: man, From: current, To: StateOff, Remove: true, KeepData: usage.Resources > 0, Usage: usage, Read: req.Read, Facts: req.Facts,
+				Module: man, From: current, To: StateOff, Remove: true, KeepData: usage.Resources > 0, Usage: usage, Shared: shared, Read: req.Read, Facts: req.Facts,
 			})
 			if err != nil {
 				return reconcile.Plan{}, err
@@ -562,12 +572,16 @@ func RuntimeDir(upstream, version string) string {
 	return dir
 }
 
+// isPattern reports whether a package name in a manifest is a pattern,
+// such as php*-fpm.
+func isPattern(name string) bool { return strings.ContainsAny(name, "*?[") }
+
 // exactPackages lists the packages an upstream entry names without
 // patterns.
 func exactPackages(u Upstream) []string {
 	var out []string
 	for _, p := range u.Source.Packages {
-		if !strings.ContainsAny(p, "*?[") {
+		if !isPattern(p) {
 			out = append(out, p)
 		}
 	}
@@ -576,22 +590,32 @@ func exactPackages(u Upstream) []string {
 
 // UninstallPlan is what removing a module uninstalls on its own: the
 // Debian packages its manifest names exactly, the vendor repositories it
-// added and the runtime directories of the archives it unpacked. Every step
-// does nothing for software that isn't there.
-func UninstallPlan(man *Manifest) reconcile.Plan {
+// added and the runtime directories of the archives it unpacked, except
+// what shared says other modules still use, which the plan's effects list
+// as kept. Every step does nothing for software that isn't there.
+func UninstallPlan(man *Manifest, shared Shared) reconcile.Plan {
 	var plan reconcile.Plan
 	for _, u := range man.Upstream {
 		switch u.Source.Type {
-		case "debian":
-			if names := exactPackages(u); len(names) > 0 {
+		case "debian", "apt-repository":
+			names, keep := sharedPackages(u, shared)
+			plan.Effects = append(plan.Effects, keep...)
+			if len(names) > 0 {
 				plan.Steps = append(plan.Steps, agent.RemovePackages.Titled("Uninstall "+u.Name, agent.RemovePackagesInput{Names: names, Purge: true}))
 			}
-		case "apt-repository":
-			if names := exactPackages(u); len(names) > 0 {
-				plan.Steps = append(plan.Steps, agent.RemovePackages.Titled("Uninstall "+u.Name, agent.RemovePackagesInput{Names: names, Purge: true}))
+			if u.Source.Type != "apt-repository" {
+				continue
+			}
+			if by, ok := shared.Source(u.ID); ok {
+				plan.Effects = append(plan.Effects, kept(system.EffectPackage, "the "+u.Name+" package repository", by))
+				continue
 			}
 			plan.Steps = append(plan.Steps, agent.RemoveAptSource.Titled("Remove the "+u.Name+" package repository", agent.SourceInput{Name: u.ID}))
 		case "vendor-archive", "racksail-build":
+			if by, ok := shared.Runtime(u.ID); ok {
+				plan.Effects = append(plan.Effects, kept(system.EffectFile, RuntimeDir(u.ID, ""), by))
+				continue
+			}
 			plan.Steps = append(plan.Steps, agent.RemovePath.Titled("Remove "+u.Name, agent.RemovePathInput{Path: RuntimeDir(u.ID, ""), Recursive: true}))
 		}
 	}

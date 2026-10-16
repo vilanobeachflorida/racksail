@@ -27,6 +27,15 @@ Every install also creates an installation, `core.installation` for what goes in
 - the inputs given, without passwords and secrets
 - the resources it created, which also carry the `racksail.dev/installation` label
 
+The panel works from that record: it checks the downloads its recipe pins and runs its health checks. So an installation is only ever what installing, upgrading and uninstalling build, however a change reaches the panel, through the API, an automation, an add-on or the assistant. A change to one is refused when it says anything its source doesn't:
+
+- a recipe other than the one its catalog's signed index lists, from the index the panel checked last, or the one its module ships
+- another catalog, index, item, version or license than the recipe's, or a claim to be Racksail's own that isn't
+- inputs the recipe doesn't ask for, values it wouldn't take, or a password
+- resources the recipe doesn't create, or that belong to another account
+
+Undoing an upgrade or an uninstall puts back what the installation was before, which was checked when it was written. Health checks only ever read the installation's own resources: one listed in another account fails its check without saying anything about it.
+
 ## Health checks
 
 A recipe's health checks confirm that what it installed works: an `http` check of the app's address, a `unit` check of its service, or a `resource` check that waits for what the recipe created to be ready. An install or an upgrade ends with them, as the installation's **Check health** action, which gives each check its whole timeout to pass; a check that doesn't pass fails the change set, so it can be undone. After that they run every five minutes, and the installation's status says how each went.

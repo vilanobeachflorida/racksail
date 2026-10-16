@@ -2,12 +2,12 @@ package modules
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/store"
@@ -129,28 +129,6 @@ type Software struct {
 	Installed     bool  `json:"installed"`
 }
 
-// softwareFresh is how long what FirstUse found stands for the previews
-// that read it.
-const softwareFresh = 10 * time.Minute
-
-// found is what FirstUse found of a module's software, and when.
-type found struct {
-	at       time.Time
-	software []Software
-}
-
-// knownSoftware returns what FirstUse found of a module's software, while
-// it is fresh. Plans read it rather than ask the agent themselves.
-func (m *Manager) knownSoftware(id string) ([]Software, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	f, ok := m.software[id]
-	if !ok || m.opts.Now().Sub(f.at) > softwareFresh {
-		return nil, false
-	}
-	return f.software, true
-}
-
 // manifestSoftware is a module's software as its manifest estimates it,
 // for when the server wasn't asked.
 func manifestSoftware(man *Manifest) []Software {
@@ -160,6 +138,34 @@ func manifestSoftware(man *Manifest) []Software {
 			Upstream: u, DownloadBytes: int64(u.DownloadMB) << 20, DiskBytes: int64(u.DiskMB) << 20,
 			Installed: u.Source.Type == "embedded" || u.Source.Type == "present",
 		})
+	}
+	return out
+}
+
+// FoundSoftware is what the server last said of one of a module's
+// software: whether it is there, and what installing it brings in.
+type FoundSoftware struct {
+	// ID is the software's id in the manifest.
+	ID            string            `json:"id" doc:"The software's id in the module's manifest"`
+	Installed     bool              `json:"installed"`
+	Packages      []SoftwarePackage `json:"packages,omitempty"`
+	DownloadBytes int64             `json:"downloadBytes,omitempty"`
+	DiskBytes     int64             `json:"diskBytes,omitempty"`
+}
+
+// knownSoftware is a module's software as its status says the server last
+// found it, and as the manifest estimates what the server wasn't asked
+// about. A plan reads it from the module it plans, so a preview and the
+// apply that follows it plan the same, however long apart.
+func knownSoftware(man *Manifest, st ModuleStatus) []Software {
+	out := manifestSoftware(man)
+	for i, sw := range out {
+		j := slices.IndexFunc(st.Software, func(f FoundSoftware) bool { return f.ID == sw.ID })
+		if j < 0 {
+			continue
+		}
+		f := st.Software[j]
+		out[i].Installed, out[i].Packages, out[i].DownloadBytes, out[i].DiskBytes = f.Installed, f.Packages, f.DownloadBytes, f.DiskBytes
 	}
 	return out
 }
@@ -177,16 +183,48 @@ type SoftwarePackage struct {
 
 // FirstUse describes what a module installs when something first needs
 // it, asking the agent about the packages it names exactly. What it finds
-// is what previews of turning the module on list for a while after.
+// is kept in the module's status, where previews of turning the module on
+// read it, until it is asked again.
 func (m *Manager) FirstUse(ctx context.Context, id string) ([]Software, error) {
 	out, err := m.firstUse(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	m.mu.Lock()
-	m.software[id] = found{at: m.opts.Now(), software: out}
-	m.mu.Unlock()
+	if err := m.recordSoftware(ctx, id, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// recordSoftware keeps what the server said of a module's software in the
+// module's status.
+func (m *Manager) recordSoftware(ctx context.Context, id string, software []Software) error {
+	rid, ok := m.Resource(id)
+	st := m.opts.Services.Store
+	if !ok || st == nil {
+		return nil
+	}
+	found := make([]FoundSoftware, 0, len(software))
+	for _, sw := range software {
+		found = append(found, FoundSoftware{ID: sw.ID, Installed: sw.Installed, Packages: sw.Packages, DownloadBytes: sw.DownloadBytes, DiskBytes: sw.DiskBytes})
+	}
+	err := st.Write(ctx, store.WriteMeta{Actor: "system:modules"}, func(tx store.Tx) error {
+		obj, err := Kind.Get(ctx, tx, rid)
+		if err != nil {
+			return err
+		}
+		status := obj.Status
+		status.Software = found
+		raw, err := json.Marshal(status)
+		if err != nil {
+			return err
+		}
+		return tx.UpdateStatus(ctx, rid, raw)
+	})
+	if store.ErrNotFound.Is(err) {
+		return nil
+	}
+	return err
 }
 
 func (m *Manager) firstUse(ctx context.Context, id string) ([]Software, error) {
@@ -279,20 +317,16 @@ func sourceOf(u Upstream) string {
 // module starting in the panel, with the memory it takes while idle, and
 // what it does once something uses it: the software it downloads and
 // installs then, from where and how large, the services it runs, the ports
-// it opens, and the memory and disk it takes.
-func (m *Manager) turnOnEffects(ctx context.Context, man *Manifest) []system.Effect {
+// it opens, and the memory and disk it takes. What the software takes is
+// what the server said when the change was requested, as the module's
+// status keeps it, and the manifest's estimates otherwise.
+func turnOnEffects(man *Manifest, st ModuleStatus) []system.Effect {
 	effects := []system.Effect{{
 		Type: system.EffectProcess, Action: "start", Target: "module " + man.ID, Detail: "in the panel",
 		MemoryBytes: int64(man.Cost.IdleMemoryMB) << 20,
 	}}
-	// What the server said its packages take, when it was asked as the
-	// change was requested, and the manifest's estimates otherwise.
-	software, ok := m.knownSoftware(man.ID)
-	if !ok {
-		software = manifestSoftware(man)
-	}
 	var disk int64
-	for _, sw := range software {
+	for _, sw := range knownSoftware(man, st) {
 		if sw.Installed {
 			continue
 		}
@@ -338,17 +372,26 @@ func (m *Manager) turnOnEffects(ctx context.Context, man *Manifest) []system.Eff
 
 // turnOffEffects are what turning a module off stops: the module in the
 // panel and, when something uses it, the services it runs and the ports it
-// opened, whose resources it keeps.
-func (m *Manager) turnOffEffects(man *Manifest, current State) []system.Effect {
+// opened, whose resources it keeps. Services and ports another module
+// still uses stay.
+func (m *Manager) turnOffEffects(man *Manifest, current State, shared Shared) []system.Effect {
 	effects := []system.Effect{{Type: system.EffectProcess, Action: "stop", Target: "module " + man.ID, Detail: "in the panel"}}
 	if current != StateActive {
 		return effects
 	}
 	for _, s := range man.Services {
+		if by, ok := shared.Unit(s.Unit); ok {
+			effects = append(effects, kept(system.EffectService, s.Unit, by))
+			continue
+		}
 		effects = append(effects, system.Effect{Type: system.EffectService, Action: "stop", Target: s.Unit, Detail: s.Description})
 	}
 	for _, p := range man.Ports {
-		effects = append(effects, system.Effect{Type: system.EffectPort, Action: "close", Target: fmt.Sprintf("%s/%d", p.Protocol, p.Port), Detail: p.Description})
+		if by, ok := shared.Port(portName(p)); ok {
+			effects = append(effects, kept(system.EffectPort, portName(p), by))
+			continue
+		}
+		effects = append(effects, system.Effect{Type: system.EffectPort, Action: "close", Target: portName(p), Detail: p.Description})
 	}
 	return effects
 }

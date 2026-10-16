@@ -622,6 +622,63 @@ func (c *Catalogs) Recipe(ctx context.Context, catalog store.ID, item string) (*
 	return r, data, it, nil
 }
 
+// AddonManifestFile is the manifest an add-on item holds next to its
+// recipe.
+const AddonManifestFile = "addon.yaml"
+
+// ErrNotAddon refuses an item that isn't an add-on where one is wanted.
+var ErrNotAddon = i18n.Define("recipes.not_addon", http.StatusUnprocessableEntity, "{item} in the {catalog} catalog isn't an add-on.")
+
+// AddonItem is an add-on a catalog offers: the item, its recipe, whose
+// downloads pin the add-on's program, and its manifest, all checked against
+// the catalog's signed index.
+type AddonItem struct {
+	ListedItem
+	Recipe   *Recipe
+	Manifest []byte
+}
+
+// AddonItem returns an add-on item of a catalog, named by the catalog's ID
+// or by its name. Its files come from the cache when they were fetched
+// before.
+func (c *Catalogs) AddonItem(ctx context.Context, catalog, item string) (*AddonItem, error) {
+	id, err := c.lookup(ctx, catalog)
+	if err != nil {
+		return nil, err
+	}
+	r, _, it, err := c.Recipe(ctx, id, item)
+	if err != nil {
+		return nil, err
+	}
+	if it.Kind != KindAddon {
+		return nil, ErrNotAddon.New("item", item, "catalog", it.CatalogTitle)
+	}
+	manifest, err := c.File(ctx, id, item, path.Join(path.Dir(it.Path), AddonManifestFile))
+	if err != nil {
+		return nil, err
+	}
+	return &AddonItem{ListedItem: *it, Recipe: r, Manifest: manifest}, nil
+}
+
+// lookup finds a catalog by its ID or its name.
+func (c *Catalogs) lookup(ctx context.Context, catalog string) (store.ID, error) {
+	if id := store.ID(catalog); id.Valid() && id.Prefix() == CatalogKind.Info().Prefix {
+		obj, err := CatalogKind.Get(ctx, c.opts.Store, id)
+		if err != nil {
+			return "", err
+		}
+		return obj.ID, nil
+	}
+	list, _, err := CatalogKind.List(ctx, c.opts.Store, store.Query{Index: map[string]string{"name": catalog}, Limit: 1})
+	if err != nil {
+		return "", err
+	}
+	if len(list) == 0 || list[0].Deleted() {
+		return "", i18n.ErrUnknownName.New("what", "catalog", "name", catalog)
+	}
+	return list[0].ID, nil
+}
+
 // Boot adds the official catalog the first time the panel starts, when the
 // panel has keys for it.
 func (c *Catalogs) Boot(ctx context.Context, submit func(ctx context.Context, req changeset.Request) (*changeset.ChangeSet, error)) error {

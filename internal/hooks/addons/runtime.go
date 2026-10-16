@@ -20,6 +20,7 @@ import (
 
 	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/changeset"
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
 	"github.com/vilanobeachflorida/racksail/internal/i18n"
@@ -67,8 +68,14 @@ type Options struct {
 	// Enqueue asks for a resource to be reconciled again, as the reconcile
 	// queue's Enqueue does.
 	Enqueue func(id store.ID, reason string)
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Catalogs are what add-ons are checked against when they name the
+	// catalog they come from, as every account's add-on does.
+	Catalogs CatalogItems
+	// Accounts returns where accounts' add-ons run, once the module that
+	// keeps accounts says; until it does, they don't run.
+	Accounts func() Accounts
+	Log      *slog.Logger
+	Now      func() time.Time
 }
 
 // Runtime runs installed add-ons: it reconciles their resources, attaches
@@ -178,8 +185,10 @@ func (a addonReconciler) Plan(ctx context.Context, obj *store.Object[AddonSpec, 
 	if !obj.Spec.Enabled || a.r.safeModeOn() {
 		return reconcile.Plan{Steps: []agent.Step{RemoveAddonService.Titled("Stop the add-on", AddonInput{ID: inst})}}, nil
 	}
-	mem, cpu := limits(obj.Spec.Approved.Resources, man.Permissions.Resources)
-	svc := ServiceSpec{ID: inst, Version: man.Version, MemoryMB: mem, CPUPercent: cpu, Hosts: obj.Status.Hosts}
+	svc, err := a.r.serviceSpec(ctx, req.Read, obj, inst, man, obj.Status.Hosts)
+	if err != nil {
+		return reconcile.Plan{}, err
+	}
 	archive := system.Archive{
 		URL: obj.Spec.Package.URL, SHA256: obj.Spec.Package.SHA256, Size: obj.Spec.Package.Size, Format: obj.Spec.Package.Format,
 		StripComponents: obj.Spec.Package.StripComponents, Dest: AddonDir(inst, man.Version),
@@ -191,7 +200,7 @@ func (a addonReconciler) Plan(ctx context.Context, obj *store.Object[AddonSpec, 
 			agent.EnableUnits.Titled("Start the add-on with the server", agent.UnitsInput{Names: []string{SocketUnit(inst)}}),
 			agent.StartUnit.Titled("Open the add-on's socket", agent.UnitInput{Name: SocketUnit(inst)}),
 		},
-		Effects: []system.Effect{{Type: system.EffectProcess, Action: "run", Target: Service(inst), Detail: man.Name + " " + man.Version, MemoryBytes: int64(mem) << 20}},
+		Effects: []system.Effect{{Type: system.EffectProcess, Action: "run", Target: Service(inst), Detail: man.Name + " " + man.Version, MemoryBytes: int64(svc.MemoryMB) << 20}},
 		Checks:  []reconcile.HealthCheck{{Name: "socket", Type: reconcile.CheckUnit, Target: SocketUnit(inst), Timeout: 10 * time.Second}},
 	}, nil
 }
@@ -213,6 +222,7 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 	if !obj.Spec.Enabled || r.safeModeOn() {
 		r.detach(ctx, inst, true)
 		st.State, st.Health, st.Hooks = StateStopped, "", 0
+		st.Slice, st.MemoryMB, st.CPUPercent = "", 0, 0
 		if obj.Spec.Enabled {
 			st.State = StateSafeMode
 			st.Message = "Safe mode is on, so the add-on doesn't run."
@@ -238,15 +248,27 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 		st.Phase, st.Message, st.Code = store.PhaseFailed, e.Message, e.Code
 		return st, err
 	}
+	svc, err := r.serviceSpec(ctx, r.opts.Store, obj, inst, man, hosts)
+	if err != nil {
+		st.State = StateFailed
+		return st, err
+	}
 	restart := false
 	if !sameHosts(hosts, st.Hosts) {
-		mem, cpu := limits(obj.Spec.Approved.Resources, man.Permissions.Resources)
-		svc := ServiceSpec{ID: inst, Version: man.Version, MemoryMB: mem, CPUPercent: cpu, Hosts: hosts}
 		if _, err := ex.Run(ctx, []agent.Step{EnsureAddonService.Titled("Let the add-on reach its hosts", svc)}); err != nil {
 			st.State = StateFailed
 			return st, err
 		}
 		st.Hosts, restart = hosts, true
+	}
+	// A running service moves to another slice, or takes new limits, when
+	// it starts again.
+	slice := svc.Slice
+	if slice == "" {
+		slice = system.PlatformSlice
+	}
+	if st.Slice != slice || st.MemoryMB != svc.MemoryMB || st.CPUPercent != svc.CPUPercent {
+		st.Slice, st.MemoryMB, st.CPUPercent, restart = slice, svc.MemoryMB, svc.CPUPercent, true
 	}
 	changed, err := r.ensureToken(ctx, inst, st.Version != man.Version)
 	if err != nil {
@@ -813,10 +835,28 @@ func (r *Runtime) record(ctx context.Context, actor *auth.Actor, action, summary
 }
 
 // Hooks are the runtime's own hooks: an add-on that changes something
-// through the API may only change the fields its permissions allow.
+// through the API may only change the fields its permissions allow; only a
+// server admin approves what only a server admin may grant; and an add-on
+// from a catalog, as every account's add-on is, must be what the catalog
+// offers.
 func (r *Runtime) Hooks() []hooks.Registration {
-	return []hooks.Registration{{
-		Point: "*.*.*.validate", Kind: hooks.Validate, Owner: hooks.OwnerCore + ":addons", Security: true, Priority: -900,
+	const owner = hooks.OwnerCore + ":addons"
+	var out []hooks.Registration
+	for _, op := range []string{"create", "update"} {
+		out = append(out, hooks.Registration{
+			Point: hooks.KindPoint(Addon.Name(), op, changeset.StageValidate), Kind: hooks.Validate, Owner: owner, Security: true, Priority: -1000,
+			OnValidate: r.checkApproval,
+		})
+		for _, k := range Kinds() {
+			// Checking against a catalog may fetch the item's files.
+			out = append(out, hooks.Registration{
+				Point: hooks.KindPoint(k.Name(), op, changeset.StageValidate), Kind: hooks.Validate, Owner: owner, Security: true, Priority: -1000,
+				Deadline: hooks.MaxDeadline, OnValidate: r.checkCatalog,
+			})
+		}
+	}
+	return append(out, hooks.Registration{
+		Point: "*.*.*.validate", Kind: hooks.Validate, Owner: owner, Security: true, Priority: -900,
 		OnValidate: func(ctx context.Context, c *hooks.Context) error {
 			if c.Actor == nil || c.Actor.Type != auth.ActorAddon || c.Change == nil {
 				return nil
@@ -834,7 +874,7 @@ func (r *Runtime) Hooks() []hooks.Registration {
 			}
 			return nil
 		},
-	}}
+	})
 }
 
 // instanceOf finds the instance of the add-on whose resource id acts.

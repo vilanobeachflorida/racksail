@@ -214,10 +214,9 @@ func TestTelegramChannel(t *testing.T) {
 	ctx := context.Background()
 	vault := newVault()
 	r := newReceiver(t, http.StatusOK, `{"ok":true}`)
-	defer func(api string) { telegramAPI = api }(telegramAPI)
-	telegramAPI = r.srv.URL
 	const token = "123456:AAH-abcdefghijklmnopqrstuvwxyz"
-	ch, err := New("telegram", settings(TelegramSettings{BotToken: secret(t, vault, "settings.bot-token", token), ChatID: "-1001234567890"}), Env{Secrets: vault, HTTP: http.DefaultClient})
+	env := Env{Secrets: vault, HTTP: http.DefaultClient, TelegramAPI: r.srv.URL}
+	ch, err := New("telegram", settings(TelegramSettings{BotToken: secret(t, vault, "settings.bot-token", token), ChatID: "-1001234567890"}), env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +234,7 @@ func TestTelegramChannel(t *testing.T) {
 	if body["chat_id"] != "-1001234567890" || body["parse_mode"] != "HTML" || !strings.Contains(body["text"].(string), "Disk &lt;sdb&gt; &amp; friends") {
 		t.Errorf("text is escaped for Telegram's HTML: %v", body)
 	}
-	bad, _ := New("telegram", settings(TelegramSettings{BotToken: secret(t, vault, "settings.bot-token.2", "../../evil"), ChatID: "42"}), Env{Secrets: vault, HTTP: http.DefaultClient})
+	bad, _ := New("telegram", settings(TelegramSettings{BotToken: secret(t, vault, "settings.bot-token.2", "../../evil"), ChatID: "42"}), env)
 	if err := bad.Send(ctx, alert); err == nil || len(r.requests()) != 1 {
 		t.Error("a token that could change where the request goes is refused before sending")
 	}

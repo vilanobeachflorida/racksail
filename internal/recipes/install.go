@@ -135,10 +135,14 @@ func installationInfo(name, prefix, plural string, scope store.ScopeLevel, title
 
 // InstallationKind is core.installation, for what is installed into an
 // account, such as an app; ServerInstallationKind is for what belongs to
-// the server, such as a runtime, a service or a model.
+// the server, such as a runtime, a service or a model. Their specs are
+// checked against the recipe they carry here, and against the catalog or
+// module it came from by the engine's hooks.
 var (
-	InstallationKind       = store.Define[InstallationSpec, InstallationStatus](installationInfo("core.installation", "inst", "installations", store.ScopeAccount, "Installed app"))
-	ServerInstallationKind = store.Define[InstallationSpec, InstallationStatus](installationInfo("core.server_installation", "sinst", "server-installations", store.ScopeServer, "Installed item"))
+	InstallationKind = store.Define[InstallationSpec, InstallationStatus](installationInfo("core.installation", "inst", "installations", store.ScopeAccount, "Installed app")).
+				WithValidator(validateInstallation)
+	ServerInstallationKind = store.Define[InstallationSpec, InstallationStatus](installationInfo("core.server_installation", "sinst", "server-installations", store.ScopeServer, "Installed item")).
+				WithValidator(validateInstallation)
 )
 
 func init() {
@@ -713,13 +717,18 @@ func checkTimeout(hc HealthCheck) time.Duration {
 }
 
 // resourceReady checks a resource check: a resource of the installation,
-// or all of them when the target is the recipe's id.
+// or all of them when the target is the recipe's id. Only resources where
+// the installation is, and of the kind it lists, count as its own; nothing
+// of another account is ever read for it.
 func resourceReady(ctx context.Context, rd store.Reader, inst *store.Object[InstallationSpec, InstallationStatus], target string) error {
 	for _, res := range inst.Spec.Resources {
 		if target != inst.Spec.Item && res.Name != target {
 			continue
 		}
 		r, err := rd.Get(ctx, res.ID)
+		if err == nil && (r.Scope != inst.Scope || r.Kind != res.Kind) {
+			return fmt.Errorf("%s isn't one of this installation's resources", res.Name)
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %s", res.Name, reasonOf(err))
 		}

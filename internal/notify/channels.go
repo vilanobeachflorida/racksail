@@ -526,8 +526,15 @@ func (s TelegramSettings) check() []i18n.FieldError {
 	return fields
 }
 
-// telegramAPI is where the Bot API is; tests point it elsewhere.
-var telegramAPI = "https://api.telegram.org"
+// TelegramAPI is Telegram's Bot API.
+const TelegramAPI = "https://api.telegram.org"
+
+func (env Env) telegramAPI() string {
+	if env.TelegramAPI != "" {
+		return strings.TrimSuffix(env.TelegramAPI, "/")
+	}
+	return TelegramAPI
+}
 
 var telegramToken = regexp.MustCompile(`^[0-9]{1,20}:[A-Za-z0-9_-]{20,}$`)
 
@@ -557,7 +564,7 @@ func (c *telegramChannel) Send(ctx context.Context, msg Message) error {
 		return errors.New("the bot token doesn't look like one @BotFather gives")
 	}
 	text := "<b>" + html.EscapeString(Subject(msg)) + "</b>\n\n" + html.EscapeString(truncate(Text(msg), 3800))
-	return c.env.send(ctx, http.MethodPost, telegramAPI+"/bot"+token+"/sendMessage", nil, map[string]any{
+	return c.env.send(ctx, http.MethodPost, c.env.telegramAPI()+"/bot"+token+"/sendMessage", nil, map[string]any{
 		"chat_id": c.settings.ChatID, "text": text, "parse_mode": "HTML",
 		"link_preview_options": map[string]bool{"is_disabled": true},
 	})

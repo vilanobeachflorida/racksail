@@ -63,6 +63,9 @@ type Env struct {
 	Theme func(ctx context.Context) (*theme.Package, error)
 	// BrandName signs messages.
 	BrandName string
+	// TelegramAPI is where Telegram's Bot API is; Telegram's own when
+	// empty.
+	TelegramAPI string
 }
 
 // Factory builds a channel from its saved settings.

@@ -21,6 +21,7 @@ import (
 	"github.com/vilanobeachflorida/racksail/internal/events"
 	"github.com/vilanobeachflorida/racksail/internal/events/webhook"
 	"github.com/vilanobeachflorida/racksail/internal/hooks"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
 	"github.com/vilanobeachflorida/racksail/internal/hooks/rules"
 	"github.com/vilanobeachflorida/racksail/internal/jobs"
 	"github.com/vilanobeachflorida/racksail/internal/modules"
@@ -191,7 +192,21 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 			return nil, err
 		}
 	}
-	addonRuntime, err := newAddonRuntime(ctx, cfg, db, st, hookReg, agentClient, timeline, runner, log)
+	catalogs, recipeEngine, err := newRecipes(cfg, st, kinds, reg, manager, agentClient, facts, log)
+	if err != nil {
+		return nil, err
+	}
+	svc.Catalogs, svc.Recipes = catalogs, recipeEngine
+	for _, r := range append(recipeEngine.Reconcilers(), catalogs.Reconciler()) {
+		if err := recs.Register(r); err != nil {
+			return nil, err
+		}
+	}
+	// Accounts' add-ons run where the module that keeps accounts says,
+	// once it has said.
+	var accounts addons.Accounts
+	addonRuntime, err := newAddonRuntime(ctx, cfg, db, st, hookReg, agentClient, timeline, runner, catalogs,
+		func() addons.Accounts { return accounts }, log)
 	if err != nil {
 		return nil, err
 	}
@@ -235,17 +250,7 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	if err := recs.Register(updater.Reconciler()); err != nil {
 		return nil, err
 	}
-	catalogs, recipeEngine, err := newRecipes(cfg, st, kinds, reg, manager, agentClient, facts, log)
-	if err != nil {
-		return nil, err
-	}
-	svc.Catalogs, svc.Recipes = catalogs, recipeEngine
-	for _, r := range append(recipeEngine.Reconcilers(), catalogs.Reconciler()) {
-		if err := recs.Register(r); err != nil {
-			return nil, err
-		}
-	}
-	for _, h := range slices.Concat(manager.Hooks(), addonRuntime.Hooks(), notifier.Hooks()) {
+	for _, h := range slices.Concat(manager.Hooks(), addonRuntime.Hooks(), notifier.Hooks(), recipeEngine.Hooks()) {
 		if err := hookReg.Register(h); err != nil {
 			return nil, err
 		}
@@ -266,6 +271,9 @@ func newCore(ctx context.Context, cfg config.Config, log *slog.Logger, agentClie
 	}
 	if owners != nil {
 		authorizer.SetOwnership(owners)
+	}
+	if accounts, err = reg.Accounts(svc); err != nil {
+		return nil, err
 	}
 	// Rules take part in changes from the start; a rule that can't be
 	// attached is reported in its status when it is next reconciled.

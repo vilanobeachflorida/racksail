@@ -42,6 +42,7 @@ import { saveJSON, useResourceUpdates } from "./live";
 
 type ModuleInfo = Schemas["ModuleInfo"];
 type ModuleState = ModuleInfo["state"];
+type ModuleCategory = ModuleInfo["manifest"]["category"];
 
 const stateStatus: Record<ModuleState, Status> = {
   off: "off",
@@ -58,6 +59,35 @@ const stateLabel = {
   stopping: m.modulesStateStopping,
   removing: m.modulesStateRemoving,
 } as const;
+
+/** Categories in the order the page lists them, with their headings. */
+const categories: readonly ModuleCategory[] = [
+  "core",
+  "hosting",
+  "apps",
+  "storage",
+  "operations",
+  "home",
+  "assistant",
+];
+
+const categoryLabel = {
+  core: m.modulesCategoryCore,
+  hosting: m.modulesCategoryHosting,
+  apps: m.modulesCategoryApps,
+  storage: m.modulesCategoryStorage,
+  operations: m.modulesCategoryOperations,
+  home: m.modulesCategoryHome,
+  assistant: m.modulesCategoryAssistant,
+} as const satisfies Record<ModuleCategory, unknown>;
+
+/**
+ * Whether a module can keep its resources when it goes off: it is off
+ * already, has none, or keeps them dormant while it is off.
+ */
+function keepsResources(info: ModuleInfo): boolean {
+  return info.state === "off" || (info.usage.resources ?? 0) === 0 || info.suspends === true;
+}
 
 /** Software a module brings along rather than installs: built in or already on the server. */
 const bundled = new Set(["embedded", "present"]);
@@ -129,7 +159,8 @@ function SoftwareList({ id }: { id: string }) {
 /**
  * Asks before removing a module: whether to keep its data, offering to
  * download its resources first when they'd be deleted, and its name
- * typed to confirm. Confirming previews the removal.
+ * typed to confirm. A module that can't keep its resources while it is
+ * off is removed with them. Confirming previews the removal.
  */
 function RemoveDialog({
   info,
@@ -145,7 +176,8 @@ function RemoveDialog({
   const intl = useIntl();
   const api = useApi();
   const id = useId();
-  const [keepData, setKeepData] = useState(true);
+  const canKeep = keepsResources(info);
+  const [keepData, setKeepData] = useState(canKeep);
   const [exporting, setExporting] = useState(false);
   const man = info.manifest;
   const resources = info.usage.resources ?? 0;
@@ -169,7 +201,7 @@ function RemoveDialog({
       open={open}
       onOpenChange={(next) => {
         if (!next) {
-          setKeepData(true);
+          setKeepData(canKeep);
         }
         onOpenChange(next);
       }}
@@ -185,10 +217,17 @@ function RemoveDialog({
         <Checkbox
           id={`${id}-keep`}
           checked={keepData}
+          disabled={!canKeep}
+          aria-describedby={canKeep ? undefined : `${id}-cant-keep`}
           onCheckedChange={(v) => setKeepData(v === true)}
         />
         <Label htmlFor={`${id}-keep`}>{intl.formatMessage(m.modulesKeepData)}</Label>
       </div>
+      {canKeep ? null : (
+        <p id={`${id}-cant-keep`} className="text-muted-foreground text-sm">
+          {intl.formatMessage(m.modulesRemoveCantKeep, { name: man.name, count: resources })}
+        </p>
+      )}
       {!keepData && info.exportable ? (
         <div className="flex flex-col gap-2 text-sm">
           <p>{intl.formatMessage(m.modulesRemoveDeletes, { count: resources })}</p>
@@ -226,6 +265,15 @@ function ModuleCard({
   const on = info.state === "on" || info.state === "active";
   const problems = info.hardwareProblems ?? [];
   const resources = info.usage.resources ?? 0;
+  // Turned off, it would lose its resources, so it can only be removed with them.
+  const stuck = on && !man.required && !keepsResources(info);
+  // A removed module's software is gone but for what other modules still
+  // use, so only its kept resources are left to remove.
+  const removable =
+    !man.required &&
+    (stuck ||
+      (info.state === "off" &&
+        (resources > 0 || (!info.removed && (info.installed ?? []).length > 0))));
   const mb = (n: number) => f.bytes(n * 1024 * 1024, { binary: true });
   const installs = (man.upstream ?? []).filter((u) => !bundled.has(u.source.type));
   return (
@@ -315,12 +363,18 @@ function ModuleCard({
             {info.error}
           </Alert>
         ) : null}
+        {stuck ? (
+          <p id={`${id}-stuck`} className="text-muted-foreground">
+            {intl.formatMessage(m.modulesCantTurnOff, { name: man.name, count: resources })}
+          </p>
+        ) : null}
       </CardContent>
       <CardFooter className="flex flex-wrap items-center gap-2">
         {on ? (
           <Button
             variant="outline"
-            disabled={busy || man.required || (resources > 0 && !info.suspends)}
+            disabled={busy || man.required || stuck}
+            aria-describedby={stuck ? `${id}-stuck` : undefined}
             onClick={onTurnOff}
           >
             {intl.formatMessage(m.modulesTurnOff)}
@@ -333,7 +387,7 @@ function ModuleCard({
             {intl.formatMessage(m.modulesTurnOn)}
           </Button>
         )}
-        {info.state === "off" && ((info.installed ?? []).length > 0 || resources > 0) ? (
+        {removable ? (
           <Button variant="destructive" disabled={busy || !info.resource} onClick={onRemove}>
             {intl.formatMessage(m.modulesRemove)}
           </Button>
@@ -373,13 +427,15 @@ export default function ModulesSettings() {
           .toLowerCase()
           .includes(q),
     );
-    const byCategory = new Map<string, ModuleInfo[]>();
+    const byCategory = new Map<ModuleCategory, ModuleInfo[]>();
     for (const info of found) {
       const list = byCategory.get(info.manifest.category) ?? [];
       list.push(info);
       byCategory.set(info.manifest.category, list);
     }
-    return [...byCategory.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return [...byCategory.entries()].sort(
+      ([a], [b]) => categories.indexOf(a) - categories.indexOf(b),
+    );
   }, [list.data, query]);
 
   // The module manager turns a module on with the modules it needs.
@@ -504,8 +560,8 @@ export default function ModulesSettings() {
             className="flex flex-col gap-3"
             aria-labelledby={`modules-${category}`}
           >
-            <h2 id={`modules-${category}`} className="font-semibold text-lg capitalize">
-              {category}
+            <h2 id={`modules-${category}`} className="font-semibold text-lg">
+              {intl.formatMessage(categoryLabel[category])}
             </h2>
             <div className="grid gap-4 md:grid-cols-2">
               {infos.map((info) => (

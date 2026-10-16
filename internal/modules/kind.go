@@ -61,6 +61,9 @@ type ModuleStatus struct {
 	// Uninstalled says the software of a removed module was uninstalled,
 	// so the resync doesn't uninstall it again.
 	Uninstalled bool `json:"uninstalled,omitempty" doc:"Whether the software of a removed module was uninstalled"`
+	// Software is what the server last said of the module's software, which
+	// previews of turning it on list.
+	Software []FoundSoftware `json:"software,omitempty" doc:"What the server last said of the module's software: whether it is there, and what installing it downloads and takes"`
 }
 
 // RemoveInput confirms removing a module.

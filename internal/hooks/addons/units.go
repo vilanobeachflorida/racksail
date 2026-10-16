@@ -60,6 +60,9 @@ var (
 	// Instances are an add-on's id, with part of the account's for
 	// account add-ons.
 	instancePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,79}$`)
+	// Account slices are named by the account's slug, lowercase letters and
+	// digits starting with a letter.
+	slicePattern    = regexp.MustCompile(`^racksail-accounts-[a-z][a-z0-9]{2,15}\.slice$`)
 	versionPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$`)
 	hostNamePattern = regexp.MustCompile(`^(?i)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 )
@@ -82,6 +85,10 @@ type ServiceSpec struct {
 	// at all; with some, it reaches only their addresses, and their names
 	// resolve to those addresses only, from a hosts file of its own.
 	Hosts []Host `json:"hosts,omitempty" doc:"The hosts the add-on may reach, with their addresses; none means no network"`
+	// Slice is the account slice an account's add-on runs in, with the
+	// account's other services and within its plan's limits. Add-ons a
+	// server admin installed run in racksail.slice, as the template says.
+	Slice string `json:"slice,omitempty" doc:"The account's slice, racksail-accounts-<slug>.slice, for an account's add-on; racksail.slice otherwise"`
 }
 
 // Defaults for add-ons whose manifest sets no limits.
@@ -106,6 +113,8 @@ func (s ServiceSpec) Validate() error {
 		return fmt.Errorf("CPU limit %d%% must be from 1 to %d", s.CPUPercent, maxCPUPercent)
 	case len(s.Network()) > maxNetwork:
 		return fmt.Errorf("at most %d network addresses", maxNetwork)
+	case s.Slice != "" && !slicePattern.MatchString(s.Slice):
+		return fmt.Errorf("slice %q isn't an account's", s.Slice)
 	}
 	for _, h := range s.Hosts {
 		if h.Name != "" && !hostNamePattern.MatchString(h.Name) {
@@ -254,14 +263,18 @@ func RenderTemplates() (map[string][]byte, error) {
 	return map[string][]byte{ServiceTemplate: service, SocketTemplate: socket}, nil
 }
 
-// RenderDropIn returns the settings of one add-on's service: its program,
-// its limits and the network it may reach.
+// RenderDropIn returns the settings of one add-on's service: the slice an
+// account's add-on runs in, its program, its limits and the network it may
+// reach.
 func (s ServiceSpec) RenderDropIn() ([]byte, error) {
 	if err := s.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", err, system.ErrInvalid)
 	}
 	var u system.UnitFile
 	svc := u.Section("Service")
+	if s.Slice != "" {
+		svc.Add("Slice", s.Slice)
+	}
 	svc.Add("ExecStart", path.Join(AddonDir(s.ID, s.Version), Program)).
 		Add("WorkingDirectory", AddonDir(s.ID, s.Version)).
 		Add("MemoryMax", strconv.Itoa(s.MemoryMB)+"M").
@@ -286,7 +299,8 @@ var EnsureAddonService = agent.Register(agent.Def[ServiceSpec, agent.Result]{
 	Name:    "EnsureAddonService",
 	Summary: "Set up an add-on's service",
 	Description: "Writes racksail-addon@.service and racksail-addon@.socket, the sandbox every add-on runs in, and the add-on's own drop-in " +
-		"with its program, memory and CPU limits and the addresses it may reach, then reloads systemd when anything changed.",
+		"with its program, memory and CPU limits, the addresses it may reach and, for an account's add-on, the account's slice, " +
+		"then reloads systemd when anything changed.",
 	Effects: func(in ServiceSpec) []system.Effect {
 		return []system.Effect{
 			{Type: system.EffectFile, Action: "write", Target: system.UnitDir + "/" + Service(in.ID) + ".d/" + DropIn + ".conf"},

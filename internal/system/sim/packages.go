@@ -630,6 +630,28 @@ func (m *Machine) mkdirParents(p string) error {
 	return nil
 }
 
+// Fetch returns the simulated contents of a URL, as RegisterDownload and
+// SetDownload give them. A simulated server has no network, so any other
+// URL isn't found.
+func (p simPackages) Fetch(ctx context.Context, url string) (io.ReadCloser, error) {
+	if err := system.CheckFetchURL(url); err != nil {
+		return nil, err
+	}
+	m := p.m
+	if err := m.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer m.mu.Unlock()
+	if err := m.record("packages", "fetch", url); err != nil {
+		return nil, err
+	}
+	data, ok := m.download(url)
+	if !ok {
+		return nil, fmt.Errorf("downloading %s: %w", url, system.ErrNotFound)
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
 // InstallArchive downloads a vendor archive. Archives whose URL has
 // simulated contents (RegisterDownload) are verified and unpacked exactly
 // as on a real server; any other archive is taken as verified and becomes

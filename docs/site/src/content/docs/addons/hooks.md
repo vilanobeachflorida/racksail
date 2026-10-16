@@ -62,15 +62,19 @@ System hooks patch a copy of a service's configuration. The patched configuratio
 
 Some settings can't be loosened by any hook: authentication, authorization checks, the audit log, the minimum sandbox of services and the agent's allowlist of operations. Hooks can always make them stricter. Loosening one needs the `core.override` permission, which only a server admin can grant; every time it is used, the panel logs it and records it in the audit log. Rules never hold it. **Settings → Rules** marks the hooks that hold it in red.
 
+Only a server admin approves `core.override`, `secrets.read` and system hooks for an add-on, whoever else may install or change add-ons: someone with a narrower grant on add-ons, a token, or an add-on allowed to change add-ons is refused with `addons.admin_approval`. The same goes for giving an add-on that holds one of them another program, since it would run with what was approved for the first. Changing anything else of such an add-on, such as turning it off, needs no admin.
+
 ## Add-ons of an account
 
 An add-on an account owner installs, a `core.account_addon`, affects only that account:
 
 - its hooks attach only to points of the change pipeline, `<kind>.<operation>.<stage>` or patterns of them such as `web.site.*.validate`, never to `core.boot`, `auth.login.validate`, `modules.<id>.on` or any other point that belongs to the whole server;
 - it hears only about the changes to its account: a change set that also changes other accounts reaches it with those changes left empty, and without its title, effects and estimate;
-- it can't provide a capability, since what add-ons provide serves the whole server, patch configuration with system hooks, or hold `core.override`.
+- it can't provide a capability, since what add-ons provide serves the whole server, patch configuration with system hooks, or hold `core.override`;
+- it comes from a catalog, which it names with the item: its manifest must be the one the catalog's signed index lists, and its program one the item's recipe pins;
+- it runs in the account's slice, `racksail-accounts-<slug>.slice`, with the account's other services and within the limits of the account's plan, and the memory and CPU it is given never exceed what the plan allows the whole account.
 
-An add-on whose manifest asks for any of these can only be installed by a server admin, as a `core.addon`.
+An add-on whose manifest asks for any of these can only be installed by a server admin, as a `core.addon`. Account add-ons run once the module that keeps accounts says where each account's services run; until then, installing one is refused with `addons.no_account`.
 
 ## Safe mode
 

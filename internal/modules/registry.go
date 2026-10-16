@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/vilanobeachflorida/racksail/internal/auth"
+	"github.com/vilanobeachflorida/racksail/internal/hooks/addons"
 	"github.com/vilanobeachflorida/racksail/internal/store"
 )
 
@@ -128,6 +129,29 @@ func (r *Registry) Ownership(svc *Services) (auth.Ownership, error) {
 		}
 		if found = op.Ownership(svc); found == nil {
 			return nil, fmt.Errorf("modules: %s provides no ownership", id)
+		}
+		by = id
+	}
+	return found, nil
+}
+
+// Accounts returns what the module that keeps accounts says about where
+// their add-ons run, or nil when no module says. Two modules saying it is
+// an error.
+func (r *Registry) Accounts(svc *Services) (addons.Accounts, error) {
+	var found addons.Accounts
+	var by string
+	for _, m := range r.All() {
+		ap, ok := m.(AccountProvider)
+		if !ok {
+			continue
+		}
+		id := m.Manifest().ID
+		if found != nil {
+			return nil, fmt.Errorf("modules: %s and %s both say where accounts' add-ons run", by, id)
+		}
+		if found = ap.Accounts(svc); found == nil {
+			return nil, fmt.Errorf("modules: %s provides no accounts", id)
 		}
 		by = id
 	}

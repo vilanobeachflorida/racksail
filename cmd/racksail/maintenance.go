@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -47,10 +48,8 @@ func newSafeModeCommand() *cobra.Command {
 				return err
 			}
 			// The panel runs as racksail and reads the flag for its reason.
-			if u, err := user.Lookup("racksail"); err == nil && os.Geteuid() == 0 {
-				uid, _ := strconv.Atoi(u.Uid)
-				gid, _ := strconv.Atoi(u.Gid)
-				os.Chown(path, uid, gid)
+			if err := handToPanel(path, os.Geteuid(), user.Lookup, os.Chown); err != nil {
+				return fmt.Errorf("safe mode is on, but the panel can't read why: %w", err)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Safe mode is on. Add-ons stop within a few seconds; racksail safe-mode off lets them run again.")
 			return nil
@@ -105,6 +104,32 @@ func newSafeModeCommand() *cobra.Command {
 	}
 	cmd.AddCommand(on, off, status)
 	return cmd
+}
+
+// handToPanel gives a file root wrote in the panel's state to the panel's
+// user, so the panel can read it. Run by anyone else, the file is already
+// theirs; on a machine without the panel's user, as a developer's, there
+// is no one to give it to.
+func handToPanel(path string, euid int, lookup func(name string) (*user.User, error), chown func(path string, uid, gid int) error) error {
+	if euid != 0 {
+		return nil
+	}
+	u, err := lookup(updates.PanelUser)
+	if errors.As(err, new(user.UnknownUserError)) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("looking up the %s user: %w", updates.PanelUser, err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return fmt.Errorf("the %s user's ID %q isn't a number", updates.PanelUser, u.Uid)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return fmt.Errorf("the %s user's group ID %q isn't a number", updates.PanelUser, u.Gid)
+	}
+	return chown(path, uid, gid)
 }
 
 // newUpdateCommand holds what the agent runs around a self-update.

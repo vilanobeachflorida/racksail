@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"path"
 	"regexp"
 	"strings"
@@ -86,9 +85,6 @@ type UpdateState struct {
 	RolledBackAt *time.Time `json:"rolledBackAt,omitempty"`
 	Reason       string     `json:"reason,omitempty" doc:"Why the release was rolled back"`
 }
-
-// releaseClient downloads releases; tests point it at their own servers.
-var releaseClient = &http.Client{Timeout: 15 * time.Minute}
 
 // InstallReleaseInput names the release to install and where to get it.
 type InstallReleaseInput struct {
@@ -206,26 +202,20 @@ func mkdirAll(ctx context.Context, files system.Files, dir string) error {
 }
 
 // download fetches the first URL that answers into dest, checking size and
-// checksum on the way.
-func download(ctx context.Context, files system.Files, urls []string, dest string, size int64, sum string) error {
+// checksum on the way. Downloads go through the system's packages, as
+// vendor archives do.
+func download(ctx context.Context, sys *system.Backend, urls []string, dest string, size int64, sum string) error {
+	files := sys.Files
 	var errs []error
 	for _, u := range urls {
 		err := func() error {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			body, err := sys.Packages.Fetch(ctx, u)
 			if err != nil {
 				return err
 			}
-			req.Header.Set("User-Agent", "Racksail/"+Build().Version)
-			resp, err := releaseClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("%s answered %s", u, resp.Status)
-			}
+			defer body.Close()
 			h := sha256.New()
-			counted := &countingReader{r: io.TeeReader(io.LimitReader(resp.Body, size+1), h)}
+			counted := &countingReader{r: io.TeeReader(io.LimitReader(body, size+1), h)}
 			if err := files.WriteFrom(ctx, dest, counted, 0o700, system.Owner{}); err != nil {
 				return err
 			}
@@ -254,10 +244,32 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// fetchSmall fetches a small file from the first URL that answers.
-func fetchSmall(ctx context.Context, urls []string) ([]byte, error) {
-	c := &Client{HTTP: releaseClient}
-	return c.fetch(ctx, urls, maxSmall)
+// fetchSmall fetches a small file, such as a signature, from the first
+// URL that answers.
+func fetchSmall(ctx context.Context, sys *system.Backend, urls []string) ([]byte, error) {
+	var errs []error
+	for _, u := range urls {
+		data, err := func() ([]byte, error) {
+			body, err := sys.Packages.Fetch(ctx, u)
+			if err != nil {
+				return nil, err
+			}
+			defer body.Close()
+			data, err := io.ReadAll(io.LimitReader(body, maxSmall+1))
+			if err != nil {
+				return nil, err
+			}
+			if len(data) > maxSmall {
+				return nil, fmt.Errorf("%s is larger than %d bytes", u, maxSmall)
+			}
+			return data, nil
+		}()
+		if err == nil {
+			return data, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, errors.Join(errs...)
 }
 
 func readState(ctx context.Context, files system.Files) (*UpdateState, error) {
@@ -373,7 +385,7 @@ var InstallRelease = agent.Register(agent.Def[InstallReleaseInput, InstallReleas
 		if env.Check {
 			return InstallReleaseResult{Result: agent.Changed(effects...)}, nil
 		}
-		rootJSON, err := fetchSmall(ctx, in.TrustedRootURLs)
+		rootJSON, err := fetchSmall(ctx, env.System, in.TrustedRootURLs)
 		if err != nil {
 			return InstallReleaseResult{}, fmt.Errorf("fetching Sigstore's trusted root: %w", err)
 		}
@@ -381,7 +393,7 @@ var InstallRelease = agent.Register(agent.Def[InstallReleaseInput, InstallReleas
 		if err != nil {
 			return InstallReleaseResult{}, err
 		}
-		bundle, err := fetchSmall(ctx, in.BundleURLs)
+		bundle, err := fetchSmall(ctx, env.System, in.BundleURLs)
 		if err != nil {
 			return InstallReleaseResult{}, fmt.Errorf("fetching the binary's signature: %w", err)
 		}
@@ -390,7 +402,7 @@ var InstallRelease = agent.Register(agent.Def[InstallReleaseInput, InstallReleas
 			return InstallReleaseResult{}, err
 		}
 		staged := dir + "/" + in.Asset
-		if err := download(ctx, files, in.URLs, staged, in.Size, in.SHA256); err != nil {
+		if err := download(ctx, env.System, in.URLs, staged, in.Size, in.SHA256); err != nil {
 			return InstallReleaseResult{}, fmt.Errorf("downloading %s: %w", in.Asset, err)
 		}
 		sum, _ := hex.DecodeString(in.SHA256)

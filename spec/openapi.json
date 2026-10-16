@@ -146,6 +146,11 @@
               "null"
             ]
           },
+          "cpuPercent": {
+            "description": "The most CPU time its service may use, in percent of one CPU",
+            "format": "int64",
+            "type": "integer"
+          },
           "health": {
             "description": "What the add-on last answered when asked how it is",
             "enum": [
@@ -170,6 +175,11 @@
               "null"
             ]
           },
+          "memoryMB": {
+            "description": "The most memory its service may use, in MB",
+            "format": "int64",
+            "type": "integer"
+          },
           "message": {
             "description": "English summary of the current state",
             "type": "string"
@@ -188,6 +198,10 @@
               "failed",
               "deleting"
             ],
+            "type": "string"
+          },
+          "slice": {
+            "description": "The slice its service runs in: the account's for an account's add-on, racksail.slice otherwise",
             "type": "string"
           },
           "state": {
@@ -4062,6 +4076,40 @@
         ],
         "type": "object"
       },
+      "FoundSoftware": {
+        "additionalProperties": false,
+        "properties": {
+          "diskBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "downloadBytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The software's id in the module's manifest",
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/SoftwarePackage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "installed"
+        ],
+        "type": "object"
+      },
       "Hardware": {
         "additionalProperties": false,
         "properties": {
@@ -5152,6 +5200,15 @@
             "$ref": "#/components/schemas/Capabilities"
           },
           "category": {
+            "enum": [
+              "core",
+              "hosting",
+              "apps",
+              "storage",
+              "operations",
+              "home",
+              "assistant"
+            ],
             "type": "string"
           },
           "cost": {
@@ -5525,6 +5582,16 @@
             "description": "When the module last changed state",
             "format": "date-time",
             "type": "string"
+          },
+          "software": {
+            "description": "What the server last said of the module's software: whether it is there, and what installing it downloads and takes",
+            "items": {
+              "$ref": "#/components/schemas/FoundSoftware"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "started": {
             "description": "Whether the module's work in the panel is running",
