@@ -21,8 +21,11 @@ Every operation is a typed function with an input that validates every field bef
 A few rules keep a panel that was taken over from taking the server:
 
 - Paths are resolved one directory at a time below the location Racksail manages, never following a symbolic link on the way, so a link an account plants in its own directory can't send a read or a write the agent does as root anywhere else. Archives are packed and unpacked the same way.
-- Unit files are read the way systemd reads them and may only use the sections and directives Racksail renders. Services run as an account or one of Racksail's own service users, never as root or the panel, and their commands can't use the prefixes that run them with full privileges; nothing but a service runs a command. Racksail's own units are rendered by the agent itself, for a `racksail` executable only root can change. Drop-ins only tune resources, limits and restarts.
-- Filesystems are mounted from block devices, below `/mnt/racksail` or the accounts' area, always with `nosuid` and `nodev`. A snapshot is only restored from a file the agent saved itself and that hasn't changed since, and `btrfs receive` is confined to its directory.
+- Unit files are read the way systemd reads them and may only use the sections and directives Racksail renders. Services run as an account or one of Racksail's own service users, never as root or the panel, and their commands can't use the prefixes that run them with full privileges; nothing but a service runs a command. An account's service keeps at least the sandbox every site gets. Racksail's own units are rendered by the agent itself, for a `racksail` executable only root can change. Drop-ins only tune resources, limits and restarts.
+- Only data disks are mounted: a disk named by its stable link under `/dev/disk`, never the system disk, a disk with RAID or LVM on it, or a filesystem already mounted somewhere else. They go at `/mnt/racksail/<name>` or over the accounts' area, where nothing can plant a symbolic link, always with `nosuid` and `nodev`. Mount units are held to the same.
+- A snapshot is only restored from a file the agent saved itself and that hasn't changed since. Whatever arrives through `btrfs receive` is confined to its directory and loses set-user-ID and set-group-ID bits, device nodes, file capabilities and security labels, and a stream may only build on snapshots Racksail could read anyway.
+- Snapshots of the system itself, such as the root filesystem before an upgrade, are kept where no operation reads, sends or copies them; they can only be deleted.
+- Firewall rulesets may only define Racksail's own tables, so they can't touch another program's or read other files, and network files may only use what Racksail renders.
 - Kernel parameters can only be the ones Racksail tunes, never those that weaken the kernel's own defenses.
 
 Every operation can run in check mode, where it reports exactly what it would change, such as the packages and their download sizes, without changing anything. The panel's previews come from check mode. Operations are idempotent: running one again when the machine already matches changes nothing, so retries are always safe.
@@ -31,7 +34,7 @@ The whole list, with every input and output, is the agent protocol, published as
 
 ## The audit trail
 
-The agent records every call: who asked, for which resource, what it touched, a hash of the input, how long it took and how it ended. Refused calls are recorded too, including callers whose certificate may not call the agent and peers refused during the TLS handshake, with the address they came from; a flood of refusals from one address is counted rather than recorded one by one. On a server the trail is in `/var/log/racksail/agent-audit.jsonl`, and the panel can read it back. Inputs that carry secrets aren't hashed.
+The agent records every call: who asked, for which resource, what it touched, a hash of the input, how long it took and how it ended. Refused calls are recorded too, including callers whose certificate may not call the agent and peers refused during the TLS handshake, with the address they came from; a flood of refusals from one address is counted rather than recorded one by one. On a server the trail is in `/var/log/racksail-agent/audit.jsonl`, which only root can read and no operation can change, so a panel that was taken over can't erase what it did; the panel can read it back. Inputs that carry secrets aren't hashed.
 
 ## Drift
 
@@ -39,10 +42,10 @@ The agent remembers what it wrote for each resource. Every minute it checks the 
 
 ## Network changes that undo themselves
 
-A network change that could cut the server off is applied on probation. Unless the panel confirms it in time, which it can only do while it can still reach the server, the agent puts the previous configuration back on its own, even if it restarts in between. A confirmation that arrives after the rollback is refused as a conflict, so it is never mistaken for one that worked.
+A network change that could cut the server off is applied on probation. Unless the panel confirms it in time, which it can only do while it can still reach the server, the agent puts the previous configuration back on its own, even if it restarts in between. If putting the previous configuration back fails, the agent keeps trying. A confirmation that arrives after the deadline is refused as a conflict, so it is never mistaken for one that worked.
 
 ## Reaching other servers
 
 On the panel's own server, the panel talks to the agent over a Unix socket only the `racksail` group can reach. Other servers are reached with mutual TLS, with certificates from a CA the panel keeps. A certificate says who holds it, the panel or the agent of a named server, and both sides check that rather than host names.
 
-A server joins with `racksail agent join`, using a one-time token from the panel and the fingerprint of the panel's CA. Its agent then opens connections to the panel's hub and serves the panel over them, so the server needs no open management port, and it renews its certificate before it expires.
+A server joins with `racksail agent join`, using a one-time token from the panel and the fingerprint of the panel's CA. Its agent then opens connections to the panel's hub and serves the panel over them, so the server needs no open management port, and it renews its certificate before it expires. A server removed from the cluster is cut off at once: its connections close, and it can neither connect again nor renew its certificate.
