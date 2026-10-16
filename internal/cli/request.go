@@ -49,7 +49,7 @@ func (oc *opCommand) request(ctx context.Context, c *Client, cmd *cobra.Command,
 		}
 	}
 	if op.Body != nil {
-		body, err := oc.body(ctx, c, cmd, path)
+		body, err := oc.body(ctx, c, cmd, &req)
 		if err != nil {
 			return req, err
 		}
@@ -63,8 +63,9 @@ func (oc *opCommand) request(ctx context.Context, c *Client, cmd *cobra.Command,
 
 // body makes the request body: what --file holds, or for a change to
 // something that already exists, what it is now; then what the flags and
-// --set say on top.
-func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, path string) (map[string]any, error) {
+// --set say on top. An update that takes the revision it was made against
+// as a parameter gets the one it started from.
+func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, req *Request) (map[string]any, error) {
 	doc := map[string]any{}
 	switch {
 	case oc.in.file.String() != "":
@@ -79,11 +80,14 @@ func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, pa
 		}
 		doc = m
 	case oc.current != nil && !oc.in.replace:
-		current, err := oc.currentBody(ctx, c, path)
+		current, revision, err := oc.currentBody(ctx, c, req.Path)
 		if err != nil {
 			return nil, err
 		}
 		doc = current
+		if revision != "" && oc.op.Param("query", "revision") != nil && req.Query.Get("revision") == "" {
+			req.Query.Set("revision", revision)
+		}
 	}
 	for _, f := range oc.flags.fields {
 		if f.in != "body" || !f.given(cmd) {
@@ -130,17 +134,21 @@ func (oc *opCommand) body(ctx context.Context, c *Client, cmd *cobra.Command, pa
 // it is now that the update takes, its revision among them, so a change
 // someone else made in between makes the update fail instead of being
 // lost.
-func (oc *opCommand) currentBody(ctx context.Context, c *Client, path string) (map[string]any, error) {
+func (oc *opCommand) currentBody(ctx context.Context, c *Client, path string) (map[string]any, string, error) {
 	resp, err := c.Do(ctx, Request{Method: http.MethodGet, Path: path})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	var current map[string]any
 	dec := json.NewDecoder(io.LimitReader(resp.Body, maxAnswer))
 	dec.UseNumber()
 	if err := dec.Decode(&current); err != nil {
-		return nil, fmt.Errorf("unexpected answer from %s: %w", c.Server, err)
+		return nil, "", fmt.Errorf("unexpected answer from %s: %w", c.Server, err)
+	}
+	revision := ""
+	if n, ok := current["revision"].(json.Number); ok {
+		revision = n.String()
 	}
 	body := oc.doc.Resolve(oc.op.Body)
 	out := map[string]any{}
@@ -149,7 +157,7 @@ func (oc *opCommand) currentBody(ctx context.Context, c *Client, path string) (m
 			out[k] = v
 		}
 	}
-	return out, nil
+	return out, revision, nil
 }
 
 // readDocument reads JSON or YAML from a file, or from standard input

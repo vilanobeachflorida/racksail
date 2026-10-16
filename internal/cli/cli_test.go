@@ -211,6 +211,23 @@ func TestUpdateStartsFromTheCurrentSettings(t *testing.T) {
 	if got := jsonOf(p.last("PUT", "/api/v1/core/webhooks/whk_1").Body); got != `{"spec":{"events":["*"],"url":"https://b.example"}}` {
 		t.Errorf("replace body = %s", got)
 	}
+
+	// An update that takes its revision as a parameter gets the one it
+	// started from.
+	p.json("GET /api/v1/users/user_1", http.StatusOK, `{"id":"user_1","username":"ada","name":"Ada","home":{"level":"server"},
+		"grants":[{"role":"admin","scope":{"level":"server"}}],"allowFrom":null,"passwordSet":true,"twoFactor":false,"revision":4,
+		"createdAt":"2026-10-15T10:00:00Z","updatedAt":"2026-10-15T10:00:00Z"}`)
+	p.json("PUT /api/v1/users/user_1", http.StatusOK, `{"id":"user_1","username":"ada","name":"Ada Lovelace","home":{"level":"server"},"grants":[],"revision":5}`)
+	if out, err := run(t, "", "user", "update", "user_1", "--server", p.URL, "--name", "Ada Lovelace"); err != nil {
+		t.Fatal(err, out)
+	}
+	r := p.last("PUT", "/api/v1/users/user_1")
+	if r.Query.Get("revision") != "4" {
+		t.Errorf("revision = %q", r.Query.Get("revision"))
+	}
+	if got := jsonOf(r.Body); got != `{"allowFrom":null,"grants":[{"role":"admin","scope":{"level":"server"}}],"home":{"level":"server"},"name":"Ada Lovelace","username":"ada"}` {
+		t.Errorf("user body = %s", got)
+	}
 }
 
 // A body can come from a YAML file, which flags change further.
