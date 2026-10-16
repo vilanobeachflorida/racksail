@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"testing"
@@ -35,7 +36,7 @@ func titles(results []SearchResult) []string {
 func TestSearch(t *testing.T) {
 	s := newStack(t, RateLimit{})
 	alpha := s.createSite("owner", "alpha.test")
-	s.createSite("owner", "beta.test")
+	beta := s.createSite("owner", "beta.test")
 	elsewhere := store.AccountScope(store.NewID("acct"))
 	var cs changeset.ChangeSet
 	s.call("admin", "POST", "/api/v1/test/sites", map[string]any{"scope": elsewhere, "spec": map[string]any{"domains": []string{"alpha-two.test"}, "content": "x"}}, &cs)
@@ -60,6 +61,24 @@ func TestSearch(t *testing.T) {
 	}
 	if got := s.search("stranger", "q="+string(alpha)); len(got.Results) != 0 {
 		t.Errorf("someone else's ID = %+v", got.Results)
+	}
+	// A resource being removed is found neither by its ID nor by its name,
+	// as lists leave it out, even while what it set up is still there.
+	for _, op := range []string{"files.remove", "files.remove_all"} {
+		s.machine.FailNext(op, sitePath(beta), errors.New("device busy"))
+	}
+	var removal changeset.ChangeSet
+	if resp := s.call("owner", "DELETE", "/api/v1/test/sites/"+string(beta), nil, &removal); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("delete = %d %s", resp.StatusCode, bodyOf(resp))
+	}
+	s.finish("owner", &removal)
+	if r, err := s.store.Get(t.Context(), beta); err != nil || !r.Deleted() {
+		t.Fatalf("the site being removed = %+v, %v", r, err)
+	}
+	for _, q := range []string{"q=" + string(beta), "q=beta"} {
+		if got := s.search("owner", q); len(got.Results) != 0 {
+			t.Errorf("%s found a site being removed: %+v", q, got.Results)
+		}
 	}
 	// A limit says which kinds have more.
 	if got := s.search("admin", "q=.test&limit=1&kind=test.site"); len(got.Results) != 1 || !slices.Equal(got.More, []string{"test.site"}) {

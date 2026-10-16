@@ -142,10 +142,12 @@ func (s *Server) registerSearch() {
 		out := &searchOutput{}
 		out.Body.Results = []SearchResult{}
 		seen := map[store.ID]bool{}
-		// The text may be an ID itself, as in a link someone pasted.
+		// The text may be an ID itself, as in a link someone pasted. A
+		// resource being removed is left out, as lists and the text search
+		// leave it out.
 		if id, err := store.ParseID(q); err == nil {
 			if k, ok := s.kinds.ForID(id); ok && !k.Info().UI.Hidden && slices.Contains(kinds, k) {
-				if r, err := st.Get(ctx, id); err == nil && r.Kind == k.Info().Name && canRead(ctx, s.authorizer(), r.Meta) {
+				if r, err := st.Get(ctx, id); err == nil && !r.Deleted() && r.Kind == k.Info().Name && canRead(ctx, s.authorizer(), r.Meta) {
 					out.Body.Results = append(out.Body.Results, searchResultOf(k.Info(), r))
 					seen[r.ID] = true
 				}
