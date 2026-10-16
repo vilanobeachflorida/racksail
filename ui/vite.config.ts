@@ -9,20 +9,27 @@ import { bundleBudget } from "./scripts/bundle-budget.mjs";
 // The address of `racksail dev`, which serves the API the dev server proxies to.
 const devServer = process.env.RACKSAIL_DEV_ADDR ?? "127.0.0.1:7070";
 
+// Every module's entry file and English messages, which the shell loads
+// before it renders, whatever state the module is in.
+const moduleEntries = /[\\/]src[\\/]modules[\\/][^\\/]+[\\/]index\.tsx?$/;
+const moduleMessages = /[\\/]src[\\/]modules[\\/][^\\/]+[\\/]messages[\\/]en\.json$/;
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // The shell's budget from docs/architecture/conventions.md. Before it
-    // renders, the shell also loads every module's entry file and English
-    // messages, and the theme engine when the server or a reseller has a
-    // theme.
+    // The first screen's budget from docs/architecture/conventions.md.
+    // Before it renders, the shell also loads every module's entry file and
+    // English messages, and the theme engine when the server or a reseller
+    // has a theme; the home screen then loads the attention inbox, its words
+    // and the core's kinds', and the quick actions.
     bundleBudget({
       budget: 250_000,
-      atStart: [
-        /\/src\/modules\/[^/]+\/index\.tsx?$/,
-        /\/src\/modules\/[^/]+\/messages\/en\.json$/,
-        /\/src\/design\/theme\/(?:css|layers)\.ts$/,
+      atStart: [moduleEntries, moduleMessages, /\/src\/design\/theme\/(?:css|layers)\.ts$/],
+      firstScreen: [
+        /\/src\/app\/screens\/inbox\/card\.tsx$/,
+        /\/src\/app\/screens\/(?:inbox|kinds)\/messages\/en\.json$/,
+        /\/src\/app\/screens\/resources\/(?:kinds|quick)\.tsx?$/,
       ],
     }),
   ],
@@ -45,9 +52,26 @@ export default defineConfig({
     // nothing may be inlined as a data: URL.
     assetsInlineLimit: 0,
     // The bundle budget measures what matters, the compressed first load;
-    // the entry chunk, React included, is larger than Vite's default for
-    // one chunk before compression.
-    chunkSizeWarningLimit: 600,
+    // the entry chunk, which holds everything the shell imports, React
+    // included, is larger than Vite's default for one chunk before
+    // compression.
+    chunkSizeWarningLimit: 800,
+    rolldownOptions: {
+      output: {
+        // What the shell loads before it renders goes in as few files as it
+        // can, since small files compress poorly on their own: the entry
+        // chunk holds everything the entry imports, every module's entry
+        // file is in one file with what only they use, and their English
+        // messages are in another. Screens still load one by one.
+        codeSplitting: {
+          groups: [
+            { name: "index", tags: ["$initial"], priority: 2 },
+            { name: "module-entries", test: moduleEntries, priority: 1 },
+            { name: "module-messages", test: moduleMessages, priority: 1 },
+          ],
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",

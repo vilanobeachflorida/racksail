@@ -1,11 +1,13 @@
 import { gzipSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 
-// The shell, the code and styles the first screen loads, stays under 250 KB
-// compressed (docs/architecture/conventions.md); module screens load lazily
-// on top of it. Sizes are gzip at its highest level, whatever the server
-// sends.
-const budget = 250 * 1024;
+// The first screen, the shell and what the home screen loads with it, stays
+// under 250 KB compressed (docs/architecture/conventions.md), as npm run
+// build checks before the panel embeds it; module screens load lazily on top
+// of it. Sizes are gzip at its highest level, whatever the server sends.
+const budget = 250_000;
+
+const kb = (bytes: number) => `${(bytes / 1000).toFixed(1)} KB`;
 
 test("the first screen loads within the bundle budget", async ({ page, baseURL }) => {
   test.skip(test.info().project.name !== "desktop", "the bundle is the same on every device");
@@ -23,6 +25,6 @@ test("the first screen loads within the bundle budget", async ({ page, baseURL }
   const sizes = await Promise.all(loads);
   expect(sizes.length, "the first screen loaded no code").toBeGreaterThan(0);
   const total = sizes.reduce((sum, [, size]) => sum + size, 0);
-  const report = sizes.map(([path, size]) => `${path}: ${(size / 1024).toFixed(1)} KiB`).join("\n");
-  expect(total, `the first screen loads ${(total / 1024).toFixed(1)} KiB compressed:\n${report}`).toBeLessThan(budget);
+  const report = sizes.map(([path, size]) => `${path}: ${kb(size)}`).join("\n");
+  expect(total, `the first screen loads ${kb(total)} compressed:\n${report}`).toBeLessThanOrEqual(budget);
 });

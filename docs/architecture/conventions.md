@@ -82,7 +82,7 @@ test/                    end-to-end harness and fixtures
 - WCAG 2.2 AA. axe runs in CI.
 - Loading uses skeletons, not spinners. Optimistic updates where safe. Live data over SSE, never polling.
 - Copy follows the voice in the brand guidelines: sentence case, plain words, no "please", errors say what happened and what to do.
-- Screens are lazy-loaded per module. Bundle budget: the shell under 250 KB compressed.
+- Screens are lazy-loaded per module. Bundle budget: the first screen, the shell and what the home screen loads with it, under 250 KB compressed.
 
 ## Tests
 

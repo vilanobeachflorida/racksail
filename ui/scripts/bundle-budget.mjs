@@ -1,27 +1,41 @@
-// Holds the shell to its bundle budget (docs/architecture/conventions.md):
-// what the browser downloads before it can show the panel, compressed. That
-// is the entry chunk, everything it imports and its styles, and the chunks
-// the shell loads lazily but before it renders, such as each module's entry
-// file and the English messages. Screens, dialogs and other languages load
-// later and don't count. Neither do fonts, which are compressed already and
-// load as text appears.
+// Holds the first screen to its bundle budget (docs/architecture/conventions.md):
+// what the browser downloads before it can show the home screen, compressed.
+// That is the shell, the entry chunk, everything it imports and its styles,
+// and the chunks the shell loads lazily but before it renders, such as each
+// module's entry file and the English messages, and then what the home screen
+// loads as it shows. Other screens, dialogs and languages load later and
+// don't count. Neither do fonts, which are compressed already and load as
+// text appears.
 
 import { gzipSync } from "node:zlib";
 
 /**
  * The parts of Rolldown's output the budget reads.
  * @typedef {{ type: "chunk", fileName: string, code: string, imports: string[], isEntry: boolean,
- *   isDynamicEntry: boolean, facadeModuleId: string | null, viteMetadata?: { importedCss: Set<string> } }} Chunk
+ *   isDynamicEntry: boolean, facadeModuleId: string | null, moduleIds?: string[],
+ *   viteMetadata?: { importedCss: Set<string> } }} Chunk
  * @typedef {{ type: "asset", fileName: string, source: string | Uint8Array }} Asset
  * @typedef {Record<string, Chunk | Asset>} Bundle
  */
 
 /**
- * The files of the first load: the entry chunks and the lazily loaded
- * chunks the shell loads before it renders, everything they import, and
- * their styles.
+ * The modules a chunk holds, by path with forward slashes. A chunk the build
+ * put several lazily loaded modules in has no facade module, so it's known
+ * by what it holds.
+ * @param {Chunk} chunk
+ * @returns {string[]}
+ */
+function modulesOf(chunk) {
+  const ids = chunk.moduleIds ?? (chunk.facadeModuleId ? [chunk.facadeModuleId] : []);
+  return ids.map((id) => id.split("\\").join("/"));
+}
+
+/**
+ * The files of a first load: the entry chunks and the chunks that hold
+ * modules loaded lazily before it's done, everything they import, and their
+ * styles.
  * @param {Bundle} bundle
- * @param {readonly RegExp[]} atStart the modules, by path, that the shell loads lazily before it renders
+ * @param {readonly RegExp[]} atStart the modules, by path, that load lazily before it's done
  * @returns {string[]}
  */
 export function firstLoad(bundle, atStart) {
@@ -45,8 +59,7 @@ export function firstLoad(bundle, atStart) {
     if (item.type !== "chunk") {
       continue;
     }
-    const module = item.facadeModuleId?.split("\\").join("/") ?? "";
-    if (item.isEntry || (item.isDynamicEntry && atStart.some((pattern) => pattern.test(module)))) {
+    if (item.isEntry || modulesOf(item).some((id) => atStart.some((pattern) => pattern.test(id)))) {
       add(item.fileName);
     }
   }
@@ -65,23 +78,32 @@ export function compressedSize(source) {
 const kb = (bytes) => `${(bytes / 1000).toFixed(1)} KB`;
 
 /**
- * Fails the build when the first load is over budget, and says what it
- * weighs.
- * @param {{ budget: number, atStart: readonly RegExp[] }} options budget in bytes
+ * Fails the build when the first screen is over budget, and says what it
+ * and the shell weigh.
+ * @param {{ budget: number, atStart: readonly RegExp[], firstScreen?: readonly RegExp[] }} options
+ *   budget in bytes; atStart, the modules the shell loads lazily before it
+ *   renders; firstScreen, those the home screen then loads as it shows
  * @returns {import("vite").Plugin}
  */
-export function bundleBudget({ budget, atStart }) {
+export function bundleBudget({ budget, atStart, firstScreen = [] }) {
   return {
     name: "racksail:bundle-budget",
     apply: "build",
     /** @param {unknown} _options @param {Bundle} bundle */
     writeBundle(_options, bundle) {
-      const sizes = firstLoad(bundle, atStart).map((file) => {
+      const shell = new Set(firstLoad(bundle, atStart));
+      const sizes = firstLoad(bundle, [...atStart, ...firstScreen]).map((file) => {
         const item = /** @type {Chunk | Asset} */ (bundle[file]);
         return { file, size: compressedSize(item.type === "chunk" ? item.code : item.source) };
       });
       const total = sizes.reduce((sum, { size }) => sum + size, 0);
-      const summary = `the shell's first load is ${kb(total)} compressed, of a ${kb(budget)} budget`;
+      const shellTotal = sizes.reduce(
+        (sum, { file, size }) => sum + (shell.has(file) ? size : 0),
+        0,
+      );
+      const summary =
+        `the first screen loads ${kb(total)} compressed, of a ${kb(budget)} budget: ` +
+        `${kb(shellTotal)} for the shell and ${kb(total - shellTotal)} for the home screen`;
       if (total > budget) {
         const largest = sizes
           .sort((a, b) => b.size - a.size)
