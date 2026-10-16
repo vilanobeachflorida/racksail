@@ -261,6 +261,20 @@ type Kind interface {
 	Err() error
 }
 
+// SchemaKind is a kind whose settings are described by JSON Schema
+// documents rather than Go types, as the kinds add-ons add are. Such kinds
+// come and go while the panel runs, so the API serves them through
+// operations of their own rather than generating some for each.
+type SchemaKind interface {
+	Kind
+	// SpecSchema and StatusSchema are standalone JSON Schema documents.
+	SpecSchema() json.RawMessage
+	StatusSchema() json.RawMessage
+	// InputSchema is the JSON Schema of an action's input, or nil when it
+	// takes none.
+	InputSchema(action string) json.RawMessage
+}
+
 // KindOf is a kind with spec type S and status type T. T must embed Status.
 type KindOf[S, T any] struct {
 	info      KindInfo
@@ -311,6 +325,10 @@ func Define[S, T any](info KindInfo) *KindOf[S, T] {
 	k.err = errors.Join(errs...)
 	return k
 }
+
+// CheckInfo reports the problems Define finds in a kind's description, for
+// kinds whose settings are described by JSON Schema rather than Go types.
+func CheckInfo(info *KindInfo) error { return checkKind(info, reflect.TypeFor[struct{}](), statusType) }
 
 // WithDefaults sets the function that fills defaults on create.
 func (k *KindOf[S, T]) WithDefaults(fn func(ctx context.Context, obj *Object[S, T]) error) *KindOf[S, T] {

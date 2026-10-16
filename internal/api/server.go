@@ -213,6 +213,7 @@ func New(opts Options) *Server {
 	s.registerUsers()
 	s.registerCatalog()
 	s.registerKindDocs()
+	s.registerSchemaKinds()
 	s.registerResources()
 	s.registerChangeSets()
 	s.registerJobs()

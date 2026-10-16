@@ -353,6 +353,19 @@ func (r *Registry) DeclareKind(k store.Kind) {
 	}
 }
 
+// UndeclareKind removes the hook points of a kind that is gone, as when the
+// add-on that added it was removed. A kind declared again, as when it comes
+// back with the add-on, gets them back.
+func (r *Registry) UndeclareKind(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for p := range r.points {
+		if kind, _, _, ok := ParseKindPoint(p); ok && kind == name {
+			delete(r.points, p)
+		}
+	}
+}
+
 // describeKindPoint says what happens at a point of the change pipeline,
 // for people choosing where to attach a hook.
 func describeKindPoint(title, op, stage string) string {

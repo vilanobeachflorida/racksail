@@ -39,10 +39,15 @@ func KindPath(info *store.KindInfo) string {
 // operations, which no module's kinds may use.
 var reservedModules = []string{"health", "version", "openapi.json", "operations", "kinds", "resources", "changesets", "jobs", "events", "audit", "stream", "metrics", "search", "inbox"}
 
-// registerKinds generates the operations of every registered kind.
+// registerKinds generates the operations of every registered kind. Kinds
+// described by JSON Schema come and go while the panel runs, and are served
+// by the operations registerSchemaKinds adds instead.
 func (s *Server) registerKinds() {
 	reserved := append(slices.Clone(reservedModules), reservedByExtensions()...)
 	for _, k := range s.kinds.All() {
+		if _, ok := k.(store.SchemaKind); ok {
+			continue
+		}
 		if slices.Contains(reserved, k.Info().Module()) {
 			panic(fmt.Sprintf("api: kind %s uses %s, a path the core's own operations need", k.Info().Name, KindPath(k.Info())))
 		}
@@ -566,11 +571,20 @@ type BackupInfo struct {
 	Reason  string `json:"reason,omitempty" doc:"Why the kind isn't backed up"`
 }
 
+// pathOf is where a kind's operations are: those generated for it, or for
+// a kind described by JSON Schema, those of every such kind.
+func pathOf(k store.Kind) string {
+	if _, ok := k.(store.SchemaKind); ok {
+		return SchemaKindPath(k.Info().Name)
+	}
+	return KindPath(k.Info())
+}
+
 func describeKind(k store.Kind) KindDescription {
 	info := k.Info()
 	d := KindDescription{
 		Name: info.Name, Module: info.Module(), Title: info.Title, Plural: info.Plural, Description: info.Description,
-		Prefix: info.Prefix, Scope: info.Scope, Levels: info.Levels, Path: KindPath(info), Singleton: info.Singleton, Confirm: info.Confirm, UI: info.UI,
+		Prefix: info.Prefix, Scope: info.Scope, Levels: info.Levels, Path: pathOf(k), Singleton: info.Singleton, Confirm: info.Confirm, UI: info.UI,
 		Risks:   KindRisks{Create: info.Risks.Create, Update: info.Risks.Update, Delete: info.Risks.Delete},
 		Backup:  BackupInfo{Covered: !info.Backup.Exclude, Reason: info.Backup.Reason},
 		Actions: []ActionInfo{}, Indexes: []IndexInfo{}, Events: []string{},
@@ -638,6 +652,19 @@ func (s *Server) registerKindDocs() {
 			return nil, i18n.ErrNotFound.New("what", "The kind "+in.Name)
 		}
 		d := describeKind(k)
+		if sk, ok := k.(store.SchemaKind); ok {
+			// Its schemas are documents of their own already.
+			d.Spec, d.Status = sk.SpecSchema(), sk.StatusSchema()
+			for _, a := range k.Info().Actions {
+				if in := sk.InputSchema(a.Name); in != nil {
+					if d.Inputs == nil {
+						d.Inputs = map[string]json.RawMessage{}
+					}
+					d.Inputs[a.Name] = in
+				}
+			}
+			return &kindOutput{Body: d}, nil
+		}
 		docs := s.docs[k.Info().Name]
 		var err error
 		if d.Spec, err = s.standalone(docs.spec); err != nil {

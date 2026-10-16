@@ -66,6 +66,11 @@ async function finish(host: TrackerHost, cs: ChangeSet) {
   for (const queryKey of changedQueries) {
     void host.queryClient.invalidateQueries({ queryKey });
   }
+  // Installing, changing or removing an add-on can add or take away the
+  // kinds it adds.
+  if (cs.changes?.some((c) => c.kind === "core.addon")) {
+    void host.queryClient.invalidateQueries({ queryKey: ["kinds"] });
+  }
   let final = cs;
   try {
     final = await getChangeSet(host.api, cs.id);

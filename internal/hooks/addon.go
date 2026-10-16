@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -117,15 +118,39 @@ type AddonRoute struct {
 	Summary string `yaml:"summary" json:"summary"`
 }
 
-// AddonKind is a kind an add-on adds, described by JSON Schema.
+// AddonKind is a kind an add-on adds, described by JSON Schema. Its
+// resources go through the change pipeline like any other, with hook points
+// and API operations of their own, and the add-on plans and applies them
+// over the add-on protocol, as a reconciler does.
 type AddonKind struct {
-	Name        string         `yaml:"name" json:"name"`
-	Prefix      string         `yaml:"prefix" json:"prefix"`
-	Scope       string         `yaml:"scope" json:"scope"`
-	Title       string         `yaml:"title" json:"title"`
-	Plural      string         `yaml:"plural" json:"plural"`
-	Description string         `yaml:"description" json:"description"`
-	Schema      map[string]any `yaml:"schema" json:"schema"`
+	Name        string `yaml:"name" json:"name" doc:"<namespace>.<name>, such as guard.rule; every kind of an add-on shares its namespace"`
+	Prefix      string `yaml:"prefix" json:"prefix" doc:"What the IDs of its resources start with, before the underscore"`
+	Scope       string `yaml:"scope" json:"scope" doc:"Who its resources belong to: the server, a reseller or an account"`
+	Title       string `yaml:"title" json:"title" doc:"Its name for people, such as Guard rule"`
+	Plural      string `yaml:"plural" json:"plural" doc:"Its plural, in lowercase words joined by hyphens, such as rules"`
+	Description string `yaml:"description" json:"description" doc:"What its resources are, for the API reference, CLI help and forms"`
+	// Schema and Status are JSON Schema documents.
+	Schema  map[string]any `yaml:"schema" json:"schema" doc:"The JSON Schema of its resources' settings"`
+	Status  map[string]any `yaml:"status,omitempty" json:"status,omitempty" doc:"The JSON Schema of the status fields the add-on reports for its resources"`
+	Actions []AddonAction  `yaml:"actions,omitempty" json:"actions,omitempty" doc:"Its actions beyond creating, changing and deleting"`
+}
+
+// AddonAction is an action of a kind an add-on adds.
+type AddonAction struct {
+	Name        string         `yaml:"name" json:"name" doc:"Lowercase words joined by underscores, such as purge"`
+	Title       string         `yaml:"title,omitempty" json:"title,omitempty" doc:"The label of its button"`
+	Summary     string         `yaml:"summary" json:"summary" doc:"What it does, in one line"`
+	Description string         `yaml:"description,omitempty" json:"description,omitempty" doc:"What it does and when to use it"`
+	Risk        string         `yaml:"risk" json:"risk" doc:"How much harm it can do: low, medium, high or critical"`
+	Destructive bool           `yaml:"destructive,omitempty" json:"destructive,omitempty" doc:"Whether it removes data, so people type a confirmation first"`
+	Reversible  bool           `yaml:"reversible,omitempty" json:"reversible,omitempty" doc:"Whether it can be undone"`
+	Input       map[string]any `yaml:"input,omitempty" json:"input,omitempty" doc:"The JSON Schema of its input; it takes none when empty"`
+}
+
+// Namespace is the part of the kind's name before the dot.
+func (k AddonKind) Namespace() string {
+	ns, _, _ := strings.Cut(k.Name, ".")
+	return ns
 }
 
 // ParseAddonManifest reads and checks an addon.yaml: against the schema,
@@ -157,7 +182,46 @@ func ParseAddonManifest(data []byte) (*AddonManifest, error) {
 			return nil, fmt.Errorf("add-on %s asks to delete or run actions on %s with a permission to read it; that takes a permission to write it", m.ID, s.Kind)
 		}
 	}
+	if err := m.checkKinds(); err != nil {
+		return nil, err
+	}
 	return &m, nil
+}
+
+// checkKinds checks the kinds a manifest adds against each other. Adding
+// kinds with reconcilers of their own is what system hooks do, so it takes
+// that level; the kinds share one namespace, which the core's own kinds
+// don't use.
+func (m *AddonManifest) checkKinds() error {
+	if len(m.Kinds) == 0 {
+		return nil
+	}
+	if !slices.Contains(m.Permissions.Hooks, System) {
+		return fmt.Errorf("add-on %s adds kinds, which takes the system hook level", m.ID)
+	}
+	names, prefixes, plurals := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	ns := m.Kinds[0].Namespace()
+	for _, k := range m.Kinds {
+		switch {
+		case k.Namespace() != ns:
+			return fmt.Errorf("add-on %s adds %s and %s; its kinds share the part of their names before the dot", m.ID, m.Kinds[0].Name, k.Name)
+		case ns == "core":
+			return fmt.Errorf("add-on %s adds %s, but core kinds are the panel's own", m.ID, k.Name)
+		case names[k.Name] || prefixes[k.Prefix] || plurals[k.Plural]:
+			return fmt.Errorf("add-on %s adds %s with a name, prefix or plural another of its kinds has", m.ID, k.Name)
+		case strings.TrimSpace(k.Title) == "" || strings.TrimSpace(k.Description) == "":
+			return fmt.Errorf("add-on %s adds %s without a title or a description", m.ID, k.Name)
+		}
+		names[k.Name], prefixes[k.Prefix], plurals[k.Plural] = true, true, true
+		for _, a := range k.Actions {
+			switch a.Risk {
+			case "low", "medium", "high", "critical":
+			default:
+				return fmt.Errorf("add-on %s: the %s action of %s needs a risk of low, medium, high or critical", m.ID, a.Name, k.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // AccountInstalled reports whether the manifest can be installed by an
@@ -175,6 +239,9 @@ func (m *AddonManifest) AccountInstalled() error {
 	}
 	if len(m.Provides) > 0 {
 		return fmt.Errorf("add-on %s provides %s, and what add-ons provide serves the whole server, so only a server admin can install it", m.ID, m.Provides[0])
+	}
+	if len(m.Kinds) > 0 {
+		return fmt.Errorf("add-on %s adds %s, and the kinds add-ons add serve the whole server, so only a server admin can install it", m.ID, m.Kinds[0].Name)
 	}
 	for _, h := range m.Hooks {
 		if !AccountPoint(Point(h.Point)) {

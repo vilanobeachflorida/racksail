@@ -44,6 +44,9 @@ func newAddonRuntime(ctx context.Context, cfg config.Config, db *store.DB, st st
 		SafeMode: addons.OpenSafeMode(cfg.Paths.State, addons.ReadCmdline()),
 		TokenDir: filepath.Join(cfg.Paths.State, "addons"), SocketDir: filepath.Join(cfg.Paths.Run, "addons"),
 		Enqueue: runner.Enqueue, Catalogs: catalogs, Accounts: accounts, Log: log,
+		// The kinds add-ons add join the panel's, and their reconcilers
+		// the panel's.
+		Kinds: store.Kinds(), Reconcilers: runner.Registry,
 	}), nil
 }
 

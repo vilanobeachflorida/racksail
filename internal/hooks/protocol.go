@@ -8,9 +8,12 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/vilanobeachflorida/racksail/internal/agent"
 	"github.com/vilanobeachflorida/racksail/internal/api/httpapi"
 	"github.com/vilanobeachflorida/racksail/internal/auth"
 	"github.com/vilanobeachflorida/racksail/internal/changeset"
+	"github.com/vilanobeachflorida/racksail/internal/store"
+	"github.com/vilanobeachflorida/racksail/internal/system"
 )
 
 // The add-on protocol is HTTP and JSON over the add-on's Unix socket. The
@@ -56,11 +59,60 @@ type ProvideCall struct {
 	Input any `json:"input,omitempty" doc:"What the method takes, as the capability's interface describes it"`
 }
 
+// KindResource is a resource of a kind the add-on adds, as the panel sends
+// it to be planned and applied.
+type KindResource struct {
+	ID         store.ID          `json:"id" doc:"The resource's ID"`
+	Kind       string            `json:"kind" doc:"Its kind, one the add-on adds"`
+	Scope      store.Scope       `json:"scope" doc:"Who it belongs to"`
+	Labels     map[string]string `json:"labels,omitempty" doc:"Its labels"`
+	Generation int64             `json:"generation" doc:"Its generation, which goes up whenever its settings change"`
+	Spec       json.RawMessage   `json:"spec" doc:"Its settings, as the kind's JSON Schema describes them"`
+	Status     json.RawMessage   `json:"status,omitempty" doc:"Its status: what the add-on last reported, with the phase and conditions the panel keeps"`
+	Deleted    bool              `json:"deleted,omitempty" doc:"Set while it is deleted: the plan removes what earlier plans wrote, and applying undoes what the add-on did for it"`
+}
+
+// KindAction is an action of a kind the add-on adds, to plan or apply.
+type KindAction struct {
+	Name  string          `json:"name" doc:"The action, as the kind declares it"`
+	Input json.RawMessage `json:"input,omitempty" doc:"Its input, checked against the action's JSON Schema"`
+}
+
+// KindCall is what the panel sends an add-on to plan or apply a resource of
+// a kind it adds, as POST /kinds/{kind}/plan and POST /kinds/{kind}/apply.
+type KindCall struct {
+	Resource KindResource `json:"resource"`
+	Action   *KindAction  `json:"action,omitempty" doc:"Set to plan or apply an action of the resource rather than its settings"`
+	// Dir is the add-on's own directory for its kinds, the only place the
+	// steps of its plans may write, which its process can read.
+	Dir string `json:"dir" doc:"The only directory the plan's steps may touch, which the add-on can read"`
+	// Results are what the plan's steps returned, sent with apply.
+	Results []agent.StepResult `json:"results,omitempty" doc:"Apply: what each step of the plan returned"`
+}
+
+// KindPlan is an add-on's plan of a resource: the steps the agent runs, and
+// what applying does beyond them, for the preview. Planning must not change
+// anything: the same call always gets the same plan.
+type KindPlan struct {
+	Steps   []agent.Step    `json:"steps,omitempty" doc:"Agent operations to run on the server: WriteFile, EnsureDir, RemovePath, ReadFile, StatPath and ListDir, of paths in dir"`
+	Effects []system.Effect `json:"effects,omitempty" doc:"What applying does beyond the steps, such as records it makes with an outside service, for the preview"`
+	Spec    json.RawMessage `json:"spec,omitempty" doc:"Actions: the resource's new settings, when the action changes them"`
+}
+
+// KindApplied is an add-on's answer once the steps of its plan have run:
+// what it did itself, such as calls to an outside service, is done, and the
+// status says how the resource is. An error answer fails the change.
+type KindApplied struct {
+	Status map[string]any  `json:"status,omitempty" doc:"The kind's own status fields, as its status schema describes them"`
+	Output json.RawMessage `json:"output,omitempty" doc:"Actions: what the action returned"`
+}
+
 // ProtocolDocument returns the OpenAPI document of the add-on protocol.
 func ProtocolDocument() ([]byte, error) {
 	cfg := httpapi.Config("Racksail add-on protocol", APIVersion)
 	doc := cfg.OpenAPI
-	doc.Info.Description = "What an add-on serves on its Unix socket for the panel: its health, and its hooks. " +
+	doc.Info.Description = "What an add-on serves on its Unix socket for the panel: its health, its hooks, the capabilities it provides, " +
+		"the plans and applies of the kinds it adds, and its routes and screens. " +
 		"Hooks answer within their deadline; an error or a timeout counts as a failure, which blocks the change " +
 		"only for hooks whose failure mode is block. The panel never sends data the add-on's permissions don't grant."
 	schemas := doc.Components.Schemas
@@ -113,6 +165,42 @@ func ProtocolDocument() ([]byte, error) {
 		RequestBody: &huma.RequestBody{Required: true, Content: jsonBody(reflect.TypeFor[ProvideCall](), "ProvideCall")},
 		Responses: map[string]*huma.Response{
 			"200":     {Description: "What the method returns", Content: map[string]*huma.MediaType{"application/json": {Schema: &huma.Schema{}}}},
+			"default": problem,
+		},
+	})
+	kindParam := &huma.Param{
+		Name: "kind", In: "path", Required: true, Description: "The kind, one the add-on's manifest adds, such as guard.rule",
+		Schema: &huma.Schema{Type: "string", Pattern: `^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`},
+	}
+	doc.AddOperation(&huma.Operation{
+		OperationID: "planKind",
+		Method:      http.MethodPost,
+		Path:        "/kinds/{kind}/plan",
+		Summary:     "Plan a resource of a kind the add-on adds",
+		Description: "The panel calls it as it plans a change of the resource, or one of its actions, for the preview and again to apply it, " +
+			"and when it puts back what drifted. The plan is the steps the agent runs, only of files in dir, and what applying does beyond them. " +
+			"Planning changes nothing, and the same call always gets the same plan.",
+		Tags:        []string{"Add-on"},
+		Parameters:  []*huma.Param{kindParam},
+		RequestBody: &huma.RequestBody{Required: true, Content: jsonBody(reflect.TypeFor[KindCall](), "KindCall")},
+		Responses: map[string]*huma.Response{
+			"200":     {Description: "The plan", Content: jsonBody(reflect.TypeFor[KindPlan](), "KindPlan")},
+			"default": problem,
+		},
+	})
+	doc.AddOperation(&huma.Operation{
+		OperationID: "applyKind",
+		Method:      http.MethodPost,
+		Path:        "/kinds/{kind}/apply",
+		Summary:     "Apply a resource of a kind the add-on adds",
+		Description: "The panel calls it once the plan's steps have run, with what they returned. The add-on does what the plan said it " +
+			"would besides, and answers with the resource's status, or with a problem, which fails the change. For a resource being deleted, " +
+			"it undoes what it did for it.",
+		Tags:        []string{"Add-on"},
+		Parameters:  []*huma.Param{kindParam},
+		RequestBody: &huma.RequestBody{Required: true, Content: jsonBody(reflect.TypeFor[KindCall](), "KindCall")},
+		Responses: map[string]*huma.Response{
+			"200":     {Description: "The resource's status, and an action's output", Content: jsonBody(reflect.TypeFor[KindApplied](), "KindApplied")},
 			"default": problem,
 		},
 	})

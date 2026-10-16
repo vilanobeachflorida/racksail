@@ -86,6 +86,18 @@ type fakeAddon struct {
 	sent   []json.RawMessage
 	notes  bool
 	health string
+	// kindCalls are the plans and applies of its kinds it was asked for;
+	// with stray set, its plans write outside its directory, and with
+	// failDeletes, it can't undo what it did for a resource.
+	kindCalls   []kindCall
+	stray       bool
+	failDeletes bool
+}
+
+// kindCall is one plan or apply the fake add-on was asked for.
+type kindCall struct {
+	what string
+	call hooks.KindCall
 }
 
 func (f *fakeAddon) serve(t *testing.T, socket string) {
@@ -146,6 +158,52 @@ func (f *fakeAddon) serve(t *testing.T, socket string) {
 		f.mu.Unlock()
 		w.Write([]byte("{}"))
 	})
+	// Its guard.rule resources are files of their pattern in its directory,
+	// and a purge reports what it purged.
+	mux.HandleFunc("POST /kinds/{kind}/{what}", func(w http.ResponseWriter, r *http.Request) {
+		var call hooks.KindCall
+		if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		f.mu.Lock()
+		f.kindCalls = append(f.kindCalls, kindCall{what: r.PathValue("what"), call: call})
+		stray, failDeletes := f.stray, f.failDeletes
+		f.mu.Unlock()
+		var spec struct {
+			Pattern string `json:"pattern"`
+		}
+		json.Unmarshal(call.Resource.Spec, &spec)
+		file := call.Dir + "/" + string(call.Resource.ID) + ".conf"
+		if stray {
+			file = "/etc/racksail/stolen.conf"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.PathValue("what") == "plan" && call.Action != nil:
+			json.NewEncoder(w).Encode(hooks.KindPlan{Effects: []system.Effect{{Type: system.EffectProcess, Action: "purge", Target: spec.Pattern}}})
+		case r.PathValue("what") == "plan" && call.Resource.Deleted:
+			json.NewEncoder(w).Encode(hooks.KindPlan{Steps: []agent.Step{agent.RemovePath.Step(agent.RemovePathInput{Path: file})}})
+		case r.PathValue("what") == "plan":
+			json.NewEncoder(w).Encode(hooks.KindPlan{
+				Steps: []agent.Step{
+					agent.EnsureDir.Step(agent.EnsureDirInput{Path: call.Dir, Mode: 0o755, Parents: true}),
+					agent.WriteFile.Step(agent.WriteFileInput{Path: file, Content: []byte(spec.Pattern + "\n"), Mode: 0o644}),
+				},
+				Effects: []system.Effect{{Type: system.EffectProcess, Action: "watch", Target: spec.Pattern}},
+			})
+		case call.Action != nil:
+			json.NewEncoder(w).Encode(hooks.KindApplied{Output: json.RawMessage(`{"purged":3}`)})
+		case call.Resource.Deleted && !failDeletes:
+			json.NewEncoder(w).Encode(hooks.KindApplied{})
+		case spec.Pattern == "fail" || call.Resource.Deleted:
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]any{"status": 502, "detail": "the outside service refused the rule"})
+		default:
+			json.NewEncoder(w).Encode(hooks.KindApplied{Status: map[string]any{"watching": spec.Pattern, "phase": "forged"}})
+		}
+	})
 	mux.HandleFunc("GET /routes/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"path": r.PathValue("path"), "actor": r.Header.Get("Racksail-Actor"), "cookie": r.Header.Get("Cookie")})
@@ -183,6 +241,7 @@ func (a accounts) AddonPlacement(ctx context.Context, rd store.Reader, account s
 type env struct {
 	t        *testing.T
 	store    *store.Memory
+	kinds    *store.KindRegistry
 	engine   *changeset.Engine
 	queue    *jobs.Manager
 	registry *hooks.Registry
@@ -286,10 +345,10 @@ func newEnv(t *testing.T) *env {
 	ag := &restarting{Client: agent.NewLocal(m.Backend(), log)}
 	recs := reconcile.NewRegistry()
 	runner := &reconcile.Runner{Store: st, Agent: ag, Registry: recs, Events: bus, Log: log}
-	e := &env{t: t, store: st, places: accounts{}}
+	e := &env{t: t, store: st, kinds: kinds, places: accounts{}}
 	e.catalogs = recipes.NewCatalogs(recipes.CatalogOptions{Store: st, Cache: filepath.Join(dir, "catalogs"), Logger: log})
 	rt := NewRuntime(Options{
-		Registry: reg, Store: st, Kinds: kinds, Agent: ag, Events: bus, Audit: bus, Tokens: NewMemoryTokens(),
+		Registry: reg, Store: st, Kinds: kinds, Reconcilers: recs, Agent: ag, Events: bus, Audit: bus, Tokens: NewMemoryTokens(),
 		SafeMode: OpenSafeMode(filepath.Join(dir, "state"), nil), TokenDir: filepath.Join(dir, "tokens"), SocketDir: dir,
 		Resolve: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			if host == "api.example.com" {

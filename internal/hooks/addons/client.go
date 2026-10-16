@@ -131,6 +131,21 @@ func (c *Client) Provide(ctx context.Context, capability, method string, in, out
 	return c.do(ctx, http.MethodPost, "/provide/"+url.PathEscape(capability)+"/"+url.PathEscape(method), hooks.ProvideCall{Input: in}, out, nil)
 }
 
+// PlanKind asks the add-on for its plan of a resource of a kind it adds.
+func (c *Client) PlanKind(ctx context.Context, call hooks.KindCall) (hooks.KindPlan, error) {
+	var plan hooks.KindPlan
+	err := c.do(ctx, http.MethodPost, "/kinds/"+url.PathEscape(call.Resource.Kind)+"/plan", call, &plan, nil)
+	return plan, err
+}
+
+// ApplyKind has the add-on apply a resource of a kind it adds, once the
+// steps of its plan have run.
+func (c *Client) ApplyKind(ctx context.Context, call hooks.KindCall) (hooks.KindApplied, error) {
+	var applied hooks.KindApplied
+	err := c.do(ctx, http.MethodPost, "/kinds/"+url.PathEscape(call.Resource.Kind)+"/apply", call, &applied, nil)
+	return applied, err
+}
+
 // Proxy returns a handler that passes requests to the add-on under prefix,
 // such as /routes/ or /ui/, with what the add-on may know about who asks.
 // The panel's cookies and credentials never reach the add-on.

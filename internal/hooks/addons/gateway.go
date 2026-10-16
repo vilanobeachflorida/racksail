@@ -95,7 +95,7 @@ func (g *Gateway) api(w http.ResponseWriter, r *http.Request, actor *auth.Actor,
 	}
 	kinds := g.Runtime.kinds()
 	about := requestKind(kinds, r.URL.Path)
-	if r.Method == http.MethodGet && about != nil && kindList(about.Info(), r.URL.Path) {
+	if r.Method == http.MethodGet && about != nil && kindList(about, r.URL.Path) {
 		if err := grants.checkQuery(name, about.Info(), r.URL.Query()); err != nil {
 			writeError(w, err)
 			return
@@ -320,16 +320,23 @@ func requestKind(kinds *store.KindRegistry, path string) store.Kind {
 		}
 	}
 	for _, k := range kinds.All() {
-		if kindList(k.Info(), path) {
+		if kindList(k, path) {
 			return k
 		}
 	}
 	return nil
 }
 
-// kindList reports whether path is where a kind's resources are listed.
-func kindList(info *store.KindInfo, path string) bool {
-	return strings.TrimSuffix(path, "/") == "/api/v1/"+info.Module()+"/"+info.Plural
+// kindList reports whether path is where a kind's resources are listed:
+// /api/v1/<module>/<plural>, or for a kind described by JSON Schema, such
+// as one an add-on adds, /api/v1/kinds/<name>/resources.
+func kindList(k store.Kind, path string) bool {
+	path = strings.TrimSuffix(path, "/")
+	info := k.Info()
+	if _, ok := k.(store.SchemaKind); ok {
+		return path == "/api/v1/kinds/"+info.Name+"/resources" || path == "/api/v1/kinds/"+url.PathEscape(info.Name)+"/resources"
+	}
+	return path == "/api/v1/"+info.Module()+"/"+info.Plural
 }
 
 // checkQuery refuses a list of a kind the add-on may see only some of that

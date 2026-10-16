@@ -56,12 +56,15 @@ type Options struct {
 	Store    store.Store
 	// Kinds are the kinds the panel knows, which the kinds add-ons add
 	// join; the process-wide registry when nil.
-	Kinds    *store.KindRegistry
-	Agent    agent.Client
-	Events   events.Bus
-	Audit    events.AuditLog
-	Tokens   Tokens
-	SafeMode *SafeMode
+	Kinds *store.KindRegistry
+	// Reconcilers are the panel's reconcilers, which those of the kinds
+	// add-ons add join.
+	Reconcilers *reconcile.Registry
+	Agent       agent.Client
+	Events      events.Bus
+	Audit       events.AuditLog
+	Tokens      Tokens
+	SafeMode    *SafeMode
 	// TokenDir is where tokens are written for systemd; SocketDir is where
 	// add-ons serve the panel.
 	TokenDir  string
@@ -91,6 +94,8 @@ type Runtime struct {
 	running map[string]*installed
 	// safe says the runtime has turned the add-ons off for safe mode.
 	safe bool
+	// added are the kinds add-ons add.
+	added addedKinds
 }
 
 // installed is an add-on the runtime attached.
@@ -130,7 +135,7 @@ func NewRuntime(opts Options) *Runtime {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		}
 	}
-	return &Runtime{opts: opts, running: map[string]*installed{}}
+	return &Runtime{opts: opts, running: map[string]*installed{}, added: addedKinds{kinds: map[string]*Kind{}, reconciling: map[string]bool{}}}
 }
 
 var instanceSuffix = regexp.MustCompile(`[^a-z0-9]`)
@@ -225,8 +230,17 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 	}
 	if obj.Deleted() {
 		r.detach(ctx, inst, true)
+		r.retireKinds(inst)
 		return st, nil
 	}
+	man, err := Check(obj.Spec, obj.Kind == AccountAddon.Name())
+	if err != nil {
+		st.State = StateFailed
+		return st, err
+	}
+	// The kinds it adds are there whether or not it runs, so their
+	// resources stay readable; they only change while it runs.
+	kindProblems := r.declareKinds(inst, man)
 	if !obj.Spec.Enabled || r.safeModeOn() {
 		r.detach(ctx, inst, true)
 		st.State, st.Health, st.Hooks = StateStopped, "", 0
@@ -236,11 +250,6 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 			st.Message = "Safe mode is on, so the add-on doesn't run."
 		}
 		return st, nil
-	}
-	man, err := Check(obj.Spec, obj.Kind == AccountAddon.Name())
-	if err != nil {
-		st.State = StateFailed
-		return st, err
 	}
 	in := &installed{
 		resource: obj.ID, kind: obj.Kind, instance: inst, manifest: man,
@@ -297,6 +306,7 @@ func (a addonReconciler) Apply(ctx context.Context, obj *store.Object[AddonSpec,
 		in.restarts = us.Restarts
 	}
 	count, problems := r.attach(in)
+	problems = append(kindProblems, problems...)
 	st.Hooks, st.Version, st.State = count, man.Version, StateRunning
 	checked := now.UTC()
 	st.CheckedAt = &checked
@@ -864,6 +874,7 @@ func (r *Runtime) Hooks() []hooks.Registration {
 			})
 		}
 	}
+	out = append(out, r.kindHooks()...)
 	return append(out, hooks.Registration{
 		Point: "*.*.*.validate", Kind: hooks.Validate, Owner: owner, Security: true, Priority: -900,
 		OnValidate: func(ctx context.Context, c *hooks.Context) error {

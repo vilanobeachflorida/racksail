@@ -33,7 +33,17 @@ export function useKindsFor(operation: "list" | "create"): Kind[] {
       .filter((o) => o.operation === operation && o.kind && allowed(o.permission))
       .map((o) => o.kind),
   );
+  // The kinds add-ons add share operations that name them, so their own
+  // permission decides.
+  const permission = operation === "list" ? "read" : "create";
+  const usable = (k: Kind) =>
+    names.has(k.name) || (servedBySchema(k) && allowed(`${k.name}.${permission}`));
   return kinds.filter(
-    (k) => !k.ui.hidden && names.has(k.name) && (!isModuleId(k.module) || isOn(states, k.module)),
+    (k) => !k.ui.hidden && usable(k) && (!isModuleId(k.module) || isOn(states, k.module)),
   );
+}
+
+/** Whether a kind is one described by JSON Schema, as add-ons' kinds are. */
+export function servedBySchema(kind: Pick<Kind, "path">): boolean {
+  return kind.path.startsWith("/api/v1/kinds/");
 }

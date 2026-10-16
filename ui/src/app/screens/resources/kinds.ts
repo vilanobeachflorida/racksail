@@ -53,7 +53,10 @@ export function getKind(api: ApiClient, name: string): Promise<Kind> {
   return unwrap(api.GET("/api/v1/kinds/{name}", { params: { path: { name } } }));
 }
 
-/** The kinds, which only change with a new release of the panel. */
+/**
+ * The kinds, which change with a new release of the panel, and when an
+ * add-on that adds kinds comes or goes, which the change tracker notices.
+ */
 export function useKinds() {
   const api = useApi();
   return useQuery({
