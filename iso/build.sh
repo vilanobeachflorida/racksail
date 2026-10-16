@@ -32,7 +32,14 @@ die() {
 	exit 1
 }
 
-arch= variant=standard binary= version= out=dist work=build/iso mirror= security_mirror=
+arch=''
+variant=standard
+binary=''
+version=''
+out=dist
+work=build/iso
+mirror=''
+security_mirror=''
 while [ $# -gt 0 ]; do
 	case $1 in
 	--arch) arch=$2; shift 2 ;;
