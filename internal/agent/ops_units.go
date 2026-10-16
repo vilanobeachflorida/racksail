@@ -408,8 +408,11 @@ var SetUnitProperties = Register(Def[SetUnitPropertiesInput, Result]{
 	},
 	Run: func(ctx context.Context, env *Env, in SetUnitPropertiesInput) (Result, error) {
 		// A read error leaves current empty, so every property counts as a
-		// change and set-property runs, reporting any real problem itself.
-		current, _ := env.System.Units.ResourceControl(ctx, in.Name)
+		// change and set-property runs, reporting any real problem itself. A
+		// persistent change (runtime false) compares against the values that
+		// survive a reboot, so it still writes its drop-in when a runtime
+		// override is the only thing currently matching.
+		current, _ := env.System.Units.ResourceControl(ctx, in.Name, in.Runtime)
 		var todo []system.UnitProperty
 		for _, p := range in.Properties {
 			want, ok := system.CanonicalLimit(p.Name, p.Value)

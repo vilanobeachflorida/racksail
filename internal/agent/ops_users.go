@@ -56,10 +56,8 @@ var EnsureGroup = Register(Def[EnsureGroupInput, Result]{
 		u := env.System.Users
 		cur, err := u.LookupGroup(ctx, in.Name)
 		if errors.Is(err, system.ErrNotFound) {
-			// A fixed GID of a new group has to be an account's; the system
-			// chooses GIDs for racksail-* groups.
-			if in.GID != 0 && (in.GID < system.AccountUIDMin || in.GID > system.AccountUIDMax) {
-				return Result{}, fmt.Errorf("gid %d is outside the account range, so Racksail won't create group %s with it: %w", in.GID, in.Name, system.ErrInvalid)
+			if err := checkCreatableGroup(in, env.Check); err != nil {
+				return Result{}, err
 			}
 			effect := system.Effect{Type: system.EffectUser, Action: "create-group", Target: in.Name}
 			if env.Check {
@@ -91,6 +89,32 @@ var EnsureGroup = Register(Def[EnsureGroupInput, Result]{
 		return Changed(effect), u.UpdateGroup(ctx, cur)
 	},
 })
+
+// checkCreatableGroup holds a group created over a free name to what Racksail
+// can manage afterwards, the rule DeleteGroup and member changes already use:
+// a system group must be racksail-*, and an account group must take an
+// account-range GID. An account's GID is allocated at apply time, so a
+// preview still carrying the zero placeholder is let through.
+func checkCreatableGroup(in EnsureGroupInput, check bool) error {
+	if in.System {
+		if !strings.HasPrefix(in.Name, "racksail-") {
+			return fmt.Errorf("a system group Racksail creates must be named racksail-*, not %s: %w", in.Name, system.ErrInvalid)
+		}
+		// The system chooses a GID for racksail-* groups; a fixed one has to be
+		// an account's.
+		if in.GID != 0 && (in.GID < system.AccountUIDMin || in.GID > system.AccountUIDMax) {
+			return fmt.Errorf("gid %d is outside the account range, so Racksail won't create group %s with it: %w", in.GID, in.Name, system.ErrInvalid)
+		}
+		return nil
+	}
+	if check && in.GID == 0 {
+		return nil
+	}
+	if in.GID < system.AccountUIDMin || in.GID > system.AccountUIDMax {
+		return fmt.Errorf("an account group's gid must be in the account range %d-%d, not %d: %w", system.AccountUIDMin, system.AccountUIDMax, in.GID, system.ErrInvalid)
+	}
+	return nil
+}
 
 func sameSet(a, b []string) bool {
 	if len(a) != len(b) {
@@ -149,13 +173,10 @@ func (in EnsureUserInput) Validate() error {
 	if err := cleanAbs(in.Home); err != nil {
 		return err
 	}
-	// An account's home stays in the accounts area, so it can't point at a
-	// location the panel itself writes. Racksail's own service users, which
-	// are system users, keep their homes elsewhere (the state directory, or
-	// none at all).
-	if !in.System && !strings.HasPrefix(in.Home, accountsArea+"/") {
-		return fmt.Errorf("an account's home must be under %s, not %s", accountsArea, in.Home)
-	}
+	// Where the home may be is checked against who the user is (an account or
+	// a racksail-* system user) in the create and managed-update paths, where
+	// a no-op on a user Racksail doesn't manage, such as root, isn't refused
+	// for its home.
 	if in.Shell != "" && !slices.Contains(allowedShells, in.Shell) {
 		return fmt.Errorf("shell %s isn't allowed", in.Shell)
 	}
@@ -197,6 +218,12 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		cur, err := u.LookupUser(ctx, in.Name)
 		if errors.Is(err, system.ErrNotFound) {
 			effect := system.Effect{Type: system.EffectUser, Action: "create", Target: in.Name}
+			if err := checkCreatableUser(in, env.Check); err != nil {
+				return Result{}, err
+			}
+			if err := checkUserHome(in); err != nil {
+				return Result{}, err
+			}
 			if in.GID != 0 {
 				if err := checkPrimaryGroup(ctx, u, in.GID); err != nil {
 					return Result{}, err
@@ -232,6 +259,9 @@ var EnsureUser = Register(Def[EnsureUserInput, Result]{
 		if !managedUser(cur) {
 			return Result{}, ErrNotAllowed.New("op", "EnsureUser", "target", in.Name)
 		}
+		if err := checkUserHome(in); err != nil {
+			return Result{}, err
+		}
 		if err := checkSupplementaryGroups(ctx, u, want.Groups, env.Check); err != nil {
 			return Result{}, err
 		}
@@ -262,16 +292,69 @@ func checkSupplementaryGroups(ctx context.Context, u system.Users, names []strin
 	return nil
 }
 
-// checkPrimaryGroup refuses a fixed primary group that is privileged.
+// checkPrimaryGroup holds a fixed primary group to the same allowlist as the
+// supplementary ones: an account group or a racksail-* group, never a
+// privileged or an unrelated system group such as ssl-cert, which a fixed GID
+// could otherwise name to give a racksail-* user the right to read keys.
 func checkPrimaryGroup(ctx context.Context, u system.Users, gid int) error {
 	groups, err := u.ListGroups(ctx)
 	if err != nil {
 		return err
 	}
 	for _, g := range groups {
-		if g.GID == gid && slices.Contains(privilegedGroups, g.Name) {
-			return fmt.Errorf("gid %d is the privileged group %s: %w", gid, g.Name, system.ErrInvalid)
+		if g.GID == gid {
+			if !ownedGroup(g) {
+				return fmt.Errorf("gid %d is group %s, which Racksail doesn't own, so it can't be a primary group: %w", gid, g.Name, system.ErrInvalid)
+			}
+			return nil
 		}
+	}
+	// No group has this GID yet, such as an account's own group created in the
+	// same plan. Only an account-range GID is left to allow.
+	if gid < system.AccountUIDMin || gid > system.AccountUIDMax {
+		return fmt.Errorf("gid %d names no group Racksail owns: %w", gid, system.ErrInvalid)
+	}
+	return nil
+}
+
+// checkCreatableUser holds a user created over a free name to what Racksail
+// can manage afterwards, so a name a distribution package might take later
+// can't be claimed in advance with panel-chosen settings: a system user must
+// be racksail-* (or a platform user the installer makes), and an account must
+// take an account-range UID. An account's UID is allocated at apply time, so
+// a preview still carrying the zero placeholder is let through.
+func checkCreatableUser(in EnsureUserInput, check bool) error {
+	if in.System {
+		if !strings.HasPrefix(in.Name, "racksail-") && !slices.Contains(platformUsers, in.Name) {
+			return fmt.Errorf("a system user Racksail creates must be named racksail-*, not %s: %w", in.Name, system.ErrInvalid)
+		}
+		return nil
+	}
+	if check && in.UID == 0 {
+		return nil
+	}
+	if in.UID < system.AccountUIDMin || in.UID > system.AccountUIDMax {
+		return fmt.Errorf("an account's uid must be in the account range %d-%d, not %d: %w", system.AccountUIDMin, system.AccountUIDMax, in.UID, system.ErrInvalid)
+	}
+	return nil
+}
+
+// checkUserHome confines where a managed user's home may point, so it can't
+// be a location the panel itself writes. Account homes stay under the
+// accounts area, each account in its own directory (decision D1), so a home
+// can't be the accounts' parent, a sibling such as the replica or backups
+// staging, or anywhere else; Racksail's own service users, which are system
+// users, keep their homes out of the way: none (/nonexistent) or inside the
+// panel's state.
+func checkUserHome(in EnsureUserInput) error {
+	if in.System {
+		if in.Home != "/nonexistent" && in.Home != system.StateDir && !strings.HasPrefix(in.Home, system.StateDir+"/") {
+			return fmt.Errorf("a system user's home must be /nonexistent or under %s, not %s: %w", system.StateDir, in.Home, system.ErrInvalid)
+		}
+		return nil
+	}
+	if !strings.HasPrefix(in.Home, system.AccountsDir+"/") {
+		return fmt.Errorf("an account's home must be under %s, not %s: %w", system.AccountsDir, in.Home, system.ErrInvalid)
 	}
 	return nil
 }
@@ -322,9 +405,15 @@ var DeleteUser = Register(Def[DeleteUserInput, Result]{
 
 // managedUser reports whether a user is one Racksail manages, so an
 // operation may change or remove it: an account (its UID in the account
-// range) or a racksail-* system user. Every other user, root and the
-// administrators' own login users among them, is left alone.
+// range) or a racksail-* system user. Every other user is left alone: root
+// and the administrators' own login users, and the platform's own identities
+// (racksail, racksail-edge), which only the installer and the self-update
+// paths create, much as the platform units are rendered only by
+// InstallPlatformUnits.
 func managedUser(u system.User) bool {
+	if slices.Contains(platformUsers, u.Name) {
+		return false
+	}
 	if u.UID >= system.AccountUIDMin && u.UID <= system.AccountUIDMax {
 		return true
 	}

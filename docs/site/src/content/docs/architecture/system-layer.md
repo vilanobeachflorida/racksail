@@ -21,7 +21,7 @@ Every file Racksail writes, such as systemd units, network and firewall configur
 
 Unit files go the other way too: a parser reads them exactly as systemd does, with its comments, continued lines and trimming, and a checker holds each type of unit to the directives the renderers use, with their values. The units the renderers produce for accounts pass it; a unit that would run a command as root, hand a service another account's directories, leave out part of an account's sandbox or stop the machine doesn't. Network files and firewall rulesets are checked the same way: only what Racksail renders, and only Racksail's own tables.
 
-Sandboxes don't deny any addresses by default. The agent's socket and the edge's admin socket are Unix sockets the sandbox hides, the panel only answers those who sign in, and denying the server's own addresses would also cut a site off from its database on the same server. A module that keeps the panel on a management address of its own denies that address.
+Sandboxes don't deny any addresses by default, because denying the server's own addresses would also cut a site off from its database on the same server. Nothing privileged is reached by address instead: the agent's socket, the edge's admin socket and the panel's edge-facing socket are Unix sockets under `/run/racksail` that the sandbox hides, and although a site can still reach the panel's own port over loopback, the panel authenticates every request and believes a forwarded client address only on the socket the edge proxies through — never from a loopback peer — so a site can't forge the address the panel's allowlist and rate limits key on. A module that keeps the panel on a management address of its own denies that address.
 
 ## Platform units
 

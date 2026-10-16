@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -221,9 +222,12 @@ var resourceControlProps = map[string]string{
 	"CPUWeight": "CPUWeight", "IOWeight": "IOWeight", "TasksMax": "TasksMax",
 }
 
-func (u *units) ResourceControl(ctx context.Context, name string) (map[string]string, error) {
+func (u *units) ResourceControl(ctx context.Context, name string, runtime bool) (map[string]string, error) {
 	if err := checkUnit(name); err != nil {
 		return nil, err
+	}
+	if !runtime {
+		return u.persistentLimits(ctx, name)
 	}
 	props, err := u.systemd.Properties(ctx, name)
 	if err != nil {
@@ -244,6 +248,87 @@ func (u *units) ResourceControl(ctx context.Context, name string) (map[string]st
 			out[limit] = "infinity"
 		} else {
 			out[limit] = strconv.FormatUint(raw, 10)
+		}
+	}
+	return out, nil
+}
+
+// unitConfigDirs are the directories a unit's persistent configuration lives
+// in, lowest precedence first; the transient /run directories are left out,
+// since a persistent change must survive a reboot that drops them.
+var unitConfigDirs = []string{"/usr/lib/systemd/system", "/lib/systemd/system", system.UnitDir}
+
+// persistentLimits reads the resource-control limits a unit keeps across a
+// reboot: its unit file and its persistent drop-ins (admin drop-ins and the
+// drop-ins systemctl set-property writes under system.control), but not the
+// /run overrides a runtime set-property writes. Parsing is done the way
+// systemd reads unit files, and the last assignment of each limit wins.
+func (u *units) persistentLimits(ctx context.Context, name string) (map[string]string, error) {
+	fs := u.fs()
+	raw := map[string]string{}
+	collect := func(content []byte) {
+		parsed, err := system.ParseUnitFile(content)
+		if err != nil {
+			return
+		}
+		for _, s := range parsed.Sections {
+			for _, e := range s.Entries {
+				if slices.Contains(system.ResourceControlProperties, e.Key) {
+					raw[e.Key] = e.Value
+				}
+			}
+		}
+	}
+	readFile := func(p string) error {
+		content, err := fs.ReadFile(ctx, p, 1<<20)
+		switch {
+		case errors.Is(err, system.ErrNotFound):
+			return nil
+		case err != nil:
+			return err
+		}
+		collect(content)
+		return nil
+	}
+	// The unit file: /etc overrides /usr/lib, so later directories win.
+	for _, dir := range unitConfigDirs {
+		if err := readFile(path.Join(dir, name)); err != nil {
+			return nil, err
+		}
+	}
+	// Persistent drop-in directories, lowest precedence first; the admin ones
+	// in /etc override the vendor ones, and system.control (set-property)
+	// overrides those.
+	var dropInDirs []string
+	for _, dir := range unitConfigDirs {
+		dropInDirs = append(dropInDirs, path.Join(dir, name+".d"))
+	}
+	dropInDirs = append(dropInDirs, path.Join("/etc/systemd/system.control", name+".d"))
+	for _, dir := range dropInDirs {
+		entries, err := fs.ReadDir(ctx, dir)
+		if errors.Is(err, system.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		confs := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if strings.HasSuffix(e.Path, ".conf") {
+				confs = append(confs, e.Path)
+			}
+		}
+		sort.Strings(confs)
+		for _, c := range confs {
+			if err := readFile(c); err != nil {
+				return nil, err
+			}
+		}
+	}
+	out := map[string]string{}
+	for k, v := range raw {
+		if canon, ok := system.CanonicalLimit(k, v); ok {
+			out[k] = canon
 		}
 	}
 	return out, nil

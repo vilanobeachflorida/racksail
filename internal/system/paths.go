@@ -32,6 +32,12 @@ const (
 	RunDir       = "/run/racksail"
 	AgentSocket  = "/run/racksail/agent.sock"
 	EdgeSocket   = "/run/racksail/edge.sock"
+	// PanelSocket is the panel's edge-facing endpoint. The edge proxies the
+	// panel's hostname to it, and requests that arrive on it are the only ones
+	// whose forwarded client address the panel believes. It lives under
+	// /run/racksail, which account sandboxes can't reach, so a site can't use
+	// it to forge its apparent address. The panel keeps its own TCP port too.
+	PanelSocket  = "/run/racksail/panel.sock"
 	DataDisksDir = "/mnt/racksail"
 	UnitDir      = "/etc/systemd/system"
 	NetworkdDir  = "/etc/systemd/network"

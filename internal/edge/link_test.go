@@ -45,7 +45,7 @@ func TestLinkReachesTheEdgeOnlyWhenItIsNeeded(t *testing.T) {
 	var mu sync.Mutex
 	running := false
 	var boots []bool
-	panel, err := PanelRoute("panel.example.test", "127.0.0.1:8443", true)
+	panel, err := PanelRoute("panel.example.test", "127.0.0.1:8443", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

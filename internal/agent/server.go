@@ -261,14 +261,15 @@ func (s *Server) Handler() http.Handler {
 
 // refusedCall names a call the middleware should record because no operation
 // or stream recorded it: an operation or stream request, or any other path
-// under /v1 that was refused. Paths that answer normally without reaching an
-// operation, such as the health check and the event stream, aren't calls to
-// record.
+// that was refused, whether or not it is under /v1 (for example "/" or "/x"),
+// so every refused call is in the trail (security.md rule 1). Paths that
+// answer normally without reaching an operation, such as the health check
+// and the event stream, return below 400 and aren't recorded.
 func refusedCall(path string, status int) string {
 	switch {
 	case strings.HasPrefix(path, "/v1/ops/"), strings.HasPrefix(path, "/v1/streams/"):
 		return requestedOp(path)
-	case strings.HasPrefix(path, "/v1/") && status >= 400:
+	case status >= 400:
 		return requestedOp(path)
 	}
 	return ""

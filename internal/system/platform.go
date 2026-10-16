@@ -12,10 +12,11 @@ import (
 
 // The systemd units of Racksail itself.
 const (
-	AgentUnit      = "racksail-agent.service"
-	PanelUnit      = "racksail-panel.service"
-	EdgeUnit       = "racksail-edge.service"
-	EdgeSocketUnit = "racksail-edge.socket"
+	AgentUnit       = "racksail-agent.service"
+	PanelUnit       = "racksail-panel.service"
+	PanelSocketUnit = "racksail-panel.socket"
+	EdgeUnit        = "racksail-edge.service"
+	EdgeSocketUnit  = "racksail-edge.socket"
 	// SecretsCredential is the encrypted credential holding the key the
 	// panel encrypts secrets with.
 	SecretsCredential = "racksail-secrets-key"
@@ -142,10 +143,24 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 	agent.Section("Install").Add("WantedBy", "multi-user.target")
 	files[AgentUnit] = agent
 
+	// systemd creates the panel's edge-facing socket and hands it to the
+	// panel, so it can belong to the edge's group without the panel chowning
+	// it. The edge reaches the panel through it; account sandboxes can't,
+	// since it lives under /run/racksail. The panel still binds its own TCP
+	// port (8443) itself.
+	var panelSocket UnitFile
+	panelSocket.Section("Unit").Add("Description", "Racksail panel edge socket").Add("Documentation", documentation)
+	panelSocket.Section("Socket").
+		Add("ListenStream", PanelSocket).
+		Add("SocketUser", "root").Add("SocketGroup", "racksail-edge").Add("SocketMode", "0660")
+	panelSocket.Section("Install").Add("WantedBy", "sockets.target")
+	files[PanelSocketUnit] = panelSocket
+
 	var panel UnitFile
 	panel.Section("Unit").Add("Description", "Racksail panel").
 		Add("Documentation", documentation).
-		Add("After", "network-online.target "+AgentUnit).Add("Wants", "network-online.target "+AgentUnit)
+		Add("Requires", PanelSocketUnit).
+		Add("After", "network-online.target "+AgentUnit+" "+PanelSocketUnit).Add("Wants", "network-online.target "+AgentUnit)
 	panel.Section("Service").
 		Add("Type", "exec").
 		Add("ExecStart", binary+" panel").
@@ -219,7 +234,7 @@ func PlatformUnits(binary string) (map[string][]byte, error) {
 // order: slices before the services in them, the edge's socket before the
 // edge.
 func PlatformUnitNames() []string {
-	return []string{PlatformSlice, AccountsSlice, AgentUnit, PanelUnit, EdgeSocketUnit, EdgeUnit}
+	return []string{PlatformSlice, AccountsSlice, AgentUnit, PanelSocketUnit, PanelUnit, EdgeSocketUnit, EdgeUnit}
 }
 
 // WakeSpec describes an application that sleeps when idle. systemd holds

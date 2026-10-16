@@ -14,7 +14,7 @@ The panel keeps a routing table and sends it to the edge. A route matches some h
 - run PHP through FastCGI, with a front controller for paths that aren't files;
 - redirect, or answer with a fixed response.
 
-Adding or changing a site never reloads the edge: each route is set up on its own while everything else keeps serving, and removing a site drops its route the same way. The one time the edge reloads for a site is a couple of minutes after the last route for an automatic certificate goes away, to drop that certificate from its cache; it gathers a few such changes first. Responses are compressed with zstd or gzip, and HTTP/1.1, HTTP/2 and HTTP/3 are served.
+Routing a site never reloads the edge: each route is set up on its own while everything else keeps serving, and removing a site drops its route the same way. The one time the edge reloads for a site is to drop from its cache a certificate it no longer needs: when an automatic certificate's name stops being served — the site removed, its host names changed, or its TLS mode moved off automatic — the edge reloads a couple of minutes later, gathering a few such changes first. Responses are compressed with zstd or gzip, and HTTP/1.1, HTTP/2 and HTTP/3 are served.
 
 What a route carries from the panel, such as custom headers or an application's environment, reaches the edge as plain text: nothing in it can read files or the environment through Caddy's placeholders. No route can serve the edge's own files, its state or the certificates it reads, even when a site's directory is made a link to them.
 

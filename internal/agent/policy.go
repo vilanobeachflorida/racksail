@@ -294,10 +294,26 @@ func checkDropInTarget(name string) error {
 	if err := checkUnit(name); err != nil {
 		return err
 	}
+	// systemd also reads <prefix>-.<type>.d/ for every unit whose name starts
+	// with that prefix (systemd.unit(5)), so a drop-in for racksail-.service,
+	// racksail-.slice or -.service would reach the agent, the panel, the edge,
+	// the add-on instances and the root system services all at once. A real
+	// unit never ends its name part in a dash, so such a target only ever
+	// widens a drop-in's reach.
+	if dashPrefixUnit(name) {
+		return fmt.Errorf("unit %s is a prefix that a drop-in would apply to every unit under it, not a single unit", name)
+	}
 	if agentRenderedUnit(name) || slices.Contains(systemUnits, name) {
 		return fmt.Errorf("unit %s is one of Racksail's own or a system service, which take no drop-ins", name)
 	}
 	return nil
+}
+
+// dashPrefixUnit reports whether name is a systemd dash-prefix (or type-wide)
+// drop-in target: the part before the type suffix ends in '-'. A drop-in for
+// such a name applies to every unit whose name starts with that prefix.
+func dashPrefixUnit(name string) bool {
+	return strings.HasSuffix(strings.TrimSuffix(name, path.Ext(name)), "-")
 }
 
 // checkOwnedUnit validates the name of a unit Racksail installs: racksail-*
@@ -355,13 +371,17 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 	if err != nil {
 		return err
 	}
-	privilegedGID := func(gid int) bool {
+	// ownedGID reports whether a GID names a group Racksail owns: an account
+	// group or a racksail-* group, never a privileged or unrelated system
+	// group such as ssl-cert. A GID that names no group (root's 0 among them)
+	// isn't owned.
+	ownedGID := func(gid int) bool {
 		for _, g := range groups {
-			if g.GID == gid && slices.Contains(privilegedGroups, g.Name) {
-				return true
+			if g.GID == gid {
+				return ownedGroup(g)
 			}
 		}
-		return gid == 0
+		return false
 	}
 	u, err := users.LookupUser(ctx, id.User)
 	switch {
@@ -384,8 +404,8 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 		if !account && !service {
 			return fmt.Errorf("user %s isn't an account or one of Racksail's service users", u.Name)
 		}
-		if privilegedGID(u.GID) {
-			return fmt.Errorf("user %s has a privileged primary group", u.Name)
+		if !ownedGID(u.GID) {
+			return fmt.Errorf("user %s's primary group isn't an account's or one of Racksail's, so the service won't run as it", u.Name)
 		}
 		for _, g := range u.Groups {
 			if slices.Contains(privilegedGroups, g) {
@@ -404,10 +424,8 @@ func checkServiceUser(ctx context.Context, users system.Users, id system.UnitIde
 	case errors.Is(err, system.ErrNotFound) && (id.Dynamic || check):
 	case err != nil:
 		return fmt.Errorf("the service's group %s: %w", id.Group, err)
-	case privilegedGID(g.GID):
-		return fmt.Errorf("group %s is privileged", id.Group)
-	case !(g.GID >= system.AccountUIDMin && g.GID <= system.AccountUIDMax) && !strings.HasPrefix(g.Name, "racksail-"):
-		return fmt.Errorf("group %s isn't an account's or one of Racksail's service groups", g.Name)
+	case !ownedGroup(g):
+		return fmt.Errorf("group %s isn't an account's or one of Racksail's service groups", id.Group)
 	}
 	return nil
 }

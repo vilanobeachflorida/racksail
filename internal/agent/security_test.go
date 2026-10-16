@@ -63,12 +63,16 @@ func hasGroup(u system.User, name string) bool {
 	return false
 }
 
-// An account's home has to stay inside the accounts area, so it can't point
-// at a location the panel itself writes.
+// An account's home has to be the account's own directory under the accounts
+// area, so it can't point at a location the panel itself writes, nor at the
+// accounts' parent or a sibling such as the replica or backups staging.
 func TestEnsureUserKeepsAccountHomesInTheAccountsArea(t *testing.T) {
 	ctx := context.Background()
 	_, c := newLocal(t)
-	for _, home := range []string{"/etc/racksail/generated/blog", "/opt/racksail/runtimes/blog", "/var/lib/racksail/blog"} {
+	for _, home := range []string{
+		"/etc/racksail/generated/blog", "/opt/racksail/runtimes/blog", "/var/lib/racksail/blog",
+		system.AccountsDir, "/srv/racksail", "/srv/racksail/replica", "/srv/racksail/backups",
+	} {
 		in := EnsureUserInput{Name: "blog", UID: 20002, GID: 20002, Home: home}
 		if _, err := EnsureUser.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("home %s should be refused: %v", home, err)
@@ -76,6 +80,132 @@ func TestEnsureUserKeepsAccountHomesInTheAccountsArea(t *testing.T) {
 	}
 	if _, err := EnsureUser.Call(ctx, c, EnsureUserInput{Name: "blog", UID: 20002, GID: 20002, Home: system.AccountDir("blog")}, CallOptions{Check: true}); err != nil {
 		t.Errorf("a home in the accounts area: %v", err)
+	}
+}
+
+// Dash-prefix drop-in targets reach every unit under the prefix, so a
+// racksail-.service drop-in would adjust the agent, the panel, the edge and
+// the add-on instances at once. They are refused, as are the type-wide forms.
+func TestDropInsRefuseDashPrefixTargets(t *testing.T) {
+	ctx := context.Background()
+	_, c := newLocal(t)
+	limit := []byte("[Service]\nMemoryMax=1G\n")
+	for _, unit := range []string{"racksail-.service", "racksail-.slice", "racksail-.socket", "racksail-accounts-.slice", "-.service", "-.slice"} {
+		if _, err := EnsureDropIn.Call(ctx, c, DropInInput{Unit: unit, Name: "racksail-extra", Content: limit}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("a drop-in for the prefix %s should be refused: %v", unit, err)
+		}
+		if _, err := RemoveDropIn.Call(ctx, c, DropInInput{Unit: unit, Name: "racksail-extra"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("removing a drop-in for the prefix %s should be refused: %v", unit, err)
+		}
+	}
+}
+
+// EnsureUser and DeleteUser leave the platform's own identities alone, since
+// only the installer and the self-update paths make them. EnsureUser can
+// still create them when they're absent, as the installer does.
+func TestPlatformUsersAreNotPanelManageable(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	b := m.Backend()
+	// racksail-edge is one of the platform users the installed server already
+	// has. Changing its home, shell or lock state is refused.
+	change := EnsureUserInput{Name: "racksail-edge", System: true, Home: system.StateDir, Shell: "/bin/bash"}
+	if _, err := EnsureUser.Call(ctx, c, change, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("changing racksail-edge: %v", err)
+	}
+	if _, err := DeleteUser.Call(ctx, c, DeleteUserInput{Name: "racksail-edge"}, CallOptions{}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("deleting racksail-edge: %v", err)
+	}
+	if u, _ := b.Users.LookupUser(ctx, "racksail-edge"); u.Shell != "/usr/sbin/nologin" || !u.Locked {
+		t.Errorf("racksail-edge was changed: %+v", u)
+	}
+}
+
+// A new system user or group must take a racksail-* name, and a new account
+// an account-range ID, so a name a distribution package might take later
+// can't be claimed in advance with panel-chosen settings.
+func TestCreationHeldToOwnershipAllowlist(t *testing.T) {
+	ctx := context.Background()
+	_, c := newLocal(t)
+	// A system user or group with a free name is refused.
+	if _, err := EnsureUser.Call(ctx, c, EnsureUserInput{Name: "ssl-mgr", System: true, Home: "/nonexistent"}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a free-named system user: %v", err)
+	}
+	if _, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "ssl-mgr", System: true}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a free-named system group: %v", err)
+	}
+	// An account created with a UID the system would choose, outside the
+	// account range, is refused once it is really applied.
+	if _, err := EnsureUser.Call(ctx, c, EnsureUserInput{Name: "blog", Home: system.AccountDir("blog")}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("an account with a system-chosen uid: %v", err)
+	}
+	// racksail-* names and account-range IDs are accepted.
+	if _, err := EnsureUser.Call(ctx, c, EnsureUserInput{Name: "racksail-mail", System: true, Home: "/nonexistent"}, CallOptions{Check: true}); err != nil {
+		t.Errorf("a racksail-* system user: %v", err)
+	}
+	if _, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "blog", GID: 20001}, CallOptions{Check: true}); err != nil {
+		t.Errorf("an account-range group: %v", err)
+	}
+}
+
+// A racksail-* system user's primary group is held to the ownership
+// allowlist, so a fixed GID can't make it a member of a key-reading group
+// such as ssl-cert, and a panel-written unit can't then run as it.
+func TestPrimaryGroupHeldToTheAllowlist(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	b := m.Backend()
+	if err := b.Users.CreateGroup(ctx, system.Group{Name: "ssl-cert", GID: 113, System: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Creating a racksail-* user whose primary group is ssl-cert is refused.
+	in := EnsureUserInput{Name: "racksail-web", System: true, GID: 113, Home: "/nonexistent"}
+	if _, err := EnsureUser.Call(ctx, c, in, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a racksail-* user homed into ssl-cert's group: %v", err)
+	}
+	// Even if such a user exists, a unit written for the panel won't run as
+	// it, because its primary group isn't one Racksail owns.
+	if err := b.Users.CreateUser(ctx, system.User{Name: "racksail-web", UID: 981, GID: 113, System: true, Home: "/nonexistent", Shell: "/usr/sbin/nologin"}); err != nil {
+		t.Fatal(err)
+	}
+	unit := EnsureUnitInput{Name: "racksail-web.service", Content: []byte("[Service]\nUser=racksail-web\nExecStart=/usr/bin/true\n")}
+	if _, err := EnsureUnit.Call(ctx, c, unit, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a service running as a user in a key-reading group: %v", err)
+	}
+}
+
+// SetUnitProperties with runtime false writes its persistent drop-in even
+// when the effective value matches only because of an earlier runtime
+// override, so the limit survives a reboot.
+func TestSetUnitPropertiesPersistsOverRuntimeOverride(t *testing.T) {
+	ctx := context.Background()
+	m, c := newLocal(t)
+	newAccount(t, c, "blog", 20001)
+	slice, err := system.AccountSliceSpec("blog", system.ResourceLimits{MemoryMaxBytes: 1 << 30}).Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := system.AccountSlice("blog")
+	if _, err := EnsureUnit.Call(ctx, c, EnsureUnitInput{Name: name, Content: slice}, CallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// A runtime change raises the live limit to 2G without persisting it.
+	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: name, Runtime: true, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "2G"}}}, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("runtime limit = %+v, %v", res, err)
+	}
+	// Asking for the same value persistently still counts as a change, since
+	// the persistent layer is still 1G, and it must write the drop-in.
+	if res, err := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "2G"}}}, CallOptions{}); err != nil || !res.Changed {
+		t.Fatalf("persistent limit after a runtime override = %+v, %v", res, err)
+	}
+	// After a reboot the runtime override is gone, but the persistent drop-in
+	// keeps the limit at 2G.
+	m.Reboot()
+	if v, _ := m.Property(name, "MemoryMax"); v != "2G" {
+		t.Errorf("persistent MemoryMax after reboot = %q", v)
+	}
+	if res, _ := SetUnitProperties.Call(ctx, c, SetUnitPropertiesInput{Name: name, Properties: []system.UnitProperty{{Name: "MemoryMax", Value: "2G"}}}, CallOptions{}); res.Changed {
+		t.Error("the persistent limit is already in place, so setting it again should change nothing")
 	}
 }
 
@@ -252,15 +382,17 @@ func TestRefusedStreamsAndUnknownPathsAreAudited(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	// A path no handler serves.
-	resp, err = http.Post(ts.URL+"/v1/nonsense", "application/json", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatal(err)
+	// Paths no handler serves, under /v1 and outside it.
+	for _, p := range []string{"/v1/nonsense", "/", "/x"} {
+		resp, err = http.Post(ts.URL+p, "application/json", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
 	}
-	resp.Body.Close()
 
 	records, _ := srv.Runtime().Audit().Recent(AuditFilter{})
-	want := map[string]bool{"streams/Download": false, "streams/Upload": false, "/v1/nonsense": false}
+	want := map[string]bool{"streams/Download": false, "streams/Upload": false, "/v1/nonsense": false, "/": false, "/x": false}
 	for _, r := range records {
 		if _, ok := want[r.Op]; ok {
 			if !r.Failed() {

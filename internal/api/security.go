@@ -47,24 +47,47 @@ func retryAfterHeader(ctx huma.Context, status string, v any) (any, error) {
 }
 
 // clientOf works out where a request comes from. The edge serves the panel
-// under its hostname by proxying to it over loopback, and tells it the
-// browser's address in X-Forwarded-For and whether it used HTTPS in
-// X-Forwarded-Proto; those are believed only from loopback, where account
-// workloads can't connect from (they're denied the panel's address).
-func clientOf(r *http.Request) auth.Client {
+// under its hostname by proxying to it, and tells it the browser's address in
+// X-Forwarded-For and whether it used HTTPS in X-Forwarded-Proto. Those are
+// believed only from a trusted forwarder (see trustedForwarder): the edge
+// reaches the panel over the Unix socket under /run/racksail, which account
+// sandboxes can't reach. A site that reaches the panel's TCP port over
+// loopback is therefore not believed, so it can't set the client address the
+// allowlist, the rate limiter and the lockouts key on.
+func clientOf(r *http.Request, trusted bool) auth.Client {
 	c := auth.Client{IP: hostOf(r.RemoteAddr), UserAgent: r.UserAgent(), Secure: r.TLS != nil}
-	if peer, err := netip.ParseAddr(c.IP); err == nil && peer.Unmap().IsLoopback() {
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			parts := strings.Split(fwd, ",")
-			if ip, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil {
-				c.IP = ip.Unmap().String()
-			}
-		}
-		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			c.Secure = true
+	if !trusted {
+		return c
+	}
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		parts := strings.Split(fwd, ",")
+		if ip, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil {
+			c.IP = ip.Unmap().String()
 		}
 	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		c.Secure = true
+	}
 	return c
+}
+
+// trustedForwarder reports whether the request's X-Forwarded-* headers may be
+// believed. On a server the edge reaches the panel over the Unix socket under
+// /run/racksail, which the account sandboxes are kept out of, so only a
+// request that arrived on a Unix socket is trusted; a site reaching the
+// panel's TCP port over loopback is not. In development the panel listens on
+// loopback for the in-process edge and the tests, and trusts a loopback peer
+// there.
+func trustedForwarder(r *http.Request, dev bool) bool {
+	if la, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && la.Network() == "unix" {
+		return true
+	}
+	if dev {
+		if peer, err := netip.ParseAddr(hostOf(r.RemoteAddr)); err == nil && peer.Unmap().IsLoopback() {
+			return true
+		}
+	}
+	return false
 }
 
 func hostOf(addr string) string {

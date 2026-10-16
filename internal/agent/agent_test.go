@@ -177,9 +177,15 @@ func TestUsersAndGroups(t *testing.T) {
 			t.Errorf("EnsureUser(%+v) = %v", bad, err)
 		}
 	}
+	// A group Racksail creates has to be one it can manage afterwards: a
+	// racksail-* system group or an account-range group, never a free name
+	// with a system-chosen GID that nothing could change later.
 	members := []string{"blog"}
-	if res, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "webusers", Members: &members}, CallOptions{}); err != nil || !res.Changed {
+	if res, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "racksail-webusers", System: true, Members: &members}, CallOptions{}); err != nil || !res.Changed {
 		t.Errorf("group = %+v, %v", res, err)
+	}
+	if _, err := EnsureGroup.Call(ctx, c, EnsureGroupInput{Name: "webusers", Members: &members}, CallOptions{}); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("a group with a free name and GID should be refused: %v", err)
 	}
 	for _, bad := range []EnsureUserInput{
 		{Name: "diskuser", UID: 20077, GID: 6, Home: "/srv/racksail/accounts/diskuser"},

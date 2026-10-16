@@ -19,7 +19,11 @@ type unitRuntime struct {
 	pid      int
 	since    time.Time
 	restarts int
-	props    map[string]string
+	// props are the persistent set-property overrides, written to a drop-in
+	// and kept across a reboot. runtimeProps are the transient ones a
+	// --runtime set-property makes, which a reboot drops.
+	props        map[string]string
+	runtimeProps map[string]string
 }
 
 type simUnits struct{ m *Machine }
@@ -468,24 +472,35 @@ func (u simUnits) SetProperties(ctx context.Context, name string, runtime bool, 
 	if rt.props == nil {
 		rt.props = map[string]string{}
 	}
+	if runtime {
+		// A transient change doesn't touch the persistent drop-in, so it is
+		// lost at the next reboot.
+		if rt.runtimeProps == nil {
+			rt.runtimeProps = map[string]string{}
+		}
+		for _, p := range props {
+			rt.runtimeProps[p.Name] = p.Value
+		}
+		return nil
+	}
+	// A persistent change applies live too, so it clears any transient
+	// override of the same property and is written to the drop-in.
 	for _, p := range props {
 		rt.props[p.Name] = p.Value
+		delete(rt.runtimeProps, p.Name)
 	}
-	if !runtime {
-		dir := unitPath(name) + ".d"
-		if _, ok := m.files[dir]; !ok {
-			if err := m.mkdir(dir, 0o755, system.Owner{}); err != nil {
-				return err
-			}
+	dir := unitPath(name) + ".d"
+	if _, ok := m.files[dir]; !ok {
+		if err := m.mkdir(dir, 0o755, system.Owner{}); err != nil {
+			return err
 		}
-		var b strings.Builder
-		b.WriteString("[" + unitSectionFor(name) + "]\n")
-		for _, k := range sortedKeys(rt.props) {
-			fmt.Fprintf(&b, "%s=%s\n", k, rt.props[k])
-		}
-		return m.writeFile(path.Join(dir, "50-properties.conf"), []byte(b.String()), 0o644, system.Owner{})
 	}
-	return nil
+	var b strings.Builder
+	b.WriteString("[" + unitSectionFor(name) + "]\n")
+	for _, k := range sortedKeys(rt.props) {
+		fmt.Fprintf(&b, "%s=%s\n", k, rt.props[k])
+	}
+	return m.writeFile(path.Join(dir, "50-properties.conf"), []byte(b.String()), 0o644, system.Owner{})
 }
 
 func unitSectionFor(name string) string {
@@ -510,10 +525,12 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// ResourceControl returns the unit's effective resource-control limits: the
-// values its unit file sets, with the properties SetProperties overrode on
-// top, each reduced to its base-unit form.
-func (u simUnits) ResourceControl(ctx context.Context, name string) (map[string]string, error) {
+// ResourceControl returns the unit's resource-control limits, each reduced
+// to its base-unit form: the values its unit file sets, with the persistent
+// set-property overrides on top, and, when runtime is asked, the transient
+// overrides too. A persistent request therefore doesn't see a value that only
+// a runtime override set, so it still writes its drop-in.
+func (u simUnits) ResourceControl(ctx context.Context, name string, runtime bool) (map[string]string, error) {
 	m := u.m
 	if err := m.lock(ctx); err != nil {
 		return nil, err
@@ -535,6 +552,13 @@ func (u simUnits) ResourceControl(ctx context.Context, name string) (map[string]
 		for _, p := range system.ResourceControlProperties {
 			if v, ok := rt.props[p]; ok {
 				raw[p] = v
+			}
+		}
+		if runtime {
+			for _, p := range system.ResourceControlProperties {
+				if v, ok := rt.runtimeProps[p]; ok {
+					raw[p] = v
+				}
 			}
 		}
 	}

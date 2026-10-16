@@ -312,6 +312,59 @@ func TestUnitsAdapter(t *testing.T) {
 	}
 }
 
+// ResourceControl reads the effective limits from systemd's D-Bus properties
+// with runtime true: the base-unit values, infinity for an unset limit, and
+// never the AllowedCPUs bitmask, which can't be reduced with certainty. With
+// runtime false it reads the persistent configuration from the unit file and
+// its drop-ins instead, so a persistent change isn't fooled by a runtime
+// override.
+func TestUnitsResourceControl(t *testing.T) {
+	ctx := context.Background()
+	b, _, sd, _ := newTestBackend(t, nil)
+	name := "racksail-accounts-blog.slice"
+	sd.props[name] = map[string]any{
+		"LoadState": "loaded", "ActiveState": "active",
+		"MemoryMax":          uint64(2 << 30),
+		"MemoryHigh":         ^uint64(0),
+		"CPUQuotaPerSecUSec": uint64(500000),
+		"CPUWeight":          uint64(200),
+		"TasksMax":           uint64(512),
+		"AllowedCPUs":        []byte{0x3},
+	}
+	eff, err := b.Units.ResourceControl(ctx, name, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"MemoryMax": "2147483648", "MemoryHigh": "infinity", "CPUQuota": "500000", "CPUWeight": "200", "TasksMax": "512"}
+	for k, v := range want {
+		if eff[k] != v {
+			t.Errorf("effective %s = %q, want %q", k, eff[k], v)
+		}
+	}
+	if _, ok := eff["AllowedCPUs"]; ok {
+		t.Errorf("AllowedCPUs is a bitmask and must not be read: %v", eff)
+	}
+
+	// The persistent view reads the unit file and its drop-ins, last wins, and
+	// ignores the live D-Bus values.
+	if err := b.Units.WriteUnit(ctx, name, []byte("[Slice]\nMemoryMax=1G\nTasksMax=256\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Units.WriteDropIn(ctx, name, "50-racksail", []byte("[Slice]\nMemoryMax=3G\n")); err != nil {
+		t.Fatal(err)
+	}
+	persistent, err := b.Units.ResourceControl(ctx, name, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persistent["MemoryMax"] != "3221225472" || persistent["TasksMax"] != "256" {
+		t.Errorf("persistent limits = %v", persistent)
+	}
+	if persistent["CPUWeight"] != "" {
+		t.Errorf("persistent view must not carry the live CPUWeight: %v", persistent)
+	}
+}
+
 func TestPackagesParsing(t *testing.T) {
 	installed := parseDpkgQuery([]byte("knot\t3.4.7-1\tamd64\t4096\tinstalled\nold\t1.0\tamd64\t10\tconfig-files\n"))
 	if len(installed) != 1 || installed[0].InstalledBytes != 4096*1024 {

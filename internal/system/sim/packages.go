@@ -435,8 +435,11 @@ func (m *Machine) Reboot() {
 
 // rebootLocked does the reboot. The caller holds m.mu.
 func (m *Machine) rebootLocked() {
-	for name := range m.units {
+	for name, rt := range m.units {
 		m.stopUnit(name)
+		// Transient --runtime set-property overrides don't survive a reboot;
+		// only the persistent drop-ins do.
+		rt.runtimeProps = nil
 	}
 	for pid := range m.procs {
 		if pid != 1 {
