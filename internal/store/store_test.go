@@ -441,7 +441,7 @@ func TestListLabelsPhasesAndSearch(t *testing.T) {
 		shop := createSite(t, s, k, acct, "shop.example.com")
 		blog := createSite(t, s, k, acct, "blog.example.com")
 		docs := createSite(t, s, k, acct, "docs.other.test")
-		shop.Labels = map[string]string{"env": "prod", "racksail.dev/tier": "gold"}
+		shop.Labels = map[string]string{"env": "prod", "racksail.com/tier": "gold"}
 		blog.Labels = map[string]string{"env": "staging"}
 		for _, r := range []*Resource{shop, blog} {
 			if err := write(ctx, s, func(tx Tx) error { return tx.Update(ctx, r) }); err != nil {
@@ -467,7 +467,7 @@ func TestListLabelsPhasesAndSearch(t *testing.T) {
 			}
 			return out
 		}
-		if got := list(Query{Labels: map[string]string{"env": "prod", "racksail.dev/tier": "gold"}}); !slices.Equal(got, []ID{shop.ID}) {
+		if got := list(Query{Labels: map[string]string{"env": "prod", "racksail.com/tier": "gold"}}); !slices.Equal(got, []ID{shop.ID}) {
 			t.Errorf("labels = %v", got)
 		}
 		if got := list(Query{Labels: map[string]string{"env": "dev"}}); len(got) != 0 {

@@ -456,7 +456,7 @@ func TestStatusConditions(t *testing.T) {
 }
 
 func TestValidateLabels(t *testing.T) {
-	if err := ValidateLabels(map[string]string{"env": "prod", "racksail.dev/owner": "web"}); err != nil {
+	if err := ValidateLabels(map[string]string{"env": "prod", "racksail.com/owner": "web"}); err != nil {
 		t.Error(err)
 	}
 	if err := ValidateLabels(map[string]string{"Env": "x"}); err == nil {

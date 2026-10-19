@@ -25,7 +25,7 @@ Every install also creates an installation, `core.installation` for what goes in
 - where the recipe came from: the catalog, whether it is Racksail's own, and the SHA-256 of the recipe and of the catalog index that offered it, or the module that ships it
 - the recipe itself, so upgrading and uninstalling need nothing from the catalog
 - the inputs given, without passwords and secrets
-- the resources it created, which also carry the `racksail.dev/installation` label
+- the resources it created, which also carry the `racksail.com/installation` label
 
 The panel works from that record: it checks the downloads its recipe pins and runs its health checks. So an installation is only ever what installing, upgrading and uninstalling build, however a change reaches the panel, through the API, an automation, an add-on or the assistant. A change to one is refused when it says anything its source doesn't:
 
@@ -58,7 +58,7 @@ Resources both versions have are updated, ones the new version adds are created,
 
 ## Uninstalling
 
-Uninstalling removes what the installation created, in reverse order. What holds data, such as databases and site files, is kept unless you choose otherwise, or the recipe says its data isn't worth keeping. A kept resource stays where it is, with its data and the `racksail.dev/kept-from` label, and can be used again or removed later. Removing one takes a snapshot of its data first, as every change that deletes data does.
+Uninstalling removes what the installation created, in reverse order. What holds data, such as databases and site files, is kept unless you choose otherwise, or the recipe says its data isn't worth keeping. A kept resource stays where it is, with its data and the `racksail.com/kept-from` label, and can be used again or removed later. Removing one takes a snapshot of its data first, as every change that deletes data does.
 
 Like every change set, an install, an upgrade and an uninstall can be undone. Only someone who may change the installation's account can upgrade or uninstall it; to anyone else, it doesn't exist.
 

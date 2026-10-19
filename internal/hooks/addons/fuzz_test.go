@@ -44,7 +44,7 @@ func fuzzStore(f *testing.F) *store.Memory {
 	ctx := context.Background()
 	if err := st.Write(ctx, store.WriteMeta{Actor: "system:tests"}, func(tx store.Tx) error {
 		if err := tx.Create(ctx, &store.Resource{
-			Meta: store.Meta{ID: fuzzStoredMine, Kind: "web.site", Scope: fuzzMine, Labels: map[string]string{"racksail.dev/installation": "inst_real"}},
+			Meta: store.Meta{ID: fuzzStoredMine, Kind: "web.site", Scope: fuzzMine, Labels: map[string]string{"racksail.com/installation": "inst_real"}},
 			Spec: json.RawMessage(`{"domains":["stored.example"],"notes":"stored"}`),
 		}); err != nil {
 			return err
@@ -100,7 +100,7 @@ func FuzzMergeHookReply(f *testing.F) {
 		// created itself.
 		was := map[store.ID]fuzzSite{
 			before.Changes[0].ID: {spec: before.Changes[0].After},
-			fuzzStoredMine:       {spec: json.RawMessage(`{"domains":["stored.example"],"notes":"stored"}`), labels: map[string]string{"racksail.dev/installation": "inst_real"}},
+			fuzzStoredMine:       {spec: json.RawMessage(`{"domains":["stored.example"],"notes":"stored"}`), labels: map[string]string{"racksail.com/installation": "inst_real"}},
 		}
 		for _, added := range work.Changes[2:] {
 			if added.Kind != "web.site" || added.Scope != fuzzMine {

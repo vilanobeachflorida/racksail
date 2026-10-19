@@ -73,6 +73,7 @@ Settled choices. Change one by opening a pull request that edits this file and e
 | D4 | systemd: `racksail.slice` for platform services, `racksail-accounts.slice` with one `racksail-accounts-<slug>.slice` per account. systemd nests a slice under the slice its name extends, so only this name puts an account inside `racksail-accounts.slice`; `racksail-acct-<slug>.slice` would land in an implicit `racksail-acct.slice` instead. |
 | D5 | Temporary site URLs: `<site>-<account>.<server hostname>` through a wildcard record; `sslip.io` addresses when there's no domain yet. |
 | D6 | Servers run on UTC. The UI shows times in the viewer's time zone. |
+| D7 | Placeholder domain: `racksail.com`. Use it wherever Racksail needs an address of its own that isn't settled yet (contact addresses, hostnames), and as the namespace for Racksail's own label keys (`racksail.com/installation`, `racksail.com/recipe`). Examples that stand for a user's own domain use `example.com` or the `.example` names from RFC 2606. |
 
 ## Distribution
 
@@ -90,7 +91,7 @@ What the maintainers still have to set up or confirm. Each item is done, and its
 
 | # | Item |
 |---|---|
-| L1 | `conduct@racksail.dev`, where code of conduct reports go as `CODE_OF_CONDUCT.md`, `GOVERNANCE.md` and the documentation site's community pages say, is a placeholder. The address has to exist and reach every maintainer listed in `GOVERNANCE.md` and nobody else, or another address takes its place everywhere it appears. |
+| L1 | `conduct@racksail.com`, where code of conduct reports go as `CODE_OF_CONDUCT.md`, `GOVERNANCE.md` and the documentation site's community pages say, is a placeholder. The address has to exist and reach every maintainer listed in `GOVERNANCE.md` and nobody else, or another address takes its place everywhere it appears. |
 | L2 | The official catalog's signing key doesn't exist yet. A maintainer creates it as `catalog/keys/README.md` describes and commits `catalog/keys/official.pub` with its copy in `internal/recipes/keys/`. Until then, panels don't add the official catalog and the Catalog workflow publishes nothing. |
 | L3 | The browser suite has no visual baselines yet, so CI compares no screens. A maintainer runs the Screenshots workflow on `main` and reviews what it commits. |
 | L4 | Translation through Weblate, as section 35 of `features.md` has it, needs the project's Weblate set up and connected to the repository by a maintainer. Until then, translations come as pull requests, as the documentation site's translations page says. |

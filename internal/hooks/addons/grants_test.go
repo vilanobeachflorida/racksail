@@ -58,7 +58,7 @@ func TestLimitedWriteScopes(t *testing.T) {
 	if _, err := e.submit(actor, changeset.Change{Op: changeset.OpAction, Kind: "web.site", ID: siteID, Action: "purge"}); !i18n.ErrForbidden.Is(err) {
 		t.Errorf("running an action with a permission for the cdn: %v", err)
 	}
-	relabel := changeset.Change{Op: changeset.OpUpdate, Kind: "web.site", ID: siteID, Spec: spec(t, site.Spec), Labels: map[string]string{"racksail.dev/installation": "inst_forged"}}
+	relabel := changeset.Change{Op: changeset.OpUpdate, Kind: "web.site", ID: siteID, Spec: spec(t, site.Spec), Labels: map[string]string{"racksail.com/installation": "inst_forged"}}
 	if _, err := e.submit(actor, relabel); !errors.Is(err, hooks.ErrDenied) || !strings.Contains(i18n.From(err).Message, "labels") {
 		t.Errorf("relabeling a site with a permission for its cdn: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestModifyRepliesStayWithinTheirScopes(t *testing.T) {
 		}
 		return id
 	}
-	labelled := stored(acct, `{"domains":["kept.example"],"notes":"keep"}`, map[string]string{"racksail.dev/installation": "inst_real"})
+	labelled := stored(acct, `{"domains":["kept.example"],"notes":"keep"}`, map[string]string{"racksail.com/installation": "inst_real"})
 	theirs := stored(other, `{"domains":["theirs.example"]}`, nil)
 	planned := changeset.ResourceChange{Op: changeset.OpCreate, Kind: "web.site", ID: store.NewID("site"), Scope: acct, After: json.RawMessage(`{"domains":["a.example"],"notes":"new"}`), Source: changeset.RequestSource}
 	writes := func(scope store.Scope, read []hooks.DataScope, write ...hooks.DataScope) Grants {
@@ -267,8 +267,8 @@ func TestModifyRepliesStayWithinTheirScopes(t *testing.T) {
 		{"a field it may not", limited, changeset.ResourceChange{Op: changeset.OpCreate, Kind: "web.site", Scope: acct, After: json.RawMessage(`{"domains":["b.example"]}`)}, false, ""},
 		{"a create of what exists", account, changeset.ResourceChange{Op: changeset.OpCreate, Kind: "web.site", ID: labelled, Scope: acct, After: json.RawMessage(`{"domains":["b.example"]}`)}, false, ""},
 		{"empty labels over a site's own", limited, update(labelled, "", map[string]string{}), false, ""},
-		{"other labels", limited, update(labelled, "", map[string]string{"racksail.dev/installation": "inst_forged"}), false, ""},
-		{"the labels it had", limited, update(labelled, "", map[string]string{"racksail.dev/installation": "inst_real"}), true, ""},
+		{"other labels", limited, update(labelled, "", map[string]string{"racksail.com/installation": "inst_forged"}), false, ""},
+		{"the labels it had", limited, update(labelled, "", map[string]string{"racksail.com/installation": "inst_real"}), true, ""},
 		{"labels it may change", relabeling, update(labelled, "", map[string]string{}), true, ""},
 		{"the field it may write", limited, update(labelled, `{"cdn":"on"}`, nil), true, `{"cdn":"on","domains":["kept.example"],"notes":"keep"}`},
 		{"a field it can read left out", reading, update(labelled, `{"cdn":"on"}`, nil), false, ""},
@@ -341,7 +341,7 @@ func TestAddedChangesAsPlanned(t *testing.T) {
 	site := store.NewID("site")
 	limited := NewGrants(hooks.Permissions{Write: []hooks.DataScope{{Kind: "web.site", Fields: []string{"cdn"}}}}, store.ServerScope())
 	account := NewGrants(hooks.Permissions{Write: []hooks.DataScope{{Kind: "web.site"}}}, acct)
-	labels := map[string]string{"racksail.dev/installation": "inst_real"}
+	labels := map[string]string{"racksail.com/installation": "inst_real"}
 	planned := func(op changeset.Op, scope store.Scope, before, after string, labelsBefore, labelsAfter map[string]string) changeset.ResourceChange {
 		return changeset.ResourceChange{
 			Op: op, Kind: "web.site", ID: site, Scope: scope, Before: json.RawMessage(before), After: json.RawMessage(after),
@@ -506,7 +506,7 @@ func TestModifyHooksChangeOnlyWhatTheyMayWrite(t *testing.T) {
 	acct := e.newAccount(t)
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct,
 		Spec:   spec(t, siteSpec{Domains: []string{"victim.example"}, Notes: "keep"}),
-		Labels: map[string]string{"racksail.dev/installation": "inst_real"}})
+		Labels: map[string]string{"racksail.com/installation": "inst_real"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +537,7 @@ func TestModifyHooksChangeOnlyWhatTheyMayWrite(t *testing.T) {
 	if cs := another(); len(cs.Changes) != 1 {
 		t.Errorf("the answer that empties labels was taken: %+v", cs.Changes)
 	}
-	if got := victimNow(); got.Labels["racksail.dev/installation"] != "inst_real" {
+	if got := victimNow(); got.Labels["racksail.com/installation"] != "inst_real" {
 		t.Errorf("the site's labels = %v", got.Labels)
 	}
 	if e.registry.Failures("addon:site-guard", "web.site.*.plan") == 0 {
@@ -557,7 +557,7 @@ func TestModifyHooksChangeOnlyWhatTheyMayWrite(t *testing.T) {
 	if cs := another(); len(cs.Changes) != 2 || cs.Changes[1].ID != victim {
 		t.Errorf("the answer that changes the cdn alone wasn't taken: %+v", cs.Changes)
 	}
-	if got := victimNow(); got.Spec.CDN != "strict" || got.Spec.Notes != "keep" || got.Labels["racksail.dev/installation"] != "inst_real" {
+	if got := victimNow(); got.Spec.CDN != "strict" || got.Spec.Notes != "keep" || got.Labels["racksail.com/installation"] != "inst_real" {
 		t.Errorf("the site after its cdn changed = %+v %v", got.Spec, got.Labels)
 	}
 
@@ -644,7 +644,7 @@ func TestAddedChangesAreCheckedAsPlanned(t *testing.T) {
 	acct := e.newAccount(t)
 	cs, err := e.submit(e.admin, changeset.Change{Op: changeset.OpCreate, Kind: "web.site", Scope: acct,
 		Spec:   spec(t, siteSpec{Domains: []string{"victim.example"}, Notes: "keep"}),
-		Labels: map[string]string{"racksail.dev/installation": "inst_real"}})
+		Labels: map[string]string{"racksail.com/installation": "inst_real"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +675,7 @@ func TestAddedChangesAreCheckedAsPlanned(t *testing.T) {
 		}
 	}
 	got, err := siteKind.Get(ctx, e.store, victim)
-	if err != nil || got.Deleted() || got.Spec.Notes != "keep" || got.Labels["racksail.dev/installation"] != "inst_real" {
+	if err != nil || got.Deleted() || got.Spec.Notes != "keep" || got.Labels["racksail.com/installation"] != "inst_real" {
 		t.Errorf("the site after all that = %+v, %v", got, err)
 	}
 }

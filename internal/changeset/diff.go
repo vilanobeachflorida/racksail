@@ -14,7 +14,7 @@ var identPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // Diff compares two JSON documents field by field. Paths use dots for
 // object keys and brackets for array indexes, such as domains[0] or
-// labels["racksail.dev/owner"]. Arrays are compared by position.
+// labels["racksail.com/owner"]. Arrays are compared by position.
 func Diff(before, after json.RawMessage) ([]FieldDiff, error) {
 	var a, b any
 	if len(before) > 0 {

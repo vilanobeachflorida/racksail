@@ -23,7 +23,7 @@ Harassment of any kind, in public or in private; sexual language, imagery or att
 
 ## Report a problem
 
-Write to [conduct@racksail.dev](mailto:conduct@racksail.dev). It reaches the maintainers listed in [GOVERNANCE.md](https://github.com/vilanobeachflorida/racksail/blob/main/GOVERNANCE.md), who enforce the code of conduct, and nobody else.
+Write to [conduct@racksail.com](mailto:conduct@racksail.com). It reaches the maintainers listed in [GOVERNANCE.md](https://github.com/vilanobeachflorida/racksail/blob/main/GOVERNANCE.md), who enforce the code of conduct, and nobody else.
 
 A useful report says:
 

@@ -385,7 +385,7 @@ func (e *Engine) InstallRequest(ctx context.Context, in InstallInput) (changeset
 	spec.License, spec.LicenseClass, spec.Inputs = r.License, r.LicenseClass, publicInputs(r, values)
 	ordered, _ := r.Order()
 	for i, ch := range req.Changes {
-		ch.Labels["racksail.dev/installation"] = string(instID)
+		ch.Labels["racksail.com/installation"] = string(instID)
 		req.Changes[i] = ch
 		spec.Resources = append(spec.Resources, InstalledResource{Name: ordered[i].Name, Kind: ch.Kind, ID: ch.ID})
 	}
@@ -395,7 +395,7 @@ func (e *Engine) InstallRequest(ctx context.Context, in InstallInput) (changeset
 	}
 	installation := changeset.Change{
 		Op: changeset.OpCreate, Kind: kind.Info().Name, ID: instID, Scope: in.Scope, Spec: raw,
-		Labels: map[string]string{"racksail.dev/recipe": r.ID},
+		Labels: map[string]string{"racksail.com/recipe": r.ID},
 	}
 	req.Changes = append(append([]changeset.Change{installation}, req.Changes...), confirm(kind, instID))
 	req.Title = "Install " + r.Name + " " + r.Version
@@ -512,7 +512,7 @@ func (e *Engine) UpgradeRequest(ctx context.Context, id store.ID, in UpgradeInpu
 				}
 			}
 		}
-		ch.Labels["racksail.dev/installation"] = string(inst.ID)
+		ch.Labels["racksail.com/installation"] = string(inst.ID)
 		resources = append(resources, InstalledResource{Name: name, Kind: ch.Kind, ID: ch.ID})
 		changes = append(changes, ch)
 	}
@@ -531,7 +531,7 @@ func (e *Engine) UpgradeRequest(ctx context.Context, id store.ID, in UpgradeInpu
 			continue
 		}
 		if e.opts.DataKinds != nil && e.opts.DataKinds(res.Kind) {
-			dropped = append(dropped, changeset.Change{Op: changeset.OpUpdate, Kind: res.Kind, ID: res.ID, Labels: map[string]string{"racksail.dev/kept-from": inst.Spec.Item}})
+			dropped = append(dropped, changeset.Change{Op: changeset.OpUpdate, Kind: res.Kind, ID: res.ID, Labels: map[string]string{"racksail.com/kept-from": inst.Spec.Item}})
 			continue
 		}
 		dropped = append(dropped, changeset.Change{Op: changeset.OpDelete, Kind: res.Kind, ID: res.ID})
@@ -678,7 +678,7 @@ func (e *Engine) UninstallRequest(ctx context.Context, id store.ID, in Uninstall
 			continue
 		}
 		if keepData && e.opts.DataKinds != nil && e.opts.DataKinds(res.Kind) {
-			req.Changes = append(req.Changes, changeset.Change{Op: changeset.OpUpdate, Kind: res.Kind, ID: res.ID, Labels: map[string]string{"racksail.dev/kept-from": inst.Spec.Item}})
+			req.Changes = append(req.Changes, changeset.Change{Op: changeset.OpUpdate, Kind: res.Kind, ID: res.ID, Labels: map[string]string{"racksail.com/kept-from": inst.Spec.Item}})
 			continue
 		}
 		req.Changes = append(req.Changes, changeset.Change{Op: changeset.OpDelete, Kind: res.Kind, ID: res.ID})

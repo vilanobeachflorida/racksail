@@ -47,7 +47,7 @@ The [brand pages](../../brand/logo/) show how to use the logo.
 
 ## Conduct
 
-Everyone in the project follows the [code of conduct](../code-of-conduct/), and the maintainers enforce it. Reports go to [conduct@racksail.dev](mailto:conduct@racksail.dev), which reaches the maintainers and nobody else.
+Everyone in the project follows the [code of conduct](../code-of-conduct/), and the maintainers enforce it. Reports go to [conduct@racksail.com](mailto:conduct@racksail.com), which reaches the maintainers and nobody else.
 
 ## Changing the rules
 

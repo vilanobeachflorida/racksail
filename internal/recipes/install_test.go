@@ -68,7 +68,7 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 	if spec.Catalog != cat || spec.RecipeSHA256 == "" || spec.IndexSHA256 == "" || spec.Inputs["dbPassword"] != nil || spec.Inputs["domain"] != "blog.example.com" || len(spec.Resources) != 2 {
 		t.Errorf("provenance = %+v", spec)
 	}
-	if req.Changes[1].Labels["racksail.dev/installation"] != string(req.Changes[0].ID) {
+	if req.Changes[1].Labels["racksail.com/installation"] != string(req.Changes[0].ID) {
 		t.Error("resources are labelled with their installation")
 	}
 	cs := p.submit(t, req)
@@ -143,7 +143,7 @@ func TestInstallUpgradeUninstall(t *testing.T) {
 		t.Fatalf("uninstall: %s %s", cs.State, mustJSON(cs.Error))
 	}
 	kept, err := p.store.Get(ctx, db)
-	if err != nil || kept.Labels["racksail.dev/kept-from"] != "wordpress" {
+	if err != nil || kept.Labels["racksail.com/kept-from"] != "wordpress" {
 		t.Errorf("the database is kept: %+v, %v", kept, err)
 	}
 	for _, res := range inst.Spec.Resources {

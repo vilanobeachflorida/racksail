@@ -455,7 +455,7 @@ func (r *Recipe) Request(values map[string]any, scope store.Scope, kinds *store.
 		if err != nil {
 			return changeset.Request{}, err
 		}
-		labels := map[string]string{"racksail.dev/recipe": r.ID}
+		labels := map[string]string{"racksail.com/recipe": r.ID}
 		for k, v := range res.Labels {
 			labels[k] = v
 		}

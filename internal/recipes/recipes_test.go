@@ -89,7 +89,7 @@ func TestParseAndRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	changes := req.Changes
-	if req.Title != "Install WordPress" || len(changes) != 2 || changes[0].Kind != "databases.database" || changes[1].Labels["racksail.dev/recipe"] != "wordpress" {
+	if req.Title != "Install WordPress" || len(changes) != 2 || changes[0].Kind != "databases.database" || changes[1].Labels["racksail.com/recipe"] != "wordpress" {
 		t.Fatalf("request = %+v", req)
 	}
 	var site map[string]any

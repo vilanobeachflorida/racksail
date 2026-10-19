@@ -37,7 +37,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the community leaders responsible for enforcement, the maintainers listed in [GOVERNANCE.md](GOVERNANCE.md), at [conduct@racksail.dev](mailto:conduct@racksail.dev). That address reaches the maintainers and nobody else. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the community leaders responsible for enforcement, the maintainers listed in [GOVERNANCE.md](GOVERNANCE.md), at [conduct@racksail.com](mailto:conduct@racksail.com). That address reaches the maintainers and nobody else. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 
